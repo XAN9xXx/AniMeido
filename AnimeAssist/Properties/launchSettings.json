@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "AnimeAssist (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "AnimeAssist (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
