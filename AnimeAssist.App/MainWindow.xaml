@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Window
     x:Class="AnimeAssist.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -7,13 +7,23 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    Title="AnimeAssist.App">
+    Title="AnimeAssist">
 
     <Window.SystemBackdrop>
         <MicaBackdrop />
     </Window.SystemBackdrop>
 
     <Grid>
+        <NavigationView
+            x:Name="nvSample5"
+                    Header="This is Header Text"
+                    IsTabStop="False"
+                    PaneDisplayMode="Auto">
+            <NavigationView.MenuItems>
+
+            </NavigationView.MenuItems>
+        </NavigationView>
+        <Frame x:Name="contentFrame5" Margin="0,0,0,0" />
 
     </Grid>
 </Window>
