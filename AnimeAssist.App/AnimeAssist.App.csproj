@@ -43,6 +43,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\AnimeAssist.Contracts\AnimeAssist.Contracts.csproj" />
+    <ProjectReference Include="..\Plugins\AnimeAssist.Plugin.Base\AnimeAssist.Plugin.Base.csproj" />
   </ItemGroup>
 
   <!--

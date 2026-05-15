@@ -1,15 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace AnimeAssist.Contracts.Models
+﻿namespace AnimeAssist.Contracts.Models
 {
+    /// <summary>
+    /// 表示一个出版社/企划。
+    /// </summary>
+    /// <remarks>
+    /// 参数列表：int ID, string Name, string? CoverURL
+    /// </remarks>
+    /// <param name="ID">出版社/企划的唯一标识符。</param>
+    /// <param name="Name">出版社/企划的名称。</param>
+    /// <param name="CoverURL">出版社/企划的封面图片URL。</param>
     public record Studio(int ID, string Name, string? CoverURL);
-        /*
-        * ID: 制作公司的唯一标识符
-        * Name: 制作公司的名称
-        * CoverURL: 制作公司的封面图片URL
-        */
 }

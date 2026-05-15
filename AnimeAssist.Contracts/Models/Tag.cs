@@ -1,16 +1,11 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace AnimeAssist.Contracts.Models
+﻿namespace AnimeAssist.Contracts.Models
 {
-    public record Tag(int ID, string Name, string? Category);
-        /*
-        * ID: 标签的唯一标识符
-        * Name: 标签的名称
-        * Category: 标签的分类
-        */
-
+    /// <summary>
+    /// 用于表示动漫标签的记录类型。
+    /// </summary>
+    /// <remarks>
+    /// 参数列表：string Name
+    /// </remarks>
+    /// <param name="Name">标签的名称。</param>
+    public record Tag(string Name);
 }

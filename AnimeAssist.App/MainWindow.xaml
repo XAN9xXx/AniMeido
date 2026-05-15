@@ -23,6 +23,13 @@
 
             </NavigationView.MenuItems>
         </NavigationView>
+        <Button x:Name="SeasonalButton"
+                Content="Seasonal Anime"
+                Click="SeasonalButton_Click"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Top"
+                Margin="12" />
+
         <Frame x:Name="contentFrame5" Margin="0,0,0,0" />
 
     </Grid>

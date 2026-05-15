@@ -27,6 +27,13 @@ namespace AnimeAssist.App
         {
             InitializeComponent();
         }
+        private void SeasonalButton_Click(object sender, RoutedEventArgs e)
+        {
+            /*
+             * 测试用例，点击按钮后，contentFrame5会导航到SeasonalAnimePage页面。
+             */
+            contentFrame5.Navigate(typeof(AnimeAssist.Plugin.Base.Views.SeasonalAnimePage));
+        }
     
 
     }
