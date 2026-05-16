@@ -22,8 +22,8 @@ namespace AnimeAssist.Plugin.Base.Views
                 new Tag("Tag3")
             };
 
-            var anime1 = new Anime(1, "Title", "Studio", cvs, new DateOnly(2026, 5, 10), "CoverURL", "Description", tags, 2026, 4);
-            var anime2 = new Anime(2, "Title", "Studio", cvs, new DateOnly(2026, 5, 10), "CoverURL", "Description", tags, 2026, 4);
+            var anime1 = new Anime(1, "Title", "Studio", cvs, new DateOnly(2026, 5, 10), "CoverURL", "Description", 2026, 4);
+            var anime2 = new Anime(2, "Title", "Studio", cvs, new DateOnly(2026, 5, 10), "CoverURL", "Description", 2026, 4);
 
             BasicGridView.ItemsSource = new List<Anime>
             {

@@ -2,14 +2,11 @@
 using AnimeAssist.Plugin.Base.Services;
 using Microsoft.Extensions.DependencyInjection;
 
-/*
- * xxxPlugin插件下的Plugin.cs文件是插件的入口点，必须实现IPlugin接口。
- * 通过实现该接口，插件可以向主应用程序提供必要的信息和功能。
- */
-
-
 namespace AnimeAssist.Plugin.Base
 {
+    /// <summary>
+    /// AnimeAssist 基础插件，提供季度新番浏览与番剧详情查询功能。
+    /// </summary>
     public class BasePlugin : IPlugin
     {
         public string PluginID => "AnimeAssist.Plugin.Base";
@@ -24,9 +21,9 @@ namespace AnimeAssist.Plugin.Base
         {
             return new List<PluginNavigationItem>
             {
-                //TODO: 这里的🤔需要改成实际的导航栏logo，暂时用emoji占位
-                new PluginNavigationItem("当季新番", "🤔", "AnimeAssist.Plugin.Base.Views.CurrentSeasonPage"),
-                new PluginNavigationItem("补番计划", "🤔", "AnimeAssist.Plugin.Base.Views.PastSeasonPage")
+                //TODO: 这里的\uE714需要改成实际的导航栏logo，暂时用emoji占位
+                new PluginNavigationItem("当季新番", "\uE714", "AnimeAssist.Plugin.Base.Views.CurrentSeasonPage"),
+                new PluginNavigationItem("补番计划", "\uE714", "AnimeAssist.Plugin.Base.Views.PastSeasonPage")
             };
         }
 

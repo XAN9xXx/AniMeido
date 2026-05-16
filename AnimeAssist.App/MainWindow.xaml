@@ -13,24 +13,12 @@
         <MicaBackdrop />
     </Window.SystemBackdrop>
 
-    <Grid>
-        <NavigationView
-            x:Name="nvSample5"
-                    Header="This is Header Text"
-                    IsTabStop="False"
-                    PaneDisplayMode="Auto">
-            <NavigationView.MenuItems>
-
-            </NavigationView.MenuItems>
-        </NavigationView>
-        <Button x:Name="SeasonalButton"
-                Content="Seasonal Anime"
-                Click="SeasonalButton_Click"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Top"
-                Margin="12" />
-
-        <Frame x:Name="contentFrame5" Margin="0,0,0,0" />
-
-    </Grid>
+    <NavigationView x:Name="MainNaviView"
+                    IsSettingsVisible="True"
+                    PaneDisplayMode="Auto"
+                    IsBackButtonVisible="Collapsed">
+        
+        <Frame x:Name="ContentFrame"/>
+        
+    </NavigationView>
 </Window>

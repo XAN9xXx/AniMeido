@@ -54,13 +54,11 @@ TemporaryDependencyNodeTargetIdentifier=net8.0
 
 [sourceFiles]
 IAnimeDataSource.cs
-IPersonDataSource.cs
 IPlugin.cs
 Models/
  Anime.cs
  AnimeTrackingStatus.cs
  CharacterRole.cs
- PersonWork.cs
  Season.cs
  Studio.cs
  Tag.cs
@@ -72,8 +70,8 @@ obj/Debug/net8.0/
 
 [metadataReferences]
 ../../../NuGetCache/packages/
- microsoft.extensions.dependencyinjection.abstractions/9.0.0/lib/net8.0/Microsoft.Extensions.DependencyInjection.Abstractions.dll
- microsoft.extensions.dependencyinjection/9.0.0/lib/net8.0/Microsoft.Extensions.DependencyInjection.dll
+ microsoft.extensions.dependencyinjection.abstractions/8.0.0/lib/net8.0/Microsoft.Extensions.DependencyInjection.Abstractions.dll
+ microsoft.extensions.dependencyinjection/8.0.0/lib/net8.0/Microsoft.Extensions.DependencyInjection.dll
 <DOTNET>/packs/Microsoft.NETCore.App.Ref/8.0.27/ref/net8.0/
  Microsoft.CSharp.dll
  Microsoft.VisualBasic.Core.dll

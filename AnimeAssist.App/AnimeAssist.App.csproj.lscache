@@ -65,23 +65,25 @@ MainWindow.xaml.cs
 obj/ARM64/Debug/net8.0-windows10.0.19041.0/win-arm64/
  .NETCoreApp,Version=v8.0.AssemblyAttributes.cs
  AnimeAssist.App.AssemblyInfo.cs
+ AnimeAssist.App.GlobalUsings.g.cs
+PluginHost.cs
 
 [metadataReferences]
 ../../../NuGetCache/packages/
  communitytoolkit.mvvm/8.4.2/lib/net8.0-windows10.0.17763/CommunityToolkit.Mvvm.dll
- microsoft.extensions.configuration.abstractions/9.0.0/lib/net8.0/Microsoft.Extensions.Configuration.Abstractions.dll
- microsoft.extensions.configuration.binder/9.0.0/lib/net8.0/Microsoft.Extensions.Configuration.Binder.dll
- microsoft.extensions.configuration/9.0.0/lib/net8.0/Microsoft.Extensions.Configuration.dll
- microsoft.extensions.dependencyinjection.abstractions/9.0.0/lib/net8.0/Microsoft.Extensions.DependencyInjection.Abstractions.dll
- microsoft.extensions.dependencyinjection/9.0.0/lib/net8.0/Microsoft.Extensions.DependencyInjection.dll
- microsoft.extensions.diagnostics.abstractions/9.0.0/lib/net8.0/Microsoft.Extensions.Diagnostics.Abstractions.dll
- microsoft.extensions.diagnostics/9.0.0/lib/net8.0/Microsoft.Extensions.Diagnostics.dll
- microsoft.extensions.http/9.0.0/lib/net8.0/Microsoft.Extensions.Http.dll
- microsoft.extensions.logging.abstractions/9.0.0/lib/net8.0/Microsoft.Extensions.Logging.Abstractions.dll
- microsoft.extensions.logging/9.0.0/lib/net8.0/Microsoft.Extensions.Logging.dll
- microsoft.extensions.options.configurationextensions/9.0.0/lib/net8.0/Microsoft.Extensions.Options.ConfigurationExtensions.dll
- microsoft.extensions.options/9.0.0/lib/net8.0/Microsoft.Extensions.Options.dll
- microsoft.extensions.primitives/9.0.0/lib/net8.0/Microsoft.Extensions.Primitives.dll
+ microsoft.extensions.configuration.abstractions/8.0.0/lib/net8.0/Microsoft.Extensions.Configuration.Abstractions.dll
+ microsoft.extensions.configuration.binder/8.0.0/lib/net8.0/Microsoft.Extensions.Configuration.Binder.dll
+ microsoft.extensions.configuration/8.0.0/lib/net8.0/Microsoft.Extensions.Configuration.dll
+ microsoft.extensions.dependencyinjection.abstractions/8.0.0/lib/net8.0/Microsoft.Extensions.DependencyInjection.Abstractions.dll
+ microsoft.extensions.dependencyinjection/8.0.0/lib/net8.0/Microsoft.Extensions.DependencyInjection.dll
+ microsoft.extensions.diagnostics.abstractions/8.0.0/lib/net8.0/Microsoft.Extensions.Diagnostics.Abstractions.dll
+ microsoft.extensions.diagnostics/8.0.0/lib/net8.0/Microsoft.Extensions.Diagnostics.dll
+ microsoft.extensions.http/8.0.0/lib/net8.0/Microsoft.Extensions.Http.dll
+ microsoft.extensions.logging.abstractions/8.0.0/lib/net8.0/Microsoft.Extensions.Logging.Abstractions.dll
+ microsoft.extensions.logging/8.0.0/lib/net8.0/Microsoft.Extensions.Logging.dll
+ microsoft.extensions.options.configurationextensions/8.0.0/lib/net8.0/Microsoft.Extensions.Options.ConfigurationExtensions.dll
+ microsoft.extensions.options/8.0.0/lib/net8.0/Microsoft.Extensions.Options.dll
+ microsoft.extensions.primitives/8.0.0/lib/net8.0/Microsoft.Extensions.Primitives.dll
  microsoft.web.webview2/1.0.3719.77/lib_manual/net8.0-windows10.0.17763.0/Microsoft.Web.WebView2.Core.Projection.dll
  microsoft.windows.ai.machinelearning/2.0.300/lib/net8.0-windows10.0.17763.0/
   Microsoft.ML.OnnxRuntime.dll
@@ -119,7 +121,6 @@ obj/ARM64/Debug/net8.0-windows10.0.19041.0/win-arm64/
  microsoft.windowsappsdk.interactiveexperiences/2.0.12/lib/net6.0-windows10.0.18362.0/Microsoft.InteractiveExperiences.Projection.dll
  microsoft.windowsappsdk.widgets/2.0.4/lib/net6.0-windows10.0.17763.0/Microsoft.Windows.Widgets.Projection.dll
  microsoft.windowsappsdk.winui/2.0.12/lib/net6.0-windows10.0.17763.0/Microsoft.WinUI.dll
- system.diagnostics.diagnosticsource/9.0.0/lib/net8.0/System.Diagnostics.DiagnosticSource.dll
  system.numerics.tensors/9.0.0/lib/net8.0/System.Numerics.Tensors.dll
 ../
  AnimeAssist.Contracts/obj/ARM64/Debug/net8.0/ref/AnimeAssist.Contracts.dll
@@ -153,6 +154,7 @@ obj/ARM64/Debug/net8.0-windows10.0.19041.0/win-arm64/
  System.Data.dll
  System.Diagnostics.Contracts.dll
  System.Diagnostics.Debug.dll
+ System.Diagnostics.DiagnosticSource.dll
  System.Diagnostics.FileVersionInfo.dll
  System.Diagnostics.Process.dll
  System.Diagnostics.StackTrace.dll
@@ -293,8 +295,8 @@ obj/ARM64/Debug/net8.0-windows10.0.19041.0/win-arm64/
  CommunityToolkit.Mvvm.CodeFixers.dll
  CommunityToolkit.Mvvm.SourceGenerators.dll
 ../../../NuGetCache/packages/
- microsoft.extensions.logging.abstractions/9.0.0/analyzers/dotnet/roslyn4.4/cs/Microsoft.Extensions.Logging.Generators.dll
- microsoft.extensions.options/9.0.0/analyzers/dotnet/roslyn4.4/cs/Microsoft.Extensions.Options.SourceGeneration.dll
+ microsoft.extensions.logging.abstractions/8.0.0/analyzers/dotnet/roslyn4.4/cs/Microsoft.Extensions.Logging.Generators.dll
+ microsoft.extensions.options/8.0.0/analyzers/dotnet/roslyn4.4/cs/Microsoft.Extensions.Options.SourceGeneration.dll
  microsoft.windows.sdk.net.ref/10.0.19041.57/analyzers/dotnet/cs/WinRT.SourceGenerator.dll
 <DOTNET>/packs/Microsoft.NETCore.App.Ref/8.0.27/analyzers/dotnet/cs/
  Microsoft.Interop.ComInterfaceGenerator.dll

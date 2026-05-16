@@ -5,12 +5,12 @@ using Microsoft.Extensions.Logging;
 namespace AnimeAssist.Plugin.Base.Services
 {
     /// <summary>
-    /// 用于访问Bangumi API的客户端类，负责发送HTTP请求、处理响应并解析JSON数据。
+    /// 初始化实例，接受工厂和日志。
     /// </summary>
     internal class BangumiApiClient
     {
-        private readonly IHttpClientFactory _httpFactory;
-        private readonly ILogger<BangumiApiClient> _logger;
+        private readonly IHttpClientFactory _httpFactory; // Http客户端工程，用于创建命名HttpClient
+        private readonly ILogger<BangumiApiClient> _logger; // 日志记录器
         
         /// <summary>
         /// 转换Json数据的选项配置。
@@ -24,6 +24,7 @@ namespace AnimeAssist.Plugin.Base.Services
             PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
         };
 
+        
         internal BangumiApiClient(IHttpClientFactory httpFactory, ILogger<BangumiApiClient> logger)
         {
             _httpFactory = httpFactory;
