@@ -7,7 +7,7 @@ namespace AnimeAssist.Plugin.Base.Services
     /// <summary>
     /// 初始化实例，接受工厂和日志。
     /// </summary>
-    internal class BangumiApiClient
+    public class BangumiApiClient
     {
         private readonly IHttpClientFactory _httpFactory; // Http客户端工程，用于创建命名HttpClient
         private readonly ILogger<BangumiApiClient> _logger; // 日志记录器
@@ -25,7 +25,7 @@ namespace AnimeAssist.Plugin.Base.Services
         };
 
         
-        internal BangumiApiClient(IHttpClientFactory httpFactory, ILogger<BangumiApiClient> logger)
+        public BangumiApiClient(IHttpClientFactory httpFactory, ILogger<BangumiApiClient> logger)
         {
             _httpFactory = httpFactory;
             _logger = logger;

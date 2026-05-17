@@ -14,6 +14,7 @@ namespace AnimeAssist.App
             InitializeComponent();
         }
 
+        public static IServiceProvider? Services { get; private set; }
 
         protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
@@ -29,6 +30,8 @@ namespace AnimeAssist.App
             }
 
             var naviItems = await host.LoadPluginAsync(pluginPath);
+            var provider = services.BuildServiceProvider();
+            Contracts.AppServices.Provider = provider;
 
             _window = new MainWindow(naviItems);
             _window.Activate();

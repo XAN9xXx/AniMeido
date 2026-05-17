@@ -74,7 +74,7 @@ namespace AnimeAssist.Plugin.Base.Services
             };
         }
 
-        internal BangumiDataSource(ILogger<BangumiDataSource> logger, BangumiApiClient apiClient)
+        public BangumiDataSource(ILogger<BangumiDataSource> logger, BangumiApiClient apiClient)
         {
             ArgumentNullException.ThrowIfNull(logger, nameof(logger));
             ArgumentNullException.ThrowIfNull(apiClient, nameof(apiClient));
