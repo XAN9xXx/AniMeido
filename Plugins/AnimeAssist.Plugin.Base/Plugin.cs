@@ -22,8 +22,8 @@ namespace AnimeAssist.Plugin.Base
             return new List<PluginNavigationItem>
             {
                 //TODO: 这里的\uE714需要改成实际的导航栏logo，暂时用emoji占位
-                new PluginNavigationItem("当季新番", "\uE714", "AnimeAssist.Plugin.Base.Views.CurrentSeasonPage"),
-                new PluginNavigationItem("补番计划", "\uE714", "AnimeAssist.Plugin.Base.Views.PastSeasonPage")
+                new PluginNavigationItem("当季新番", "\uE713", "AnimeAssist.Plugin.Base.Views.CurrentSeasonPage"),
+                new PluginNavigationItem("补番计划", "\uE713", "AnimeAssist.Plugin.Base.Views.PastSeasonPage")
             };
         }
 

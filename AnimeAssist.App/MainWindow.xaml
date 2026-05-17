@@ -17,7 +17,7 @@
                     IsSettingsVisible="True"
                     PaneDisplayMode="Auto"
                     IsBackButtonVisible="Collapsed">
-        
+
         <Frame x:Name="ContentFrame"/>
         
     </NavigationView>

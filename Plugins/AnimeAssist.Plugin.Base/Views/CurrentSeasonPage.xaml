@@ -25,7 +25,7 @@
     </Page.Resources>
 
     <GridView
-        ItemsSource="{x:Bind ViewModel.AnimeList}"    
+        ItemsSource="{x:Bind ViewModel.AnimeList}"
         ItemTemplate="{StaticResource ImageTemplate}"/>
 
 </Page>
