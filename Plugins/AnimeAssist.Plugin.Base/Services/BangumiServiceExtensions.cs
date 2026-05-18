@@ -1,7 +1,7 @@
-﻿using AnimeAssist.Contracts;
+﻿using AniMeido.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace AnimeAssist.Plugin.Base.Services
+namespace AniMeido.Plugin.Base.Services
 {
     /// <summary>
     /// 用于注册BangumiDataSource到依赖注入容器的扩展方法类。

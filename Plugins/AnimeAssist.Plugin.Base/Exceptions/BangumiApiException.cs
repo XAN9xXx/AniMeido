@@ -1,4 +1,4 @@
-﻿namespace AnimeAssist.Plugin.Base.Exceptions
+﻿namespace AniMeido.Plugin.Base.Exceptions
 {
     /// <summary>
     /// 用于抛出与Bangumi API相关的异常，提供更具体的错误信息以便调试和错误处理。

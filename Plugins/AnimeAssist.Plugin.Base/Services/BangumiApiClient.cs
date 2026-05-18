@@ -1,8 +1,8 @@
-﻿using AnimeAssist.Plugin.Base.Exceptions;
+﻿using AniMeido.Plugin.Base.Exceptions;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
-namespace AnimeAssist.Plugin.Base.Services
+namespace AniMeido.Plugin.Base.Services
 {
     /// <summary>
     /// 初始化实例，接受工厂和日志。

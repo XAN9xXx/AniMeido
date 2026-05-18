@@ -1,14 +1,14 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Page
-    x:Class="AnimeAssist.Plugin.Base.Views.CurrentSeasonPage"
+    x:Class="AniMeido.Plugin.Base.Views.CurrentSeasonPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:AnimeAssist.Plugin.Base"
+    xmlns:local="using:AniMeido.Plugin.Base"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008">
 
     <Page.Resources>
         <DataTemplate x:Key="ImageTemplate"
-                xmlns:contracts="using:AnimeAssist.Contracts.Models"
+                xmlns:contracts="using:AniMeido.Contracts.Models"
                 x:DataType="contracts:Anime">
             <Grid Width="120"
                     Height="150">

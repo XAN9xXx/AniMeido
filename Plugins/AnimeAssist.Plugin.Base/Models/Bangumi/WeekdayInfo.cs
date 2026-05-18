@@ -1,4 +1,4 @@
-﻿namespace AnimeAssist.Plugin.Base.Models.Bangumi
+﻿namespace AniMeido.Plugin.Base.Models.Bangumi
 {
     /// <summary>
     /// 标注了每周的星期几信息。

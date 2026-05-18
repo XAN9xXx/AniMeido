@@ -3,7 +3,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
-    <RootNamespace>AnimeAssist.App</RootNamespace>
+    <RootNamespace>AniMeido.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x86;x64;ARM64</Platforms>
     <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
@@ -46,14 +46,17 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\AnimeAssist.Contracts\AnimeAssist.Contracts.csproj" />
-    <ProjectReference Include="..\Plugins\AnimeAssist.Plugin.Base\AnimeAssist.Plugin.Base.csproj" />
+    <ProjectReference Include="..\AnimeAssist.Contracts\AniMeido.Contracts.csproj" />
+    <ProjectReference Include="..\Plugins\AnimeAssist.Plugin.Base\AniMeido.Plugin.Base.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Page Update="Views\SettingPage.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
   </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <WebView2DispatchAdapterNamespace>AniMeido.App</WebView2DispatchAdapterNamespace>
+  </PropertyGroup>
 
   <!--
     Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution

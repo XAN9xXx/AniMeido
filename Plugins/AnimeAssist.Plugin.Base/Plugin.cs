@@ -1,15 +1,15 @@
-﻿using AnimeAssist.Contracts;
-using AnimeAssist.Plugin.Base.Services;
+﻿using AniMeido.Contracts;
+using AniMeido.Plugin.Base.Services;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace AnimeAssist.Plugin.Base
+namespace AniMeido.Plugin.Base
 {
     /// <summary>
-    /// AnimeAssist 基础插件，提供季度新番浏览与番剧详情查询功能。
+    /// AniMeido 基础插件，提供季度新番浏览与番剧详情查询功能。
     /// </summary>
     public class BasePlugin : IPlugin
     {
-        public string PluginID => "AnimeAssist.Plugin.Base";
+        public string PluginID => "AniMeido.Plugin.Base";
 
         public string DisplayName => "当季新番";
 
@@ -22,8 +22,8 @@ namespace AnimeAssist.Plugin.Base
             return new List<PluginNavigationItem>
             {
                 //TODO: 这里的\uE714需要改成实际的导航栏logo，暂时用emoji占位
-                new PluginNavigationItem("当季新番", "\uE713", "AnimeAssist.Plugin.Base.Views.CurrentSeasonPage"),
-                new PluginNavigationItem("补番计划", "\uE713", "AnimeAssist.Plugin.Base.Views.PastSeasonPage")
+                new PluginNavigationItem("当季新番", "\uE713", "AniMeido.Plugin.Base.Views.CurrentSeasonPage"),
+                new PluginNavigationItem("补番计划", "\uE713", "AniMeido.Plugin.Base.Views.PastSeasonPage")
             };
         }
 

@@ -1,11 +1,11 @@
-﻿using AnimeAssist.Contracts;
+﻿using AniMeido.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Reflection;
 
 // TODO:PersonWork.cs已创建但未实现，为排除编译错误，暂时“从项目中排除”
 
-namespace AnimeAssist.App
+namespace AniMeido.App
 {
     public class PluginHost
     {

@@ -1,6 +1,6 @@
-﻿using AnimeAssist.Contracts.Models;
+﻿using AniMeido.Contracts.Models;
 
-namespace AnimeAssist.Contracts
+namespace AniMeido.Contracts
 {
     public interface IAnimeDataSource
     {

@@ -1,4 +1,4 @@
-﻿namespace AnimeAssist.Contracts.Models
+﻿namespace AniMeido.Contracts.Models
 {
     /// <summary>
     /// 表示一个动漫记录。

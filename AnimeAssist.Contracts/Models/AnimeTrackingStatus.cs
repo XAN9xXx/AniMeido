@@ -1,4 +1,4 @@
-﻿namespace AnimeAssist.Contracts.Models
+﻿namespace AniMeido.Contracts.Models
 {
     /// <summary>
     /// 记录用户对某部番剧的追番状态。

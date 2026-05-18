@@ -1,4 +1,4 @@
-﻿namespace AnimeAssist.Plugin.Base.Models.Bangumi
+﻿namespace AniMeido.Plugin.Base.Models.Bangumi
 {
     /// <summary>
     /// 人物或公司头像的多尺寸URL。

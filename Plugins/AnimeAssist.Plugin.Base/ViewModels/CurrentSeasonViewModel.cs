@@ -1,10 +1,10 @@
-﻿using AnimeAssist.Contracts;
-using AnimeAssist.Contracts.Models;
+﻿using AniMeido.Contracts;
+using AniMeido.Contracts.Models;
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
-namespace AnimeAssist.Plugin.Base.ViewModels
+namespace AniMeido.Plugin.Base.ViewModels
 {
     public partial class CurrentSeasonViewModel : ObservableObject
     {

@@ -1,6 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 
-namespace AnimeAssist.Contracts
+namespace AniMeido.Contracts
 {
     /// <summary>
     /// 将插件提供的导航项信息封装为一个记录类型，包含显示名称、图标和页面类型名称等属性。

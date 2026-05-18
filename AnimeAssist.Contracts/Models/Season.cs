@@ -1,4 +1,4 @@
-﻿namespace AnimeAssist.Contracts.Models
+﻿namespace AniMeido.Contracts.Models
 {
     /// <summary>
     /// 季度的枚举类型

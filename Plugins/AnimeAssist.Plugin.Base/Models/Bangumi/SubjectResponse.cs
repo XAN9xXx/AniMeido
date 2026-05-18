@@ -1,4 +1,4 @@
-﻿namespace AnimeAssist.Plugin.Base.Models.Bangumi
+﻿namespace AniMeido.Plugin.Base.Models.Bangumi
 {
     /// <summary>
     /// 番剧条目信息。

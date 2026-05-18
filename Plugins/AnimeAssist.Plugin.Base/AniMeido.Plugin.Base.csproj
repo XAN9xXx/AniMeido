@@ -8,14 +8,14 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\AnimeAssist.Contracts\AnimeAssist.Contracts.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.12.0" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="8.12.0" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\AnimeAssist.Contracts\AniMeido.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

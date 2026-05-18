@@ -1,7 +1,7 @@
 ﻿using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml;
 
-namespace AnimeAssist.App.Views
+namespace AniMeido.App.Views
 {
     public sealed partial class SettingPage : Page
     {

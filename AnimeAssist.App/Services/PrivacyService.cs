@@ -1,6 +1,6 @@
 ﻿using Windows.Storage;
 
-namespace AnimeAssist.App.Services
+namespace AniMeido.App.Services
 {
     public class PrivacyService
     {

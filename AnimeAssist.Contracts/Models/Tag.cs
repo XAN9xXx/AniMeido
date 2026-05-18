@@ -1,4 +1,4 @@
-﻿namespace AnimeAssist.Contracts.Models
+﻿namespace AniMeido.Contracts.Models
 {
     /// <summary>
     /// 用于表示动漫标签的记录类型。

@@ -1,9 +1,9 @@
-﻿using AnimeAssist.Contracts.Models;
+﻿using AniMeido.Contracts.Models;
 using Microsoft.Extensions.Logging;
-using AnimeAssist.Plugin.Base.Exceptions;
-using AnimeAssist.Plugin.Base.Models.Bangumi;
+using AniMeido.Plugin.Base.Exceptions;
+using AniMeido.Plugin.Base.Models.Bangumi;
 
-namespace AnimeAssist.Plugin.Base.Services
+namespace AniMeido.Plugin.Base.Services
 {
     /// <summary>
     /// 用于从Bangumi API获取番剧数据的服务类，实现了IAnimeDataSource接口。

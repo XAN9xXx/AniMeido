@@ -1,9 +1,9 @@
-﻿using AnimeAssist.Contracts;
+﻿using AniMeido.Contracts;
 using System.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
-namespace AnimeAssist.App
+namespace AniMeido.App
 {
     public sealed partial class MainWindow : Window
     {

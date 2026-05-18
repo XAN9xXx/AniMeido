@@ -1,9 +1,9 @@
-﻿using AnimeAssist.Contracts;
-using AnimeAssist.Plugin.Base.ViewModels;
+﻿using AniMeido.Contracts;
+using AniMeido.Plugin.Base.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Controls;
 
-namespace AnimeAssist.Plugin.Base.Views
+namespace AniMeido.Plugin.Base.Views
 {
     public sealed partial class CurrentSeasonPage : Page
     {
