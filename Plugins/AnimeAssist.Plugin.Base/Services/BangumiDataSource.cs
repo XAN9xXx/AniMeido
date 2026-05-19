@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models.Bangumi;
+using System.Diagnostics;
 
 namespace AniMeido.Plugin.Base.Services
 {
@@ -125,7 +126,7 @@ namespace AniMeido.Plugin.Base.Services
                 null, // BangumiAPI的Calendar接口不提供制作公司信息，因此这里设置为null
                 FallbackCVs,
                 parsedDate,
-                item.Image?.Grid is { Length: > 0 } grid ? grid : FallbackImageUrl,
+                item.Images?.Grid is { Length: > 0 } grid ? grid : FallbackImageUrl,
                 item.Summary ?? FallbackDescription,
                 year,
                 seasonMonth
@@ -162,7 +163,7 @@ namespace AniMeido.Plugin.Base.Services
                 null, // BangumiAPI的Subject接口不提供制作公司信息，因此这里设置为null
                 FallbackCVs,
                 airDate,
-                result.Image?.Medium is { Length: > 0 } Medium ? Medium : FallbackImageUrl,
+                result.Images?.Medium is { Length: > 0 } Medium ? Medium : FallbackImageUrl,
                 result.Summary ?? FallbackDescription,
                 airDate?.Year ?? 0,
                 airDate is { } ad ? SeasonToMonth(GetSeasonFromMonth(ad.Month)) : 0

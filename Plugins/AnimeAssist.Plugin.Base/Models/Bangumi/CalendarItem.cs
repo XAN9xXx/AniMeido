@@ -25,7 +25,7 @@
         /// <summary>番剧的放送星期（1=周一，7=周日）。</summary>
         public int AirWeekday { get; init; }
         /// <summary>番剧封面图片的多种尺寸信息。</summary>
-        public ImageInfo? Image { get; init; }
+        public ImageInfo? Images { get; init; }
     }
 
 }

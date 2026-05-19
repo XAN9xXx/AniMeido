@@ -17,10 +17,17 @@ namespace AniMeido.Plugin.Base.ViewModels
 
 
 
+        [RelayCommand]
+        private void RetryLoad()
+        {
+            LoadSeasonalAnimeCommand.Execute(null);
+        }
+
         IAnimeDataSource _animeDataSource;
         public CurrentSeasonViewModel(IAnimeDataSource dataSource)
         {
             _animeDataSource = dataSource;
+
         }
 
         [RelayCommand]

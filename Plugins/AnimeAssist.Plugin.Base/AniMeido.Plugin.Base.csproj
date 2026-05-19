@@ -4,8 +4,13 @@
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+	<TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <UseWinUI>true</UseWinUI>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Views\Controls\AnimeCard.xaml" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
@@ -19,7 +24,19 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Page Update="Views\AnimeDetailPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+
+  <ItemGroup>
     <Page Update="Views\CurrentSeasonPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Page Update="Views\Controls\AnimeCard.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
   </ItemGroup>

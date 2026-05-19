@@ -1,7 +1,8 @@
 ﻿using AniMeido.Contracts;
-using System.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media.Animation;
+using System.Diagnostics;
 
 namespace AniMeido.App
 {
@@ -24,6 +25,7 @@ namespace AniMeido.App
             }
 
             MainNaviView.ItemInvoked += OnNaviItemInvoked;
+            ExtendsContentIntoTitleBar = true;
         }
 
         private async Task ShowPrivacyDialogAsync()
@@ -33,7 +35,7 @@ namespace AniMeido.App
             var dialog = new ContentDialog
             {
                 Title = "隐私声明",
-                Content = "AnimeAssist 仅向 Bangumi API 请求番剧数据，不收集任何个人信息。后续某些插件的功能可能涉及隐私问题，此类插件安装后，将在初次启动时以弹窗提醒。",
+                Content = "AniMeido 仅向 Bangumi API 请求番剧数据，不收集或发送任何个人信息。后续某些插件的功能可能涉及隐私问题，此类插件安装后，将在初次启动时以弹窗提醒。",
                 PrimaryButtonText = "同意",
                 CloseButtonText = "拒绝",
                 XamlRoot = MainNaviView.XamlRoot
@@ -94,12 +96,13 @@ namespace AniMeido.App
             var pageType = AppDomain.CurrentDomain.GetAssemblies()
             .Select(a => a.GetType(pageTypeName))
             .FirstOrDefault(t => t != null);
+            if (ContentFrame.Content?.GetType() == pageType) return;
             if (pageType == null)
             {
                 Debug.WriteLine($"页面类型未找到: {pageTypeName}");
                 return;
             }
-            ContentFrame.Navigate(pageType);
+            ContentFrame.Navigate(pageType, null, new EntranceNavigationTransitionInfo());
         }
     }
 }

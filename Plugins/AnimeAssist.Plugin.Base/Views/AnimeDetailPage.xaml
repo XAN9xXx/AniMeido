@@ -1,0 +1,74 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="AniMeido.Plugin.Base.Views.AnimeDetailPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <ScrollViewer>
+        <Grid Padding="32">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" MaxWidth="400"/>
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- 左列：封面图 -->
+            <Border Grid.Column="0"
+                    CornerRadius="12"
+                    Margin="0,0,32,0"
+                    MaxWidth="400"
+                    VerticalAlignment="Top">
+                <Image Source="{Binding AnimeDetail.CoverURL}"
+                       Stretch="None" />
+            </Border>
+
+            <!-- 右列：信息 -->
+            <StackPanel Grid.Column="1" Spacing="12">
+
+                <!-- 加载环 -->
+                <ProgressRing x:Name="LoadingRing"
+                              IsActive="{Binding IsLoading}"
+                              Height="32" Width="32"
+                              HorizontalAlignment="Left" />
+
+                <!-- 错误信息 -->
+                <TextBlock Text="{Binding ErrorMessage}"
+                           Foreground="Red" />
+
+                <!-- 重试按钮 -->
+                <Button Content="重试"
+                        Command="{Binding RetryLoadCommand}"
+                        HorizontalAlignment="Left" />
+
+                <!-- 标题 -->
+                <TextBlock Text="{Binding AnimeDetail.Title}"
+                           FontSize="26"
+                           FontWeight="Bold"
+                           TextWrapping="Wrap" />
+
+                <!-- 分割线 -->
+                <Border Height="1"
+                        Background="{ThemeResource TextFillColorDisabledBrush}" />
+
+                <!-- 放送日期 -->
+                <TextBlock Text="{Binding AnimeDetail.AirDate}"
+                           FontSize="14"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                <!-- 分割线 -->
+                <Border Height="1"
+                        Background="{ThemeResource TextFillColorDisabledBrush}" />
+
+                <!-- 简介 -->
+                <TextBlock Text="{Binding AnimeDetail.Description}"
+                           FontSize="15"
+                           TextWrapping="Wrap"
+                           LineHeight="24" />
+
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</Page>

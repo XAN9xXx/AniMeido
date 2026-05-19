@@ -18,7 +18,7 @@ namespace AniMeido.Plugin.Base.Services
             services.AddHttpClient("BangumiAPI", client =>
             {
                 client.Timeout = TimeSpan.FromSeconds(30);
-                client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "XAN9xXx/AnimeAssist/1.0.0 (https://github.com/XAN9xXx/Anime-Assist)");
+                client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "XAN9xXx/AniMeido/1.0.0 (https://github.com/XAN9xXx/AniMeido)");
             });
             services.AddSingleton<IAnimeDataSource,BangumiDataSource>();
             services.AddSingleton<BangumiApiClient>();
