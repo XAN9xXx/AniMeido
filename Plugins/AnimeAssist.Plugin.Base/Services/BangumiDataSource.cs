@@ -179,6 +179,9 @@ namespace AniMeido.Plugin.Base.Services
                 return animes;
             if (year < DateTime.Now.Year)
                 return await FetchByBrowse(year, seasonMonth, ct);
+            var currentSeason = GetSeasonFromMonth(DateTime.Now.Month);
+            if (season != currentSeason)
+                return await FetchByBrowse(year, seasonMonth, ct);
             return [];
         }
 
