@@ -14,19 +14,23 @@
         <StackPanel>
 
             <!-- 年份季度选择器 -->
-            <StackPanel Orientation="Horizontal"
-                    Padding="0,0,0,12"
-                    Spacing="12">
-                <ComboBox x:Name="YearComboBox"
-                        Header="年份"
-                        Width="120"/>
-                <ComboBox x:Name="SeasonComboBox"
-                        Header="季度"
-                        Width="120"/>
-                <Button Content="查询"
-                        Click="OnSearchClick"
-                        VerticalAlignment="Bottom"/>
-            </StackPanel>
+            <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                    CornerRadius="8"
+                    Margin="0,0,0,12"
+                    Padding="12">
+                <StackPanel Orientation="Horizontal"
+                        Spacing="12">
+                    <ComboBox x:Name="YearComboBox"
+                            Header="年份"
+                            Width="120"/>
+                    <ComboBox x:Name="SeasonComboBox"
+                            Header="季度"
+                            Width="120"/>
+                    <Button Content="查询"
+                            Click="OnSearchClick"
+                            VerticalAlignment="Bottom"/>
+                </StackPanel>
+            </Border>
 
             <!-- 加载环 -->
             <ProgressRing x:Name="LoadingRing"
@@ -49,7 +53,28 @@
             <!-- 番剧网格 -->
             <GridView ItemsSource="{x:Bind ViewModel.AnimeList}"
                       IsItemClickEnabled="True"
-                      ItemClick="OnItemClick">
+                      ItemClick="OnItemClick"
+                      SelectionMode="None">
+                <GridView.ItemContainerStyle>
+                    <Style TargetType="GridViewItem">
+                        <Setter Property="UseSystemFocusVisuals" Value="False"/>
+                        <Setter Property="IsTabStop" Value="False"/>
+                        <Setter Property="Padding" Value="0,10,0,0"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="GridViewItem">
+                                    <ContentPresenter
+                                        Content="{TemplateBinding Content}"
+                                        ContentTemplate="{TemplateBinding ContentTemplate}"
+                                        ContentTransitions="{TemplateBinding ContentTransitions}"
+                                        HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                        VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                        Margin="{TemplateBinding Padding}"/>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </GridView.ItemContainerStyle>
                 <GridView.ItemTemplate>
                     <DataTemplate x:DataType="contracts:Anime">
                         <controls:AnimeCard/>

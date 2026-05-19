@@ -10,7 +10,7 @@
     Title="AnimeAssist">
 
     <Window.SystemBackdrop>
-        <MicaBackdrop />
+        <MicaBackdrop/>
     </Window.SystemBackdrop>
 
     <NavigationView x:Name="MainNaviView"
@@ -19,6 +19,6 @@
                     IsBackButtonVisible="Collapsed">
 
         <Frame x:Name="ContentFrame"/>
-        
+
     </NavigationView>
 </Window>

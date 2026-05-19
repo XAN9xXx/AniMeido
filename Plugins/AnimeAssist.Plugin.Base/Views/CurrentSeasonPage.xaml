@@ -9,42 +9,72 @@
     xmlns:vm="using:AniMeido.Plugin.Base.ViewModels"
     xmlns:contracts="using:AniMeido.Contracts.Models">
 
-    <ScrollViewer>
+    <ScrollViewer x:Name="RootScrollViewer">
         <StackPanel>
-            <ProgressRing x:Name="LoadingRing" IsActive="{x:Bind ViewModel.IsLoading}" 
-                  Height="40" Width="40"
-                  HorizontalAlignment="Center" VerticalAlignment="Center" />
-            <Button Content="重试" 
-            Command="{x:Bind ViewModel.RetryLoadCommand}"/>
+            <ProgressRing x:Name="LoadingRing"
+                    IsActive="{x:Bind ViewModel.IsLoading}"
+                          Height="40"
+                    Width="40"
+                          HorizontalAlignment="Center"
+                    VerticalAlignment="Center"/>
+            <Button Content="重试"
+                    Command="{x:Bind ViewModel.RetryLoadCommand}"/>
 
             <!-- 按星期分组展示当季番剧 -->
-            <ItemsRepeater ItemsSource="{x:Bind ViewModel.WeekdayGroups}">
-                <ItemsRepeater.ItemTemplate>
+            <ItemsControl x:Name="WeekdayRepeater"
+                    ItemsSource="{x:Bind ViewModel.WeekdayGroups}">
+                <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:WeekdayGroup">
-                        <StackPanel Margin="0,0,0,16">
-                            <TextBlock Text="{x:Bind WeekdayName}"
-                                       Style="{StaticResource SubtitleTextBlockStyle}"
-                                       Margin="0,0,0,8"/>
-                            <GridView ItemsSource="{x:Bind Items}"
-                                      IsItemClickEnabled="True"
-                                      ItemClick="OnWeekdayItemClick"
-                                      ScrollViewer.HorizontalScrollMode="Disabled"
-                                      ScrollViewer.VerticalScrollMode="Disabled">
-                                <GridView.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <ItemsWrapGrid Orientation="Horizontal" />
-                                    </ItemsPanelTemplate>
-                                </GridView.ItemsPanel>
-                                <GridView.ItemTemplate>
-                                    <DataTemplate x:DataType="contracts:Anime">
-                                        <controls:AnimeCard />
-                                    </DataTemplate>
-                                </GridView.ItemTemplate>
-                            </GridView>
-                        </StackPanel>
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                CornerRadius="8"
+                                Margin="0,0,0,12"
+                                Padding="12">
+                            <StackPanel>
+                                <TextBlock Text="{x:Bind WeekdayName}"
+                                           Style="{StaticResource SubtitleTextBlockStyle}"
+                                           Margin="0,0,0,8"/>
+                                <GridView ItemsSource="{x:Bind Items}"
+                                          IsItemClickEnabled="True"
+                                          ItemClick="OnWeekdayItemClick"
+                                          SelectionMode="None"
+                                          ScrollViewer.HorizontalScrollMode="Disabled"
+                                          ScrollViewer.VerticalScrollMode="Disabled">
+                                    <GridView.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <ItemsWrapGrid Orientation="Horizontal"/>
+                                        </ItemsPanelTemplate>
+                                    </GridView.ItemsPanel>
+                                    <GridView.ItemContainerStyle>
+                                        <Style TargetType="GridViewItem">
+                                            <Setter Property="UseSystemFocusVisuals" Value="False"/>
+                                            <Setter Property="IsTabStop" Value="False"/>
+                                            <Setter Property="Padding" Value="0,10,0,0"/>
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="GridViewItem">
+                                                        <ContentPresenter
+                                                            Content="{TemplateBinding Content}"
+                                                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                            ContentTransitions="{TemplateBinding ContentTransitions}"
+                                                            HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                            VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                                            Margin="{TemplateBinding Padding}"/>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Style>
+                                    </GridView.ItemContainerStyle>
+                                    <GridView.ItemTemplate>
+                                        <DataTemplate x:DataType="contracts:Anime">
+                                            <controls:AnimeCard/>
+                                        </DataTemplate>
+                                    </GridView.ItemTemplate>
+                                </GridView>
+                            </StackPanel>
+                        </Border>
                     </DataTemplate>
-                </ItemsRepeater.ItemTemplate>
-            </ItemsRepeater>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
         </StackPanel>
     </ScrollViewer>
 </Page>
