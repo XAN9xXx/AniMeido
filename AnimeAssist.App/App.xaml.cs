@@ -25,9 +25,11 @@ namespace AniMeido.App
         protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
             Log.Logger = new LoggerConfiguration()
-            .WriteTo.File("logs/aniMeido.log", rollingInterval: RollingInterval.Day)
-            .WriteTo.Debug()
-            .CreateLogger();
+                .MinimumLevel.Warning()
+                .WriteTo.File("logs/aniMeido.log",
+                    rollingInterval: RollingInterval.Day,
+                    retainedFileCountLimit: 3)
+                .CreateLogger();
 
             var services = new ServiceCollection();
             services.AddLogging();
