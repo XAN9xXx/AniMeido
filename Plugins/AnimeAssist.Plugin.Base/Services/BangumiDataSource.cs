@@ -158,7 +158,8 @@ namespace AniMeido.Plugin.Base.Services
                 item.Images?.Small is { Length: > 0 } small ? small : FallbackImageUrl,
                 item.Summary ?? FallbackDescription,
                 year,
-                seasonMonth
+                seasonMonth,
+                item.AirWeekday
                 );
         }
 

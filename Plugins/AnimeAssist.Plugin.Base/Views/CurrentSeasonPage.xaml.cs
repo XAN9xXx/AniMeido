@@ -27,9 +27,9 @@ namespace AniMeido.Plugin.Base.Views
             ViewModel.LoadSeasonalAnimeCommand.Execute(null);
         }
 
-        private void OnItemClick(object sender, ItemClickEventArgs e)
+        private void OnWeekdayItemClick(object sender, ItemClickEventArgs e)
         {
-            if(e.ClickedItem is Anime anime)
+            if (e.ClickedItem is Anime anime)
                 Frame.Navigate(typeof(AnimeDetailPage), anime.ID);
         }
     }

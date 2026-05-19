@@ -6,6 +6,7 @@
     xmlns:local="using:AniMeido.Plugin.Base"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:controls="using:AniMeido.Plugin.Base.Views.Controls"
+    xmlns:vm="using:AniMeido.Plugin.Base.ViewModels"
     xmlns:contracts="using:AniMeido.Contracts.Models">
 
     <ScrollViewer>
@@ -15,15 +16,35 @@
                   HorizontalAlignment="Center" VerticalAlignment="Center" />
             <Button Content="重试" 
             Command="{x:Bind ViewModel.RetryLoadCommand}"/>
-            <GridView ItemsSource="{x:Bind ViewModel.AnimeList}"
-                      IsItemClickEnabled="True"
-                      ItemClick="OnItemClick">
-                <GridView.ItemTemplate>
-                    <DataTemplate x:DataType="contracts:Anime">
-                        <controls:AnimeCard />
+
+            <!-- 按星期分组展示当季番剧 -->
+            <ItemsRepeater ItemsSource="{x:Bind ViewModel.WeekdayGroups}">
+                <ItemsRepeater.ItemTemplate>
+                    <DataTemplate x:DataType="vm:WeekdayGroup">
+                        <StackPanel Margin="0,0,0,16">
+                            <TextBlock Text="{x:Bind WeekdayName}"
+                                       Style="{StaticResource SubtitleTextBlockStyle}"
+                                       Margin="0,0,0,8"/>
+                            <GridView ItemsSource="{x:Bind Items}"
+                                      IsItemClickEnabled="True"
+                                      ItemClick="OnWeekdayItemClick"
+                                      ScrollViewer.HorizontalScrollMode="Disabled"
+                                      ScrollViewer.VerticalScrollMode="Disabled">
+                                <GridView.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <ItemsWrapGrid Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </GridView.ItemsPanel>
+                                <GridView.ItemTemplate>
+                                    <DataTemplate x:DataType="contracts:Anime">
+                                        <controls:AnimeCard />
+                                    </DataTemplate>
+                                </GridView.ItemTemplate>
+                            </GridView>
+                        </StackPanel>
                     </DataTemplate>
-                </GridView.ItemTemplate>
-            </GridView>
+                </ItemsRepeater.ItemTemplate>
+            </ItemsRepeater>
         </StackPanel>
     </ScrollViewer>
 </Page>
