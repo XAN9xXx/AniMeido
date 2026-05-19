@@ -83,6 +83,35 @@ namespace AniMeido.Plugin.Base.Services
             _apiClient = apiClient;
         }
 
+        private async Task<List<Anime>> FetchByBrowse(int year, int seasonMonth, CancellationToken ct)
+        {
+            var result = await _apiClient.GetJsonAsync<PagedSubjectResponse>($"{ApiBase}/v0/subjects?type=2&year={year}&month={seasonMonth}&limit=50", ct);
+            List<Anime> animes = new List<Anime>();
+            if (result is null)
+            {
+                _logger.LogError("Bangumi calendar API returned null.");
+                throw new BangumiApiException("Bangumi calendar API returned null.");
+            }
+
+            foreach (var item in result.Data) 
+            {
+                    var anime = new Anime(
+                    item.Id,
+                    item.NameCn ?? item.Name ?? FallbackTitle,
+                    null,
+                    FallbackCVs,
+                    DateOnly.TryParse(item.Date, out var parseDate) ? parseDate : null,
+                    item.Images?.Medium is { Length: > 0 } Medium ? Medium : FallbackImageUrl,
+                    item.Summary ?? FallbackDescription,
+                    year,
+                    seasonMonth
+                    );
+                animes.Add( anime );
+            }
+
+            return animes;
+        }
+
         /// <summary>
         /// 从Bangumi API获取每周新番的日历数据，并将其解析为CalendarDayResponse对象列表。
         /// </summary>
@@ -126,14 +155,14 @@ namespace AniMeido.Plugin.Base.Services
                 null, // BangumiAPI的Calendar接口不提供制作公司信息，因此这里设置为null
                 FallbackCVs,
                 parsedDate,
-                item.Images?.Grid is { Length: > 0 } grid ? grid : FallbackImageUrl,
+                item.Images?.Small is { Length: > 0 } small ? small : FallbackImageUrl,
                 item.Summary ?? FallbackDescription,
                 year,
                 seasonMonth
                 );
         }
 
-        public async Task<List<Anime>> GetSeasonalAnimeAsync(int year, Season season, CancellationToken ct)
+        public async Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct)
         {
             if (!Enum.IsDefined(season))
             {
@@ -142,16 +171,20 @@ namespace AniMeido.Plugin.Base.Services
 
             int seasonMonth = SeasonToMonth(season);
             var days = await FetchCalendarAsync(ct).ConfigureAwait(false);
-            return days.SelectMany(day => day.Items)
-                .Where(item => BelongsToSeason(item, year, season))
-                .Select(item => MapToAnime(item, year, seasonMonth))
-                .ToList();
+            List<Anime> animes = days.SelectMany(day => day.Items)
+                                    .Where(item => BelongsToSeason(item, year, season))
+                                    .Select(item => MapToAnime(item, year, seasonMonth))
+                                    .ToList();
+            if (animes.Count > 0)
+                return animes;
+            if (year < DateTime.Now.Year)
+                return await FetchByBrowse(year, seasonMonth, ct);
+            return [];
         }
 
         public async Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct)
         {
-            var url = $"{ApiBase}/v0/subjects/{animeID}";
-            var result = await _apiClient.GetJsonAsync<SubjectResponse>(url, ct).ConfigureAwait(false);
+            var result = await _apiClient.GetJsonAsync<SubjectResponse>($"{ApiBase}/v0/subjects/{animeID}", ct).ConfigureAwait(false);
             if (result is null) return null;
             
             DateOnly? airDate = DateOnly.TryParse(result.Date, out var d) ? d : null;
@@ -172,8 +205,7 @@ namespace AniMeido.Plugin.Base.Services
 
         public async Task<List<Studio>> GetStudioAsync(int animeID, CancellationToken ct)
         {
-            var url = $"{ApiBase}/v0/subjects/{animeID}/persons";
-            var result = await _apiClient.GetJsonAsync<List<RelatedPersonResponse>>(url, ct).ConfigureAwait(false);
+            var result = await _apiClient.GetJsonAsync<List<RelatedPersonResponse>>($"{ApiBase}/v0/subjects/{animeID}/persons", ct).ConfigureAwait(false);
             if (result is null)
             {
                 return new List<Studio>();
@@ -185,8 +217,7 @@ namespace AniMeido.Plugin.Base.Services
 
         public async Task<List<Tag>> GetTagsAsync(int animeID, CancellationToken ct)
         {
-            var url = $"{ApiBase}/v0/subjects/{animeID}";
-            var result = await _apiClient.GetJsonAsync<SubjectResponse>(url, ct).ConfigureAwait(false);
+            var result = await _apiClient.GetJsonAsync<SubjectResponse>($"{ApiBase}/v0/subjects/{animeID}", ct).ConfigureAwait(false);
             if (result is null)
             {
                 return new List<Tag>();
@@ -197,8 +228,7 @@ namespace AniMeido.Plugin.Base.Services
 
         public async Task<List<VoiceActor>> GetCVsAsync(int animeID, CancellationToken ct)
         {
-            var url = $"{ApiBase}/v0/subjects/{animeID}/characters";
-            var result = await _apiClient.GetJsonAsync<List<RelatedCharacterResponse>>(url, ct).ConfigureAwait(false);
+            var result = await _apiClient.GetJsonAsync<List<RelatedCharacterResponse>>($"{ApiBase}/v0/subjects/{animeID}/characters", ct).ConfigureAwait(false);
             if (result is null)
             {
                 return new List<VoiceActor>();
@@ -212,8 +242,7 @@ namespace AniMeido.Plugin.Base.Services
 
         public async Task<List<CharacterRole>> GetCharacterRolesAsync(int animeID, CancellationToken ct)
         {
-            var url = $"{ApiBase}/v0/subjects/{animeID}/characters";
-            var result = await _apiClient.GetJsonAsync<List<RelatedCharacterResponse>>(url, ct).ConfigureAwait(false);
+            var result = await _apiClient.GetJsonAsync<List<RelatedCharacterResponse>>($"{ApiBase}/v0/subjects/{animeID}/characters", ct).ConfigureAwait(false);
             if(result is null)
             {
                 return new List<CharacterRole>();

@@ -11,7 +11,7 @@ namespace AniMeido.Contracts
         /// <param name="season">季度。</param>
         /// <param name="ct">取消令牌。</param>
         /// <returns>Anime对象列表。</returns>
-        Task<List<Anime>> GetSeasonalAnimeAsync(int year, Season season, CancellationToken ct);
+        Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct);
 
         /// <summary>
         /// 获取某部特定番剧的详细信息。
@@ -52,5 +52,6 @@ namespace AniMeido.Contracts
         /// <param name="ct">取消令牌。</param>
         /// <returns>角色-声优对照列表；如未找到则返回空列表。</returns>
         Task<List<CharacterRole>> GetCharacterRolesAsync(int animeID, CancellationToken ct);
+
     }
 }

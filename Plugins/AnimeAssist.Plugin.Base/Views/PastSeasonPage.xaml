@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="AniMeido.Plugin.Base.Views.PastSeasonPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:AniMeido.Plugin.Base"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    xmlns:controls="using:AniMeido.Plugin.Base.Views.Controls"
+    xmlns:contracts="using:AniMeido.Contracts.Models">
+
+    <ScrollViewer>
+        <StackPanel>
+
+            <!-- 年份季度选择器 -->
+            <StackPanel Orientation="Horizontal"
+                    Padding="0,0,0,12"
+                    Spacing="12">
+                <ComboBox x:Name="YearComboBox"
+                        Header="年份"
+                        Width="120"/>
+                <ComboBox x:Name="SeasonComboBox"
+                        Header="季度"
+                        Width="120"/>
+                <Button Content="查询"
+                        Click="OnSearchClick"
+                        VerticalAlignment="Bottom"/>
+            </StackPanel>
+
+            <!-- 加载环 -->
+            <ProgressRing x:Name="LoadingRing"
+                          IsActive="{x:Bind ViewModel.IsLoading}"
+                          Height="40"
+                    Width="40"
+                          HorizontalAlignment="Center"
+                    VerticalAlignment="Center"/>
+
+            <!-- 重试按钮 -->
+            <Button Content="重试"
+                    Command="{x:Bind ViewModel.RetryLoadCommand}"
+                    HorizontalAlignment="Left"/>
+
+            <!-- 错误信息 -->
+            <TextBlock Text="{x:Bind ViewModel.ErrorMessage}"
+                       Foreground="Red"
+                       Margin="0,4,0,0"/>
+
+            <!-- 番剧网格 -->
+            <GridView ItemsSource="{x:Bind ViewModel.AnimeList}"
+                      IsItemClickEnabled="True"
+                      ItemClick="OnItemClick">
+                <GridView.ItemTemplate>
+                    <DataTemplate x:DataType="contracts:Anime">
+                        <controls:AnimeCard/>
+                    </DataTemplate>
+                </GridView.ItemTemplate>
+                <GridView.ItemContainerTransitions>
+                    <TransitionCollection>
+                        <EntranceThemeTransition IsStaggeringEnabled="True"/>
+                    </TransitionCollection>
+                </GridView.ItemContainerTransitions>
+            </GridView>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>

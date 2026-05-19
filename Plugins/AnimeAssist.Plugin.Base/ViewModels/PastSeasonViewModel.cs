@@ -1,12 +1,17 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
-using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 
 namespace AniMeido.Plugin.Base.ViewModels
 {
-    public partial class CurrentSeasonViewModel : ObservableObject
+    public partial class PastSeasonViewModel : ObservableObject
     {
         [ObservableProperty]
         private ObservableCollection<Anime> _animeList = [];
@@ -15,25 +20,22 @@ namespace AniMeido.Plugin.Base.ViewModels
         [ObservableProperty]
         string? _errorMessage = null;
         IAnimeDataSource _animeDataSource;
+        int _lastYear;
+        Season _lastSeason;
 
 
 
-        public CurrentSeasonViewModel(IAnimeDataSource dataSource)
+
+        public PastSeasonViewModel(IAnimeDataSource dataSource)
         {
             _animeDataSource = dataSource;
         }
 
-        [RelayCommand]
-        private void RetryLoad()
+        public async Task LoadPastSeasonAnimeAsync(int year, Season season)
         {
-            LoadSeasonalAnimeCommand.Execute(null);
-        }
-
-        [RelayCommand]
-        private async Task LoadSeasonalAnimeAsync()
-        {
+            _lastYear = year;
+            _lastSeason = season;
             IsLoading = true;
-            var (year, season) = SeasonHelper.GetCurrentSeason();
             try
             {
                 var list = await _animeDataSource.GetAnimeBySeasonAsync(
@@ -46,7 +48,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                     AnimeList.Add(anime);
                 }
             }
-            catch (Exception ex) 
+            catch (Exception ex)
             {
                 ErrorMessage = $"Fail to load: {ex.Message}";
             }
@@ -54,6 +56,12 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 IsLoading = false;
             }
+        }
+
+        [RelayCommand]
+        private void RetryLoad()
+        {
+            _ = LoadPastSeasonAnimeAsync(_lastYear, _lastSeason);
         }
     }
 }
