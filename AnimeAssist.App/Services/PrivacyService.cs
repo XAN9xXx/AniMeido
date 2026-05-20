@@ -1,17 +1,18 @@
-﻿using Windows.Storage;
-
-namespace AniMeido.App.Services
+﻿namespace AniMeido.App.Services
 {
     public class PrivacyService
     {
+        private const string RegistryKey = @"HKEY_CURRENT_USER\Software\AniMeido";
+
         public bool IsAccepted()
         {
-            return ApplicationData.Current.LocalSettings.Values["PrivacyAccepted"] is true;
+            var val = Microsoft.Win32.Registry.GetValue(RegistryKey, "PrivacyAccepted", null);
+            return val is int i && i == 1;
         }
 
         public void Accept()
         {
-            ApplicationData.Current.LocalSettings.Values["PrivacyAccepted"] = true;
+            Microsoft.Win32.Registry.SetValue(RegistryKey, "PrivacyAccepted", 1);
         }
     }
 }

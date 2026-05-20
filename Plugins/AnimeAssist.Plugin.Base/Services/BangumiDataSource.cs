@@ -13,11 +13,17 @@ namespace AniMeido.Plugin.Base.Services
     {
         private readonly ILogger<BangumiDataSource> _logger;
         private const string ApiBase = "https://api.bgm.tv";
-        private const string FallbackTitle = "Unknown Title";
+        private const string FallbackTitle = "不好，标题走丢了Q^Q";
         private const string FallbackDescription = "No description available.";
         private static readonly string? FallbackImageUrl = null;
         private static readonly IReadOnlyList<VoiceActor> FallbackCVs = Array.Empty<VoiceActor>();
-        private static readonly IReadOnlyList<string> StudioFilter = new List<string> { "製作", "原作" , "企画" , "动画制作" , "发行" }; // API中Type 2 代表参与制作的商业实体，此处仅筛选制作/原作。
+        private static readonly IReadOnlyList<string> StudioFilter = new List<string> { "製作", "原作", "企画", "动画制作", "发行" }; // API中Type 2 代表参与制作的商业实体，此处仅筛选制作/原作。
+
+        // 优先使用中文译名，其次日文原名，最后后备文字；同时处理 API 返回空字符串的情况
+        private static string ResolveTitle(string? nameCn, string? name)
+            => !string.IsNullOrWhiteSpace(nameCn) ? nameCn
+             : !string.IsNullOrWhiteSpace(name) ? name
+             : FallbackTitle;
         private readonly BangumiApiClient _apiClient;
 
 
@@ -39,7 +45,7 @@ namespace AniMeido.Plugin.Base.Services
         private static CharacterRole MapToCharacterRole(RelatedCharacterResponse character)
         {
             var actors = MapToVoiceActor(character.Actors);
-            var image = character.Images?.Grid is { Length: > 0 }  ? character.Images.Grid : FallbackImageUrl;
+            var image = character.Images?.Grid is { Length: > 0 } ? character.Images.Grid : FallbackImageUrl;
             return new CharacterRole(character.Id, character.Name, character.Summary, image, actors);
         }
 
@@ -93,20 +99,20 @@ namespace AniMeido.Plugin.Base.Services
                 throw new BangumiApiException("Bangumi calendar API returned null.");
             }
 
-            foreach (var item in result.Data) 
+            foreach (var item in result.Data)
             {
-                    var anime = new Anime(
-                    item.Id,
-                    item.NameCn ?? item.Name ?? FallbackTitle,
-                    null,
-                    FallbackCVs,
-                    DateOnly.TryParse(item.Date, out var parseDate) ? parseDate : null,
-                    item.Images?.Medium is { Length: > 0 } Medium ? Medium : FallbackImageUrl,
-                    item.Summary ?? FallbackDescription,
-                    year,
-                    seasonMonth
-                    );
-                animes.Add( anime );
+                var anime = new Anime(
+                item.Id,
+                ResolveTitle(item.NameCn, item.Name),
+                null,
+                FallbackCVs,
+                DateOnly.TryParse(item.Date, out var parseDate) ? parseDate : null,
+                item.Images?.Large is { Length: > 0 } Large ? Large : FallbackImageUrl,
+                item.Summary ?? FallbackDescription,
+                year,
+                seasonMonth
+                );
+                animes.Add(anime);
             }
 
             return animes;
@@ -151,11 +157,11 @@ namespace AniMeido.Plugin.Base.Services
             return new Anime
             (
                 item.Id,
-                item.NameCn ?? item.Name ?? FallbackTitle,
+                ResolveTitle(item.NameCn, item.Name),
                 null, // BangumiAPI的Calendar接口不提供制作公司信息，因此这里设置为null
                 FallbackCVs,
                 parsedDate,
-                item.Images?.Small is { Length: > 0 } small ? small : FallbackImageUrl,
+                item.Images?.Large is { Length: > 0 } large ? large : FallbackImageUrl,
                 item.Summary ?? FallbackDescription,
                 year,
                 seasonMonth,
@@ -190,17 +196,17 @@ namespace AniMeido.Plugin.Base.Services
         {
             var result = await _apiClient.GetJsonAsync<SubjectResponse>($"{ApiBase}/v0/subjects/{animeID}", ct).ConfigureAwait(false);
             if (result is null) return null;
-            
+
             DateOnly? airDate = DateOnly.TryParse(result.Date, out var d) ? d : null;
 
             return new Anime
             (
                 result.Id,
-                result.NameCn ?? result.Name ?? FallbackTitle,
+                ResolveTitle(result.NameCn, result.Name),
                 null, // BangumiAPI的Subject接口不提供制作公司信息，因此这里设置为null
                 FallbackCVs,
                 airDate,
-                result.Images?.Medium is { Length: > 0 } Medium ? Medium : FallbackImageUrl,
+                result.Images?.Large is { Length: > 0 } Large ? Large : FallbackImageUrl,
                 result.Summary ?? FallbackDescription,
                 airDate?.Year ?? 0,
                 airDate is { } ad ? SeasonToMonth(GetSeasonFromMonth(ad.Month)) : 0
@@ -247,7 +253,7 @@ namespace AniMeido.Plugin.Base.Services
         public async Task<List<CharacterRole>> GetCharacterRolesAsync(int animeID, CancellationToken ct)
         {
             var result = await _apiClient.GetJsonAsync<List<RelatedCharacterResponse>>($"{ApiBase}/v0/subjects/{animeID}/characters", ct).ConfigureAwait(false);
-            if(result is null)
+            if (result is null)
             {
                 return new List<CharacterRole>();
             }

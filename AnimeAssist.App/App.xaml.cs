@@ -1,4 +1,5 @@
 ﻿using AniMeido.App.Services;
+using AniMeido.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
@@ -21,6 +22,7 @@ namespace AniMeido.App
         public static IServiceProvider? Services { get; private set; }
         public static ThemeService ThemeService { get; } = new ThemeService();
         public static PrivacyService PrivacyService { get; } = new PrivacyService();
+        public static IReadOnlyList<IPlugin>? Plugins { get; private set; }
 
         protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
@@ -43,6 +45,7 @@ namespace AniMeido.App
             }
 
             var naviItems = await host.LoadPluginAsync(pluginPath);
+            App.Plugins = host.GetPlugins();
             var provider = services.BuildServiceProvider();
             Contracts.AppServices.Provider = provider;
 

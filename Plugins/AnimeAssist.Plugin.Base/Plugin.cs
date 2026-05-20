@@ -11,7 +11,7 @@ namespace AniMeido.Plugin.Base
     {
         public string PluginID => "AniMeido.Plugin.Base";
 
-        public string DisplayName => "当季新番";
+        public string DisplayName => "基础插件";
 
         public string Version => "1.0.0";
 
@@ -22,7 +22,7 @@ namespace AniMeido.Plugin.Base
             return new List<PluginNavigationItem>
             {
                 //TODO: 这里的\uE714需要改成实际的导航栏logo，暂时用emoji占位
-                new PluginNavigationItem("当季新番", "\uE713", "AniMeido.Plugin.Base.Views.CurrentSeasonPage"),
+                new PluginNavigationItem("正在放送", "\uE713", "AniMeido.Plugin.Base.Views.CurrentSeasonPage"),
                 new PluginNavigationItem("补番计划", "\uE713", "AniMeido.Plugin.Base.Views.PastSeasonPage")
             };
         }

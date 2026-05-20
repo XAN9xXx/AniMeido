@@ -5,7 +5,6 @@ using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -19,6 +18,12 @@ namespace AniMeido.Plugin.Base.ViewModels
         private bool _isLoading = false;
         [ObservableProperty]
         string? _errorMessage = null;
+        [ObservableProperty]
+        private bool _hasData = false;
+        [ObservableProperty]
+        private bool _isError = false;
+        [ObservableProperty]
+        private int _totalCount = 0;
         IAnimeDataSource _animeDataSource;
         int _lastYear;
         Season _lastSeason;
@@ -36,6 +41,11 @@ namespace AniMeido.Plugin.Base.ViewModels
             _lastYear = year;
             _lastSeason = season;
             IsLoading = true;
+            IsError = false;
+            ErrorMessage = null;
+            AnimeList.Clear();
+            TotalCount = 0;
+            HasData = false;
             try
             {
                 var list = await _animeDataSource.GetAnimeBySeasonAsync(
@@ -47,10 +57,16 @@ namespace AniMeido.Plugin.Base.ViewModels
                 {
                     AnimeList.Add(anime);
                 }
+
+                // 更新统计信息
+                TotalCount = list.Count;
+                HasData = list.Count > 0;
             }
             catch (Exception ex)
             {
                 ErrorMessage = $"Fail to load: {ex.Message}";
+                HasData = false;
+                IsError = true;
             }
             finally
             {

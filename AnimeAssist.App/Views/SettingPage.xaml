@@ -8,10 +8,222 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <StackPanel Padding="24,16" Spacing="16">
-        <TextBlock Text="设置" FontSize="24" FontWeight="Bold" />
-        <ToggleSwitch x:Name="ThemeToggle" Header="深色主题" />
-        <TextBlock x:Name="PluginListTitle" Text="已加载插件" FontWeight="Bold" Margin="0,12,0,0" />
-        <ItemsControl x:Name="PluginList" />
-    </StackPanel>
+    <ScrollViewer>
+        <StackPanel Padding="24,16"
+                    Spacing="16">
+
+            <TextBlock Text="设置"
+                       FontSize="24"
+                       FontWeight="Bold"/>
+
+            <!-- 主题设置卡片 -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                    CornerRadius="8"
+                    Padding="16">
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Text="主题"
+                               VerticalAlignment="Center"
+                               FontSize="16"/>
+
+                    <ComboBox Grid.Column="1"
+                              x:Name="ThemeCombo"
+                              MinWidth="140"
+                              SelectionChanged="OnThemeSelectionChanged">
+                        <x:String>浅色</x:String>
+                        <x:String>深色</x:String>
+                        <x:String>跟随系统</x:String>
+                    </ComboBox>
+                </Grid>
+            </Border>
+
+            <StackPanel Orientation="Horizontal"
+                        Spacing="8"
+                        Margin="0,12,0,0">
+                <TextBlock x:Name="PluginListTitle"
+                           Text="已加载插件"
+                           FontWeight="Bold"
+                           VerticalAlignment="Center"/>
+                <TextBlock Text="持续开发中，敬请期待"
+                           FontSize="12"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <!-- 插件列表 -->
+            <ItemsControl x:Name="PluginList">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                CornerRadius="8"
+                                Padding="16"
+                                Margin="0,0,0,8">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding DisplayName}"
+                                               FontSize="16"
+                                               FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding Version}"
+                                               FontSize="12"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding PluginID}"
+                                           VerticalAlignment="Center"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- 关于卡片 -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                    CornerRadius="8">
+                <StackPanel>
+                    <!-- 标题 -->
+                    <TextBlock Text="关于"
+                               Margin="16,12,16,4"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                    <!-- 数据来源 -->
+                    <Grid Margin="16,0,16,0"
+                          Height="44">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="数据来源"
+                                   VerticalAlignment="Center"
+                                   FontSize="15"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="Bangumi API (bgm.tv)"
+                                   VerticalAlignment="Center"
+                                   FontSize="14"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </Grid>
+
+                    <!-- 分割线 -->
+                    <Rectangle Height="1"
+                               Fill="{ThemeResource DividerStrokeColorDefault}"
+                               Margin="16,0"/>
+
+                    <!-- 作者 -->
+                    <Grid Margin="16,0,16,0"
+                          Height="44">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="作者"
+                                   VerticalAlignment="Center"
+                                   FontSize="15"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="XAN9x"
+                                   VerticalAlignment="Center"
+                                   FontSize="14"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </Grid>
+
+                    <!-- 分割线 -->
+                    <Rectangle Height="1"
+                               Fill="{ThemeResource DividerStrokeColorDefault}"
+                               Margin="16,0"/>
+
+                    <!-- 联系方式（合并邮箱和QQ） -->
+                    <Grid Margin="16,0,16,0"
+                          Height="44">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="联系方式"
+                                   VerticalAlignment="Center"
+                                   FontSize="15"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="xan9xxx@gmail.com | QQ:577125180"
+                                   VerticalAlignment="Center"
+                                   FontSize="14"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </Grid>
+
+                    <!-- 分割线 -->
+                    <Rectangle Height="1"
+                               Fill="{ThemeResource DividerStrokeColorDefault}"
+                               Margin="16,0"/>
+
+                    <!-- 开源协议 -->
+                    <Grid Margin="16,0,16,0"
+                          Height="44">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="开源协议"
+                                   VerticalAlignment="Center"
+                                   FontSize="15"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="GNU General Public License v3.0"
+                                   VerticalAlignment="Center"
+                                   FontSize="14"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </Grid>
+
+                    <!-- 分割线 -->
+                    <Rectangle Height="1"
+                               Fill="{ThemeResource DividerStrokeColorDefault}"
+                               Margin="16,0"/>
+
+                    <!-- GitHub 仓库 -->
+                    <Grid Margin="16,0,16,0"
+                          Height="44">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="GitHub 仓库"
+                                   VerticalAlignment="Center"
+                                   FontSize="15"/>
+                        <Border x:Name="GitHubButton"
+                                Grid.Column="1"
+                                VerticalAlignment="Center"
+                                Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                CornerRadius="6"
+                                BorderBrush="{ThemeResource ControlStrokeColorDefault}"
+                                BorderThickness="1"
+                                IsTapEnabled="True"
+                                Tapped="OnGitHubCardTapped"
+                                PointerEntered="OnGitHubPointerEntered"
+                                PointerExited="OnGitHubPointerExited"
+                                PointerPressed="OnGitHubPointerPressed"
+                                PointerReleased="OnGitHubPointerReleased">
+                            <StackPanel Orientation="Horizontal"
+                                        Spacing="6"
+                                        Padding="10,6">
+                                <Image Source="ms-appx:///Assets/GitHub_Invertocat_Black_Clearspace.png"
+                                       Width="18"
+                                       Height="18"
+                                       VerticalAlignment="Center"/>
+                                <TextBlock Text="XAN9xXx/AniMeido"
+                                           VerticalAlignment="Center"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
 </Page>

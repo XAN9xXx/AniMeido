@@ -9,8 +9,8 @@
     mc:Ignorable="d">
 
     <Grid Width="150"
-            Margin="4">
-        <Border Background="{ThemeResource CardBackgroundFillColorSecondary}"
+          Margin="6">
+        <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
                 CornerRadius="8"
                 Translation="0,0,32">
             <Grid>
@@ -26,22 +26,40 @@
                     <Border.Clip>
                         <RectangleGeometry Rect="0,0,150,200"/>
                     </Border.Clip>
-                    <Image Source="{Binding CoverURL}"
-                            Height="200"
-                            Stretch="UniformToFill"/>
+                    <Image x:Name="CoverImage"
+                           Source="{Binding CoverURL}"
+                           Height="200"
+                           Stretch="UniformToFill"
+                           HorizontalAlignment="Center"
+                           ImageFailed="OnCoverImageFailed"/>
+                </Border>
+
+                <!-- 星期放送角标（补番页使用，默认隐藏） -->
+                <Border x:Name="WeekdayBadge"
+                        Background="{ThemeResource SystemAccentColor}"
+                        CornerRadius="0,0,8,0"
+                        Padding="8,4"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Top"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="WeekdayBadgeText"
+                               Text=""
+                               Foreground="White"
+                               FontSize="12"
+                               FontWeight="Bold"/>
                 </Border>
 
                 <!-- 文字信息 -->
                 <StackPanel Grid.Row="1"
-                        Padding="8,4">
+                            Padding="10,8">
                     <TextBlock Text="{Binding Title}"
-                            FontWeight="SemiBold"
+                               FontWeight="SemiBold"
                                TextTrimming="CharacterEllipsis"
-                            MaxLines="2"
+                               MaxLines="2"
                                Margin="0,0,0,2"/>
                     <TextBlock Text="{Binding AirDate}"
-                            FontSize="12"
-                            Foreground="Gray"/>
+                               FontSize="12"
+                               Foreground="Gray"/>
                 </StackPanel>
             </Grid>
         </Border>

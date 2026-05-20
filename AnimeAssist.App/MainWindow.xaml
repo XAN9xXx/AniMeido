@@ -13,12 +13,55 @@
         <MicaBackdrop/>
     </Window.SystemBackdrop>
 
-    <NavigationView x:Name="MainNaviView"
-                    IsSettingsVisible="True"
-                    PaneDisplayMode="Auto"
-                    IsBackButtonVisible="Collapsed">
+    <Grid Background="{ThemeResource LayerFillColorDefault}">
+        <NavigationView x:Name="MainNaviView"
+                        IsSettingsVisible="False"
+                        PaneDisplayMode="Left"
+                        IsBackButtonVisible="Collapsed"
+                        IsPaneToggleButtonVisible="False"
+                        OpenPaneLength="130"
+                        Margin="0,30,0,0">
 
-        <Frame x:Name="ContentFrame"/>
+            <Frame x:Name="ContentFrame"/>
 
-    </NavigationView>
+        </NavigationView>
+
+        <!-- 标题栏 -->
+        <Grid x:Name="AppTitleBar"
+              Height="32"
+              VerticalAlignment="Top"
+              IsHitTestVisible="True"
+              Background="{ThemeResource SolidBackgroundFillColorBase}"
+              Margin="0,-1,0,0">
+            <Rectangle Height="1"
+                       VerticalAlignment="Bottom"
+                       Fill="{ThemeResource DividerStrokeColorDefault}"/>
+
+            <!-- 返回按钮 -->
+            <Button x:Name="BackButton"
+                    Content="&#xE76B;"
+                    FontFamily="Segoe MDL2 Assets"
+                    FontSize="14"
+                    Width="48"
+                    Height="32"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Center"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Click="OnBackButtonClick"/>
+        </Grid>
+
+        <!-- 开屏覆盖层：覆盖全窗口 -->
+        <Grid x:Name="SplashOverlay"
+              Visibility="Visible"
+              IsHitTestVisible="False"
+              Background="{ThemeResource SolidBackgroundFillColorBase}"
+              VerticalAlignment="Stretch"
+              HorizontalAlignment="Stretch">
+            <Image Source="ms-appx:///Assets/SplashScreen.png"
+                   Stretch="UniformToFill"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"/>
+        </Grid>
+    </Grid>
 </Window>

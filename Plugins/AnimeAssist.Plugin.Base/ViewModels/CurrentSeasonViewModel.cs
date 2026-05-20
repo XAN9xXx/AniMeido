@@ -16,6 +16,10 @@ namespace AniMeido.Plugin.Base.ViewModels
         private bool _isLoading = false;
         [ObservableProperty]
         string? _errorMessage = null;
+        [ObservableProperty]
+        private bool _hasData = false;
+        [ObservableProperty]
+        private bool _isError = false;
         IAnimeDataSource _animeDataSource;
 
 
@@ -64,6 +68,11 @@ namespace AniMeido.Plugin.Base.ViewModels
         private async Task LoadSeasonalAnimeAsync()
         {
             IsLoading = true;
+            IsError = false;
+            ErrorMessage = null;
+            AnimeList.Clear();
+            WeekdayGroups.Clear();
+            HasData = false;
             var (year, season) = SeasonHelper.GetCurrentSeason();
             try
             {
@@ -76,10 +85,13 @@ namespace AniMeido.Plugin.Base.ViewModels
                     AnimeList.Add(anime);
 
                 RebuildGroups();
+                HasData = AnimeList.Count > 0;
             }
             catch (Exception ex)
             {
                 ErrorMessage = $"Fail to load: {ex.Message}";
+                HasData = false;
+                IsError = true;
             }
             finally
             {

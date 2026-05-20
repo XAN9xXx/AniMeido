@@ -33,7 +33,8 @@ namespace AniMeido.App
         {
 
             List<PluginNavigationItem> items = new List<PluginNavigationItem>();
-            try {
+            try
+            {
                 // 反射加载dll，筛选IPlugin实现类
                 Assembly assembly = Assembly.LoadFrom(dllPath);
                 Type[] allTypes = assembly.GetExportedTypes();
@@ -54,12 +55,17 @@ namespace AniMeido.App
                 }
                 return items;
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 _logger.LogError("Error : {message} Invalid dll files found in Plugins folder", ex.Message);
                 return items;
             }
         }
+
+        /// <summary>
+        /// 返回已加载的插件列表。
+        /// </summary>
+        public IReadOnlyList<IPlugin> GetPlugins() => _plugins.AsReadOnly();
 
         /// <summary>
         /// 异步扫描指定目录中的所有 *.dll 程序集，加载插件并返回插件导航项集合。

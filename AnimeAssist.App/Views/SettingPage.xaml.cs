@@ -1,5 +1,9 @@
-﻿using Microsoft.UI.Xaml.Controls;
+﻿using Microsoft.UI.Composition;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Hosting;
+using Microsoft.UI.Xaml.Input;
+using System.Collections.ObjectModel;
 
 namespace AniMeido.App.Views
 {
@@ -9,8 +13,122 @@ namespace AniMeido.App.Views
         {
             InitializeComponent();
 
-            ThemeToggle.IsOn = App.ThemeService.GetCurrentTheme() == ElementTheme.Dark;
-            ThemeToggle.Toggled += (s, e) => App.ThemeService.ToggleTheme();
+            // 初始化主题选中索引
+            var current = App.ThemeService.GetCurrentTheme();
+            ThemeCombo.SelectedIndex = current switch
+            {
+                ElementTheme.Light => 0,
+                ElementTheme.Dark => 1,
+                _ => 2,
+            };
+
+            // 填充插件列表
+            if (App.Plugins is not null)
+            {
+                foreach (var plugin in App.Plugins)
+                    PluginList.Items.Add(plugin);
+            }
+
+            // GitHub 按钮缩放动画中心点
+            GitHubButton.SizeChanged += (s, e) =>
+            {
+                var visual = ElementCompositionPreview.GetElementVisual(GitHubButton);
+                visual.CenterPoint = new System.Numerics.Vector3(
+                    (float)e.NewSize.Width / 2,
+                    (float)e.NewSize.Height / 2,
+                    0);
+            };
+        }
+
+        private void OnThemeSelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (ThemeCombo.SelectedIndex < 0) return;
+
+            var theme = ThemeCombo.SelectedIndex switch
+            {
+                0 => ElementTheme.Light,
+                1 => ElementTheme.Dark,
+                _ => ElementTheme.Default,
+            };
+
+            App.ThemeService.SetTheme(theme);
+        }
+
+        private async void OnGitHubCardTapped(object sender, TappedRoutedEventArgs e)
+        {
+            await Windows.System.Launcher.LaunchUriAsync(new Uri("https://github.com/XAN9xXx/AniMeido"));
+        }
+
+        private void OnGitHubPointerEntered(object sender, PointerRoutedEventArgs e)
+        {
+            var visual = ElementCompositionPreview.GetElementVisual(GitHubButton);
+            var compositor = visual.Compositor;
+
+            visual.Properties.InsertVector3("Translation", new System.Numerics.Vector3(0, 0, 16));
+
+            var scaleX = compositor.CreateScalarKeyFrameAnimation();
+            scaleX.InsertKeyFrame(1.0f, 1.05f);
+            scaleX.Duration = TimeSpan.FromMilliseconds(200);
+
+            var scaleY = compositor.CreateScalarKeyFrameAnimation();
+            scaleY.InsertKeyFrame(1.0f, 1.05f);
+            scaleY.Duration = TimeSpan.FromMilliseconds(200);
+
+            visual.StartAnimation("Scale.X", scaleX);
+            visual.StartAnimation("Scale.Y", scaleY);
+        }
+
+        private void OnGitHubPointerExited(object sender, PointerRoutedEventArgs e)
+        {
+            var visual = ElementCompositionPreview.GetElementVisual(GitHubButton);
+            var compositor = visual.Compositor;
+
+            visual.Properties.InsertVector3("Translation", new System.Numerics.Vector3(0, 0, 0));
+
+            var scaleX = compositor.CreateScalarKeyFrameAnimation();
+            scaleX.InsertKeyFrame(1.0f, 1.0f);
+            scaleX.Duration = TimeSpan.FromMilliseconds(200);
+
+            var scaleY = compositor.CreateScalarKeyFrameAnimation();
+            scaleY.InsertKeyFrame(1.0f, 1.0f);
+            scaleY.Duration = TimeSpan.FromMilliseconds(200);
+
+            visual.StartAnimation("Scale.X", scaleX);
+            visual.StartAnimation("Scale.Y", scaleY);
+        }
+
+        private void OnGitHubPointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            var visual = ElementCompositionPreview.GetElementVisual(GitHubButton);
+            var compositor = visual.Compositor;
+
+            var scaleX = compositor.CreateScalarKeyFrameAnimation();
+            scaleX.InsertKeyFrame(1.0f, 0.95f);
+            scaleX.Duration = TimeSpan.FromMilliseconds(100);
+
+            var scaleY = compositor.CreateScalarKeyFrameAnimation();
+            scaleY.InsertKeyFrame(1.0f, 0.95f);
+            scaleY.Duration = TimeSpan.FromMilliseconds(100);
+
+            visual.StartAnimation("Scale.X", scaleX);
+            visual.StartAnimation("Scale.Y", scaleY);
+        }
+
+        private void OnGitHubPointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            var visual = ElementCompositionPreview.GetElementVisual(GitHubButton);
+            var compositor = visual.Compositor;
+
+            var scaleX = compositor.CreateScalarKeyFrameAnimation();
+            scaleX.InsertKeyFrame(1.0f, 1.05f);
+            scaleX.Duration = TimeSpan.FromMilliseconds(100);
+
+            var scaleY = compositor.CreateScalarKeyFrameAnimation();
+            scaleY.InsertKeyFrame(1.0f, 1.05f);
+            scaleY.Duration = TimeSpan.FromMilliseconds(100);
+
+            visual.StartAnimation("Scale.X", scaleX);
+            visual.StartAnimation("Scale.Y", scaleY);
         }
     }
 }

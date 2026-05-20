@@ -14,6 +14,13 @@ namespace AniMeido.Plugin.Base.ViewModels
         private bool _isLoading = false;
         [ObservableProperty]
         string? _errorMessage = null;
+        [ObservableProperty]
+        private bool _isError = false;
+        [ObservableProperty]
+        private bool _hasData = false;
+        public string? BangumiUrl => _lastAnimeID > 0
+            ? $"https://bgm.tv/subject/{_lastAnimeID}"
+            : null;
         private int _lastAnimeID;
         private readonly IAnimeDataSource _animeDataSource;
 
@@ -27,14 +34,21 @@ namespace AniMeido.Plugin.Base.ViewModels
         private async Task LoadDetailAsync(int animeID)
         {
             IsLoading = true;
+            IsError = false;
+            ErrorMessage = null;
+            HasData = false;
+            AnimeDetail = null;
             _lastAnimeID = animeID;
             try
             {
                 AnimeDetail = await _animeDataSource.GetAnimeDetailAsync(animeID, CancellationToken.None);
+                HasData = true;
+                OnPropertyChanged(nameof(BangumiUrl));
             }
             catch (Exception ex)
             {
                 ErrorMessage = $"Fail to load: {ex.Message}";
+                IsError = true;
             }
             finally 
             {

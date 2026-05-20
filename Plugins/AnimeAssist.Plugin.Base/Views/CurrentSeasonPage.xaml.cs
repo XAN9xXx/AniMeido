@@ -6,12 +6,15 @@ using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
+using Microsoft.UI.Xaml.Input;
 
 namespace AniMeido.Plugin.Base.Views
 {
     public sealed partial class CurrentSeasonPage : Page
     {
         public CurrentSeasonViewModel ViewModel { get; }
+
+        static bool _hasAutoScrolledOnce = false;
 
         public CurrentSeasonPage()
         {
@@ -21,27 +24,93 @@ namespace AniMeido.Plugin.Base.Views
 
             ViewModel.PropertyChanged += (s, e) =>
             {
-                if (e.PropertyName == nameof(CurrentSeasonViewModel.IsLoading))
+                switch (e.PropertyName)
                 {
-                    LoadingRing.Visibility = ViewModel.IsLoading
-                        ? Microsoft.UI.Xaml.Visibility.Visible
-                        : Microsoft.UI.Xaml.Visibility.Collapsed;
+                    case nameof(CurrentSeasonViewModel.IsLoading):
+                        UpdateOverlayState();
+                        if (!ViewModel.IsLoading)
+                            UpdateViewState();
 
-                    // 数据加载完成后自动跳转到今天对应的星期分组
-                    if (!ViewModel.IsLoading && ViewModel.WeekdayGroups.Count > 0)
-                    {
-                        int todayIndex = DateTime.Now.DayOfWeek switch
+                        // 首次打开时自动跳转到今天对应的星期分组
+                        if (!_hasAutoScrolledOnce && !ViewModel.IsLoading && ViewModel.WeekdayGroups.Count > 0)
                         {
-                            DayOfWeek.Sunday => 6,
-                            _ => (int)DateTime.Now.DayOfWeek - 1
-                        };
-                        DelayedScrollToGroup(todayIndex);
-                    }
+                            _hasAutoScrolledOnce = true;
+                            int todayIndex = DateTime.Now.DayOfWeek switch
+                            {
+                                DayOfWeek.Sunday => 6,
+                                _ => (int)DateTime.Now.DayOfWeek - 1
+                            };
+                            DelayedScrollToGroup(todayIndex);
+                        }
+                        break;
+
+                    case nameof(CurrentSeasonViewModel.ErrorMessage):
+                    case nameof(CurrentSeasonViewModel.IsError):
+                        UpdateOverlayState();
+                        UpdateViewState();
+                        break;
+
+                    case nameof(CurrentSeasonViewModel.HasData):
+                        UpdateViewState();
+                        break;
                 }
             };
 
             ViewModel.LoadSeasonalAnimeCommand.Execute(null);
         }
+
+        private void UpdateViewState()
+        {
+            if (ViewModel.IsError)
+            {
+                ErrorInfoBar.Message = ViewModel.ErrorMessage;
+                ErrorInfoBar.IsOpen = true;
+                ErrorInfoBar.Visibility = Visibility.Visible;
+                EmptyState.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                ErrorInfoBar.IsOpen = false;
+                ErrorInfoBar.Visibility = Visibility.Collapsed;
+                EmptyState.Visibility = !ViewModel.IsLoading && !ViewModel.HasData
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+        }
+
+        private void UpdateOverlayState()
+        {
+            bool showOverlay = ViewModel.IsLoading || ViewModel.IsError;
+            LoadingOverlay.Visibility = showOverlay ? Visibility.Visible : Visibility.Collapsed;
+            LoadingRing.IsActive = ViewModel.IsLoading;
+
+            if (ViewModel.IsError)
+            {
+                LoadingFailedImage.Visibility = Visibility.Visible;
+                LoadingRing.Visibility = Visibility.Collapsed;
+                LoadingHint.Text = $"{ViewModel.ErrorMessage}\n\n点击重试";
+            }
+            else if (ViewModel.IsLoading)
+            {
+                LoadingFailedImage.Visibility = Visibility.Collapsed;
+                LoadingRing.Visibility = Visibility.Visible;
+                LoadingHint.Text = "加载中…";
+            }
+            else
+            {
+                LoadingFailedImage.Visibility = Visibility.Collapsed;
+                LoadingHint.Text = "";
+            }
+        }
+
+        private void OnLoadingOverlayTapped(object sender, TappedRoutedEventArgs e)
+        {
+            if (ViewModel.IsError)
+            {
+                ViewModel.RetryLoadCommand.Execute(null);
+            }
+        }
+
 
         private async void DelayedScrollToGroup(int index)
         {

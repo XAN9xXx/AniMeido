@@ -10,83 +10,153 @@
     xmlns:controls="using:AniMeido.Plugin.Base.Views.Controls"
     xmlns:contracts="using:AniMeido.Contracts.Models">
 
-    <ScrollViewer>
-        <StackPanel>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
 
-            <!-- 年份季度选择器 -->
-            <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
-                    CornerRadius="8"
-                    Margin="0,0,0,12"
-                    Padding="12">
-                <StackPanel Orientation="Horizontal"
-                        Spacing="12">
-                    <ComboBox x:Name="YearComboBox"
-                            Header="年份"
-                            Width="120"/>
-                    <ComboBox x:Name="SeasonComboBox"
-                            Header="季度"
-                            Width="120"/>
-                    <Button Content="查询"
-                            Click="OnSearchClick"
-                            VerticalAlignment="Bottom"/>
+        <!-- 错误提示 (始终在顶部) -->
+        <InfoBar x:Name="ErrorInfoBar"
+                 Grid.Row="0"
+                 Severity="Error"
+                 IsClosable="True"
+                 IsOpen="False"
+                 Visibility="Collapsed"
+                 Margin="0,0,0,12"/>
+
+        <!-- 内容区域 -->
+        <ScrollViewer Grid.Row="1">
+            <StackPanel>
+
+                <!-- 年份季度选择器 -->
+                <Border Background="{ThemeResource SolidBackgroundFillColorSecondary}"
+                        CornerRadius="8"
+                        Margin="0,0,0,12"
+                        Padding="12">
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="12">
+                        <ComboBox x:Name="YearComboBox"
+                                  Header="年份"
+                                  Width="120"
+                                  SelectionChanged="OnYearSelectionChanged"/>
+                        <ComboBox x:Name="SeasonComboBox"
+                                  Header="季度"
+                                  Width="120"
+                                  SelectionChanged="OnSeasonSelectionChanged"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 统计信息 -->
+                <Border x:Name="StatsCard"
+                        Background="{ThemeResource SolidBackgroundFillColorSecondary}"
+                        CornerRadius="8"
+                        Margin="0,0,0,12"
+                        Padding="16"
+                        Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="6">
+                        <TextBlock Text="本季度共"
+                                   FontSize="14"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TotalCountText"
+                                   FontSize="28"
+                                   FontWeight="Bold"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Text="部番剧"
+                                   FontSize="14"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 空状态提示 -->
+                <StackPanel x:Name="EmptyState"
+                            Visibility="Collapsed"
+                            HorizontalAlignment="Center"
+                            Margin="0,40,0,0">
+                    <Image Source="ms-appx:///Assets/Empty_anime.png"
+                           Width="120"
+                           Height="120"
+                           Stretch="Uniform"
+                           HorizontalAlignment="Center"/>
+                    <TextBlock Text="该季度暂无番剧数据"
+                               FontSize="16"
+                               Foreground="Gray"
+                               HorizontalAlignment="Center"
+                               Margin="0,12,0,0"/>
                 </StackPanel>
-            </Border>
 
-            <!-- 加载环 -->
-            <ProgressRing x:Name="LoadingRing"
-                          IsActive="{x:Bind ViewModel.IsLoading}"
-                          Height="40"
-                    Width="40"
-                          HorizontalAlignment="Center"
-                    VerticalAlignment="Center"/>
+                <!-- 番剧网格 -->
+                <GridView ItemsSource="{x:Bind ViewModel.AnimeList}"
+                          IsItemClickEnabled="True"
+                          ItemClick="OnItemClick"
+                          SelectionMode="None">
+                    <GridView.ItemContainerStyle>
+                        <Style TargetType="GridViewItem">
+                            <Setter Property="UseSystemFocusVisuals"
+                                    Value="False"/>
+                            <Setter Property="IsTabStop"
+                                    Value="False"/>
+                            <Setter Property="Margin"
+                                    Value="0,0,4,8"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="GridViewItem">
+                                        <ContentPresenter
+                                            Content="{TemplateBinding Content}"
+                                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                                            ContentTransitions="{TemplateBinding ContentTransitions}"
+                                            HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                            VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                            Margin="0"/>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </GridView.ItemContainerStyle>
+                    <GridView.ItemTemplate>
+                        <DataTemplate x:DataType="contracts:Anime">
+                            <controls:AnimeCard ShowWeekdayBadge="True"/>
+                        </DataTemplate>
+                    </GridView.ItemTemplate>
+                    <GridView.ItemContainerTransitions>
+                        <TransitionCollection>
+                            <EntranceThemeTransition IsStaggeringEnabled="True"/>
+                        </TransitionCollection>
+                    </GridView.ItemContainerTransitions>
+                </GridView>
 
-            <!-- 重试按钮 -->
-            <Button Content="重试"
-                    Command="{x:Bind ViewModel.RetryLoadCommand}"
-                    HorizontalAlignment="Left"/>
+            </StackPanel>
+        </ScrollViewer>
 
-            <!-- 错误信息 -->
-            <TextBlock Text="{x:Bind ViewModel.ErrorMessage}"
-                       Foreground="Red"
-                       Margin="0,4,0,0"/>
-
-            <!-- 番剧网格 -->
-            <GridView ItemsSource="{x:Bind ViewModel.AnimeList}"
-                      IsItemClickEnabled="True"
-                      ItemClick="OnItemClick"
-                      SelectionMode="None">
-                <GridView.ItemContainerStyle>
-                    <Style TargetType="GridViewItem">
-                        <Setter Property="UseSystemFocusVisuals" Value="False"/>
-                        <Setter Property="IsTabStop" Value="False"/>
-                        <Setter Property="Padding" Value="0,10,0,0"/>
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="GridViewItem">
-                                    <ContentPresenter
-                                        Content="{TemplateBinding Content}"
-                                        ContentTemplate="{TemplateBinding ContentTemplate}"
-                                        ContentTransitions="{TemplateBinding ContentTransitions}"
-                                        HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                        VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
-                                        Margin="{TemplateBinding Padding}"/>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                    </Style>
-                </GridView.ItemContainerStyle>
-                <GridView.ItemTemplate>
-                    <DataTemplate x:DataType="contracts:Anime">
-                        <controls:AnimeCard/>
-                    </DataTemplate>
-                </GridView.ItemTemplate>
-                <GridView.ItemContainerTransitions>
-                    <TransitionCollection>
-                        <EntranceThemeTransition IsStaggeringEnabled="True"/>
-                    </TransitionCollection>
-                </GridView.ItemContainerTransitions>
-            </GridView>
-
-        </StackPanel>
-    </ScrollViewer>
+        <!-- 加载/重试覆盖层 -->
+        <Grid Grid.Row="1"
+              x:Name="LoadingOverlay"
+              Visibility="Collapsed"
+              Background="Transparent"
+              Tapped="OnLoadingOverlayTapped">
+            <StackPanel HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="12">
+                <ProgressRing x:Name="LoadingRing"
+                              Height="40"
+                              Width="40"
+                              HorizontalAlignment="Center"/>
+                <Image x:Name="LoadingFailedImage"
+                       Source="ms-appx:///Assets/Loading_failed.png"
+                       Width="80"
+                       Height="80"
+                       Stretch="Uniform"
+                       HorizontalAlignment="Center"
+                       Visibility="Collapsed"/>
+                <TextBlock x:Name="LoadingHint"
+                           FontSize="14"
+                           Foreground="Gray"
+                           HorizontalAlignment="Center"
+                           TextWrapping="Wrap"
+                           MaxWidth="300"
+                           TextAlignment="Center"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
 </Page>
