@@ -6,7 +6,7 @@
     <RootNamespace>AniMeido.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x64;</Platforms>
-    <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <PublishProfile>win-$(Platform).pubxml</PublishProfile>
     <UseWinUI>true</UseWinUI>
     <WinUISDKReferences>false</WinUISDKReferences>
@@ -21,12 +21,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="Assets\SplashScreen.png" />
-    <Content Include="Assets\Placeholder_cover.png" />
-    <Content Include="Assets\Empty_anime.png" />
-    <Content Include="Assets\Loading_failed.png" />
-    <Content Include="Assets\GitHub_Invertocat_Black_Clearspace.png" />
-    <Content Include="Assets\icon.ico" />
+    <Content Include="Assets\SplashScreen.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Placeholder_cover.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Empty_anime.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Loading_failed.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\GitHub_Invertocat_Black_Clearspace.png"
+      CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\icon.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -81,12 +82,25 @@
     <PublishTrimmed>False</PublishTrimmed>
   </PropertyGroup>
 
-  <Target Name="CopyPlugins" AfterTargets="Build">
+  <Target Name="CopyPluginPri" AfterTargets="Build">
     <ItemGroup>
-      <PluginFiles
-        Include="$(SolutionDir)Plugins\**\bin\$(Configuration)\net8.0-windows10.0.19041.0\*.dll" />
+      <PluginPriFiles
+        Include="$(MSBuildProjectDirectory)\..\Plugins\**\bin\$(Configuration)\net8.0-windows10.0.19041.0\*.pri" />
     </ItemGroup>
-    <Copy SourceFiles="@(PluginFiles)" DestinationFolder="$(OutDir)Plugins\"
+    <Copy SourceFiles="@(PluginPriFiles)" DestinationFolder="$(OutDir)"
+      SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyPluginPriToPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <PluginPriFiles
+        Include="$(MSBuildProjectDirectory)\..\Plugins\**\bin\$(Configuration)\net8.0-windows10.0.19041.0\*.pri" />
+    </ItemGroup>
+    <!-- 复制到根目录（供根目录加载时使用） -->
+    <Copy SourceFiles="@(PluginPriFiles)" DestinationFolder="$(PublishDir)"
+      SkipUnchangedFiles="true" />
+    <!-- 复制到 Plugins\ 子目录（供子目录加载时使用） -->
+    <Copy SourceFiles="@(PluginPriFiles)" DestinationFolder="$(PublishDir)Plugins\"
       SkipUnchangedFiles="true" />
   </Target>
 </Project>

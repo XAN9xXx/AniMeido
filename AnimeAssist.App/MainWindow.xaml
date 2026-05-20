@@ -58,7 +58,7 @@
               Background="{ThemeResource SolidBackgroundFillColorBase}"
               VerticalAlignment="Stretch"
               HorizontalAlignment="Stretch">
-            <Image Source="ms-appx:///Assets/SplashScreen.png"
+            <Image x:Name="SplashImage"
                    Stretch="UniformToFill"
                    HorizontalAlignment="Center"
                    VerticalAlignment="Center"/>

@@ -36,7 +36,28 @@ namespace AniMeido.App
             try
             {
                 // 反射加载dll，筛选IPlugin实现类
-                Assembly assembly = Assembly.LoadFrom(dllPath);
+                string? pluginDir = System.IO.Path.GetDirectoryName(dllPath);
+                Assembly assembly;
+                if (pluginDir != null && pluginDir != AppContext.BaseDirectory)
+                {
+                    // 子目录加载时注册依赖解析回退
+                    var pluginBaseName = System.IO.Path.GetFileNameWithoutExtension(dllPath);
+                    AppDomain.CurrentDomain.AssemblyResolve += (s, e) =>
+                    {
+                        var name = new AssemblyName(e.Name!).Name;
+                        if (name == pluginBaseName) return null; // 跳过自身
+                        var depPath = System.IO.Path.Combine(pluginDir, name + ".dll");
+                        return System.IO.File.Exists(depPath)
+                            ? Assembly.LoadFrom(depPath)
+                            : null;
+                    };
+                    assembly = Assembly.LoadFrom(dllPath);
+                }
+                else
+                {
+                    assembly = Assembly.LoadFrom(dllPath);
+                }
+
                 Type[] allTypes = assembly.GetExportedTypes();
                 var pluginTypes = allTypes
                     .Where(type =>

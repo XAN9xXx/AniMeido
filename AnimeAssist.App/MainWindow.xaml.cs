@@ -6,9 +6,11 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Media.Animation;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
 using System.Diagnostics;
 using Windows.UI;
+using WinRT.Interop;
 
 namespace AniMeido.App
 {
@@ -21,6 +23,25 @@ namespace AniMeido.App
         public MainWindow(IReadOnlyList<PluginNavigationItem> naviItems)
         {
             InitializeComponent();
+
+            // 非打包模式下用本地路径加载开屏图
+            var splashPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "SplashScreen.png");
+            if (System.IO.File.Exists(splashPath))
+                SplashImage.Source = new BitmapImage(new Uri(splashPath));
+
+            // 设置 Alt+Tab 窗口图标
+            var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "icon.ico");
+            if (System.IO.File.Exists(iconPath))
+            {
+                var hWnd = WindowNative.GetWindowHandle(this);
+                var windowId = Win32Interop.GetWindowIdFromWindow(hWnd);
+                var appWindow = AppWindow.GetFromWindowId(windowId);
+                appWindow.SetIcon(iconPath);
+            }
+
+            // 关闭窗口时确保进程完全退出
+            Closed += (s, e) => Application.Current.Exit();
+
             _naviItems = naviItems;
             BuildNavigationMenu();
 
