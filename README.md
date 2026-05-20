@@ -1,4 +1,4 @@
-# AnimeAssist
+# AniMeido
 
 
 - 这是什么？
