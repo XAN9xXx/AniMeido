@@ -151,7 +151,7 @@
                                    VerticalAlignment="Center"
                                    FontSize="15"/>
                         <TextBlock Grid.Column="1"
-                                   Text="xan9xxx@gmail.com | QQ:577125180"
+                                   Text="xan9xxx@gmail.com | QQ:3223271148"
                                    VerticalAlignment="Center"
                                    FontSize="14"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -215,6 +215,49 @@
                                        Height="18"
                                        VerticalAlignment="Center"/>
                                 <TextBlock Text="XAN9xXx/AniMeido"
+                                           VerticalAlignment="Center"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <!-- 分割线 -->
+                    <Rectangle Height="1"
+                               Fill="{ThemeResource DividerStrokeColorDefault}"
+                               Margin="16,0"/>
+
+                    <!-- AniMeido 官网 -->
+                    <Grid Margin="16,0,16,0"
+                          Height="44">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="AniMeido 官网"
+                                   VerticalAlignment="Center"
+                                   FontSize="15"/>
+                        <Border x:Name="WebsiteButton"
+                                Grid.Column="1"
+                                VerticalAlignment="Center"
+                                Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                CornerRadius="6"
+                                BorderBrush="{ThemeResource ControlStrokeColorDefault}"
+                                BorderThickness="1"
+                                IsTapEnabled="True"
+                                Tapped="OnWebsiteCardTapped"
+                                PointerEntered="OnWebsitePointerEntered"
+                                PointerExited="OnWebsitePointerExited"
+                                PointerPressed="OnWebsitePointerPressed"
+                                PointerReleased="OnWebsitePointerReleased">
+                            <StackPanel Orientation="Horizontal"
+                                        Spacing="6"
+                                        Padding="10,6">
+                                <Image Source="ms-appx:///Assets/icon.ico"
+                                       Width="18"
+                                       Height="18"
+                                       VerticalAlignment="Center"/>
+                                <TextBlock Text="animeido.com"
                                            VerticalAlignment="Center"
                                            FontSize="14"
                                            FontWeight="SemiBold"/>

@@ -38,6 +38,16 @@ namespace AniMeido.App.Views
                     (float)e.NewSize.Height / 2,
                     0);
             };
+
+            // 官网按钮缩放动画中心点
+            WebsiteButton.SizeChanged += (s, e) =>
+            {
+                var visual = ElementCompositionPreview.GetElementVisual(WebsiteButton);
+                visual.CenterPoint = new System.Numerics.Vector3(
+                    (float)e.NewSize.Width / 2,
+                    (float)e.NewSize.Height / 2,
+                    0);
+            };
         }
 
         private void OnThemeSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -129,6 +139,29 @@ namespace AniMeido.App.Views
 
             visual.StartAnimation("Scale.X", scaleX);
             visual.StartAnimation("Scale.Y", scaleY);
+        }
+
+        private async void OnWebsiteCardTapped(object sender, TappedRoutedEventArgs e)
+        {
+            await Windows.System.Launcher.LaunchUriAsync(new Uri("https://animeido.com"));
+        }
+
+        private void OnWebsitePointerEntered(object sender, PointerRoutedEventArgs e) => AnimateButton(WebsiteButton, 1.05f, 16);
+        private void OnWebsitePointerExited(object sender, PointerRoutedEventArgs e) => AnimateButton(WebsiteButton, 1.0f, 0);
+        private void OnWebsitePointerPressed(object sender, PointerRoutedEventArgs e) => AnimateButton(WebsiteButton, 0.95f, 16);
+        private void OnWebsitePointerReleased(object sender, PointerRoutedEventArgs e) => AnimateButton(WebsiteButton, 1.05f, 16);
+
+        private void AnimateButton(Microsoft.UI.Xaml.UIElement target, float scale, int zOffset)
+        {
+            var visual = ElementCompositionPreview.GetElementVisual(target);
+            var compositor = visual.Compositor;
+            visual.Properties.InsertVector3("Translation", new System.Numerics.Vector3(0, 0, zOffset));
+            var sx = compositor.CreateScalarKeyFrameAnimation();
+            sx.InsertKeyFrame(1.0f, scale); sx.Duration = TimeSpan.FromMilliseconds(200);
+            var sy = compositor.CreateScalarKeyFrameAnimation();
+            sy.InsertKeyFrame(1.0f, scale); sy.Duration = TimeSpan.FromMilliseconds(200);
+            visual.StartAnimation("Scale.X", sx);
+            visual.StartAnimation("Scale.Y", sy);
         }
     }
 }
