@@ -172,13 +172,21 @@
                         <TextBlock Text="检查更新"
                                    VerticalAlignment="Center"
                                    FontSize="15"/>
-                        <Button Grid.Column="1"
-                                x:Name="UpdateCheckButton"
-                                Content="检查"
-                                MinWidth="80"
-                                Height="32"
-                                VerticalAlignment="Center"
-                                Click="OnUpdateCheckClick"/>
+                        <StackPanel Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    VerticalAlignment="Center"
+                                    Spacing="8">
+                            <TextBlock x:Name="VersionInfoText"
+                                       VerticalAlignment="Center"
+                                       FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <Button x:Name="UpdateCheckButton"
+                                    Content="检查"
+                                    MinWidth="80"
+                                    Height="32"
+                                    VerticalAlignment="Center"
+                                    Click="OnUpdateCheckClick"/>
+                        </StackPanel>
                     </Grid>
 
                     <!-- 分割线 -->

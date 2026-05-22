@@ -50,6 +50,15 @@ namespace AniMeido.App.Views
                     (float)e.NewSize.Height / 2,
                     0);
             };
+
+            // 显示版本号
+            var currentVersion = System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version;
+            if (currentVersion != null)
+            {
+                var curVer = $"v{currentVersion.Major}.{currentVersion.Minor}.{currentVersion.Build}";
+                var latestVer = App.LatestVersion != null ? $"v{App.LatestVersion}" : "--";
+                VersionInfoText.Text = $"当前版本：{curVer} | 最新版本：{latestVer}";
+            }
         }
 
         private void OnThemeSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -193,6 +202,8 @@ namespace AniMeido.App.Views
                     {
                         await Windows.System.Launcher.LaunchUriAsync(new Uri(result.DownloadUrl));
                     }
+
+                    VersionInfoText.Text = $"当前版本：v{System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version?.Major}.{System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version?.Minor}.{System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version?.Build} | 最新版本：v{result.LatestVersion}";
                     return;
                 }
                 else
@@ -204,6 +215,8 @@ namespace AniMeido.App.Views
                         CloseButtonText = "确定",
                         XamlRoot = this.XamlRoot
                     };
+
+                    VersionInfoText.Text = $"当前版本：v{System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version?.Major}.{System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version?.Minor}.{System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version?.Build} | 最新版本：v{result.LatestVersion}";
                 }
 
                 await dialog.ShowAsync();

@@ -23,6 +23,7 @@ namespace AniMeido.App
         public static ThemeService ThemeService { get; } = new ThemeService();
         public static PrivacyService PrivacyService { get; } = new PrivacyService();
         public static IReadOnlyList<IPlugin>? Plugins { get; private set; }
+        public static string? LatestVersion { get; private set; }
 
         protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
@@ -70,6 +71,9 @@ namespace AniMeido.App
             {
                 var updateService = provider.GetRequiredService<UpdateService>();
                 var result = await updateService.CheckForUpdateAsync();
+
+                if (result != null)
+                    LatestVersion = result.LatestVersion;
 
                 if (result?.HasUpdate == true)
                 {

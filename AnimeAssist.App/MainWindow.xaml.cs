@@ -221,10 +221,6 @@ namespace AniMeido.App
                 Margin = new Thickness(0, 6, 0, 6),
                 MinHeight = 56,
             };
-            settingsItem.Tapped += (s, e) =>
-            {
-                ContentFrame.Navigate(typeof(Views.SettingPage));
-            };
             MainNaviView.FooterMenuItems.Add(settingsItem);
 
             MainNaviView.Loaded += OnMainNaviViewLoaded;
@@ -233,13 +229,15 @@ namespace AniMeido.App
         // 
         private void OnNaviItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
         {
-            if (args.IsSettingsInvoked)
+            var container = args.InvokedItemContainer as NavigationViewItem;
+
+            // 设置页走单独的导航路径
+            if (container?.Content?.ToString() == "设置")
             {
-                ContentFrame.Navigate(typeof(Views.SettingPage));
+                if (ContentFrame.Content?.GetType() != typeof(Views.SettingPage))
+                    ContentFrame.Navigate(typeof(Views.SettingPage));
                 return;
             }
-
-            var container = args.InvokedItemContainer as NavigationViewItem;
             if (container == null)
                 return;
 
