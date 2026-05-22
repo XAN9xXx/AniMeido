@@ -162,6 +162,30 @@
                                Fill="{ThemeResource DividerStrokeColorDefault}"
                                Margin="16,0"/>
 
+                    <!-- 检查更新 -->
+                    <Grid Margin="16,0,16,0"
+                          Height="44">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="检查更新"
+                                   VerticalAlignment="Center"
+                                   FontSize="15"/>
+                        <Button Grid.Column="1"
+                                x:Name="UpdateCheckButton"
+                                Content="检查"
+                                MinWidth="80"
+                                Height="32"
+                                VerticalAlignment="Center"
+                                Click="OnUpdateCheckClick"/>
+                    </Grid>
+
+                    <!-- 分割线 -->
+                    <Rectangle Height="1"
+                               Fill="{ThemeResource DividerStrokeColorDefault}"
+                               Margin="16,0"/>
+
                     <!-- 开源协议 -->
                     <Grid Margin="16,0,16,0"
                           Height="44">
