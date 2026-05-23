@@ -3,9 +3,6 @@
     /// <summary>
     /// 记录用户对某部番剧的追番状态。
     /// </summary>
-    /// <remarks>
-    /// None:无标记 Watching:追番中 PlanToWatch:补番中 NotInterested:不感兴趣
-    /// </remarks>
     public enum AnimeTrackingStatus {
         /// <summary>无标记状态。</summary>
         None = 0,

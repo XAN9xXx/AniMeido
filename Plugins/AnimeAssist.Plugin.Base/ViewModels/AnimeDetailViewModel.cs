@@ -2,7 +2,6 @@
 using CommunityToolkit.Mvvm.Input;
 using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
-using System.Collections.ObjectModel;
 
 namespace AniMeido.Plugin.Base.ViewModels
 {
@@ -25,11 +24,18 @@ namespace AniMeido.Plugin.Base.ViewModels
         private readonly IAnimeDataSource _animeDataSource;
 
 
+
         public AnimeDetailViewModel(IAnimeDataSource dataSource)
         {
             _animeDataSource = dataSource;
         }
 
+
+
+        /// <summary>
+        /// 加载番剧详情页面数据
+        /// </summary>
+        /// <param name="animeID">番剧的唯一标识符</param>
         [RelayCommand]
         private async Task LoadDetailAsync(int animeID)
         {

@@ -1,13 +1,11 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace AniMeido.Contracts
+﻿namespace AniMeido.Contracts
 {
     public static class AppServices
     {
-            public static IServiceProvider? Provider { get; set; }
+        // TODO: 待重构的反模式
+        /// <summary>
+        /// 服务定位器
+        /// </summary>
+        public static IServiceProvider? Provider { get; set; }
     }
 }

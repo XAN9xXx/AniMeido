@@ -17,16 +17,25 @@ namespace AniMeido.Plugin.Base
 
         public bool IsRequired => true;
 
+        /// <summary>
+        /// 创建此插件需要注册的导航栏项
+        /// </summary>
+        /// <returns>可枚举的导航栏列表</returns>
         public IEnumerable<PluginNavigationItem> GetNavigationItems()
         {
             return new List<PluginNavigationItem>
             {
-                //TODO: 这里的\uE714需要改成实际的导航栏logo，暂时用emoji占位
+                //TODO: 这里的\uE713需要改成实际的导航栏logo
                 new PluginNavigationItem("正在放送", "\uE713", "AniMeido.Plugin.Base.Views.CurrentSeasonPage"),
                 new PluginNavigationItem("补番计划", "\uE713", "AniMeido.Plugin.Base.Views.PastSeasonPage")
             };
         }
 
+        /// <summary>
+        /// DI注入服务
+        /// </summary>
+        /// <param name="services"></param>
+        /// <returns>Task完成标记</returns>
         public Task InitializeAsync(IServiceCollection services)
         {
             services.AddBangumiService();

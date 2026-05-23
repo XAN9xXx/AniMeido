@@ -22,11 +22,11 @@ namespace AniMeido.Contracts
         Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct);
 
         /// <summary>
-        /// 获取指定番剧的制作公司 / 工作室信息。
+        /// 获取指定番剧的出版社 / 企划信息。
         /// </summary>
         /// <param name="animeID">Bangumi 条目 ID。</param>
         /// <param name="ct">取消令牌。</param>
-        /// <returns>制作公司 / 工作室信息列表；如未找到则返回空列表。</returns>
+        /// <returns>出版社 / 企划信息列表；如未找到则返回空列表。</returns>
         Task<List<Studio>> GetStudioAsync(int animeID, CancellationToken ct);
 
         /// <summary>

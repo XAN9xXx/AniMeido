@@ -11,7 +11,16 @@ namespace AniMeido.Plugin.Base.Services
     {
         private readonly IHttpClientFactory _httpFactory; // Http客户端工程，用于创建命名HttpClient
         private readonly ILogger<BangumiApiClient> _logger; // 日志记录器
-        
+
+
+        public BangumiApiClient(IHttpClientFactory httpFactory, ILogger<BangumiApiClient> logger)
+        {
+            _httpFactory = httpFactory;
+            _logger = logger;
+        }
+
+
+
         /// <summary>
         /// 转换Json数据的选项配置。
         /// </summary>
@@ -23,13 +32,6 @@ namespace AniMeido.Plugin.Base.Services
             PropertyNameCaseInsensitive = true,
             PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
         };
-
-        
-        public BangumiApiClient(IHttpClientFactory httpFactory, ILogger<BangumiApiClient> logger)
-        {
-            _httpFactory = httpFactory;
-            _logger = logger;
-        }
 
         /// <summary>
         /// 用于获取并解析JSON数据。

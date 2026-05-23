@@ -3,9 +3,6 @@
     /// <summary>
     /// 相关角色信息。
     /// </summary>
-    /// <remarks>
-    /// 参数列表：int Id, string Name, List'ActorInfo' Actors, string Summary, PersonImages Images, string Relation, List'CharacterRole' Roles
-    /// </remarks>
     /// <param name="Id">角色的唯一标识符。</param>
     /// <param name="Name">角色的姓名。</param>
     /// <param name="Actors">配音演员列表。</param>

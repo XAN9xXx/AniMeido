@@ -3,9 +3,6 @@
     /// <summary>
     /// 番剧条目信息。
     /// </summary>
-    /// <remarks>
-    /// 参数列表：int Id, string Name, string? NameCn, string? Summary, string? Date, ImageInfo? Image, List'string'? MetaTags
-    /// </remarks>
     /// <param name="Id">番剧的唯一标识符。</param>
     /// <param name="Name">番剧的日文原名。</param>
     /// <param name="NameCn">番剧的译名。</param>

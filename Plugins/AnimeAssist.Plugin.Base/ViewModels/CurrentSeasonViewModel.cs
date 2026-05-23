@@ -24,6 +24,14 @@ namespace AniMeido.Plugin.Base.ViewModels
 
 
 
+        public CurrentSeasonViewModel(IAnimeDataSource dataSource)
+        {
+            _animeDataSource = dataSource;
+        }
+
+        /// <summary>
+        /// 按星期分组展示当季番剧。
+        /// </summary>
         private void RebuildGroups()
         {
             WeekdayGroups.Clear();
@@ -53,17 +61,15 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
         }
 
-        public CurrentSeasonViewModel(IAnimeDataSource dataSource)
-        {
-            _animeDataSource = dataSource;
-        }
-
         [RelayCommand]
         private void RetryLoad()
         {
             LoadSeasonalAnimeCommand.Execute(null);
         }
 
+        /// <summary>
+        /// 加载当季番剧页面数据
+        /// </summary>
         [RelayCommand]
         private async Task LoadSeasonalAnimeAsync()
         {

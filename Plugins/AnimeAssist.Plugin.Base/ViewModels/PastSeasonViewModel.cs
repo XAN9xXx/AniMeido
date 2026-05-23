@@ -2,11 +2,7 @@
 using AniMeido.Contracts.Models;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace AniMeido.Plugin.Base.ViewModels
 {
@@ -30,12 +26,18 @@ namespace AniMeido.Plugin.Base.ViewModels
 
 
 
-
         public PastSeasonViewModel(IAnimeDataSource dataSource)
         {
             _animeDataSource = dataSource;
         }
 
+
+
+        /// <summary>
+        /// 加载往季番剧页面数据
+        /// </summary>
+        /// <param name="year">要加载的年份</param>
+        /// <param name="season">要加载的季度</param>
         public async Task LoadPastSeasonAnimeAsync(int year, Season season)
         {
             _lastYear = year;
@@ -46,6 +48,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             AnimeList.Clear();
             TotalCount = 0;
             HasData = false;
+
             try
             {
                 var list = await _animeDataSource.GetAnimeBySeasonAsync(
@@ -74,6 +77,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
         }
 
+        // 点击重试时尝试加载相同时段的数据
         [RelayCommand]
         private void RetryLoad()
         {

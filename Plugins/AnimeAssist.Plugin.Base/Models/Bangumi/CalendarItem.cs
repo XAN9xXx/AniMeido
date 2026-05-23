@@ -1,7 +1,7 @@
 ﻿namespace AniMeido.Plugin.Base.Models.Bangumi
 {
     /// <summary>
-    /// 标注了每个新番条目的详细信息。
+    /// 标注了每个Calendar新番条目的详细信息。
     /// </summary>
     /// <remarks>
     /// 参数列表：int Id, string? Url, int Type, string? Name, string? NameCn, string? Summary, string? AirDate, int AirWeekday, ImageInfo? Image
