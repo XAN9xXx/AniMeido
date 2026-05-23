@@ -22,6 +22,8 @@ namespace AniMeido.Plugin.Base.Services
             });
             services.AddSingleton<IAnimeDataSource,BangumiDataSource>();
             services.AddSingleton<BangumiApiClient>();
+            services.AddSingleton<ITrackingService, TrackingService>();
+            services.AddSingleton<CacheService>();
             return services;
         }
     }
