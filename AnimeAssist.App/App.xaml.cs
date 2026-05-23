@@ -48,14 +48,18 @@ namespace AniMeido.App
 
             var naviItems = await host.LoadPluginAsync(pluginPath);
             App.Plugins = host.GetPlugins();
+            services.AddSingleton<DatabaseService>();
             services.AddSingleton<UpdateService>(sp =>
                 new UpdateService(
                     sp.GetRequiredService<IHttpClientFactory>(),
                     "https://animeido.com/version.json"
                 ));
+
             var provider = services.BuildServiceProvider();
             Contracts.AppServices.Provider = provider;
             Services = provider;
+            var db = provider.GetRequiredService<DatabaseService>();
+            await db.InitializeAsync();
 
             _window = new MainWindow(naviItems);
             _window.Activate();
