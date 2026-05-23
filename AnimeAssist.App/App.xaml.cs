@@ -49,6 +49,7 @@ namespace AniMeido.App
             var naviItems = await host.LoadPluginAsync(pluginPath);
             App.Plugins = host.GetPlugins();
             services.AddSingleton<DatabaseService>();
+            services.AddSingleton(sp => sp.GetRequiredService<DatabaseService>().DbPath);
             services.AddSingleton<UpdateService>(sp =>
                 new UpdateService(
                     sp.GetRequiredService<IHttpClientFactory>(),
