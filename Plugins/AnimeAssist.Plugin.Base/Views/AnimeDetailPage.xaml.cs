@@ -101,6 +101,8 @@ namespace AniMeido.Plugin.Base.Views
         private void UpdateStatusHint()
         {
             var status = ViewModel.CurrentStatus;
+            ResetButtonVisuals();
+
             if (status == AnimeTrackingStatus.None)
             {
                 StatusHint.Visibility = Visibility.Collapsed;
@@ -116,6 +118,80 @@ namespace AniMeido.Plugin.Base.Views
                 _ => ""
             };
             StatusHint.Text = $"当前标记：{label}";
+
+            // 高亮选中按钮
+            var accent = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"]);
+            var whiteBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 255, 255));
+
+            switch (status)
+            {
+                case AnimeTrackingStatus.Watching:
+                    SetButtonActive(WatchingBtn, WatchingIcon, WatchingText, accent, whiteBrush);
+                    break;
+                case AnimeTrackingStatus.PlanToWatch:
+                    SetButtonActive(PlanToWatchBtn, PlanToWatchIcon, PlanToWatchText, accent, whiteBrush);
+                    break;
+                case AnimeTrackingStatus.NotInterested:
+                    SetButtonActive(NotInterestedBtn, NotInterestedIcon, NotInterestedText, accent, whiteBrush);
+                    break;
+            }
+        }
+
+        private void ResetButtonVisuals()
+        {
+            var defaultBg = Application.Current.Resources["CardBackgroundFillColorDefault"] as Microsoft.UI.Xaml.Media.Brush;
+            var secondaryBrush = Application.Current.Resources["TextFillColorSecondaryBrush"] as Microsoft.UI.Xaml.Media.Brush;
+
+            if (defaultBg == null) defaultBg = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(25, 25, 25, 25));
+            if (secondaryBrush == null) secondaryBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 180, 180, 180));
+
+            SetButtonInactive(WatchingBtn, WatchingIcon, WatchingText, defaultBg, secondaryBrush);
+            SetButtonInactive(PlanToWatchBtn, PlanToWatchIcon, PlanToWatchText, defaultBg, secondaryBrush);
+            SetButtonInactive(NotInterestedBtn, NotInterestedIcon, NotInterestedText, defaultBg, secondaryBrush);
+        }
+
+        private void SetButtonActive(Button btn, FontIcon icon, TextBlock text,
+            Microsoft.UI.Xaml.Media.Brush accentBg, Microsoft.UI.Xaml.Media.Brush whiteFg)
+        {
+            btn.Background = accentBg;
+            btn.Foreground = whiteFg;
+            btn.BorderBrush = accentBg;
+            if (icon != null) icon.Foreground = whiteFg;
+            if (text != null) text.Foreground = whiteFg;
+        }
+
+        private void SetButtonInactive(Button btn, FontIcon icon, TextBlock text,
+            Microsoft.UI.Xaml.Media.Brush bg, Microsoft.UI.Xaml.Media.Brush fg)
+        {
+            btn.Background = bg;
+            btn.Foreground = fg;
+            btn.BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(60, 255, 255, 255));
+            if (icon != null) icon.Foreground = fg;
+            if (text != null) text.Foreground = fg;
+        }
+
+        private void OnTrackingBtnEntered(object sender, PointerRoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Background is Microsoft.UI.Xaml.Media.SolidColorBrush brush)
+            {
+                // Only apply hover if not already accent-colored
+                if (brush.Color.A < 200 || brush.Color.R < 100)
+                {
+                    var color = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+                    btn.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                        Windows.UI.Color.FromArgb(25, color.R, color.G, color.B));
+                }
+            }
+        }
+
+        private void OnTrackingBtnExited(object sender, PointerRoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Background is Microsoft.UI.Xaml.Media.SolidColorBrush brush)
+            {
+                if (brush.Color.A < 200 || brush.Color.R < 100)
+                    btn.Background = null;
+            }
         }
 
         private async void OnBangumiCardTapped(object sender, TappedRoutedEventArgs e)

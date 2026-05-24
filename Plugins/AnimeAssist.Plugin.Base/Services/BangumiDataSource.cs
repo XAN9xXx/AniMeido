@@ -67,7 +67,7 @@ namespace AniMeido.Plugin.Base.Services
         // 将CalendarItem对象映射为Anime对象，使用默认值处理缺失的信息，并记录无法解析的放送日期的警告日志
         private Anime MapToAnime(CalendarItem item, int year, int seasonMonth)
         {
-            DateOnly? parsedDate = DateOnly.TryParse(item.AirDate, out var date) ? date : null;
+            DateOnly? parsedDate = DateTime.TryParse(item.AirDate, out var dt) ? DateOnly.FromDateTime(dt) : null;
 
             if (parsedDate is null)
             {
@@ -121,11 +121,11 @@ namespace AniMeido.Plugin.Base.Services
         // 判断条目的放送日期是否属于指定的年份和季度
         private static bool BelongsToSeason(CalendarItem item, int year, Season season)
         {
-            if (!DateOnly.TryParse(item.AirDate, out var airDate))
+            if (!DateTime.TryParse(item.AirDate, out var dt))
             {
                 return false;
             }
-            return airDate.Year == year && SeasonHelper.FromMonth(airDate.Month) == season;
+            return dt.Year == year && SeasonHelper.FromMonth(dt.Month) == season;
         }
 
         // 根据角色定位返回优先级，主角优先，配角次之，闲角最后。
@@ -140,9 +140,9 @@ namespace AniMeido.Plugin.Base.Services
         // 将DTO SubjectResponse映射为Anime的辅助方法
         private static Anime MapFromSubject(SubjectResponse item, int? year = null, int? seasonMonth = null)
         {
-            DateOnly? parsedDate = DateOnly.TryParse(item.Date, out var date) ? date : null;
+            DateOnly? parsedDate = DateTime.TryParse(item.Date, out var dt) ? DateOnly.FromDateTime(dt) : null;
             int resolvedYear = year ?? parsedDate?.Year ?? 0;
-            int resolvedSeasonMonth = seasonMonth 
+            int resolvedSeasonMonth = seasonMonth
                 ?? (parsedDate.HasValue ? SeasonHelper.ToMonth(SeasonHelper.FromMonth(parsedDate.Value.Month)) : 0);
 
             return new Anime(

@@ -83,15 +83,22 @@
                         <Button x:Name="WatchingBtn"
                                 Command="{Binding SetWatchingCommand}"
                                 IsEnabled="{Binding HasData}"
-                                Background="{ThemeResource SystemAccentColor}"
-                                Foreground="White"
+                                BorderBrush="{ThemeResource ControlStrokeColorDefault}"
+                                BorderThickness="1"
+                                Background="{ThemeResource CardBackgroundFillColorDefault}"
                                 CornerRadius="6"
-                                Padding="14,8">
+                                Padding="14,8"
+                                Visibility="Collapsed"
+                                PointerEntered="OnTrackingBtnEntered"
+                                PointerExited="OnTrackingBtnExited">
                             <StackPanel Orientation="Horizontal"
                                     Spacing="6">
-                                <FontIcon Glyph="&#xE8FB;"
-                                        FontSize="14"/>
-                                <TextBlock Text="追番"
+                                <FontIcon x:Name="WatchingIcon"
+                                        Glyph="&#xE8FB;"
+                                        FontSize="14"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <TextBlock x:Name="WatchingText"
+                                        Text="追番"
                                         FontSize="14"
                                         FontWeight="SemiBold"/>
                             </StackPanel>
@@ -103,61 +110,43 @@
                                 BorderThickness="1"
                                 Background="{ThemeResource CardBackgroundFillColorDefault}"
                                 CornerRadius="6"
-                                Padding="14,8">
+                                Padding="14,8"
+                                Visibility="Collapsed"
+                                PointerEntered="OnTrackingBtnEntered"
+                                PointerExited="OnTrackingBtnExited">
                             <StackPanel Orientation="Horizontal"
                                     Spacing="6">
-                                <FontIcon Glyph="&#xE1D4;"
+                                <FontIcon x:Name="PlanToWatchIcon"
+                                        Glyph="&#xE1D4;"
                                         FontSize="14"
-                                        Foreground="{ThemeResource SystemAccentColor}"/>
-                                <TextBlock Text="补番"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <TextBlock x:Name="PlanToWatchText"
+                                        Text="补番"
                                         FontSize="14"
                                         FontWeight="SemiBold"/>
                             </StackPanel>
                         </Button>
-                        <Button Command="{Binding SetNotInterestedCommand}"
-                                IsEnabled="{Binding HasData}"
-                                BorderThickness="1"
-                                Background="{ThemeResource CardBackgroundFillColorDefault}"
-                                CornerRadius="6"
-                                Padding="14,8">
-                            <StackPanel Orientation="Horizontal"
-                                        Spacing="6">
-                                <FontIcon Glyph="&#xE1D4;"
-                                          FontSize="14"
-                                          Foreground="{ThemeResource SystemAccentColor}"/>
-                                <TextBlock Text="补番"
-                                           FontSize="14"
-                                           FontWeight="SemiBold"/>
-                            </StackPanel>
-                        </Button>
-                        <Button Command="{Binding SetNotInterestedCommand}"
-                                IsEnabled="{Binding HasData}"
-                                BorderBrush="{ThemeResource ControlStrokeColorDefault}"
-                                BorderThickness="1"
-                                Background="{ThemeResource CardBackgroundFillColorDefault}"
-                                CornerRadius="6"
-                                Padding="14,8">
-                            <StackPanel Orientation="Horizontal"
-                                        Spacing="6">
-                                <FontIcon Glyph="&#xE711;"
-                                          FontSize="14"
-                                          Foreground="{StaticResource SystemAccentColor}"/>
-                                <TextBlock Text="不感兴趣"
-                                           FontSize="14"
-                                           FontWeight="SemiBold"/>
-                            </StackPanel>
-                        </Button>
-                        <Button Command="{Binding ClearTrackingStatusCommand}"
+                        <Button x:Name="NotInterestedBtn"
+                                Command="{Binding SetNotInterestedCommand}"
                                 IsEnabled="{Binding HasData}"
                                 BorderBrush="{ThemeResource ControlStrokeColorDefault}"
                                 BorderThickness="1"
                                 Background="{ThemeResource CardBackgroundFillColorDefault}"
                                 CornerRadius="6"
                                 Padding="14,8"
-                                ToolTipService.ToolTip="清除标记">
-                            <FontIcon Glyph="&#xE711;"
-                                      FontSize="14"
-                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                PointerEntered="OnTrackingBtnEntered"
+                                PointerExited="OnTrackingBtnExited">
+                            <StackPanel Orientation="Horizontal"
+                                    Spacing="6">
+                                <FontIcon x:Name="NotInterestedIcon"
+                                        Glyph="&#xE711;"
+                                        FontSize="14"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <TextBlock x:Name="NotInterestedText"
+                                        Text="不感兴趣"
+                                        FontSize="14"
+                                        FontWeight="SemiBold"/>
+                            </StackPanel>
                         </Button>
                     </StackPanel>
 

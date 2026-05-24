@@ -2,8 +2,10 @@ using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Windows.UI;
 
@@ -188,6 +190,73 @@ namespace AniMeido.Plugin.Base.Views
             if (sender is FrameworkElement fe && fe.DataContext is Anime anime)
             {
                 Frame.Navigate(typeof(AnimeDetailPage), anime.ID);
+            }
+        }
+
+        private void OnCardEntered(object sender, PointerRoutedEventArgs e)
+        {
+            if (sender is Border border)
+            {
+                var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+                border.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                    Windows.UI.Color.FromArgb(18, accent.R, accent.G, accent.B));
+            }
+        }
+
+        private void OnCardExited(object sender, PointerRoutedEventArgs e)
+        {
+            if (sender is Border border)
+                border.Background = null;
+        }
+
+        private void OnCardPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (sender is Border border)
+            {
+                var visual = ElementCompositionPreview.GetElementVisual(border);
+                var compositor = visual.Compositor;
+
+                var scaleX = compositor.CreateScalarKeyFrameAnimation();
+                scaleX.InsertKeyFrame(0.0f, 1.0f);
+                scaleX.InsertKeyFrame(0.6f, 0.97f);
+                scaleX.InsertKeyFrame(1.0f, 1.03f);
+                scaleX.Duration = TimeSpan.FromMilliseconds(300);
+
+                var scaleY = compositor.CreateScalarKeyFrameAnimation();
+                scaleY.InsertKeyFrame(0.0f, 1.0f);
+                scaleY.InsertKeyFrame(0.6f, 0.97f);
+                scaleY.InsertKeyFrame(1.0f, 1.03f);
+                scaleY.Duration = TimeSpan.FromMilliseconds(300);
+
+                visual.CenterPoint = new System.Numerics.Vector3(
+                    (float)border.ActualWidth / 2, (float)border.ActualHeight / 2, 0);
+                visual.StartAnimation("Scale.X", scaleX);
+                visual.StartAnimation("Scale.Y", scaleY);
+                // 弹回
+                var bounceX = compositor.CreateScalarKeyFrameAnimation();
+                bounceX.InsertKeyFrame(0.0f, 1.03f);
+                bounceX.InsertKeyFrame(1.0f, 1.0f);
+                bounceX.Duration = TimeSpan.FromMilliseconds(200);
+                var bounceY = compositor.CreateScalarKeyFrameAnimation();
+                bounceY.InsertKeyFrame(0.0f, 1.03f);
+                bounceY.InsertKeyFrame(1.0f, 1.0f);
+                bounceY.Duration = TimeSpan.FromMilliseconds(200);
+                visual.StartAnimation("Scale.X", bounceX);
+                visual.StartAnimation("Scale.Y", bounceY);
+            }
+        }
+
+        private void OnCardReleased(object sender, PointerRoutedEventArgs e)
+        {
+            if (sender is Border border)
+            {
+                var visual = ElementCompositionPreview.GetElementVisual(border);
+                var compositor = visual.Compositor;
+                var reset = compositor.CreateScalarKeyFrameAnimation();
+                reset.InsertKeyFrame(1.0f, 1.0f);
+                reset.Duration = TimeSpan.FromMilliseconds(100);
+                visual.StartAnimation("Scale.X", reset);
+                visual.StartAnimation("Scale.Y", reset);
             }
         }
     }

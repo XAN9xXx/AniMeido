@@ -96,24 +96,48 @@ namespace AniMeido.Plugin.Base.ViewModels
         private async Task SetWatchingAsync()
         {
             if (_lastAnimeID <= 0) return;
-            await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.Watching);
-            CurrentStatus = AnimeTrackingStatus.Watching;
+            if (CurrentStatus == AnimeTrackingStatus.Watching)
+            {
+                await _trackingService.RemoveStatusAsync(_lastAnimeID);
+                CurrentStatus = AnimeTrackingStatus.None;
+            }
+            else
+            {
+                await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.Watching);
+                CurrentStatus = AnimeTrackingStatus.Watching;
+            }
         }
 
         [RelayCommand]
         private async Task SetPlanToWatchAsync()
         {
             if (_lastAnimeID <= 0) return;
-            await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.PlanToWatch);
-            CurrentStatus = AnimeTrackingStatus.PlanToWatch;
+            if (CurrentStatus == AnimeTrackingStatus.PlanToWatch)
+            {
+                await _trackingService.RemoveStatusAsync(_lastAnimeID);
+                CurrentStatus = AnimeTrackingStatus.None;
+            }
+            else
+            {
+                await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.PlanToWatch);
+                CurrentStatus = AnimeTrackingStatus.PlanToWatch;
+            }
         }
 
         [RelayCommand]
         private async Task SetNotInterestedAsync()
         {
             if (_lastAnimeID <= 0) return;
-            await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.NotInterested);
-            CurrentStatus = AnimeTrackingStatus.NotInterested;
+            if (CurrentStatus == AnimeTrackingStatus.NotInterested)
+            {
+                await _trackingService.RemoveStatusAsync(_lastAnimeID);
+                CurrentStatus = AnimeTrackingStatus.None;
+            }
+            else
+            {
+                await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.NotInterested);
+                CurrentStatus = AnimeTrackingStatus.NotInterested;
+            }
         }
 
         [RelayCommand]
