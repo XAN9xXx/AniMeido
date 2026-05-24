@@ -1,5 +1,6 @@
 using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Composition;
@@ -17,7 +18,7 @@ namespace AniMeido.Plugin.Base.Views
 
         public ManagementPage()
         {
-            var ts = AppServices.Provider!.GetRequiredService<ITrackingService>();
+            var ts = AppServices.Provider!.GetRequiredService<TrackingService>();
             var ds = AppServices.Provider!.GetRequiredService<IAnimeDataSource>();
             ViewModel = new ManagementViewModel(ts, ds);
             DataContext = ViewModel;

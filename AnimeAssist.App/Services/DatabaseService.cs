@@ -54,6 +54,7 @@ namespace AniMeido.App.Services
                     Value TEXT NOT NULL
                 )
             """;
+            await command.ExecuteNonQueryAsync();
         }
     }
 }

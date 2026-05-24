@@ -1,5 +1,6 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,7 +18,7 @@ namespace AniMeido.Plugin.Base.Views
         public AnimeDetailPage()
         {
             var ds = AppServices.Provider!.GetRequiredService<IAnimeDataSource>();
-            var ts = AppServices.Provider!.GetRequiredService<ITrackingService>();
+            var ts = AppServices.Provider!.GetRequiredService<TrackingService>();
             ViewModel = new AnimeDetailViewModel(ds, ts);
             DataContext = ViewModel;
             InitializeComponent();

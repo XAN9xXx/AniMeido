@@ -3,12 +3,13 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Services;
 
 namespace AniMeido.Plugin.Base.ViewModels
 {
     public partial class ManagementViewModel : ObservableObject
     {
-        private readonly ITrackingService _trackingService;
+        private readonly TrackingService _trackingService;
         private readonly IAnimeDataSource _animeDataSource;
 
 
@@ -34,7 +35,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         private int _selectedTabIndex = 0;
 
 
-        public ManagementViewModel(ITrackingService trackingService, IAnimeDataSource dataSource)
+        public ManagementViewModel(TrackingService trackingService, IAnimeDataSource dataSource)
         {
             _trackingService = trackingService;
             _animeDataSource = dataSource;

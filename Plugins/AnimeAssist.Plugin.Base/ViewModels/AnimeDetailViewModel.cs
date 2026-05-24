@@ -2,6 +2,7 @@
 using CommunityToolkit.Mvvm.Input;
 using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Services;
 
 namespace AniMeido.Plugin.Base.ViewModels
 {
@@ -28,11 +29,11 @@ namespace AniMeido.Plugin.Base.ViewModels
             : null;
         private int _lastAnimeID;
         private readonly IAnimeDataSource _animeDataSource;
-        private readonly ITrackingService _trackingService;
+        private readonly TrackingService _trackingService;
 
 
 
-        public AnimeDetailViewModel(IAnimeDataSource dataSource, ITrackingService trackingService)
+        public AnimeDetailViewModel(IAnimeDataSource dataSource, TrackingService trackingService)
         {
             _animeDataSource = dataSource;
             _trackingService = trackingService;

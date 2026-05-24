@@ -4,7 +4,7 @@ using Microsoft.Data.Sqlite;
 
 namespace AniMeido.Plugin.Base.Services
 {
-    public class TrackingService : ITrackingService
+    public class TrackingService
     {
         private readonly string _connectionString;
 

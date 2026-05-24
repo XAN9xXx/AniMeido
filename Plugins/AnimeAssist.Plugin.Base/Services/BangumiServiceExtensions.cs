@@ -20,9 +20,9 @@ namespace AniMeido.Plugin.Base.Services
                 client.Timeout = TimeSpan.FromSeconds(30);
                 client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "XAN9xXx/AniMeido/1.0.0 (https://github.com/XAN9xXx/AniMeido)");
             });
-            services.AddSingleton<IAnimeDataSource,BangumiDataSource>();
+            services.AddSingleton<IAnimeDataSource, BangumiDataSource>();
             services.AddSingleton<BangumiApiClient>();
-            services.AddSingleton<ITrackingService, TrackingService>();
+            services.AddSingleton<TrackingService>();
             services.AddSingleton<CacheService>();
             return services;
         }
