@@ -32,12 +32,12 @@ namespace AniMeido.App.Services
                 VersionManifest? jsonVersionManifest = JsonSerializer.Deserialize<VersionManifest>(json, JsonOptions);
                 var currentVersion = Assembly.GetEntryAssembly()?.GetName()?.Version;
                 if (currentVersion == null) return null;
-                if(jsonVersionManifest == null) return null;
+                if (jsonVersionManifest == null) return null;
 
                 var latestVersion = new Version(jsonVersionManifest.LatestVersion);
 
                 if (latestVersion > currentVersion) return new UpdateCheckResult(true, jsonVersionManifest.LatestVersion, jsonVersionManifest.DownloadUrl, jsonVersionManifest.ReleaseNotes);
-                return new UpdateCheckResult(false, null, null, null);
+                return new UpdateCheckResult(false, jsonVersionManifest.LatestVersion, null, null);
             }
             catch (Exception)
             {
