@@ -47,6 +47,13 @@ namespace AniMeido.App.Services
                 )
             """;
             await command.ExecuteNonQueryAsync();
+
+            command.CommandText = """
+                CREATE TABLE IF NOT EXISTS config(
+                    Key   TEXT PRIMARY KEY,
+                    Value TEXT NOT NULL
+                )
+            """;
         }
     }
 }
