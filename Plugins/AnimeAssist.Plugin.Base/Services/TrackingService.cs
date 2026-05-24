@@ -1,12 +1,16 @@
 ﻿using AniMeido.Contracts.Models;
-using AniMeido.Contracts;
 using Microsoft.Data.Sqlite;
+using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.Services
 {
     public class TrackingService
     {
         private readonly string _connectionString;
+        private static readonly JsonSerializerOptions ConfigJsonOptions = new()
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        };
 
 
 
@@ -77,6 +81,39 @@ namespace AniMeido.Plugin.Base.Services
             command.Parameters.AddWithValue("@animeId", animeId);
 
             await command.ExecuteNonQueryAsync();
+        }
+
+        // ======== 拖放配置 ========
+
+        public async Task SaveDragZoneConfigAsync(List<DragZoneConfig> configs)
+        {
+            var json = JsonSerializer.Serialize(configs, ConfigJsonOptions);
+
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT OR REPLACE INTO config (Key, Value)
+                VALUES ('drag_zones', @value)
+                """;
+            command.Parameters.AddWithValue("@value", json);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task<List<DragZoneConfig>> LoadDragZoneConfigAsync()
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Value FROM config WHERE Key = 'drag_zones'";
+            var result = await command.ExecuteScalarAsync();
+
+            if (result is string json && !string.IsNullOrEmpty(json))
+                return JsonSerializer.Deserialize<List<DragZoneConfig>>(json, ConfigJsonOptions) ?? DragZoneConfig.GetDefaults();
+
+            return DragZoneConfig.GetDefaults();
         }
 
     }

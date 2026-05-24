@@ -1,5 +1,6 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Composition;
@@ -7,6 +8,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
+using Windows.UI;
 
 namespace AniMeido.Plugin.Base.Views
 {
@@ -15,12 +17,17 @@ namespace AniMeido.Plugin.Base.Views
         public CurrentSeasonViewModel ViewModel { get; }
 
         static bool _hasAutoScrolledOnce = false;
+        private List<DragZoneConfig> _dragZones = DragZoneConfig.GetDefaults();
+        private TrackingService? _tracking;
 
         public CurrentSeasonPage()
         {
             var ds = AppServices.Provider!.GetRequiredService<IAnimeDataSource>();
             ViewModel = new CurrentSeasonViewModel(ds);
             InitializeComponent();
+
+            // 异步加载拖放配置
+            _ = LoadDragConfigAsync();
 
             ViewModel.PropertyChanged += (s, e) =>
             {
@@ -136,6 +143,22 @@ namespace AniMeido.Plugin.Base.Views
             }
         }
 
+        private void OnDragItemsStarting(object sender, DragItemsStartingEventArgs e)
+        {
+            if (e.Items.FirstOrDefault() is Anime anime)
+            {
+                e.Data.SetData("AnimeID", anime.ID);
+                e.Data.RequestedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+                DragOverlay.Visibility = Visibility.Visible;
+                ShowZones();
+            }
+        }
+
+        private void OnDragItemsCompleted(object sender, DragItemsCompletedEventArgs e)
+        {
+            DragOverlay.Visibility = Visibility.Collapsed;
+        }
+
         private void OnWeekdayItemClick(object sender, ItemClickEventArgs e)
         {
             if (e.ClickedItem is Anime anime)
@@ -169,5 +192,120 @@ namespace AniMeido.Plugin.Base.Views
             visual.StartAnimation("Scale.X", scaleX);
             visual.StartAnimation("Scale.Y", scaleY);
         }
+
+        // ======== 拖放标记 ========
+
+        private async Task LoadDragConfigAsync()
+        {
+            _tracking = AppServices.Provider!.GetRequiredService<TrackingService>();
+            _dragZones = await _tracking.LoadDragZoneConfigAsync();
+        }
+
+
+        private void OnZoneDragOver(object sender, DragEventArgs e)
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            ShowZones();
+        }
+
+        private void OnZoneDragLeave(object sender, DragEventArgs e)
+        {
+            if (sender is Border zone)
+            {
+                var inner = GetZoneInner(zone.Tag?.ToString());
+                if (inner != null) SetZoneHidden(inner);
+            }
+        }
+
+        private async void OnZoneDrop(object sender, DragEventArgs e)
+        {
+            if (_tracking == null) _tracking = AppServices.Provider!.GetRequiredService<TrackingService>();
+
+            if (e.DataView.Contains("AnimeID"))
+            {
+                var deferral = e.GetDeferral();
+                try
+                {
+                    var animeId = Convert.ToInt32(await e.DataView.GetDataAsync("AnimeID"));
+                    if (sender is Border zone)
+                    {
+                        var config = _dragZones.Find(z =>
+                        {
+                            var key = zone.Tag?.ToString();
+                            return key == "TopLeft" && z.Position == DragPosition.TopLeft
+                                || key == "TopRight" && z.Position == DragPosition.TopRight
+                                || key == "BottomLeft" && z.Position == DragPosition.BottomLeft
+                                || key == "BottomRight" && z.Position == DragPosition.BottomRight;
+                        });
+                        if (config != null && config.Action != DragAction.None)
+                        {
+                            var status = config.Action switch
+                            {
+                                DragAction.Watching => AnimeTrackingStatus.Watching,
+                                DragAction.PlanToWatch => AnimeTrackingStatus.PlanToWatch,
+                                DragAction.NotInterested => AnimeTrackingStatus.NotInterested,
+                                _ => AnimeTrackingStatus.None
+                            };
+                            if (status != AnimeTrackingStatus.None)
+                                await _tracking.SetStatusAsync(animeId, status);
+                        }
+                    }
+                }
+                finally
+                {
+                    deferral.Complete();
+                }
+            }
+        }
+
+        private void ShowZones()
+        {
+            ConfigureZone(TopLeftZone, TopLeftInner, TopLeftText, DragPosition.TopLeft);
+            ConfigureZone(TopRightZone, TopRightInner, TopRightText, DragPosition.TopRight);
+            ConfigureZone(BottomLeftZone, BottomLeftInner, BottomLeftText, DragPosition.BottomLeft);
+            ConfigureZone(BottomRightZone, BottomRightInner, BottomRightText, DragPosition.BottomRight);
+        }
+
+        private void ConfigureZone(Border zone, Border inner, TextBlock label, DragPosition pos)
+        {
+            var config = _dragZones.Find(z => z.Position == pos);
+            if (config == null || config.Action == DragAction.None || config.Action == DragAction.PlanToWatch)
+            {
+                zone.Visibility = Visibility.Collapsed;
+                return;
+            }
+            zone.Visibility = Visibility.Visible;
+            inner.Visibility = Visibility.Visible;
+            label.Text = config.Action switch
+            {
+                DragAction.Watching => "追番",
+                DragAction.PlanToWatch => "补番",
+                DragAction.NotInterested => "不感兴趣",
+                _ => ""
+            };
+        }
+
+        private void HideZones()
+        {
+            SetZoneHidden(TopLeftInner);
+            SetZoneHidden(TopRightInner);
+            SetZoneHidden(BottomLeftInner);
+            SetZoneHidden(BottomRightInner);
+        }
+
+        private void SetZoneHidden(Border inner)
+        {
+            if (inner != null)
+                inner.Visibility = Visibility.Collapsed;
+        }
+
+        private Border? GetZoneInner(string? tag) => tag switch
+        {
+            "TopLeft" => TopLeftInner,
+            "TopRight" => TopRightInner,
+            "BottomLeft" => BottomLeftInner,
+            "BottomRight" => BottomRightInner,
+            _ => null
+        };
     }
 }

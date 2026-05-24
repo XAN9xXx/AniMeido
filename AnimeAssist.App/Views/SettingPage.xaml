@@ -86,6 +86,115 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
+            <!-- 拖放标记配置 -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                    CornerRadius="8"
+                    Padding="16">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="拖放标记"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                    <Grid ColumnDefinitions="120,*,80"
+                          ColumnSpacing="8">
+                        <TextBlock Text="左上角"
+                                   VerticalAlignment="Center"
+                                   FontSize="14"/>
+                        <ComboBox x:Name="TopLeftAction"
+                                  Grid.Column="1"
+                                  SelectedIndex="3"
+                                  SelectionChanged="OnDragZoneChanged">
+                            <x:String>禁用</x:String>
+                            <x:String>追番</x:String>
+                            <x:String>补番</x:String>
+                            <x:String>不感兴趣</x:String>
+                        </ComboBox>
+                        <Slider x:Name="TopLeftSize"
+                                Grid.Column="2"
+                                Minimum="15"
+                                Maximum="40"
+                                Value="25"
+                                TickFrequency="5"
+                                ValueChanged="OnDragZoneSliderChanged"/>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="120,*,80"
+                          ColumnSpacing="8">
+                        <TextBlock Text="右上角"
+                                   VerticalAlignment="Center"
+                                   FontSize="14"/>
+                        <ComboBox x:Name="TopRightAction"
+                                  Grid.Column="1"
+                                  SelectedIndex="2"
+                                  SelectionChanged="OnDragZoneChanged">
+                            <x:String>禁用</x:String>
+                            <x:String>追番</x:String>
+                            <x:String>补番</x:String>
+                            <x:String>不感兴趣</x:String>
+                        </ComboBox>
+                        <Slider x:Name="TopRightSize"
+                                Grid.Column="2"
+                                Minimum="15"
+                                Maximum="40"
+                                Value="25"
+                                TickFrequency="5"
+                                ValueChanged="OnDragZoneSliderChanged"/>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="120,*,80"
+                          ColumnSpacing="8">
+                        <TextBlock Text="左下角"
+                                   VerticalAlignment="Center"
+                                   FontSize="14"/>
+                        <ComboBox x:Name="BottomLeftAction"
+                                  Grid.Column="1"
+                                  SelectedIndex="3"
+                                  SelectionChanged="OnDragZoneChanged">
+                            <x:String>禁用</x:String>
+                            <x:String>追番</x:String>
+                            <x:String>补番</x:String>
+                            <x:String>不感兴趣</x:String>
+                        </ComboBox>
+                        <Slider x:Name="BottomLeftSize"
+                                Grid.Column="2"
+                                Minimum="15"
+                                Maximum="40"
+                                Value="25"
+                                TickFrequency="5"
+                                ValueChanged="OnDragZoneSliderChanged"/>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="120,*,80"
+                          ColumnSpacing="8">
+                        <TextBlock Text="右下角"
+                                   VerticalAlignment="Center"
+                                   FontSize="14"/>
+                        <ComboBox x:Name="BottomRightAction"
+                                  Grid.Column="1"
+                                  SelectedIndex="0"
+                                  SelectionChanged="OnDragZoneChanged">
+                            <x:String>禁用</x:String>
+                            <x:String>追番</x:String>
+                            <x:String>补番</x:String>
+                            <x:String>不感兴趣</x:String>
+                        </ComboBox>
+                        <Slider x:Name="BottomRightSize"
+                                Grid.Column="2"
+                                Minimum="15"
+                                Maximum="40"
+                                Value="25"
+                                TickFrequency="5"
+                                ValueChanged="OnDragZoneSliderChanged"/>
+                    </Grid>
+
+                    <Button Content="恢复默认"
+                            HorizontalAlignment="Right"
+                            Click="OnResetDragZones"
+                            Height="32"
+                            FontSize="13"/>
+                </StackPanel>
+            </Border>
+
             <!-- 关于卡片 -->
             <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
                     CornerRadius="8">
