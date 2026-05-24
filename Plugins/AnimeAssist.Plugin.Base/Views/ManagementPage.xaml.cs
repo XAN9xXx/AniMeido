@@ -1,0 +1,194 @@
+using AniMeido.Contracts;
+using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.ViewModels;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Windows.UI;
+
+namespace AniMeido.Plugin.Base.Views
+{
+    public sealed partial class ManagementPage : Page
+    {
+        public ManagementViewModel ViewModel { get; }
+
+        public ManagementPage()
+        {
+            var ts = AppServices.Provider!.GetRequiredService<ITrackingService>();
+            var ds = AppServices.Provider!.GetRequiredService<IAnimeDataSource>();
+            ViewModel = new ManagementViewModel(ts, ds);
+            DataContext = ViewModel;
+            InitializeComponent();
+
+            ViewModel.PropertyChanged += (s, e) =>
+            {
+                switch (e.PropertyName)
+                {
+                    case nameof(ManagementViewModel.IsLoading):
+                        LoadingOverlay.Visibility = ViewModel.IsLoading ? Visibility.Visible : Visibility.Collapsed;
+                        LoadingRing.IsActive = ViewModel.IsLoading;
+                        break;
+
+                    case nameof(ManagementViewModel.IsError):
+                        if (ViewModel.IsError)
+                        {
+                            ErrorInfoBar.Message = ViewModel.ErrorMessage;
+                            ErrorInfoBar.IsOpen = true;
+                            ErrorInfoBar.Visibility = Visibility.Visible;
+                        }
+                        else
+                        {
+                            ErrorInfoBar.IsOpen = false;
+                            ErrorInfoBar.Visibility = Visibility.Collapsed;
+                        }
+                        break;
+
+                    case nameof(ManagementViewModel.WatchingCount):
+                        WatchingCountText.Text = $"追番中 ({ViewModel.WatchingCount})";
+                        WatchingEmpty.Visibility = ViewModel.WatchingCount > 0 ? Visibility.Collapsed : Visibility.Visible;
+                        break;
+
+                    case nameof(ManagementViewModel.PlanToWatchCount):
+                        PlanToWatchCountText.Text = $"补番中 ({ViewModel.PlanToWatchCount})";
+                        PlanToWatchEmpty.Visibility = ViewModel.PlanToWatchCount > 0 ? Visibility.Collapsed : Visibility.Visible;
+                        break;
+
+                    case nameof(ManagementViewModel.NotInterestedCount):
+                        NotInterestedCountText.Text = $"不感兴趣 ({ViewModel.NotInterestedCount})";
+                        NotInterestedEmpty.Visibility = ViewModel.NotInterestedCount > 0 ? Visibility.Collapsed : Visibility.Visible;
+                        break;
+                }
+            };
+
+            ViewModel.LoadDataCommand.Execute(null);
+        }
+
+        private void OnTabClicked(object sender, TappedRoutedEventArgs e)
+        {
+            WatchingPanel.Visibility = Visibility.Collapsed;
+            PlanToWatchPanel.Visibility = Visibility.Collapsed;
+            NotInterestedPanel.Visibility = Visibility.Collapsed;
+
+            var transparent = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+            WatchingCard.Background = transparent;
+            PlanToWatchCard.Background = transparent;
+            NotInterestedCard.Background = transparent;
+
+            // 重置所有指示器和文字颜色
+            WatchingIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
+            WatchingIndicator.Visibility = Visibility.Collapsed;
+            PlanToWatchIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
+            PlanToWatchIndicator.Visibility = Visibility.Collapsed;
+            NotInterestedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
+            NotInterestedIndicator.Visibility = Visibility.Collapsed;
+
+            var defaultBrush = (Microsoft.UI.Xaml.Media.Brush)Resources["TabTextDefaultBrush"];
+            var selectedBrush = (Microsoft.UI.Xaml.Media.Brush)Resources["TabTextSelectedBrush"];
+            WatchingLabel.Foreground = defaultBrush;
+            PlanToWatchLabel.Foreground = defaultBrush;
+            NotInterestedLabel.Foreground = defaultBrush;
+
+            // 设置选中项
+            var accentColor = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+            var selectedBg = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                Windows.UI.Color.FromArgb(20, accentColor.R, accentColor.G, accentColor.B));
+
+            if (sender == WatchingCard)
+            {
+                WatchingPanel.Visibility = Visibility.Visible;
+                WatchingIndicator.Visibility = Visibility.Visible;
+                WatchingIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
+                WatchingLabel.Foreground = selectedBrush;
+                WatchingCard.Background = selectedBg;
+            }
+            else if (sender == PlanToWatchCard)
+            {
+                PlanToWatchPanel.Visibility = Visibility.Visible;
+                PlanToWatchIndicator.Visibility = Visibility.Visible;
+                PlanToWatchIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
+                PlanToWatchLabel.Foreground = selectedBrush;
+                PlanToWatchCard.Background = selectedBg;
+            }
+            else if (sender == NotInterestedCard)
+            {
+                NotInterestedPanel.Visibility = Visibility.Visible;
+                NotInterestedIndicator.Visibility = Visibility.Visible;
+                NotInterestedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
+                NotInterestedLabel.Foreground = selectedBrush;
+                NotInterestedCard.Background = selectedBg;
+            }
+        }
+
+        private bool IsCardSelected(Border card)
+        {
+            return card == WatchingCard && WatchingPanel.Visibility == Visibility.Visible
+                || card == PlanToWatchCard && PlanToWatchPanel.Visibility == Visibility.Visible
+                || card == NotInterestedCard && NotInterestedPanel.Visibility == Visibility.Visible;
+        }
+
+        private void OnCardPointerEntered(object sender, PointerRoutedEventArgs e)
+        {
+            var border = sender as Border;
+            if (border != null)
+            {
+                var color = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+                byte alpha = IsCardSelected(border) ? (byte)40 : (byte)25;
+                border.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                    Windows.UI.Color.FromArgb(alpha, color.R, color.G, color.B));
+            }
+        }
+
+        private void OnCardPointerExited(object sender, PointerRoutedEventArgs e)
+        {
+            var border = sender as Border;
+            if (border != null)
+            {
+                if (!IsCardSelected(border))
+                    border.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+                else
+                {
+                    var color = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+                    border.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                        Windows.UI.Color.FromArgb(20, color.R, color.G, color.B));
+                }
+            }
+        }
+
+        private void OnCardPointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+        }
+
+        private void OnCardPointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+        }
+
+        private void OnRemoveClick(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.DataContext is Anime anime)
+            {
+                var tag = btn.Tag?.ToString();
+                switch (tag)
+                {
+                    case "Watching":
+                        ViewModel.RemoveFromWatchingCommand.Execute(anime.ID);
+                        break;
+                    case "PlanToWatch":
+                        ViewModel.RemoveFromPlanCommand.Execute(anime.ID);
+                        break;
+                    case "NotInterested":
+                        ViewModel.RemoveFromNotInterestedCommand.Execute(anime.ID);
+                        break;
+                }
+            }
+        }
+
+        private void OnItemTapped(object sender, TappedRoutedEventArgs e)
+        {
+            if (sender is FrameworkElement fe && fe.DataContext is Anime anime)
+            {
+                Frame.Navigate(typeof(AnimeDetailPage), anime.ID);
+            }
+        }
+    }
+}

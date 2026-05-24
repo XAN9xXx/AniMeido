@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:contracts="using:AniMeido.Contracts.Models"
     mc:Ignorable="d"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
@@ -72,6 +73,104 @@
                                TextWrapping="Wrap"
                                LineHeight="24"/>
 
+                    <!-- 分割线 -->
+                    <Border Height="1"
+                            Background="{ThemeResource DividerStrokeColorDefault}"/>
+
+                    <!-- 关注状态按钮 -->
+                    <StackPanel Orientation="Horizontal"
+                            Spacing="8">
+                        <Button x:Name="WatchingBtn"
+                                Command="{Binding SetWatchingCommand}"
+                                IsEnabled="{Binding HasData}"
+                                Background="{ThemeResource SystemAccentColor}"
+                                Foreground="White"
+                                CornerRadius="6"
+                                Padding="14,8">
+                            <StackPanel Orientation="Horizontal"
+                                    Spacing="6">
+                                <FontIcon Glyph="&#xE8FB;"
+                                        FontSize="14"/>
+                                <TextBlock Text="追番"
+                                        FontSize="14"
+                                        FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="PlanToWatchBtn"
+                                Command="{Binding SetPlanToWatchCommand}"
+                                IsEnabled="{Binding HasData}"
+                                BorderBrush="{ThemeResource ControlStrokeColorDefault}"
+                                BorderThickness="1"
+                                Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                CornerRadius="6"
+                                Padding="14,8">
+                            <StackPanel Orientation="Horizontal"
+                                    Spacing="6">
+                                <FontIcon Glyph="&#xE1D4;"
+                                        FontSize="14"
+                                        Foreground="{ThemeResource SystemAccentColor}"/>
+                                <TextBlock Text="补番"
+                                        FontSize="14"
+                                        FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding SetNotInterestedCommand}"
+                                IsEnabled="{Binding HasData}"
+                                BorderThickness="1"
+                                Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                CornerRadius="6"
+                                Padding="14,8">
+                            <StackPanel Orientation="Horizontal"
+                                        Spacing="6">
+                                <FontIcon Glyph="&#xE1D4;"
+                                          FontSize="14"
+                                          Foreground="{ThemeResource SystemAccentColor}"/>
+                                <TextBlock Text="补番"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding SetNotInterestedCommand}"
+                                IsEnabled="{Binding HasData}"
+                                BorderBrush="{ThemeResource ControlStrokeColorDefault}"
+                                BorderThickness="1"
+                                Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                CornerRadius="6"
+                                Padding="14,8">
+                            <StackPanel Orientation="Horizontal"
+                                        Spacing="6">
+                                <FontIcon Glyph="&#xE711;"
+                                          FontSize="14"
+                                          Foreground="{StaticResource SystemAccentColor}"/>
+                                <TextBlock Text="不感兴趣"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding ClearTrackingStatusCommand}"
+                                IsEnabled="{Binding HasData}"
+                                BorderBrush="{ThemeResource ControlStrokeColorDefault}"
+                                BorderThickness="1"
+                                Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                CornerRadius="6"
+                                Padding="14,8"
+                                ToolTipService.ToolTip="清除标记">
+                            <FontIcon Glyph="&#xE711;"
+                                      FontSize="14"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- 当前状态提示 -->
+                    <TextBlock x:Name="StatusHint"
+                               FontSize="13"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Visibility="Collapsed"/>
+
+                    <!-- 分割线 -->
+                    <Border Height="1"
+                            Background="{ThemeResource DividerStrokeColorDefault}"/>
+
                     <!-- Bangumi 百科入口 -->
                     <Border x:Name="BangumiCard"
                             Background="{ThemeResource CardBackgroundFillColorDefault}"
@@ -87,7 +186,7 @@
                             PointerReleased="OnBangumiPointerReleased"
                             HorizontalAlignment="Left">
                         <StackPanel Orientation="Horizontal"
-                                Spacing="8">
+                                    Spacing="8">
                             <FontIcon Glyph="&#xE774;"
                                       FontSize="14"
                                       Foreground="{ThemeResource SystemAccentColor}"

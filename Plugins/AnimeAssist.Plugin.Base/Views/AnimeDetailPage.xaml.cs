@@ -1,5 +1,7 @@
 ﻿using AniMeido.Contracts;
+using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.ViewModels;
+using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -15,7 +17,8 @@ namespace AniMeido.Plugin.Base.Views
         public AnimeDetailPage()
         {
             var ds = AppServices.Provider!.GetRequiredService<IAnimeDataSource>();
-            ViewModel = new AnimeDetailViewModel(ds);
+            var ts = AppServices.Provider!.GetRequiredService<ITrackingService>();
+            ViewModel = new AnimeDetailViewModel(ds, ts);
             DataContext = ViewModel;
             InitializeComponent();
 
@@ -28,7 +31,23 @@ namespace AniMeido.Plugin.Base.Views
                     case nameof(AnimeDetailViewModel.HasData):
                         UpdateOverlayState();
                         break;
+
+                    case nameof(AnimeDetailViewModel.CurrentStatus):
+                        UpdateStatusHint();
+                        break;
+
+                    case nameof(AnimeDetailViewModel.IsCurrentSeason):
+                    case nameof(AnimeDetailViewModel.IsOldSeason):
+                        WatchingBtn.Visibility = ViewModel.IsCurrentSeason ? Visibility.Visible : Visibility.Collapsed;
+                        PlanToWatchBtn.Visibility = ViewModel.IsOldSeason ? Visibility.Visible : Visibility.Collapsed;
+                        break;
                 }
+            };
+
+            ViewModel.LoadDetailCommand.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(AsyncRelayCommand.IsRunning))
+                    UpdateOverlayState();
             };
 
             BangumiCard.SizeChanged += (s, e) =>
@@ -42,7 +61,7 @@ namespace AniMeido.Plugin.Base.Views
 
         protected override void OnNavigatedTo(NavigationEventArgs e)
         {
-            if (e.Parameter is int animeID)
+            if (e.Parameter is int animeID && animeID > 0)
                 ViewModel.LoadDetailCommand.Execute(animeID);
         }
 
@@ -77,6 +96,26 @@ namespace AniMeido.Plugin.Base.Views
             {
                 ViewModel.RetryLoadCommand.Execute(null);
             }
+        }
+
+        private void UpdateStatusHint()
+        {
+            var status = ViewModel.CurrentStatus;
+            if (status == AnimeTrackingStatus.None)
+            {
+                StatusHint.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            StatusHint.Visibility = Visibility.Visible;
+            var label = status switch
+            {
+                AnimeTrackingStatus.Watching => "追番中",
+                AnimeTrackingStatus.PlanToWatch => "补番中",
+                AnimeTrackingStatus.NotInterested => "不感兴趣",
+                _ => ""
+            };
+            StatusHint.Text = $"当前标记：{label}";
         }
 
         private async void OnBangumiCardTapped(object sender, TappedRoutedEventArgs e)

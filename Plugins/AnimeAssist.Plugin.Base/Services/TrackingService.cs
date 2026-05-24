@@ -46,7 +46,7 @@ namespace AniMeido.Plugin.Base.Services
             var result = await command.ExecuteScalarAsync();
             if (result is null) return null;
 
-            return (AnimeTrackingStatus)(int)result;
+            return (AnimeTrackingStatus)Convert.ToInt32(result);
         }
 
         public async Task<List<int>> GetAnimeIdsByStatusAsync(AnimeTrackingStatus status)
@@ -62,7 +62,7 @@ namespace AniMeido.Plugin.Base.Services
             using var reader = await command.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {
-                list.Add(reader.GetInt32(0));
+                list.Add(Convert.ToInt32(reader.GetInt64(0)));
             }
             return list;
         }

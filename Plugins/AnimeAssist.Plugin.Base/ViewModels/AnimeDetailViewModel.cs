@@ -17,17 +17,25 @@ namespace AniMeido.Plugin.Base.ViewModels
         private bool _isError = false;
         [ObservableProperty]
         private bool _hasData = false;
+        [ObservableProperty]
+        private AnimeTrackingStatus _currentStatus = AnimeTrackingStatus.None;
+        [ObservableProperty]
+        private bool _isCurrentSeason = false;
+        [ObservableProperty]
+        private bool _isOldSeason = false;
         public string? BangumiUrl => _lastAnimeID > 0
             ? $"https://bgm.tv/subject/{_lastAnimeID}"
             : null;
         private int _lastAnimeID;
         private readonly IAnimeDataSource _animeDataSource;
+        private readonly ITrackingService _trackingService;
 
 
 
-        public AnimeDetailViewModel(IAnimeDataSource dataSource)
+        public AnimeDetailViewModel(IAnimeDataSource dataSource, ITrackingService trackingService)
         {
             _animeDataSource = dataSource;
+            _trackingService = trackingService;
         }
 
 
@@ -50,13 +58,28 @@ namespace AniMeido.Plugin.Base.ViewModels
                 AnimeDetail = await _animeDataSource.GetAnimeDetailAsync(animeID, CancellationToken.None);
                 HasData = true;
                 OnPropertyChanged(nameof(BangumiUrl));
+
+                // 判断是当前季还是往季
+                IsCurrentSeason = false;
+                IsOldSeason = false;
+                if (AnimeDetail?.SeasonMonth > 0 && AnimeDetail.SeasonYear > 0)
+                {
+                    var currentSeason = SeasonHelper.GetCurrentSeason();
+                    var animeSeason = SeasonHelper.FromMonth(AnimeDetail.SeasonMonth);
+                    IsCurrentSeason = AnimeDetail.SeasonYear == currentSeason.year && animeSeason == currentSeason.season;
+                    IsOldSeason = !IsCurrentSeason;
+                }
+
+                // 加载详情后查询当前关注状态
+                var status = await _trackingService.GetStatusAsync(animeID);
+                CurrentStatus = status ?? AnimeTrackingStatus.None;
             }
             catch (Exception ex)
             {
                 ErrorMessage = $"Fail to load: {ex.Message}";
                 IsError = true;
             }
-            finally 
+            finally
             {
                 IsLoading = false;
             }
@@ -66,6 +89,39 @@ namespace AniMeido.Plugin.Base.ViewModels
         private void RetryLoad()
         {
             LoadDetailCommand.Execute(_lastAnimeID);
+        }
+
+
+        [RelayCommand]
+        private async Task SetWatchingAsync()
+        {
+            if (_lastAnimeID <= 0) return;
+            await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.Watching);
+            CurrentStatus = AnimeTrackingStatus.Watching;
+        }
+
+        [RelayCommand]
+        private async Task SetPlanToWatchAsync()
+        {
+            if (_lastAnimeID <= 0) return;
+            await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.PlanToWatch);
+            CurrentStatus = AnimeTrackingStatus.PlanToWatch;
+        }
+
+        [RelayCommand]
+        private async Task SetNotInterestedAsync()
+        {
+            if (_lastAnimeID <= 0) return;
+            await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.NotInterested);
+            CurrentStatus = AnimeTrackingStatus.NotInterested;
+        }
+
+        [RelayCommand]
+        private async Task ClearTrackingStatusAsync()
+        {
+            if (_lastAnimeID <= 0) return;
+            await _trackingService.RemoveStatusAsync(_lastAnimeID);
+            CurrentStatus = AnimeTrackingStatus.None;
         }
     }
 }

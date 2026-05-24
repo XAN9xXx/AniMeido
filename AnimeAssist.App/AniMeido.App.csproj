@@ -26,8 +26,7 @@
     <Content Include="Assets\Placeholder_cover.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Empty_anime.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Loading_failed.png" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="Assets\GitHub_Invertocat_Black_Clearspace.png"
-      CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\GitHub_Invertocat_Black_Clearspace.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\icon.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
@@ -40,12 +39,12 @@
     Tools extension to be activated for this project even if the Windows App SDK Nuget
     package has not yet been restored.
   -->
-  <ItemGroup
-    Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+  <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
     <ProjectCapability Include="Msix" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.8" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
     <PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
@@ -71,8 +70,7 @@
     Explorer "Package and Publish" context menu entry to be enabled for this project even if
     the Windows App SDK Nuget package has not yet been restored.
   -->
-  <PropertyGroup
-    Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+  <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
     <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
   </PropertyGroup>
 
@@ -85,25 +83,19 @@
 
   <Target Name="CopyPluginPri" AfterTargets="Build">
     <ItemGroup>
-      <PluginPriFiles
-        Include="$(MSBuildProjectDirectory)\..\Plugins\**\bin\$(Configuration)\net8.0-windows10.0.19041.0\*.pri" />
+      <PluginPriFiles Include="$(MSBuildProjectDirectory)\..\Plugins\**\bin\$(Configuration)\net8.0-windows10.0.19041.0\*.pri" />
     </ItemGroup>
-    <Copy SourceFiles="@(PluginPriFiles)" DestinationFolder="$(OutDir)"
-      SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(OutDir)$(TargetName).pri"
-      DestinationFolder="$(PublishDir)" />
+    <Copy SourceFiles="@(PluginPriFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(OutDir)$(TargetName).pri" DestinationFolder="$(PublishDir)" />
   </Target>
 
   <Target Name="CopyPluginPriToPublish" AfterTargets="Publish">
     <ItemGroup>
-      <PluginPriFiles
-        Include="$(MSBuildProjectDirectory)\..\Plugins\**\bin\$(Configuration)\net8.0-windows10.0.19041.0\*.pri" />
+      <PluginPriFiles Include="$(MSBuildProjectDirectory)\..\Plugins\**\bin\$(Configuration)\net8.0-windows10.0.19041.0\*.pri" />
     </ItemGroup>
     <!-- 复制到根目录（供根目录加载时使用） -->
-    <Copy SourceFiles="@(PluginPriFiles)" DestinationFolder="$(PublishDir)"
-      SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(PluginPriFiles)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
     <!-- 复制到 Plugins\ 子目录（供子目录加载时使用） -->
-    <Copy SourceFiles="@(PluginPriFiles)" DestinationFolder="$(PublishDir)Plugins\"
-      SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(PluginPriFiles)" DestinationFolder="$(PublishDir)Plugins\" SkipUnchangedFiles="true" />
   </Target>
 </Project>
