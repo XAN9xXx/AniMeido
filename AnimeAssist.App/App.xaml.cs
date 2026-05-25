@@ -63,6 +63,13 @@ namespace AniMeido.App
             await db.InitializeAsync();
 
             _window = new MainWindow(naviItems);
+
+            _window.Closed += (_, _) =>
+            {
+                Log.CloseAndFlush();
+                Application.Current.Exit();
+            };
+
             _window.Activate();
             if (_window.Content is FrameworkElement root)
                 ThemeService.InitializeTheme(root);
