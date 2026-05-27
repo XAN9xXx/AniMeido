@@ -8,7 +8,11 @@ namespace AniMeido.Contracts
     /// <param name="Label">导航栏显示名称。</param>
     /// <param name="Icon">导航栏图标。</param>
     /// <param name="PageTypeName">页面类型名称。</param>
-    public record PluginNavigationItem(string Label, string Icon, string PageTypeName);
+    public record PluginNavigationItem(string Label, string Icon, string PageTypeName)
+    {
+        /// <summary>是否为插件设置页面。设置页不会显示在主导航中，而是聚合到设置页内。</summary>
+        public bool IsSettingsPage { get; init; }
+    }
 
     /// <summary>
     /// 定义插件的基本接口，所有插件必须实现此接口以便被主应用程序识别和加载。接口包含插件的唯一标识符、显示名称、版本信息、是否为必需插件、初始化方法以及获取导航项列表的方法。

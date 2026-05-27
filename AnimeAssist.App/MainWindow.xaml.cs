@@ -199,7 +199,7 @@ namespace AniMeido.App
         // 
         private void BuildNavigationMenu()
         {
-            foreach (var item in _naviItems)
+            foreach (var item in _naviItems.Where(n => !n.IsSettingsPage))
             {
                 var naviItem = new NavigationViewItem
                 {

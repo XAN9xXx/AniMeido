@@ -1,4 +1,5 @@
 ﻿using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Models;
 using Microsoft.Data.Sqlite;
 using System.Text.Json;
 
