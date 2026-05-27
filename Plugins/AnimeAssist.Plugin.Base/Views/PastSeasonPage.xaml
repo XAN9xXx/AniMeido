@@ -10,7 +10,11 @@
     xmlns:controls="using:AniMeido.Plugin.Base.Views.Controls"
     xmlns:contracts="using:AniMeido.Contracts.Models">
 
-    <Grid AllowDrop="True">
+    <Grid AllowDrop="True"
+          Loaded="OnPageLoaded"
+          PointerMoved="OnRootPointerMoved"
+          PointerReleased="OnRootPointerReleased"
+          PointerCanceled="OnRootPointerCanceled">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -26,7 +30,8 @@
                  Margin="0,0,0,12"/>
 
         <!-- 内容区域 -->
-        <ScrollViewer Grid.Row="1">
+        <ScrollViewer x:Name="RootScrollViewer"
+                      Grid.Row="1">
             <StackPanel>
 
                 <!-- 年份季度选择器 -->
@@ -90,9 +95,6 @@
                 <GridView ItemsSource="{x:Bind ViewModel.AnimeList}"
                           IsItemClickEnabled="True"
                           ItemClick="OnItemClick"
-                          CanDragItems="True"
-                          DragItemsStarting="OnDragItemsStarting"
-                          DragItemsCompleted="OnDragItemsCompleted"
                           SelectionMode="None">
                     <GridView.ItemContainerStyle>
                         <Style TargetType="GridViewItem">

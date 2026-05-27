@@ -4,165 +4,214 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
+using Windows.Foundation;
 
-namespace AniMeido.Plugin.Base.Views.Controls;
-
-public sealed partial class AnimeCard : UserControl
+namespace AniMeido.Plugin.Base.Views.Controls
 {
-    public static readonly DependencyProperty ShowWeekdayBadgeProperty =
-        DependencyProperty.Register(nameof(ShowWeekdayBadge), typeof(bool), typeof(AnimeCard),
-            new PropertyMetadata(false, OnShowWeekdayBadgeChanged));
-
-    public bool ShowWeekdayBadge
+    public class AnimeDragEventArgs : EventArgs
     {
-        get => (bool)GetValue(ShowWeekdayBadgeProperty);
-        set => SetValue(ShowWeekdayBadgeProperty, value);
-    }
+        public Anime Anime { get; }
+        public Point PointerPosition { get; }
+        public UIElement Source { get; }
 
-    private static readonly Uri PlaceholderUri = new("ms-appx:///Assets/Placeholder_cover.png");
-
-    public AnimeCard()
-    {
-        InitializeComponent();
-
-        DataContextChanged += (s, e) =>
+        public AnimeDragEventArgs(Anime anime, Point pointerPosition, UIElement source)
         {
-            UpdateWeekdayBadge();
-            // 当 CoverURL 为空时使用占位图
-            if (DataContext is Anime anime && string.IsNullOrEmpty(anime.CoverURL))
-                CoverImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(PlaceholderUri);
-        };
-        PointerEntered += OnPointerEntered;
-        PointerExited += OnPointerExited;
-        PointerPressed += OnPointerPressed;
-        PointerReleased += OnPointerReleased;
-
-        SizeChanged += OnSizeChanged;
+            Anime = anime;
+            PointerPosition = pointerPosition;
+            Source = source;
+        }
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs e)
+    public sealed partial class AnimeCard : UserControl
     {
-        var visual = ElementCompositionPreview.GetElementVisual(this);
-        visual.CenterPoint = new System.Numerics.Vector3(
-            (float)e.NewSize.Width / 2,
-            (float)e.NewSize.Height / 2,
-            0);
-    }
+        /// <summary>当检测到拖动手势（长按+移动阈值）时触发。</summary>
+        public event EventHandler<AnimeDragEventArgs>? DragTriggered;
 
-    private void OnCoverImageFailed(object sender, ExceptionRoutedEventArgs e)
-    {
-        CoverImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(PlaceholderUri);
-    }
+        private bool _dragPointerDown;
+        private Point _dragStartPoint;
+        public static readonly DependencyProperty ShowWeekdayBadgeProperty =
+            DependencyProperty.Register(nameof(ShowWeekdayBadge), typeof(bool), typeof(AnimeCard),
+                new PropertyMetadata(false, OnShowWeekdayBadgeChanged));
 
-    private static void OnShowWeekdayBadgeChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
-    {
-        var card = (AnimeCard)d;
-        card.UpdateWeekdayBadge();
-    }
-
-    private void UpdateWeekdayBadge()
-    {
-        if (!ShowWeekdayBadge || DataContext is not Anime anime || !anime.AirDate.HasValue)
+        public bool ShowWeekdayBadge
         {
-            WeekdayBadge.Visibility = Visibility.Collapsed;
-            return;
+            get => (bool)GetValue(ShowWeekdayBadgeProperty);
+            set => SetValue(ShowWeekdayBadgeProperty, value);
         }
 
-        if (anime.AirDate.Value.DayOfWeek == DateTime.Now.DayOfWeek)
+        private static readonly Uri PlaceholderUri = new("ms-appx:///Assets/Placeholder_cover.png");
+
+        public AnimeCard()
         {
-            WeekdayBadgeText.Text = anime.AirDate.Value.DayOfWeek switch
+            InitializeComponent();
+
+            DataContextChanged += (s, e) =>
             {
-                DayOfWeek.Monday => "周一放送",
-                DayOfWeek.Tuesday => "周二放送",
-                DayOfWeek.Wednesday => "周三放送",
-                DayOfWeek.Thursday => "周四放送",
-                DayOfWeek.Friday => "周五放送",
-                DayOfWeek.Saturday => "周六放送",
-                DayOfWeek.Sunday => "周日放送",
-                _ => ""
+                UpdateWeekdayBadge();
+                // 当 CoverURL 为空时使用占位图
+                if (DataContext is Anime anime && string.IsNullOrEmpty(anime.CoverURL))
+                    CoverImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(PlaceholderUri);
             };
-            WeekdayBadge.Visibility = Visibility.Visible;
+            PointerEntered += OnPointerEntered;
+            PointerExited += OnPointerExited;
+            PointerPressed += OnPointerPressed;
+            PointerReleased += OnPointerReleased;
+            PointerCanceled += OnPointerCanceled;
+            PointerMoved += OnDragPointerMoved;
+
+            SizeChanged += OnSizeChanged;
         }
-        else
+
+        private void OnSizeChanged(object sender, SizeChangedEventArgs e)
         {
-            WeekdayBadge.Visibility = Visibility.Collapsed;
+            var visual = ElementCompositionPreview.GetElementVisual(this);
+            visual.CenterPoint = new System.Numerics.Vector3(
+                (float)e.NewSize.Width / 2,
+                (float)e.NewSize.Height / 2,
+                0);
         }
-    }
 
-    private void OnPointerEntered(object sender, PointerRoutedEventArgs e)
-    {
-        var visual = ElementCompositionPreview.GetElementVisual(this);
-        var compositor = visual.Compositor;
+        private void OnCoverImageFailed(object sender, ExceptionRoutedEventArgs e)
+        {
+            CoverImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(PlaceholderUri);
+        }
 
-        visual.Properties.InsertVector3("Translation", new System.Numerics.Vector3(0, 0, 16));
+        private static void OnShowWeekdayBadgeChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            var card = (AnimeCard)d;
+            card.UpdateWeekdayBadge();
+        }
 
-        var scaleX = compositor.CreateScalarKeyFrameAnimation();
-        scaleX.InsertKeyFrame(1.0f, 1.05f);
-        scaleX.Duration = TimeSpan.FromMilliseconds(200);
+        private void UpdateWeekdayBadge()
+        {
+            if (!ShowWeekdayBadge || DataContext is not Anime anime || !anime.AirDate.HasValue)
+            {
+                WeekdayBadge.Visibility = Visibility.Collapsed;
+                return;
+            }
 
-        var scaleY = compositor.CreateScalarKeyFrameAnimation();
-        scaleY.InsertKeyFrame(1.0f, 1.05f);
-        scaleY.Duration = TimeSpan.FromMilliseconds(200);
+            if (anime.AirDate.Value.DayOfWeek == DateTime.Now.DayOfWeek)
+            {
+                WeekdayBadgeText.Text = anime.AirDate.Value.DayOfWeek switch
+                {
+                    DayOfWeek.Monday => "周一放送",
+                    DayOfWeek.Tuesday => "周二放送",
+                    DayOfWeek.Wednesday => "周三放送",
+                    DayOfWeek.Thursday => "周四放送",
+                    DayOfWeek.Friday => "周五放送",
+                    DayOfWeek.Saturday => "周六放送",
+                    DayOfWeek.Sunday => "周日放送",
+                    _ => ""
+                };
+                WeekdayBadge.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                WeekdayBadge.Visibility = Visibility.Collapsed;
+            }
+        }
 
-        visual.StartAnimation("Scale.X", scaleX);
-        visual.StartAnimation("Scale.Y", scaleY);
-    }
+        private void OnPointerEntered(object sender, PointerRoutedEventArgs e)
+        {
+            var visual = ElementCompositionPreview.GetElementVisual(this);
+            var compositor = visual.Compositor;
 
-    private void OnPointerExited(object sender, PointerRoutedEventArgs e)
-    {
-        var visual = ElementCompositionPreview.GetElementVisual(this);
-        var compositor = visual.Compositor;
+            visual.Properties.InsertVector3("Translation", new System.Numerics.Vector3(0, 0, 16));
 
-        visual.CenterPoint = new System.Numerics.Vector3(
-            (float)ActualWidth / 2,
-            (float)ActualHeight / 2,
-            0);
+            var scaleX = compositor.CreateScalarKeyFrameAnimation();
+            scaleX.InsertKeyFrame(1.0f, 1.05f);
+            scaleX.Duration = TimeSpan.FromMilliseconds(200);
 
-        visual.Properties.InsertVector3("Translation", new System.Numerics.Vector3(0, 0, 0));
+            var scaleY = compositor.CreateScalarKeyFrameAnimation();
+            scaleY.InsertKeyFrame(1.0f, 1.05f);
+            scaleY.Duration = TimeSpan.FromMilliseconds(200);
 
-        var scaleX = compositor.CreateScalarKeyFrameAnimation();
-        scaleX.InsertKeyFrame(1.0f, 1.0f);
-        scaleX.Duration = TimeSpan.FromMilliseconds(200);
+            visual.StartAnimation("Scale.X", scaleX);
+            visual.StartAnimation("Scale.Y", scaleY);
+        }
 
-        var scaleY = compositor.CreateScalarKeyFrameAnimation();
-        scaleY.InsertKeyFrame(1.0f, 1.0f);
-        scaleY.Duration = TimeSpan.FromMilliseconds(200);
+        private void OnPointerExited(object sender, PointerRoutedEventArgs e)
+        {
+            var visual = ElementCompositionPreview.GetElementVisual(this);
+            var compositor = visual.Compositor;
 
-        visual.StartAnimation("Scale.X", scaleX);
-        visual.StartAnimation("Scale.Y", scaleY);
-    }
+            visual.CenterPoint = new System.Numerics.Vector3(
+                (float)ActualWidth / 2,
+                (float)ActualHeight / 2,
+                0);
 
-    private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
-    {
-        var visual = ElementCompositionPreview.GetElementVisual(this);
-        var compositor = visual.Compositor;
+            visual.Properties.InsertVector3("Translation", new System.Numerics.Vector3(0, 0, 0));
 
-        var scaleX = compositor.CreateScalarKeyFrameAnimation();
-        scaleX.InsertKeyFrame(1.0f, 0.95f);
-        scaleX.Duration = TimeSpan.FromMilliseconds(100);
+            var scaleX = compositor.CreateScalarKeyFrameAnimation();
+            scaleX.InsertKeyFrame(1.0f, 1.0f);
+            scaleX.Duration = TimeSpan.FromMilliseconds(200);
 
-        var scaleY = compositor.CreateScalarKeyFrameAnimation();
-        scaleY.InsertKeyFrame(1.0f, 0.95f);
-        scaleY.Duration = TimeSpan.FromMilliseconds(100);
+            var scaleY = compositor.CreateScalarKeyFrameAnimation();
+            scaleY.InsertKeyFrame(1.0f, 1.0f);
+            scaleY.Duration = TimeSpan.FromMilliseconds(200);
 
-        visual.StartAnimation("Scale.X", scaleX);
-        visual.StartAnimation("Scale.Y", scaleY);
-    }
+            visual.StartAnimation("Scale.X", scaleX);
+            visual.StartAnimation("Scale.Y", scaleY);
+        }
 
-    private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
-    {
-        var visual = ElementCompositionPreview.GetElementVisual(this);
-        var compositor = visual.Compositor;
+        private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            _dragPointerDown = true;
+            _dragStartPoint = e.GetCurrentPoint(this).Position;
 
-        var scaleX = compositor.CreateScalarKeyFrameAnimation();
-        scaleX.InsertKeyFrame(1.0f, 1.05f);
-        scaleX.Duration = TimeSpan.FromMilliseconds(100);
+            var visual = ElementCompositionPreview.GetElementVisual(this);
+            var compositor = visual.Compositor;
 
-        var scaleY = compositor.CreateScalarKeyFrameAnimation();
-        scaleY.InsertKeyFrame(1.0f, 1.05f);
-        scaleY.Duration = TimeSpan.FromMilliseconds(100);
+            var scaleX = compositor.CreateScalarKeyFrameAnimation();
+            scaleX.InsertKeyFrame(1.0f, 0.95f);
+            scaleX.Duration = TimeSpan.FromMilliseconds(100);
 
-        visual.StartAnimation("Scale.X", scaleX);
-        visual.StartAnimation("Scale.Y", scaleY);
+            var scaleY = compositor.CreateScalarKeyFrameAnimation();
+            scaleY.InsertKeyFrame(1.0f, 0.95f);
+            scaleY.Duration = TimeSpan.FromMilliseconds(100);
+
+            visual.StartAnimation("Scale.X", scaleX);
+            visual.StartAnimation("Scale.Y", scaleY);
+        }
+
+        private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            _dragPointerDown = false;
+
+            var visual = ElementCompositionPreview.GetElementVisual(this);
+            var compositor = visual.Compositor;
+
+            var scaleX = compositor.CreateScalarKeyFrameAnimation();
+            scaleX.InsertKeyFrame(1.0f, 1.05f);
+            scaleX.Duration = TimeSpan.FromMilliseconds(100);
+
+            var scaleY = compositor.CreateScalarKeyFrameAnimation();
+            scaleY.InsertKeyFrame(1.0f, 1.05f);
+            scaleY.Duration = TimeSpan.FromMilliseconds(100);
+
+            visual.StartAnimation("Scale.X", scaleX);
+            visual.StartAnimation("Scale.Y", scaleY);
+        }
+
+        private void OnPointerCanceled(object sender, PointerRoutedEventArgs e)
+        {
+            _dragPointerDown = false;
+        }
+
+        private void OnDragPointerMoved(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_dragPointerDown || DataContext is not Anime anime)
+                return;
+
+            var pt = e.GetCurrentPoint(this).Position;
+            var dx = pt.X - _dragStartPoint.X;
+            var dy = pt.Y - _dragStartPoint.Y;
+            if (Math.Abs(dx) < 8 && Math.Abs(dy) < 8)
+                return;
+
+            // 达到阈值，触发拖动手势
+            _dragPointerDown = false;
+            DragTriggered?.Invoke(this, new AnimeDragEventArgs(anime, e.GetCurrentPoint(this).Position, this));
+        }
     }
 }
