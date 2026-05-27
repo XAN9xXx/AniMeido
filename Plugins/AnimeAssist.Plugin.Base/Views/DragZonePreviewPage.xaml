@@ -10,101 +10,89 @@
     IsEnabled="False">
 
     <Page.Resources>
-        <DataTemplate x:Key="PreviewCardTemplate">
-            <Border Width="160"
-                    Height="240"
+        <DataTemplate x:Key="MiniCard">
+            <Border Width="120"
+                    Height="180"
                     Background="{ThemeResource CardBackgroundFillColorDefault}"
-                    CornerRadius="10">
-                <StackPanel>
-                    <Border Height="160"
-                            CornerRadius="10,10,0,0"
+                    CornerRadius="8"
+                    Margin="0,0,4,6">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="140"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Border Grid.Row="0"
+                            CornerRadius="8,8,0,0"
                             Background="{ThemeResource SolidBackgroundFillColorTertiary}">
                         <Image Source="ms-appx:///Assets/Placeholder_cover.png"
                                Stretch="UniformToFill"
-                               Width="160"
-                                Height="160"/>
+                               Width="120"
+                               Height="140"/>
                     </Border>
-                    <StackPanel Padding="8,6"
-                            Spacing="4">
-                        <Border Height="12"
+                    <StackPanel Grid.Row="1"
+                                Padding="8,4"
+                                Spacing="2">
+                        <Border Height="8"
                                 CornerRadius="2"
                                 Background="{ThemeResource ControlStrokeColorDefault}"
-                                Opacity="0.5"/>
-                        <Border Height="12"
-                                Width="80"
+                                Opacity="0.4"/>
+                        <Border Height="6"
+                                Width="50"
                                 CornerRadius="2"
                                 HorizontalAlignment="Left"
                                 Background="{ThemeResource ControlStrokeColorDefault}"
-                                Opacity="0.3"/>
+                                Opacity="0.2"/>
                     </StackPanel>
-                </StackPanel>
+                </Grid>
             </Border>
         </DataTemplate>
     </Page.Resources>
 
-    <Grid Padding="8">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
-
-        <!-- 星期分组标识 -->
-        <StackPanel Orientation="Horizontal"
-                Spacing="8"
-                Margin="4,4,0,8">
-            <Border Padding="10,4"
-                    CornerRadius="4"
-                    Background="{ThemeResource SystemAccentColor}"
-                    Opacity="0.2">
+    <ScrollViewer VerticalScrollMode="Disabled"
+                  VerticalScrollBarVisibility="Hidden"
+                  HorizontalScrollMode="Disabled"
+                  HorizontalScrollBarVisibility="Hidden"
+                  Padding="12,8">
+        <StackPanel Spacing="10">
+            <!-- 星期分组 1 -->
+            <StackPanel>
                 <TextBlock Text="周一"
-                        FontSize="11"
-                           Foreground="{ThemeResource SystemAccentColor}"
-                           FontWeight="SemiBold"/>
-            </Border>
-            <Border Padding="10,4"
-                    CornerRadius="4"
-                    Background="{ThemeResource CardBackgroundFillColorDefault}">
-                <TextBlock Text="周二"
-                        FontSize="11"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-            </Border>
-            <Border Padding="10,4"
-                    CornerRadius="4"
-                    Background="{ThemeResource CardBackgroundFillColorDefault}">
-                <TextBlock Text="周三"
-                        FontSize="11"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-            </Border>
-        </StackPanel>
-
-        <!-- 静态卡片网格 -->
-        <ScrollViewer Grid.Row="1"
-                VerticalScrollMode="Disabled"
-                      HorizontalScrollMode="Disabled"
-                      VerticalScrollBarVisibility="Hidden"
-                      HorizontalScrollBarVisibility="Hidden">
-            <StackPanel Spacing="8">
-                <StackPanel>
-                    <TextBlock Text="周一 6月26日"
-                            FontSize="12"
-                            FontWeight="SemiBold"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               Margin="4,0,0,4"/>
-                    <ItemsControl ItemsSource="{x:Bind _sampleCard}">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <ItemsWrapGrid Orientation="Horizontal"
-                                               HorizontalAlignment="Left"
-                                               ItemWidth="160"
-                                        ItemHeight="240"/>
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <StaticResource ResourceKey="PreviewCardTemplate"/>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
+                           FontSize="13"
+                           FontWeight="SemiBold"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           Margin="4,0,0,4"/>
+                <ItemsControl ItemsSource="{x:Bind _sampleCards}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <ItemsWrapGrid Orientation="Horizontal"
+                                           HorizontalAlignment="Left"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <StaticResource ResourceKey="MiniCard"/>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
             </StackPanel>
-        </ScrollViewer>
-    </Grid>
+
+            <!-- 星期分组 2 -->
+            <StackPanel>
+                <TextBlock Text="周二"
+                           FontSize="13"
+                           FontWeight="SemiBold"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           Margin="4,0,0,4"/>
+                <ItemsControl ItemsSource="{x:Bind _sampleCards}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <ItemsWrapGrid Orientation="Horizontal"
+                                           HorizontalAlignment="Left"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <StaticResource ResourceKey="MiniCard"/>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
 </Page>
