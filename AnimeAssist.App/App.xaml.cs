@@ -40,13 +40,7 @@ namespace AniMeido.App
             var serviceProvider = services.BuildServiceProvider();
             var logger = serviceProvider.GetRequiredService<ILogger<PluginHost>>();
             var host = new PluginHost(services, logger);
-            var pluginPath = AppContext.BaseDirectory + "Plugins";
-            if (!Directory.Exists(pluginPath))
-            {
-                pluginPath = AppContext.BaseDirectory;
-            }
-
-            var naviItems = await host.LoadPluginAsync(pluginPath);
+            var naviItems = await host.LoadPluginAsync(AppContext.BaseDirectory);
             App.Plugins = host.GetPlugins();
             services.AddSingleton<DatabaseService>();
             services.AddSingleton(sp => sp.GetRequiredService<DatabaseService>().DbPath);
