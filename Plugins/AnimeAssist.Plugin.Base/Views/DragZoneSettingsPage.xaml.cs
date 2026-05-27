@@ -1,19 +1,29 @@
 using AniMeido.Contracts;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
+using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
+using Windows.UI;
 
 namespace AniMeido.Plugin.Base.Views
 {
     public sealed partial class DragZoneSettingsPage : Page
     {
-        private bool _suppressDragEvents = true;
-        private string? _draggingPos;
+        private List<DragZoneConfig> _dragZones = DragZoneConfig.GetDefaults();
+        private readonly Dictionary<string, ZoneVisual> _zoneVisuals = new();
+        private bool _suppressEvents;
+        private string? _dragAction; // "move" or "resize"
+        private string? _activeZoneId;
+        private string? _resizeEdge; // "left"/"right"/"top"/"bottom" or combined
+        private double _dragOffsetX, _dragOffsetY;
+        private double _dragStartX, _dragStartY, _dragStartW, _dragStartH;
+        private bool _previewInitialized;
 
         public DragZoneSettingsPage()
         {
@@ -22,56 +32,11 @@ namespace AniMeido.Plugin.Base.Views
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
-            _suppressDragEvents = true;
-            await LoadDragZoneConfig();
-            _suppressDragEvents = false;
-        }
-
-        private async Task LoadDragZoneConfig()
-        {
-            if (AppServices.Provider == null) return;
-            var tracking = AppServices.Provider.GetRequiredService<TrackingService>();
-            var zones = await tracking.LoadDragZoneConfigAsync();
-            ApplyConfig(zones);
-        }
-
-        private async void OnResetDragZones(object sender, RoutedEventArgs e)
-        {
-            var defaults = DragZoneConfig.GetDefaults();
-            ApplyConfig(defaults);
-            if (AppServices.Provider == null) return;
-            await AppServices.Provider.GetRequiredService<TrackingService>().SaveDragZoneConfigAsync(defaults);
-        }
-
-        private void ApplyConfig(List<DragZoneConfig> zones)
-        {
-            foreach (var z in zones)
-            {
-                var combo = z.Position switch
-                {
-                    DragPosition.TopLeft => TopLeftAction,
-                    DragPosition.TopRight => TopRightAction,
-                    DragPosition.BottomLeft => BottomLeftAction,
-                    DragPosition.BottomRight => BottomRightAction,
-                    _ => null
-                };
-                var slider = z.Position switch
-                {
-                    DragPosition.TopLeft => TopLeftSize,
-                    DragPosition.TopRight => TopRightSize,
-                    DragPosition.BottomLeft => BottomLeftSize,
-                    DragPosition.BottomRight => BottomRightSize,
-                    _ => null
-                };
-                if (combo != null) combo.SelectedIndex = (int)z.Action;
-                if (slider != null) slider.Value = z.SizePercent * 100;
-            }
-            // 延迟到布局完成后更新预览区（ActualWidth 在 OnNavigatedTo 时为 0）
-            PreviewBorder.SizeChanged -= OnPreviewBorderSizeChanged;
-            PreviewBorder.SizeChanged += OnPreviewBorderSizeChanged;
-
-            if (PreviewBorder.ActualWidth > 0)
-                UpdatePreviewZones();
+            _suppressEvents = true;
+            var tracking = AppServices.Provider!.GetRequiredService<TrackingService>();
+            _dragZones = await tracking.LoadDragZoneConfigAsync();
+            RebuildAll();
+            _suppressEvents = false;
         }
 
         private void OnPreviewBorderSizeChanged(object sender, SizeChangedEventArgs e)
@@ -80,161 +45,543 @@ namespace AniMeido.Plugin.Base.Views
             var targetH = e.NewSize.Width * 9.0 / 16.0;
             PreviewBorder.Height = Math.Clamp(targetH, 200, 400);
 
-            PreviewBorder.SizeChanged -= OnPreviewBorderSizeChanged;
-
-            // 导航到预览页面（只执行一次）
-            if (PreviewFrame.Content == null)
-                PreviewFrame.Navigate(typeof(DragZonePreviewPage));
-
-            UpdatePreviewZones();
-        }
-
-        // ======== 预览区域操作 ========
-
-        private void UpdatePreviewZones()
-        {
-            var previewWidth = PreviewBorder.ActualWidth;
-            var previewHeight = PreviewBorder.ActualHeight;
-
-            SetZone(PreviewTL, PreviewTLText, HandleTL, TopLeftAction, TopLeftSize, previewWidth, previewHeight, DragPosition.TopLeft);
-            SetZone(PreviewTR, PreviewTRText, HandleTR, TopRightAction, TopRightSize, previewWidth, previewHeight, DragPosition.TopRight);
-            SetZone(PreviewBL, PreviewBLText, HandleBL, BottomLeftAction, BottomLeftSize, previewWidth, previewHeight, DragPosition.BottomLeft);
-            SetZone(PreviewBR, PreviewBRText, HandleBR, BottomRightAction, BottomRightSize, previewWidth, previewHeight, DragPosition.BottomRight);
-        }
-
-        private void SetZone(Border zone, TextBlock label, Border handle,
-            ComboBox combo, Slider slider, double parentW, double parentH, DragPosition pos)
-        {
-            var sizePercent = slider.Value / 100;
-            zone.Width = parentW * sizePercent;
-            zone.Height = parentH * sizePercent;
-
-            var action = (DragAction)combo.SelectedIndex;
-            label.Text = action switch
+            if (!_previewInitialized)
             {
-                DragAction.Watching => "追番",
-                DragAction.PlanToWatch => "补番",
-                DragAction.NotInterested => "不感兴趣",
-                _ => "禁用"
+                _previewInitialized = true;
+                PreviewBorder.SizeChanged -= OnPreviewBorderSizeChanged;
+
+                // 导航到预览页面
+                if (PreviewFrame.Content == null)
+                    PreviewFrame.Navigate(typeof(DragZonePreviewPage));
+            }
+
+            // 更新所有 zone 位置
+            PositionAllZones();
+        }
+
+        // ======== 重建所有 UI ========
+
+        private void RebuildAll()
+        {
+            ClearAllZones();
+            PopulatePreviewZones();
+            PopulateConfigPanel();
+        }
+
+        private void ClearAllZones()
+        {
+            var grid = PreviewBorder.Child as Grid;
+            if (grid == null) return;
+
+            foreach (var kv in _zoneVisuals)
+                grid.Children.Remove(kv.Value.Overlay);
+            _zoneVisuals.Clear();
+            ZoneConfigList.ItemsSource = null;
+        }
+
+        // ======== 预览区 Zone 创建 ========
+
+        private void PopulatePreviewZones()
+        {
+            var grid = PreviewBorder.Child as Grid;
+            if (grid == null) return;
+
+            foreach (var config in _dragZones)
+            {
+                var visual = CreateZoneVisual(config);
+                _zoneVisuals[config.Id] = visual;
+                grid.Children.Add(visual.Overlay);
+            }
+            PositionAllZones();
+        }
+
+        private ZoneVisual CreateZoneVisual(DragZoneConfig config)
+        {
+            // 标签
+            var label = new TextBlock
+            {
+                Text = GetActionLabel(config.Action),
+                Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
+                FontSize = 13,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Margin = new Thickness(8, 6, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
             };
 
-            zone.Background = action switch
+            // 删除按钮
+            var deleteBtn = new Border
             {
-                DragAction.Watching => new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(220, 0x44, 0x88, 0xFF)),
-                DragAction.PlanToWatch => new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(220, 0x44, 0xFF, 0x88)),
-                DragAction.NotInterested => new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(220, 0xFF, 0x44, 0x44)),
-                _ => new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(160, 0x88, 0x88, 0x88)),
+                Width = 18,
+                Height = 18,
+                Background = new SolidColorBrush(Color.FromArgb(180, 0, 0, 0)),
+                CornerRadius = new CornerRadius(9),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 4, 4, 0),
+                Tag = config.Id,
+                IsHitTestVisible = true,
+            };
+            var deleteText = new TextBlock
+            {
+                Text = "×",
+                Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
+                FontSize = 12,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            deleteBtn.Child = deleteText;
+            deleteBtn.Tapped += OnDeleteZoneTapped;
+
+            var innerGrid = new Grid();
+            innerGrid.Children.Add(label);
+            innerGrid.Children.Add(deleteBtn);
+
+            var zone = new Border
+            {
+                Child = innerGrid,
+                CornerRadius = new CornerRadius(8),
+                Background = GetZoneColor(config.Action),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                Tag = config.Id,
+                IsHitTestVisible = true,
+            };
+
+            // 拖拽移动 — zone 本体
+            zone.PointerEntered += OnZonePointerEntered;
+            zone.PointerExited += OnZonePointerExited;
+            zone.PointerPressed += OnZonePointerPressed;
+            zone.PointerMoved += OnZonePointerMoved;
+            zone.PointerReleased += OnZonePointerReleased;
+            zone.PointerCanceled += OnZonePointerCanceled;
+
+            // 点击切换动作
+            zone.Tapped += OnPreviewZoneTapped;
+
+            return new ZoneVisual(zone, label, deleteBtn);
+        }
+
+        private void PositionAllZones()
+        {
+            var pw = PreviewBorder.ActualWidth;
+            var ph = PreviewBorder.ActualHeight;
+            if (pw <= 0 || ph <= 0) return;
+
+            foreach (var config in _dragZones)
+            {
+                if (_zoneVisuals.TryGetValue(config.Id, out var vis))
+                {
+                    vis.Overlay.Width = pw * config.WidthPercent;
+                    vis.Overlay.Height = ph * config.HeightPercent;
+                    vis.Overlay.Margin = new Thickness(pw * config.XPercent, ph * config.YPercent, 0, 0);
+                    vis.Overlay.Background = GetZoneColor(config.Action);
+                    vis.Label.Text = GetActionLabel(config.Action);
+                }
+            }
+        }
+
+        private void UpdateSingleZone(string id)
+        {
+            var config = _dragZones.Find(z => z.Id == id);
+            if (config == null) return;
+            if (!_zoneVisuals.TryGetValue(id, out var vis)) return;
+
+            var pw = PreviewBorder.ActualWidth;
+            var ph = PreviewBorder.ActualHeight;
+            if (pw > 0 && ph > 0)
+            {
+                vis.Overlay.Width = pw * config.WidthPercent;
+                vis.Overlay.Height = ph * config.HeightPercent;
+                vis.Overlay.Margin = new Thickness(pw * config.XPercent, ph * config.YPercent, 0, 0);
+            }
+            vis.Overlay.Background = GetZoneColor(config.Action);
+            vis.Label.Text = GetActionLabel(config.Action);
+        }
+
+        // ======== 配置面板 ========
+
+        private void PopulateConfigPanel()
+        {
+            var items = _dragZones.Select(z => new ZoneConfigItem
+            {
+                Id = z.Id,
+                Label = z.Label,
+                ActionIndex = (int)z.Action,
+                SizeValue = z.WidthPercent * 100,
+            }).ToList();
+            ZoneConfigList.ItemsSource = items;
+        }
+
+        // ======== 拖拽移动与边缘缩放 (Zone 本体) ========
+
+        private const double EdgeThreshold = 10; // 边缘检测像素阈值
+
+        private string? DetectEdge(Border zone, Microsoft.UI.Input.PointerPoint pt)
+        {
+            var w = zone.ActualWidth;
+            var h = zone.ActualHeight;
+            var x = pt.Position.X;
+            var y = pt.Position.Y;
+
+            bool nearLeft = x <= EdgeThreshold;
+            bool nearRight = x >= w - EdgeThreshold;
+            bool nearTop = y <= EdgeThreshold;
+            bool nearBottom = y >= h - EdgeThreshold;
+
+            if (nearLeft && nearTop) return "top-left";
+            if (nearRight && nearTop) return "top-right";
+            if (nearLeft && nearBottom) return "bottom-left";
+            if (nearRight && nearBottom) return "bottom-right";
+            if (nearLeft) return "left";
+            if (nearRight) return "right";
+            if (nearTop) return "top";
+            if (nearBottom) return "bottom";
+            return null;
+        }
+
+        private void OnZonePointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (sender is not Border zone || zone.Tag is not string id) return;
+            var pt = e.GetCurrentPoint(zone);
+            var edge = DetectEdge(zone, pt);
+            var config = _dragZones.Find(z => z.Id == id);
+            if (config == null) return;
+
+            if (edge != null)
+            {
+                // 边缘缩放
+                _dragAction = "resize";
+                _resizeEdge = edge;
+                _activeZoneId = id;
+                _dragStartX = config.XPercent;
+                _dragStartY = config.YPercent;
+                _dragStartW = config.WidthPercent;
+                _dragStartH = config.HeightPercent;
+                _dragOffsetX = pt.Position.X / zone.ActualWidth;
+                _dragOffsetY = pt.Position.Y / zone.ActualHeight;
+            }
+            else
+            {
+                // 拖拽移动
+                _dragAction = "move";
+                _activeZoneId = id;
+                var ptRel = e.GetCurrentPoint(PreviewBorder);
+                _dragOffsetX = ptRel.Position.X - config.XPercent * PreviewBorder.ActualWidth;
+                _dragOffsetY = ptRel.Position.Y - config.YPercent * PreviewBorder.ActualHeight;
+            }
+            zone.CapturePointer(e.Pointer);
+        }
+
+        private void OnZonePointerMoved(object sender, PointerRoutedEventArgs e)
+        {
+            if (sender is not Border zone) return;
+            var pt = e.GetCurrentPoint(zone);
+
+            if (_dragAction == "move" && _activeZoneId != null)
+            {
+                var ptRel = e.GetCurrentPoint(PreviewBorder);
+                var config = _dragZones.Find(z => z.Id == _activeZoneId);
+                if (config == null) return;
+                var pw = PreviewBorder.ActualWidth;
+                var ph = PreviewBorder.ActualHeight;
+                if (pw <= 0 || ph <= 0) return;
+
+                var newX = Math.Clamp((ptRel.Position.X - _dragOffsetX) / pw, 0, 1 - config.WidthPercent);
+                var newY = Math.Clamp((ptRel.Position.Y - _dragOffsetY) / ph, 0, 1 - config.HeightPercent);
+                config.XPercent = newX;
+                config.YPercent = newY;
+
+                if (_zoneVisuals.TryGetValue(_activeZoneId, out var vis))
+                    vis.Overlay.Margin = new Thickness(newX * pw, newY * ph, 0, 0);
+                return;
+            }
+
+            if (_dragAction == "resize" && _activeZoneId != null && _resizeEdge != null)
+            {
+                var config = _dragZones.Find(z => z.Id == _activeZoneId);
+                if (config == null) return;
+                var pw = PreviewBorder.ActualWidth;
+                var ph = PreviewBorder.ActualHeight;
+                if (pw <= 0 || ph <= 0) return;
+
+                var ptRel = e.GetCurrentPoint(PreviewBorder);
+                var px = ptRel.Position.X / pw; // 相对预览区百分比
+                var py = ptRel.Position.Y / ph;
+
+                double newX = _dragStartX, newY = _dragStartY;
+                double newW = _dragStartW, newH = _dragStartH;
+
+                // 根据边缘计算新位置和尺寸
+                if (_resizeEdge.Contains("left"))
+                {
+                    newW = _dragStartX + _dragStartW - px;
+                    newX = px;
+                }
+                else if (_resizeEdge.Contains("right"))
+                {
+                    newW = px - _dragStartX;
+                }
+
+                if (_resizeEdge.Contains("top"))
+                {
+                    newH = _dragStartY + _dragStartH - py;
+                    newY = py;
+                }
+                else if (_resizeEdge.Contains("bottom"))
+                {
+                    newH = py - _dragStartY;
+                }
+
+                // 约束最小/最大尺寸
+                newW = Math.Clamp(newW, 0.08, 0.6);
+                newH = Math.Clamp(newH, 0.08, 0.6);
+                newX = Math.Clamp(newX, 0, 1 - newW);
+                newY = Math.Clamp(newY, 0, 1 - newH);
+
+                config.XPercent = newX;
+                config.YPercent = newY;
+                config.WidthPercent = newW;
+                config.HeightPercent = newH;
+
+                if (_zoneVisuals.TryGetValue(_activeZoneId, out var vis))
+                {
+                    vis.Overlay.Width = pw * newW;
+                    vis.Overlay.Height = ph * newH;
+                    vis.Overlay.Margin = new Thickness(newX * pw, newY * ph, 0, 0);
+                }
+
+
+                return;
+            }
+        }
+
+        // ======== 光标切换 ========
+
+        private void OnZonePointerEntered(object sender, PointerRoutedEventArgs e)
+        {
+            if (sender is not Border zone) return;
+            var pt = e.GetCurrentPoint(zone);
+            var edge = DetectEdge(zone, pt);
+            ProtectedCursor = edge switch
+            {
+                "left" or "right" => InputSystemCursor.Create(InputSystemCursorShape.SizeWestEast),
+                "top" or "bottom" => InputSystemCursor.Create(InputSystemCursorShape.SizeNorthSouth),
+                "top-left" or "bottom-right" => InputSystemCursor.Create(InputSystemCursorShape.SizeNorthwestSoutheast),
+                "top-right" or "bottom-left" => InputSystemCursor.Create(InputSystemCursorShape.SizeNortheastSouthwest),
+                _ => InputSystemCursor.Create(InputSystemCursorShape.Arrow),
             };
         }
 
-        // 点击预览区切换动作
+        private void OnZonePointerExited(object sender, PointerRoutedEventArgs e)
+        {
+            ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Arrow);
+        }
+
+        private void OnZonePointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            if (_activeZoneId != null)
+            {
+                _dragAction = null;
+                _resizeEdge = null;
+                _activeZoneId = null;
+                ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Arrow);
+                _ = SaveAsync();
+            }
+        }
+
+        private void OnZonePointerCanceled(object sender, PointerRoutedEventArgs e)
+        {
+            _dragAction = null;
+            _resizeEdge = null;
+            _activeZoneId = null;
+            ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Arrow);
+        }
+
+        // ======== 点击切换动作 ========
+
         private void OnPreviewZoneTapped(object sender, TappedRoutedEventArgs e)
         {
-            if (sender is Border zone && zone.Tag is string posStr)
+            if (sender is Border zone && zone.Tag is string id)
             {
-                var (combo, _) = GetControlsForPosition(posStr);
-                if (combo == null) return;
-                combo.SelectedIndex = (combo.SelectedIndex + 1) % combo.Items.Count;
-                // drag zone change 事件会同步到预览
-            }
-        }
+                var config = _dragZones.Find(z => z.Id == id);
+                if (config == null) return;
 
-        // ======== 拖拽手柄 ========
+                // 循环切换动作
+                var actions = Enum.GetValues<DragAction>();
+                config.Action = (DragAction)(((int)config.Action + 1) % actions.Length);
+                UpdateSingleZone(id);
 
-        private void OnHandlePointerPressed(object sender, PointerRoutedEventArgs e)
-        {
-            if (sender is FrameworkElement fe)
-            {
-                _draggingPos = fe.Name switch
+                // 同步 ComboBox
+                if (ZoneConfigList.ItemsSource is IList<ZoneConfigItem> items)
                 {
-                    "HandleTL" => "TopLeft",
-                    "HandleTR" => "TopRight",
-                    "HandleBL" => "BottomLeft",
-                    "HandleBR" => "BottomRight",
-                    _ => null
-                };
+                    var item = items.FirstOrDefault(i => i.Id == id);
+                    if (item != null)
+                        item.ActionIndex = (int)config.Action;
+                }
+                _ = SaveAsync();
             }
         }
 
-        private void OnHandlePointerMoved(object sender, PointerRoutedEventArgs e)
+        // ======== 删除区域 ========
+
+        private void OnDeleteZoneTapped(object sender, TappedRoutedEventArgs e)
         {
-            if (_draggingPos == null) return;
-            var (combo, slider) = GetControlsForPosition(_draggingPos);
-            if (combo == null || slider == null) return;
-            if (combo.SelectedIndex == 0) return; // 禁用状态下不可调大小
-
-            var pt = e.GetCurrentPoint(PreviewBorder);
-            var w = pt.Position.X;
-            var h = pt.Position.Y;
-
-            var pos = _draggingPos;
-            // 根据位置确定参考点
-            if (pos == "TopRight" || pos == "BottomRight")
-                w = PreviewBorder.ActualWidth - pt.Position.X;
-            if (pos == "BottomLeft" || pos == "BottomRight")
-                h = PreviewBorder.ActualHeight - pt.Position.Y;
-
-            var wPercent = Math.Clamp(w / PreviewBorder.ActualWidth, 0.1, 0.5);
-            var hPercent = Math.Clamp(h / PreviewBorder.ActualHeight, 0.1, 0.5);
-            var avg = (wPercent + hPercent) / 2;
-
-            _suppressDragEvents = true;
-            slider.Value = Math.Clamp(avg * 100, slider.Minimum, slider.Maximum);
-            _suppressDragEvents = false;
+            if (sender is Border btn && btn.Tag is string id)
+                DeleteZone(id);
         }
 
-        private async void OnHandlePointerReleased(object sender, PointerRoutedEventArgs e)
+        private void OnDeleteZone(object sender, RoutedEventArgs e)
         {
-            if (_draggingPos != null)
+            if (sender is Button btn && btn.Tag is string id)
+                DeleteZone(id);
+        }
+
+        private void DeleteZone(string id)
+        {
+            if (_dragZones.Count <= 1) return; // 至少保留一个
+
+            _dragZones.RemoveAll(z => z.Id == id);
+            if (_zoneVisuals.TryGetValue(id, out var vis))
             {
-                _draggingPos = null;
-                await SaveDragZones();
+                var grid = PreviewBorder.Child as Grid;
+                grid?.Children.Remove(vis.Overlay);
+                _zoneVisuals.Remove(id);
             }
+            PopulateConfigPanel();
+            _ = SaveAsync();
+        }
+
+        // ======== 添加区域 ========
+
+        private void OnAddZone(object sender, RoutedEventArgs e)
+        {
+            var pw = PreviewBorder.ActualWidth;
+            var ph = PreviewBorder.ActualHeight;
+
+            var newZone = new DragZoneConfig
+            {
+                Id = Guid.NewGuid().ToString("N")[..8],
+                Label = $"区域 {_dragZones.Count + 1}",
+                XPercent = 0.3,
+                YPercent = 0.3,
+                WidthPercent = 0.25,
+                HeightPercent = 0.25,
+                Action = DragAction.None,
+            };
+            _dragZones.Add(newZone);
+
+            // 添加视觉
+            var grid = PreviewBorder.Child as Grid;
+            if (grid != null)
+            {
+                var visual = CreateZoneVisual(newZone);
+                _zoneVisuals[newZone.Id] = visual;
+                grid.Children.Add(visual.Overlay);
+
+                if (pw > 0 && ph > 0)
+                {
+                    visual.Overlay.Width = pw * newZone.WidthPercent;
+                    visual.Overlay.Height = ph * newZone.HeightPercent;
+                    visual.Overlay.Margin = new Thickness(pw * newZone.XPercent, ph * newZone.YPercent, 0, 0);
+                }
+            }
+
+            PopulateConfigPanel();
+            _ = SaveAsync();
+        }
+
+        // ======== 配置面板事件 ========
+
+        private void OnConfigComboChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_suppressEvents || sender is not ComboBox combo) return;
+            var id = combo.Tag as string;
+            if (id == null) return;
+            var config = _dragZones.Find(z => z.Id == id);
+            if (config == null) return;
+
+            config.Action = (DragAction)combo.SelectedIndex;
+            UpdateSingleZone(id);
+            _ = SaveAsync();
+        }
+
+        // ======== 重置 ========
+
+        private async void OnResetDragZones(object sender, RoutedEventArgs e)
+        {
+            _suppressEvents = true;
+            _dragZones = DragZoneConfig.GetDefaults();
+            RebuildAll();
+            _suppressEvents = false;
+            await SaveAsync();
+        }
+
+        // ======== 保存 ========
+
+        private async Task SaveAsync()
+        {
+            if (AppServices.Provider == null) return;
+            var tracking = AppServices.Provider.GetRequiredService<TrackingService>();
+            await tracking.SaveDragZoneConfigAsync(_dragZones);
         }
 
         // ======== 辅助方法 ========
 
-        private (ComboBox? combo, Slider? slider) GetControlsForPosition(string pos)
+        private static string GetActionLabel(DragAction action) => action switch
         {
-            return pos switch
-            {
-                "TopLeft" => (TopLeftAction, TopLeftSize),
-                "TopRight" => (TopRightAction, TopRightSize),
-                "BottomLeft" => (BottomLeftAction, BottomLeftSize),
-                "BottomRight" => (BottomRightAction, BottomRightSize),
-                _ => (null, null)
-            };
+            DragAction.Watching => "追番",
+            DragAction.PlanToWatch => "补番",
+            DragAction.NotInterested => "不感兴趣",
+            _ => "禁用"
+        };
+
+        private static SolidColorBrush GetZoneColor(DragAction action) => action switch
+        {
+            DragAction.Watching => new SolidColorBrush(Color.FromArgb(220, 0x44, 0x88, 0xFF)),
+            DragAction.PlanToWatch => new SolidColorBrush(Color.FromArgb(220, 0x44, 0xFF, 0x88)),
+            DragAction.NotInterested => new SolidColorBrush(Color.FromArgb(220, 0xFF, 0x44, 0x44)),
+            _ => new SolidColorBrush(Color.FromArgb(160, 0x88, 0x88, 0x88)),
+        };
+    }
+
+    // ======== 预览 Zone 视觉元素 ========
+
+    internal record ZoneVisual(
+        Border Overlay,
+        TextBlock Label,
+        Border DeleteButton);
+
+    // ======== 配置面板数据项 ========
+
+    internal class ZoneConfigItem : ObservableObject
+    {
+        private string _id = "";
+        public string Id
+        {
+            get => _id;
+            set => SetProperty(ref _id, value);
         }
 
-        // ======== 配置变更 ========
-
-        private async void OnDragZoneChanged(object sender, SelectionChangedEventArgs e)
+        private string _label = "";
+        public string Label
         {
-            if (_suppressDragEvents) return;
-            UpdatePreviewZones();
-            await SaveDragZones();
+            get => _label;
+            set => SetProperty(ref _label, value);
         }
 
-        private async void OnDragZoneSliderChanged(object sender, RangeBaseValueChangedEventArgs e)
+        private int _actionIndex;
+        public int ActionIndex
         {
-            if (_suppressDragEvents) return;
-            UpdatePreviewZones();
-            await SaveDragZones();
+            get => _actionIndex;
+            set => SetProperty(ref _actionIndex, value);
         }
 
-        private async Task SaveDragZones()
+        private double _sizeValue = 25;
+        public double SizeValue
         {
-            if (AppServices.Provider == null) return;
-
-            var zones = new List<DragZoneConfig>
-            {
-                new() { Position = DragPosition.TopLeft, Action = (DragAction)TopLeftAction.SelectedIndex, SizePercent = TopLeftSize.Value / 100 },
-                new() { Position = DragPosition.TopRight, Action = (DragAction)TopRightAction.SelectedIndex, SizePercent = TopRightSize.Value / 100 },
-                new() { Position = DragPosition.BottomLeft, Action = (DragAction)BottomLeftAction.SelectedIndex, SizePercent = BottomLeftSize.Value / 100 },
-                new() { Position = DragPosition.BottomRight, Action = (DragAction)BottomRightAction.SelectedIndex, SizePercent = BottomRightSize.Value / 100 },
-            };
-            var tracking = AppServices.Provider!.GetRequiredService<TrackingService>();
-            await tracking.SaveDragZoneConfigAsync(zones);
+            get => _sizeValue;
+            set => SetProperty(ref _sizeValue, value);
         }
     }
 }

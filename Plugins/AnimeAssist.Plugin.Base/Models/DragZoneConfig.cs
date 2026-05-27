@@ -8,26 +8,34 @@ namespace AniMeido.Plugin.Base.Models
         NotInterested = 3,
     }
 
-    public enum DragPosition
-    {
-        TopLeft,
-        TopRight,
-        BottomLeft,
-        BottomRight,
-    }
-
     public class DragZoneConfig
     {
-        public DragPosition Position { get; set; }
-        public DragAction Action { get; set; }
-        public double SizePercent { get; set; } = 0.25;
+        /// <summary>唯一标识，用于区分各区域。</summary>
+        public string Id { get; set; } = Guid.NewGuid().ToString("N")[..8];
+
+        /// <summary>显示名称，如"左上角""新区域"。</summary>
+        public string Label { get; set; } = "新区域";
+
+        /// <summary>距左侧位置百分比 (0.0 ~ 1.0)。</summary>
+        public double XPercent { get; set; }
+
+        /// <summary>距顶部位置百分比 (0.0 ~ 1.0)。</summary>
+        public double YPercent { get; set; }
+
+        /// <summary>宽度占比 (0.0 ~ 1.0)。</summary>
+        public double WidthPercent { get; set; } = 0.25;
+
+        /// <summary>高度占比 (0.0 ~ 1.0)。</summary>
+        public double HeightPercent { get; set; } = 0.25;
+
+        public DragAction Action { get; set; } = DragAction.None;
 
         public static List<DragZoneConfig> GetDefaults() => new()
         {
-            new() { Position = DragPosition.TopLeft, Action = DragAction.NotInterested, SizePercent = 0.25 },
-            new() { Position = DragPosition.TopRight, Action = DragAction.Watching, SizePercent = 0.25 },
-            new() { Position = DragPosition.BottomLeft, Action = DragAction.PlanToWatch, SizePercent = 0.25 },
-            new() { Position = DragPosition.BottomRight, Action = DragAction.None, SizePercent = 0.25 },
+            new() { Id = "tl", Label = "左上角", XPercent = 0.0, YPercent = 0.0, WidthPercent = 0.25, HeightPercent = 0.25, Action = DragAction.NotInterested },
+            new() { Id = "tr", Label = "右上角", XPercent = 0.75, YPercent = 0.0, WidthPercent = 0.25, HeightPercent = 0.25, Action = DragAction.Watching },
+            new() { Id = "bl", Label = "左下角", XPercent = 0.0, YPercent = 0.75, WidthPercent = 0.25, HeightPercent = 0.25, Action = DragAction.PlanToWatch },
+            new() { Id = "br", Label = "右下角", XPercent = 0.75, YPercent = 0.75, WidthPercent = 0.25, HeightPercent = 0.25, Action = DragAction.None },
         };
     }
 }

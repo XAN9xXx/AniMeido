@@ -112,7 +112,11 @@ namespace AniMeido.Plugin.Base.Services
             var result = await command.ExecuteScalarAsync();
 
             if (result is string json && !string.IsNullOrEmpty(json))
-                return JsonSerializer.Deserialize<List<DragZoneConfig>>(json, ConfigJsonOptions) ?? DragZoneConfig.GetDefaults();
+            {
+                var zones = JsonSerializer.Deserialize<List<DragZoneConfig>>(json, ConfigJsonOptions)
+                    ?? DragZoneConfig.GetDefaults();
+                return zones;
+            }
 
             return DragZoneConfig.GetDefaults();
         }
