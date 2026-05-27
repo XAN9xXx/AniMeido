@@ -31,30 +31,10 @@
                     BorderThickness="1"
                     Padding="0"
                     SizeChanged="OnPreviewBorderSizeChanged">
-                <!-- 模拟窗口内容作为参照 -->
+                <!-- 底层：预览页面，四角目标区覆盖其上 -->
                 <Grid>
-                    <!-- 标题栏 -->
-                    <Border Height="32"
-                            VerticalAlignment="Top"
-                            Background="{ThemeResource SolidBackgroundFillColorSecondary}"
-                            CornerRadius="12,12,0,0"
-                            Padding="12,0,0,0">
-                        <TextBlock Text="番剧浏览"
-                                   FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   VerticalAlignment="Center"/>
-                    </Border>
-
-                    <!-- 占位内容 -->
-                    <Border Height="120"
-                            Width="180"
-                            Background="{ThemeResource ControlStrokeColorDefault}"
-                            Opacity="0.3"
-                            CornerRadius="6"
-                            HorizontalAlignment="Center"
-                            VerticalAlignment="Center"/>
-
-                    <!-- 四个角的目标区 -->
+                    <Frame x:Name="PreviewFrame"
+                           IsHitTestVisible="False"/>
                     <!-- 左上角 -->
                     <Border x:Name="PreviewTL"
                             HorizontalAlignment="Left"

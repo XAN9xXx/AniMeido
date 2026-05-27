@@ -78,6 +78,11 @@ namespace AniMeido.Plugin.Base.Views
             PreviewBorder.Height = Math.Clamp(targetH, 200, 400);
 
             PreviewBorder.SizeChanged -= OnPreviewBorderSizeChanged;
+
+            // 导航到预览页面（只执行一次）
+            if (PreviewFrame.Content == null)
+                PreviewFrame.Navigate(typeof(DragZonePreviewPage));
+
             UpdatePreviewZones();
         }
 

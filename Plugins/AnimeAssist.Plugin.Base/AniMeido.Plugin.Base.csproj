@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <None Remove="Views\Controls\AnimeCard.xaml" />
+    <None Remove="Views\DragZonePreviewPage.xaml" />
     <None Remove="Views\DragZoneSettingsPage.xaml" />
     <None Remove="Views\PastSeasonPage.xaml" />
   </ItemGroup>
@@ -24,6 +25,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\AnimeAssist.Contracts\AniMeido.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Page Update="Views\DragZonePreviewPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
   </ItemGroup>
 
   <ItemGroup>
