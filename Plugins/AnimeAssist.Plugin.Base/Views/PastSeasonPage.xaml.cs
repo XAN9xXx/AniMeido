@@ -319,6 +319,15 @@ namespace AniMeido.Plugin.Base.Views
                 DragAction.NotInterested => "不感兴趣",
                 _ => ""
             };
+
+            // 根据设置同步区域大小
+            var parentW = DragOverlay.ActualWidth;
+            var parentH = DragOverlay.ActualHeight;
+            if (parentW > 0 && parentH > 0)
+            {
+                zone.Width = parentW * config.SizePercent;
+                zone.Height = parentH * config.SizePercent;
+            }
         }
 
         private void HideZones()

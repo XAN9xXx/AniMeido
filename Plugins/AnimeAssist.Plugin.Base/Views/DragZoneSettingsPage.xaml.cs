@@ -69,6 +69,9 @@ namespace AniMeido.Plugin.Base.Views
             // 延迟到布局完成后更新预览区（ActualWidth 在 OnNavigatedTo 时为 0）
             PreviewBorder.SizeChanged -= OnPreviewBorderSizeChanged;
             PreviewBorder.SizeChanged += OnPreviewBorderSizeChanged;
+
+            if (PreviewBorder.ActualWidth > 0)
+                UpdatePreviewZones();
         }
 
         private void OnPreviewBorderSizeChanged(object sender, SizeChangedEventArgs e)
