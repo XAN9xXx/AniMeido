@@ -9,7 +9,9 @@
 *.user
 *.userosscache
 *.sln.docstates
+copilot-instructions.md
 docs/
+docs-lib/
 AniMeidoInstaller/
 Installer/
 
