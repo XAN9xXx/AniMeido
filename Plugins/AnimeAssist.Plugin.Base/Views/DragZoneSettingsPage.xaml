@@ -7,18 +7,189 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Grid Padding="24">
-        <StackPanel Spacing="12">
+    <ScrollViewer>
+        <StackPanel Padding="24"
+                    Spacing="16">
 
             <TextBlock Text="拖放标记"
                        FontSize="20"
-                       FontWeight="Bold"
-                       Margin="0,0,0,8"/>
+                       FontWeight="Bold"/>
 
-            <TextBlock Text="将番剧卡片拖拽到屏幕四角区域快速标记状态"
+            <TextBlock Text="将番剧卡片拖拽到屏幕四角区域快速标记状态。拖动区域右下角手柄调整大小，点击区域切换动作。"
                        FontSize="14"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                       Margin="0,0,0,8"/>
+                       TextWrapping="WrapWholeWords"/>
+
+            <!-- 可视化预览区 -->
+            <Border x:Name="PreviewBorder"
+                    Height="360"
+                    MaxHeight="400"
+                    MinHeight="200"
+                    Background="{ThemeResource CardBackgroundFillColorDefault}"
+                    CornerRadius="12"
+                    BorderBrush="{ThemeResource ControlStrokeColorDefault}"
+                    BorderThickness="1"
+                    Padding="0"
+                    SizeChanged="OnPreviewBorderSizeChanged">
+                <!-- 模拟窗口内容作为参照 -->
+                <Grid>
+                    <!-- 标题栏 -->
+                    <Border Height="32"
+                            VerticalAlignment="Top"
+                            Background="{ThemeResource SolidBackgroundFillColorSecondary}"
+                            CornerRadius="12,12,0,0"
+                            Padding="12,0,0,0">
+                        <TextBlock Text="番剧浏览"
+                                   FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   VerticalAlignment="Center"/>
+                    </Border>
+
+                    <!-- 占位内容 -->
+                    <Border Height="120"
+                            Width="180"
+                            Background="{ThemeResource ControlStrokeColorDefault}"
+                            Opacity="0.3"
+                            CornerRadius="6"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"/>
+
+                    <!-- 四个角的目标区 -->
+                    <!-- 左上角 -->
+                    <Border x:Name="PreviewTL"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Top"
+                            Width="100"
+                            Height="80"
+                            Background="#FF4488"
+                            CornerRadius="8"
+                            Tapped="OnPreviewZoneTapped"
+                            Tag="TopLeft">
+                        <Grid>
+                            <TextBlock x:Name="PreviewTLText"
+                                       Text="禁用"
+                                       Foreground="White"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       Margin="8,6,0,0"
+                                       HorizontalAlignment="Left"
+                                       VerticalAlignment="Top"/>
+                            <Border x:Name="HandleTL"
+                                    Width="16"
+                                    Height="16"
+                                    Background="#CCFFFFFF"
+                                    CornerRadius="3"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Bottom"
+                                    PointerPressed="OnHandlePointerPressed"
+                                    PointerMoved="OnHandlePointerMoved"
+                                    PointerReleased="OnHandlePointerReleased"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- 右上角 -->
+                    <Border x:Name="PreviewTR"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Width="100"
+                            Height="80"
+                            Background="#FF8844"
+                            CornerRadius="8"
+                            Tapped="OnPreviewZoneTapped"
+                            Tag="TopRight">
+                        <Grid>
+                            <TextBlock x:Name="PreviewTRText"
+                                       Text="追番"
+                                       Foreground="White"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       Margin="8,6,0,0"
+                                       HorizontalAlignment="Left"
+                                       VerticalAlignment="Top"/>
+                            <Border x:Name="HandleTR"
+                                    Width="16"
+                                    Height="16"
+                                    Background="#CCFFFFFF"
+                                    CornerRadius="3"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Bottom"
+                                    PointerPressed="OnHandlePointerPressed"
+                                    PointerMoved="OnHandlePointerMoved"
+                                    PointerReleased="OnHandlePointerReleased"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- 左下角 -->
+                    <Border x:Name="PreviewBL"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Bottom"
+                            Width="100"
+                            Height="80"
+                            Background="#44FF88"
+                            CornerRadius="8"
+                            Tapped="OnPreviewZoneTapped"
+                            Tag="BottomLeft">
+                        <Grid>
+                            <TextBlock x:Name="PreviewBLText"
+                                       Text="补番"
+                                       Foreground="White"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       Margin="8,0,0,6"
+                                       HorizontalAlignment="Left"
+                                       VerticalAlignment="Bottom"/>
+                            <Border x:Name="HandleBL"
+                                    Width="16"
+                                    Height="16"
+                                    Background="#CCFFFFFF"
+                                    CornerRadius="3"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Top"
+                                    PointerPressed="OnHandlePointerPressed"
+                                    PointerMoved="OnHandlePointerMoved"
+                                    PointerReleased="OnHandlePointerReleased"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- 右下角 -->
+                    <Border x:Name="PreviewBR"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Bottom"
+                            Width="100"
+                            Height="80"
+                            Background="#888888"
+                            CornerRadius="8"
+                            Tapped="OnPreviewZoneTapped"
+                            Tag="BottomRight">
+                        <Grid>
+                            <TextBlock x:Name="PreviewBRText"
+                                       Text="禁用"
+                                       Foreground="White"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       Margin="8,0,0,6"
+                                       HorizontalAlignment="Left"
+                                       VerticalAlignment="Bottom"/>
+                            <Border x:Name="HandleBR"
+                                    Width="16"
+                                    Height="16"
+                                    Background="#CCFFFFFF"
+                                    CornerRadius="3"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Top"
+                                    PointerPressed="OnHandlePointerPressed"
+                                    PointerMoved="OnHandlePointerMoved"
+                                    PointerReleased="OnHandlePointerReleased"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- 四个角的详细配置 -->
+            <TextBlock Text="详细配置"
+                       FontSize="16"
+                       FontWeight="SemiBold"
+                       Margin="0,8,0,0"/>
 
             <Grid ColumnDefinitions="120,*,80"
                   ColumnSpacing="8">
@@ -119,5 +290,5 @@
                     FontSize="13"
                     Margin="0,8,0,0"/>
         </StackPanel>
-    </Grid>
+    </ScrollViewer>
 </Page>
