@@ -40,13 +40,7 @@ namespace AniMeido.App
             var serviceProvider = services.BuildServiceProvider();
             var logger = serviceProvider.GetRequiredService<ILogger<PluginHost>>();
             var host = new PluginHost(services, logger);
-            var pluginPath = AppContext.BaseDirectory + "Plugins";
-            if (!Directory.Exists(pluginPath))
-            {
-                pluginPath = AppContext.BaseDirectory;
-            }
-
-            var naviItems = await host.LoadPluginAsync(pluginPath);
+            var naviItems = await host.LoadPluginAsync(AppContext.BaseDirectory);
             App.Plugins = host.GetPlugins();
             services.AddSingleton<DatabaseService>();
             services.AddSingleton(sp => sp.GetRequiredService<DatabaseService>().DbPath);
@@ -63,6 +57,13 @@ namespace AniMeido.App
             await db.InitializeAsync();
 
             _window = new MainWindow(naviItems);
+
+            _window.Closed += (_, _) =>
+            {
+                Log.CloseAndFlush();
+                Application.Current.Exit();
+            };
+
             _window.Activate();
             if (_window.Content is FrameworkElement root)
                 ThemeService.InitializeTheme(root);

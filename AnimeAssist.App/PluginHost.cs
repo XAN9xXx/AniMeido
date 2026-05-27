@@ -2,11 +2,34 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Reflection;
+using System.Runtime.Loader;
 
 // TODO:PersonWork.cs已创建但未实现，为排除编译错误，暂时“从项目中排除”
 
 namespace AniMeido.App
 {
+    /// <summary>
+    /// 自定义 AssemblyLoadContext，从指定子目录加载插件程序集及其依赖，
+    /// 让 WinRT/WinUI 原生层能正确解析插件资源。
+    /// </summary>
+    internal class PluginLoadContext : AssemblyLoadContext
+    {
+        private readonly string _pluginDir;
+
+        public PluginLoadContext(string pluginDir) : base(isCollectible: true)
+        {
+            _pluginDir = pluginDir;
+        }
+
+        protected override Assembly? Load(AssemblyName assemblyName)
+        {
+            var path = Path.Combine(_pluginDir, assemblyName.Name + ".dll");
+            if (File.Exists(path))
+                return LoadFromAssemblyPath(path);
+            return null; // 回退到默认加载上下文
+        }
+    }
+
     public class PluginHost
     {
         private readonly ILogger<PluginHost> _logger;
@@ -40,22 +63,15 @@ namespace AniMeido.App
                 Assembly assembly;
                 if (pluginDir != null && pluginDir != AppContext.BaseDirectory)
                 {
-                    // 子目录加载时注册依赖解析回退
-                    var pluginBaseName = System.IO.Path.GetFileNameWithoutExtension(dllPath);
-                    AppDomain.CurrentDomain.AssemblyResolve += (s, e) =>
-                    {
-                        var name = new AssemblyName(e.Name!).Name;
-                        if (name == pluginBaseName) return null; // 跳过自身
-                        var depPath = System.IO.Path.Combine(pluginDir, name + ".dll");
-                        return System.IO.File.Exists(depPath)
-                            ? Assembly.LoadFrom(depPath)
-                            : null;
-                    };
-                    assembly = Assembly.LoadFrom(dllPath);
+                    // 子目录加载：使用 PluginLoadContext 确保 WinRT 资源可解析
+                    var context = new PluginLoadContext(pluginDir);
+                    assembly = context.LoadFromAssemblyPath(dllPath);
                 }
                 else
                 {
-                    assembly = Assembly.LoadFrom(dllPath);
+                    // 根目录加载：按名称加载到默认上下文，与 ProjectReference 共享类型
+                    var assemblyName = System.Reflection.AssemblyName.GetAssemblyName(dllPath);
+                    assembly = Assembly.Load(assemblyName);
                 }
 
                 Type[] allTypes = assembly.GetExportedTypes();
@@ -89,26 +105,60 @@ namespace AniMeido.App
         public IReadOnlyList<IPlugin> GetPlugins() => _plugins.AsReadOnly();
 
         /// <summary>
-        /// 异步扫描指定目录中的所有 *.dll 程序集，加载插件并返回插件导航项集合。
+        /// 1. 扫描已加载的程序集（编译期依赖插件，如 BasePlugin）
+        /// 2. 扫描根目录下 Plugins\ 子目录中的 *.dll（动态加载插件）
         /// </summary>
-        /// <remarks>如果目录不存在，会记录错误并返回空集合。逐个对目录中的每个 .dll 调用 LoadDllFile 并聚合其结果。</remarks>
-        /// <param name="path">要扫描的包含插件程序集（.dll 文件）的目录路径。</param>
-        /// <returns>表示从目录加载到的 PluginNavigationItem 的只读集合；若目录不存在或未找到任何插件则为空集合。</returns>
         public async Task<IReadOnlyList<PluginNavigationItem>> LoadPluginAsync(string path)
         {
             List<PluginNavigationItem> items = new List<PluginNavigationItem>();
 
             if (!Directory.Exists(path))
             {
-                _logger.LogError("Plugins folder {Path} does not exist", path);
+                _logger.LogError("目录 {Path} 不存在", path);
                 return items;
             }
 
-            foreach (var dllPath in Directory.GetFiles(path, "*.dll"))
+            // 1. 编译期依赖插件：从已加载的程序集中查找 IPlugin 实现
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
-                var dllItems = await LoadDllFile(dllPath);
-                items.AddRange(dllItems);
+                try
+                {
+                    var pluginTypes = assembly.GetExportedTypes()
+                        .Where(t => typeof(IPlugin).IsAssignableFrom(t) && t.IsClass && !t.IsAbstract);
+                    foreach (var type in pluginTypes)
+                    {
+                        var plugin = (IPlugin)Activator.CreateInstance(type)!;
+                        await plugin.InitializeAsync(_services);
+                        _plugins.Add(plugin);
+                        items.AddRange(plugin.GetNavigationItems());
+                    }
+                }
+                catch
+                {
+                    // 跳过无法读取类型的程序集
+                }
             }
+
+            // 2. 动态加载插件：path\Plugins\ 下的各子目录
+            var pluginsDir = Path.Combine(path, "Plugins");
+            if (Directory.Exists(pluginsDir))
+            {
+                foreach (var pluginDir in Directory.GetDirectories(pluginsDir))
+                {
+                    var dllFiles = Directory.GetFiles(pluginDir, "*.dll");
+                    if (dllFiles.Length == 0)
+                    {
+                        _logger.LogWarning("插件目录 {Dir} 中未找到 DLL 文件", pluginDir);
+                        continue;
+                    }
+                    foreach (var dllPath in dllFiles)
+                    {
+                        var dllItems = await LoadDllFile(dllPath);
+                        items.AddRange(dllItems);
+                    }
+                }
+            }
+
             return items;
         }
     }

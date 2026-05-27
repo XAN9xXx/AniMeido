@@ -26,7 +26,8 @@
     <Content Include="Assets\Placeholder_cover.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Empty_anime.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Loading_failed.png" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="Assets\GitHub_Invertocat_Black_Clearspace.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\GitHub_Invertocat_Black_Clearspace.png"
+      CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\icon.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
@@ -39,7 +40,8 @@
     Tools extension to be activated for this project even if the Windows App SDK Nuget
     package has not yet been restored.
   -->
-  <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+  <ItemGroup
+    Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
     <ProjectCapability Include="Msix" />
   </ItemGroup>
   <ItemGroup>
@@ -70,7 +72,8 @@
     Explorer "Package and Publish" context menu entry to be enabled for this project even if
     the Windows App SDK Nuget package has not yet been restored.
   -->
-  <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+  <PropertyGroup
+    Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
     <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
   </PropertyGroup>
 
@@ -81,21 +84,12 @@
     <PublishTrimmed>False</PublishTrimmed>
   </PropertyGroup>
 
-  <Target Name="CopyPluginPri" AfterTargets="Build">
-    <ItemGroup>
-      <PluginPriFiles Include="$(MSBuildProjectDirectory)\..\Plugins\**\bin\$(Configuration)\net8.0-windows10.0.19041.0\*.pri" />
-    </ItemGroup>
-    <Copy SourceFiles="@(PluginPriFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(OutDir)$(TargetName).pri" DestinationFolder="$(PublishDir)" />
-  </Target>
+  <!-- 动态加载的插件：复制构建产物到 Plugins\ 子目录（每加一个插件加一套 Include+Copy） -->
+  <!-- BasePlugin 是编译期依赖，由 ProjectReference 自动输出到根目录，无需额外复制 -->
 
-  <Target Name="CopyPluginPriToPublish" AfterTargets="Publish">
-    <ItemGroup>
-      <PluginPriFiles Include="$(MSBuildProjectDirectory)\..\Plugins\**\bin\$(Configuration)\net8.0-windows10.0.19041.0\*.pri" />
-    </ItemGroup>
-    <!-- 复制到根目录（供根目录加载时使用） -->
-    <Copy SourceFiles="@(PluginPriFiles)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
-    <!-- 复制到 Plugins\ 子目录（供子目录加载时使用） -->
-    <Copy SourceFiles="@(PluginPriFiles)" DestinationFolder="$(PublishDir)Plugins\" SkipUnchangedFiles="true" />
+  <!-- 复制 App.pri 到 publish 目录 -->
+  <Target Name="CopyAppPri" AfterTargets="Publish">
+    <Copy SourceFiles="$(OutDir)$(TargetName).pri" DestinationFolder="$(PublishDir)"
+      SkipUnchangedFiles="true" />
   </Target>
 </Project>

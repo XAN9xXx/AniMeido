@@ -20,14 +20,20 @@ namespace AniMeido.App.Services
 
         public void SetTheme(ElementTheme theme)
         {
-            _rootElement.RequestedTheme = theme;
+            if (_rootElement is not null)
+                _rootElement.RequestedTheme = theme;
             Microsoft.Win32.Registry.SetValue(
                 RegistryKey, "ThemeSetting", theme.ToString());
         }
 
         public ElementTheme GetCurrentTheme()
         {
-            return _rootElement.RequestedTheme;
+            return _rootElement?.RequestedTheme ?? Application.Current.RequestedTheme switch
+            {
+                ApplicationTheme.Light => ElementTheme.Light,
+                ApplicationTheme.Dark => ElementTheme.Dark,
+                _ => ElementTheme.Default,
+            };
         }
     }
 }

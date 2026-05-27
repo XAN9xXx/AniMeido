@@ -28,7 +28,11 @@ namespace AniMeido.Plugin.Base
                 //TODO: 这里的\uE713需要改成实际的导航栏logo
                 new PluginNavigationItem("正在放送", "\uE713", "AniMeido.Plugin.Base.Views.CurrentSeasonPage"),
                 new PluginNavigationItem("补番计划", "\uE713", "AniMeido.Plugin.Base.Views.PastSeasonPage"),
-                new PluginNavigationItem("关注管理", "\uE72E", "AniMeido.Plugin.Base.Views.ManagementPage")
+                new PluginNavigationItem("关注管理", "\uE72E", "AniMeido.Plugin.Base.Views.ManagementPage"),
+                new PluginNavigationItem("拖放标记", "\uE713", "AniMeido.Plugin.Base.Views.DragZoneSettingsPage")
+                {
+                    IsSettingsPage = true
+                }
             };
         }
 

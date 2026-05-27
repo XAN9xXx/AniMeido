@@ -1,4 +1,4 @@
-namespace AniMeido.Contracts.Models
+namespace AniMeido.Plugin.Base.Models
 {
     public enum DragAction
     {
