@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Windows.UI;
 
 namespace AniMeido.Plugin.Base.Views
@@ -144,22 +145,6 @@ namespace AniMeido.Plugin.Base.Views
             }
         }
 
-        private void OnDragItemsStarting(object sender, DragItemsStartingEventArgs e)
-        {
-            if (e.Items.FirstOrDefault() is Anime anime)
-            {
-                e.Data.SetData("AnimeID", anime.ID);
-                e.Data.RequestedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-                DragOverlay.Visibility = Visibility.Visible;
-                ShowZones();
-            }
-        }
-
-        private void OnDragItemsCompleted(object sender, DragItemsCompletedEventArgs e)
-        {
-            DragOverlay.Visibility = Visibility.Collapsed;
-        }
-
         private void OnWeekdayItemClick(object sender, ItemClickEventArgs e)
         {
             if (e.ClickedItem is Anime anime)
@@ -194,7 +179,9 @@ namespace AniMeido.Plugin.Base.Views
             visual.StartAnimation("Scale.Y", scaleY);
         }
 
-        // ======== 拖放标记 ========
+        // ======== 拖放标记（动态生成） ========
+
+        private readonly Dictionary<string, DragOverlayZone> _overlayZones = new();
 
         private async Task LoadDragConfigAsync()
         {
@@ -202,120 +189,146 @@ namespace AniMeido.Plugin.Base.Views
             _dragZones = await _tracking.LoadDragZoneConfigAsync();
         }
 
+        private async void OnDragItemsStarting(object sender, DragItemsStartingEventArgs e)
+        {
+            if (e.Items.FirstOrDefault() is Anime anime)
+            {
+                // 每次拖拽重新加载确保配置最新
+                if (_tracking == null)
+                    _tracking = AppServices.Provider!.GetRequiredService<TrackingService>();
+                _dragZones = await _tracking.LoadDragZoneConfigAsync();
+
+                e.Data.SetData("AnimeID", anime.ID);
+                e.Data.RequestedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+                DragOverlay.Visibility = Visibility.Visible;
+                // 强制布局更新确保 ActualWidth/ActualHeight 可用
+                DragOverlay.UpdateLayout();
+                BuildAndShowZones();
+            }
+        }
+
+        private void OnDragItemsCompleted(object sender, DragItemsCompletedEventArgs e)
+        {
+            DragOverlay.Visibility = Visibility.Collapsed;
+        }
+
+        private void BuildAndShowZones()
+        {
+            // 清除旧的动态 zone
+            foreach (var kv in _overlayZones)
+            {
+                DragOverlay.Children.Remove(kv.Value.OuterBorder);
+            }
+            _overlayZones.Clear();
+
+            var pw = DragOverlay.ActualWidth;
+            var ph = DragOverlay.ActualHeight;
+
+            foreach (var config in _dragZones)
+            {
+                // 追番页面不显示补番/禁用目标区
+                if (config.Action == DragAction.None || config.Action == DragAction.PlanToWatch) continue;
+
+                var label = new TextBlock
+                {
+                    Text = GetActionLabel(config.Action),
+                    FontSize = 16,
+                    FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+                    Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
+                };
+
+                var inner = new Border
+                {
+                    Child = label,
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(16, 12, 16, 12),
+                    Background = new SolidColorBrush(Color.FromArgb(180, 0x44, 0x88, 0xFF)),
+                    Opacity = 0.7,
+                };
+
+                var zone = new Border
+                {
+                    Child = inner,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)),
+                    AllowDrop = true,
+                    Tag = config.Id,
+                };
+
+                if (pw > 0 && ph > 0)
+                {
+                    zone.Width = pw * config.WidthPercent;
+                    zone.Height = ph * config.HeightPercent;
+                    zone.Margin = new Thickness(pw * config.XPercent, ph * config.YPercent, 0, 0);
+                }
+
+                zone.DragOver += OnZoneDragOver;
+                zone.Drop += OnZoneDrop;
+
+                DragOverlay.Children.Add(zone);
+                _overlayZones[config.Id] = new DragOverlayZone(zone, inner, label);
+            }
+        }
 
         private void OnZoneDragOver(object sender, DragEventArgs e)
         {
             e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-            ShowZones();
-        }
-
-        private void OnZoneDragLeave(object sender, DragEventArgs e)
-        {
-            if (sender is Border zone)
+            // 如果之前被 DragLeave 隐藏了，重新显示
+            if (sender is Border zone && zone.Tag is string id
+                && _overlayZones.TryGetValue(id, out var dz))
             {
-                var inner = GetZoneInner(zone.Tag?.ToString());
-                if (inner != null) SetZoneHidden(inner);
+                dz.Inner.Visibility = Visibility.Visible;
             }
         }
 
         private async void OnZoneDrop(object sender, DragEventArgs e)
         {
-            if (_tracking == null) _tracking = AppServices.Provider!.GetRequiredService<TrackingService>();
+            if (_tracking == null)
+                _tracking = AppServices.Provider!.GetRequiredService<TrackingService>();
 
-            if (e.DataView.Contains("AnimeID"))
+            if (!e.DataView.Contains("AnimeID")) return;
+
+            var deferral = e.GetDeferral();
+            try
             {
-                var deferral = e.GetDeferral();
-                try
+                var animeId = Convert.ToInt32(await e.DataView.GetDataAsync("AnimeID"));
+                if (sender is Border zone && zone.Tag is string id)
                 {
-                    var animeId = Convert.ToInt32(await e.DataView.GetDataAsync("AnimeID"));
-                    if (sender is Border zone)
+                    var config = _dragZones.Find(z => z.Id == id);
+                    if (config != null && config.Action != DragAction.None)
                     {
-                        var config = _dragZones.Find(z =>
+                        var status = config.Action switch
                         {
-                            var key = zone.Tag?.ToString();
-                            return key == "TopLeft" && z.Position == DragPosition.TopLeft
-                                || key == "TopRight" && z.Position == DragPosition.TopRight
-                                || key == "BottomLeft" && z.Position == DragPosition.BottomLeft
-                                || key == "BottomRight" && z.Position == DragPosition.BottomRight;
-                        });
-                        if (config != null && config.Action != DragAction.None)
-                        {
-                            var status = config.Action switch
-                            {
-                                DragAction.Watching => AnimeTrackingStatus.Watching,
-                                DragAction.PlanToWatch => AnimeTrackingStatus.PlanToWatch,
-                                DragAction.NotInterested => AnimeTrackingStatus.NotInterested,
-                                _ => AnimeTrackingStatus.None
-                            };
-                            if (status != AnimeTrackingStatus.None)
-                                await _tracking.SetStatusAsync(animeId, status);
-                        }
+                            DragAction.Watching => AnimeTrackingStatus.Watching,
+                            DragAction.PlanToWatch => AnimeTrackingStatus.PlanToWatch,
+                            DragAction.NotInterested => AnimeTrackingStatus.NotInterested,
+                            _ => AnimeTrackingStatus.None
+                        };
+                        if (status != AnimeTrackingStatus.None)
+                            await _tracking.SetStatusAsync(animeId, status);
                     }
                 }
-                finally
-                {
-                    deferral.Complete();
-                }
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
-        private void ShowZones()
+        private static string GetActionLabel(DragAction action) => action switch
         {
-            ConfigureZone(TopLeftZone, TopLeftInner, TopLeftText, DragPosition.TopLeft);
-            ConfigureZone(TopRightZone, TopRightInner, TopRightText, DragPosition.TopRight);
-            ConfigureZone(BottomLeftZone, BottomLeftInner, BottomLeftText, DragPosition.BottomLeft);
-            ConfigureZone(BottomRightZone, BottomRightInner, BottomRightText, DragPosition.BottomRight);
-        }
-
-        private void ConfigureZone(Border zone, Border inner, TextBlock label, DragPosition pos)
-        {
-            var config = _dragZones.Find(z => z.Position == pos);
-            if (config == null || config.Action == DragAction.None || config.Action == DragAction.PlanToWatch)
-            {
-                zone.Visibility = Visibility.Collapsed;
-                return;
-            }
-            zone.Visibility = Visibility.Visible;
-            inner.Visibility = Visibility.Visible;
-            label.Text = config.Action switch
-            {
-                DragAction.Watching => "追番",
-                DragAction.PlanToWatch => "补番",
-                DragAction.NotInterested => "不感兴趣",
-                _ => ""
-            };
-
-            // 根据设置同步区域大小
-            var parentW = DragOverlay.ActualWidth;
-            var parentH = DragOverlay.ActualHeight;
-            if (parentW > 0 && parentH > 0)
-            {
-                zone.Width = parentW * config.SizePercent;
-                zone.Height = parentH * config.SizePercent;
-            }
-        }
-
-        private void HideZones()
-        {
-            SetZoneHidden(TopLeftInner);
-            SetZoneHidden(TopRightInner);
-            SetZoneHidden(BottomLeftInner);
-            SetZoneHidden(BottomRightInner);
-        }
-
-        private void SetZoneHidden(Border inner)
-        {
-            if (inner != null)
-                inner.Visibility = Visibility.Collapsed;
-        }
-
-        private Border? GetZoneInner(string? tag) => tag switch
-        {
-            "TopLeft" => TopLeftInner,
-            "TopRight" => TopRightInner,
-            "BottomLeft" => BottomLeftInner,
-            "BottomRight" => BottomRightInner,
-            _ => null
+            DragAction.Watching => "追番",
+            DragAction.PlanToWatch => "补番",
+            DragAction.NotInterested => "不感兴趣",
+            _ => "禁用"
         };
     }
+
+    // ======== 覆盖层 Zone 元素记录 ========
+
+    internal record DragOverlayZone(
+        Border OuterBorder,
+        Border Inner,
+        TextBlock Label);
 }

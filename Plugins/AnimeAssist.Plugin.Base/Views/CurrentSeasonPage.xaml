@@ -139,104 +139,11 @@
             </StackPanel>
         </Grid>
 
-        <!-- 拖放目标覆盖层：拖放开始时显示 -->
+        <!-- 拖放目标覆盖层：拖放开始时显示，动态生成 zone -->
         <Grid x:Name="DragOverlay"
               Grid.RowSpan="2"
               Visibility="Collapsed"
-              Background="#20FFFFFF"
               AllowDrop="True">
-
-            <Border x:Name="TopLeftZone"
-                    HorizontalAlignment="Left"
-                    VerticalAlignment="Top"
-                    Width="200"
-                    Height="120"
-                    Background="Transparent"
-                    AllowDrop="True"
-                    DragOver="OnZoneDragOver"
-                    Drop="OnZoneDrop"
-                    Tag="TopLeft">
-                <Border x:Name="TopLeftInner"
-                        CornerRadius="0,0,16,0"
-                        Padding="16,12"
-                        Background="{ThemeResource SystemAccentColor}"
-                        Opacity="0.7">
-                    <TextBlock x:Name="TopLeftText"
-                               Text=""
-                               FontSize="16"
-                               FontWeight="Bold"
-                               Foreground="White"/>
-                </Border>
-            </Border>
-
-            <Border x:Name="TopRightZone"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Top"
-                    Width="200"
-                    Height="120"
-                    Background="Transparent"
-                    AllowDrop="True"
-                    DragOver="OnZoneDragOver"
-                    Drop="OnZoneDrop"
-                    Tag="TopRight">
-                <Border x:Name="TopRightInner"
-                        CornerRadius="0,0,0,16"
-                        Padding="16,12"
-                        Background="{ThemeResource SystemAccentColor}"
-                        Opacity="0.7">
-                    <TextBlock x:Name="TopRightText"
-                               Text=""
-                               FontSize="16"
-                               FontWeight="Bold"
-                               Foreground="White"/>
-                </Border>
-            </Border>
-
-            <Border x:Name="BottomLeftZone"
-                    HorizontalAlignment="Left"
-                    VerticalAlignment="Bottom"
-                    Width="200"
-                    Height="120"
-                    Background="Transparent"
-                    AllowDrop="True"
-                    DragOver="OnZoneDragOver"
-                    Drop="OnZoneDrop"
-                    Tag="BottomLeft">
-                <Border x:Name="BottomLeftInner"
-                        CornerRadius="0,16,0,0"
-                        Padding="16,12"
-                        Background="{ThemeResource SystemAccentColor}"
-                        Opacity="0.7">
-                    <TextBlock x:Name="BottomLeftText"
-                               Text=""
-                               FontSize="16"
-                               FontWeight="Bold"
-                               Foreground="White"/>
-                </Border>
-            </Border>
-
-            <Border x:Name="BottomRightZone"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Bottom"
-                    Width="200"
-                    Height="120"
-                    Background="Transparent"
-                    AllowDrop="True"
-                    DragOver="OnZoneDragOver"
-                    Drop="OnZoneDrop"
-                    Tag="BottomRight">
-                <Border x:Name="BottomRightInner"
-                        CornerRadius="16,0,0,0"
-                        Padding="16,12"
-                        Background="{ThemeResource SystemAccentColor}"
-                        Opacity="0.7">
-                    <TextBlock x:Name="BottomRightText"
-                               Text=""
-                               FontSize="16"
-                               FontWeight="Bold"
-                               Foreground="White"/>
-                </Border>
-            </Border>
         </Grid>
     </Grid>
 </Page>
