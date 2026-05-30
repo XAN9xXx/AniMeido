@@ -13,7 +13,6 @@ namespace AniMeido.Plugin.Base.Services
     {
         private readonly BangumiApiClient _apiClient;
         private readonly ILogger<BangumiDataSource> _logger;
-        private const string ApiBase = "https://api.bgm.tv";
         private const string FallbackTitle = "不好，标题走丢了Q^Q";
         private const string FallbackDescription = "No description available.";
         private static readonly string? FallbackImageUrl = null;
@@ -35,7 +34,7 @@ namespace AniMeido.Plugin.Base.Services
         // 以年-季度为条件从API筛选番剧，返回Anime列表的辅助方法
         private async Task<List<Anime>> FetchByBrowse(int year, int seasonMonth, CancellationToken ct)
         {
-            var result = await _apiClient.GetJsonAsync<PagedSubjectResponse>($"{ApiBase}/v0/subjects?type=2&year={year}&month={seasonMonth}&limit=50", ct);
+            var result = await _apiClient.GetJsonAsync<PagedSubjectResponse>($"/v0/subjects?type=2&year={year}&month={seasonMonth}&limit=50", ct);
             List<Anime> animes = new List<Anime>();
             if (result is null)
             {
@@ -55,7 +54,7 @@ namespace AniMeido.Plugin.Base.Services
         // 从Bangumi API获取每周新番的日历数据，并将其解析为CalendarDayResponse对象列表。
         private async Task<List<CalendarDayResponse>> FetchCalendarAsync(CancellationToken ct)
         {
-            var result = await _apiClient.GetJsonAsync<List<CalendarDayResponse>>($"{ApiBase}/calendar", ct).ConfigureAwait(false);
+            var result = await _apiClient.GetJsonAsync<List<CalendarDayResponse>>("/calendar", ct).ConfigureAwait(false);
             if (result is null)
             {
                 _logger.LogError("Bangumi calendar API returned null.");
@@ -199,7 +198,7 @@ namespace AniMeido.Plugin.Base.Services
         /// <returns>番剧详情信息</returns>
         public async Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct)
         {
-            var result = await _apiClient.GetJsonAsync<SubjectResponse>($"{ApiBase}/v0/subjects/{animeID}", ct).ConfigureAwait(false);
+            var result = await _apiClient.GetJsonAsync<SubjectResponse>($"/v0/subjects/{animeID}", ct).ConfigureAwait(false);
             if (result is null) return null;
 
             return MapFromSubject(result);
@@ -213,7 +212,7 @@ namespace AniMeido.Plugin.Base.Services
         /// <returns>Studio列表</returns>
         public async Task<List<Studio>> GetStudioAsync(int animeID, CancellationToken ct)
         {
-            var result = await _apiClient.GetJsonAsync<List<RelatedPersonResponse>>($"{ApiBase}/v0/subjects/{animeID}/persons", ct).ConfigureAwait(false);
+            var result = await _apiClient.GetJsonAsync<List<RelatedPersonResponse>>($"/v0/subjects/{animeID}/persons", ct).ConfigureAwait(false);
             if (result is null) return new List<Studio>();
             return result.Where(person => person.Type == 2 && StudioFilter.Contains(person.Relation)) // API中Type 2 代表参与制作的商业实体，此处仅筛选制作/原作。
                 .Select(person => new Studio(person.Id, person.Name, person.Images?.Grid))
@@ -228,7 +227,7 @@ namespace AniMeido.Plugin.Base.Services
         /// <returns>Tag列表</returns>
         public async Task<List<Tag>> GetTagsAsync(int animeID, CancellationToken ct)
         {
-            var result = await _apiClient.GetJsonAsync<SubjectResponse>($"{ApiBase}/v0/subjects/{animeID}", ct).ConfigureAwait(false);
+            var result = await _apiClient.GetJsonAsync<SubjectResponse>($"/v0/subjects/{animeID}", ct).ConfigureAwait(false);
             if (result is null)
             {
                 return new List<Tag>();
@@ -245,7 +244,7 @@ namespace AniMeido.Plugin.Base.Services
         /// <returns>VoiceActor列表</returns>
         public async Task<List<VoiceActor>> GetCVsAsync(int animeID, CancellationToken ct)
         {
-            var result = await _apiClient.GetJsonAsync<List<RelatedCharacterResponse>>($"{ApiBase}/v0/subjects/{animeID}/characters", ct).ConfigureAwait(false);
+            var result = await _apiClient.GetJsonAsync<List<RelatedCharacterResponse>>($"/v0/subjects/{animeID}/characters", ct).ConfigureAwait(false);
             if (result is null)
             {
                 return new List<VoiceActor>();
@@ -265,7 +264,7 @@ namespace AniMeido.Plugin.Base.Services
         /// <returns>CV-角色对照列表</returns>
         public async Task<List<CharacterRole>> GetCharacterRolesAsync(int animeID, CancellationToken ct)
         {
-            var result = await _apiClient.GetJsonAsync<List<RelatedCharacterResponse>>($"{ApiBase}/v0/subjects/{animeID}/characters", ct).ConfigureAwait(false);
+            var result = await _apiClient.GetJsonAsync<List<RelatedCharacterResponse>>($"/v0/subjects/{animeID}/characters", ct).ConfigureAwait(false);
             if (result is null)
             {
                 return new List<CharacterRole>();

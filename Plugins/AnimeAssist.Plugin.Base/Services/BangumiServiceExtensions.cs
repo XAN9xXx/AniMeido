@@ -17,6 +17,7 @@ namespace AniMeido.Plugin.Base.Services
         {
             services.AddHttpClient("BangumiAPI", client =>
             {
+                client.BaseAddress = new Uri("https://bgm-proxy.animeido.com");
                 client.Timeout = TimeSpan.FromSeconds(30);
                 client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "XAN9xXx/AniMeido/1.0.0 (https://github.com/XAN9xXx/AniMeido)");
             });
