@@ -39,8 +39,8 @@ namespace AniMeido.App
                 appWindow.SetIcon(iconPath);
             }
 
-            // 关闭窗口时确保进程完全退出
-            Closed += (s, e) => Application.Current.Exit();
+            // 关闭窗口时进程退出由 App 层统一管理（全局异常处理器）
+            // 此处不再重复调用 Application.Current.Exit()
 
             _naviItems = naviItems;
             BuildNavigationMenu();

@@ -13,10 +13,16 @@ namespace AniMeido.App
     public partial class App : Application
     {
         private Window? _window;
+        private bool _isRecoverableErrorShown;
 
         public App()
         {
             InitializeComponent();
+
+            // 全局未处理异常捕获
+            AppDomain.CurrentDomain.UnhandledException += OnCurrentDomainUnhandledException;
+            TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+            UnhandledException += OnAppUnhandledException;
         }
 
         public static IServiceProvider? Services { get; private set; }
@@ -27,15 +33,24 @@ namespace AniMeido.App
 
         protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
+            // 配置 Serilog — 输出到 AppData/Roaming/AniMeido/logs/
+            var logDir = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "AniMeido", "logs");
+            System.IO.Directory.CreateDirectory(logDir);
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Warning()
-                .WriteTo.File("logs/aniMeido.log",
+                .WriteTo.File(System.IO.Path.Combine(logDir, "aniMeido.log"),
                     rollingInterval: RollingInterval.Day,
                     retainedFileCountLimit: 3)
                 .CreateLogger();
 
             var services = new ServiceCollection();
-            services.AddLogging();
+            services.AddLogging(builder =>
+            {
+                builder.AddSerilog(dispose: true);
+                builder.SetMinimumLevel(Microsoft.Extensions.Logging.LogLevel.Warning);
+            });
             services.AddHttpClient();
             var serviceProvider = services.BuildServiceProvider();
             var logger = serviceProvider.GetRequiredService<ILogger<PluginHost>>();
@@ -58,10 +73,10 @@ namespace AniMeido.App
 
             _window = new MainWindow(naviItems);
 
+            // 窗口关闭时清理日志，进程退出由全局异常处理器统一处理
             _window.Closed += (_, _) =>
             {
                 Log.CloseAndFlush();
-                Application.Current.Exit();
             };
 
             _window.Activate();
@@ -69,6 +84,95 @@ namespace AniMeido.App
                 ThemeService.InitializeTheme(root);
 
             _ = CheckForUpdateSilentlyAsync(provider, _window);
+        }
+
+        private void OnCurrentDomainUnhandledException(object sender, System.UnhandledExceptionEventArgs e)
+        {
+            var ex = e.ExceptionObject as Exception;
+            var message = $"[AppDomain] 未处理异常: {ex?.Message}";
+            Log.Fatal(ex, "[AppDomain] 未处理异常");
+
+            if (e.IsTerminating)
+            {
+                ShowFatalErrorDialog(message);
+                Environment.Exit(1);
+            }
+            else
+            {
+                ShowRecoverableErrorDialog(message);
+            }
+        }
+
+        private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+        {
+            var ex = e.Exception?.InnerException ?? e.Exception;
+            Log.Error(ex, "[Task] 未观察任务异常");
+            e.SetObserved();
+            ShowRecoverableErrorDialog($"[Task] 后台任务异常: {ex?.Message}");
+        }
+
+        private void OnAppUnhandledException(object? sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
+        {
+            Log.Error(e.Exception, "[UI] WinUI 未处理异常");
+            ShowRecoverableErrorDialog($"[UI] 界面异常: {e.Exception.Message}");
+            e.Handled = true;
+        }
+
+        private void ShowRecoverableErrorDialog(string message)
+        {
+            if (_isRecoverableErrorShown) return;
+            _isRecoverableErrorShown = true;
+
+            _ = _window?.DispatcherQueue.TryEnqueue(async () =>
+            {
+                try
+                {
+                    if (_window?.Content is FrameworkElement fe && fe.XamlRoot is { } root)
+                    {
+                        var dialog = new ContentDialog
+                        {
+                            Title = "发生异常",
+                            Content = $"AniMeido 遇到了一个可恢复的异常，应用可能部分功能不可用。\n\n{message}\n\n日志已保存到 AppData/Roaming/AniMeido/logs/",
+                            PrimaryButtonText = "重新加载",
+                            CloseButtonText = "继续使用",
+                            DefaultButton = ContentDialogButton.Close,
+                            XamlRoot = root
+                        };
+                        var result = await dialog.ShowAsync();
+                        if (result == ContentDialogResult.Primary)
+                        {
+                            _isRecoverableErrorShown = false;
+                            // 重新启动应用
+                            _window?.Close();
+                        }
+                    }
+                }
+                catch
+                {
+                    // 对话框显示失败时忽略
+                }
+                finally
+                {
+                    _isRecoverableErrorShown = false;
+                }
+            });
+        }
+
+        private void ShowFatalErrorDialog(string message)
+        {
+            try
+            {
+                Log.Fatal("应用程序将因不可恢复异常退出: {Message}", message);
+                Log.CloseAndFlush();
+
+                var hWnd = _window != null
+                    ? WinRT.Interop.WindowNative.GetWindowHandle(_window)
+                    : IntPtr.Zero;
+                _ = NativeMethods.MessageBox(hWnd, message, "AniMeido - 不可恢复错误", 0x00000010);
+            }
+            catch
+            {
+            }
         }
 
         private static async Task CheckForUpdateSilentlyAsync(IServiceProvider provider, Window window)
@@ -111,5 +215,11 @@ namespace AniMeido.App
                 // 静默失败，不干扰用户
             }
         }
+    }
+
+    internal static class NativeMethods
+    {
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+        internal static extern int MessageBox(IntPtr hWnd, string text, string caption, uint type);
     }
 }
