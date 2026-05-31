@@ -771,13 +771,14 @@ namespace AniMeido.Plugin.Base.Views
                 if (AppServices.BackupDatabaseAsync != null)
                     await AppServices.BackupDatabaseAsync();
 
-                var (trackingCount, configCount) = await _exportService.ImportAsync(json);
+                var (trackingCount, configCount, tagCount) = await _exportService.ImportAsync(json);
 
                 var doneDialog = new ContentDialog
                 {
                     Title = "导入完成",
                     Content = $"成功导入 {trackingCount} 条追番记录"
-                             + (configCount > 0 ? $" 和 {configCount} 项拖放配置" : ""),
+                             + (configCount > 0 ? $"、{configCount} 项拖放配置" : "")
+                             + (tagCount > 0 ? $"、{tagCount} 个标签绑定" : ""),
                     CloseButtonText = "确定",
                     XamlRoot = this.XamlRoot
                 };

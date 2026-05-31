@@ -15,11 +15,16 @@ namespace AniMeido.Plugin.Base.Views
     public sealed partial class AnimeDetailPage : Page
     {
         public AnimeDetailViewModel ViewModel { get; }
+        private SavedTagService? _savedTagService;
+        private IAnimeDataSource? _dataSource;
+        private int _currentAnimeId;
 
         public AnimeDetailPage()
         {
             var ds = AppServices.Provider!.GetRequiredService<IAnimeDataSource>();
             var ts = AppServices.Provider!.GetRequiredService<TrackingService>();
+            _savedTagService = AppServices.Provider!.GetRequiredService<SavedTagService>();
+            _dataSource = ds;
             ViewModel = new AnimeDetailViewModel(ds, ts);
             DataContext = ViewModel;
             InitializeComponent();
@@ -66,7 +71,11 @@ namespace AniMeido.Plugin.Base.Views
         protected override void OnNavigatedTo(NavigationEventArgs e)
         {
             if (e.Parameter is int animeID && animeID > 0)
+            {
+                _currentAnimeId = animeID;
                 ViewModel.LoadDetailCommand.Execute(animeID);
+                _ = LoadBangumiTagsAsync();
+            }
         }
 
         private void UpdateOverlayState()
@@ -295,6 +304,102 @@ namespace AniMeido.Plugin.Base.Views
         private void OnDetailCoverImageFailed(object sender, ExceptionRoutedEventArgs e)
         {
             DetailCoverImage.Source = new BitmapImage(ImageCacheHelper.PlaceholderUri);
+        }
+
+        // ======== Bangumi 标签 ========
+
+        private async Task LoadBangumiTagsAsync()
+        {
+            if (_dataSource == null || _currentAnimeId <= 0) return;
+
+            List<AniMeido.Contracts.Models.Tag>? bangumiTags;
+            try
+            {
+                bangumiTags = await _dataSource.GetTagsAsync(_currentAnimeId, CancellationToken.None);
+            }
+            catch
+            {
+                return;
+            }
+
+            if (bangumiTags == null || bangumiTags.Count == 0) return;
+
+            var savedTags = await _savedTagService!.GetSavedTagsAsync(_currentAnimeId);
+            var savedSet = new HashSet<string>(savedTags);
+
+            // 去重
+            var distinctTags = bangumiTags
+                .Select(t => t.Name)
+                .Distinct()
+                .ToList();
+
+            TagContainer.Children.Clear();
+            foreach (var distinctName in distinctTags)
+            {
+                var saved = savedSet.Contains(distinctName);
+                var tagBtn = CreateTagButton(distinctName, saved);
+                TagContainer.Children.Add(tagBtn);
+            }
+            TagContainer.Visibility = Visibility.Visible;
+        }
+
+        private Border CreateTagButton(string tagName, bool isSaved)
+        {
+            var textBlock = new TextBlock
+            {
+                Text = tagName,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+
+            var accentColor = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+            var accentBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(accentColor);
+            var savedBg = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                Windows.UI.Color.FromArgb(220, accentColor.R, accentColor.G, accentColor.B));
+            var unsavedBg = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                Windows.UI.Color.FromArgb(30, 128, 128, 128));
+            var unsavedFg = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                Windows.UI.Color.FromArgb(200, 128, 128, 128));
+            var whiteBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                Windows.UI.Color.FromArgb(255, 255, 255, 255));
+
+            var border = new Border
+            {
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(8, 2, 8, 2),
+                Margin = new Thickness(0, 0, 4, 4),
+                Tag = tagName,
+                Background = isSaved ? savedBg : unsavedBg,
+                Child = textBlock,
+            };
+
+            textBlock.Foreground = isSaved ? whiteBrush : unsavedFg;
+
+            border.Tapped += async (s, e) =>
+            {
+                if (s is Border b && b.Tag is string name)
+                {
+                    var isCurrentlySaved = b.Background is Microsoft.UI.Xaml.Media.SolidColorBrush brush
+                        && brush.Color.A > 200;
+
+                    if (isCurrentlySaved)
+                    {
+                        await _savedTagService!.RemoveTagAsync(_currentAnimeId, name);
+                        b.Background = unsavedBg;
+                        if (b.Child is TextBlock tb)
+                            tb.Foreground = unsavedFg;
+                    }
+                    else
+                    {
+                        await _savedTagService!.SaveTagAsync(_currentAnimeId, name);
+                        b.Background = savedBg;
+                        if (b.Child is TextBlock tb)
+                            tb.Foreground = whiteBrush;
+                    }
+                }
+            };
+
+            return border;
         }
     }
 }

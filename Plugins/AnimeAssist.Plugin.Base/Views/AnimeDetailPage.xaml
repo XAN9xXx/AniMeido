@@ -161,7 +161,7 @@
                                 PointerEntered="OnTrackingBtnEntered"
                                 PointerExited="OnTrackingBtnExited">
                             <StackPanel Orientation="Horizontal"
-                                    Spacing="6">
+                                        Spacing="6">
                                 <FontIcon x:Name="FollowingIcon"
                                           Glyph="&#xE1CE;"
                                           FontSize="14"
@@ -183,7 +183,7 @@
                                 PointerEntered="OnTrackingBtnEntered"
                                 PointerExited="OnTrackingBtnExited">
                             <StackPanel Orientation="Horizontal"
-                                    Spacing="6">
+                                        Spacing="6">
                                 <FontIcon x:Name="CompletedIcon"
                                           Glyph="&#xE930;"
                                           FontSize="14"
@@ -205,7 +205,7 @@
                                 PointerEntered="OnTrackingBtnEntered"
                                 PointerExited="OnTrackingBtnExited">
                             <StackPanel Orientation="Horizontal"
-                                    Spacing="6">
+                                        Spacing="6">
                                 <FontIcon x:Name="DroppedIcon"
                                           Glyph="&#xE74C;"
                                           FontSize="14"
@@ -227,7 +227,7 @@
                                 PointerEntered="OnTrackingBtnEntered"
                                 PointerExited="OnTrackingBtnExited">
                             <StackPanel Orientation="Horizontal"
-                                    Spacing="6">
+                                        Spacing="6">
                                 <FontIcon x:Name="BlockedIcon"
                                           Glyph="&#xE76C;"
                                           FontSize="14"
@@ -245,6 +245,19 @@
                                FontSize="13"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                Visibility="Collapsed"/>
+
+                    <!-- 分割线 -->
+                    <Border Height="1"
+                            Background="{ThemeResource DividerStrokeColorDefault}"/>
+
+                    <!-- 标签区域 -->
+                    <TextBlock Text="Bangumi 标签"
+                               FontSize="13"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <StackPanel x:Name="TagContainer"
+                                Orientation="Horizontal"
+                                Visibility="Collapsed">
+                    </StackPanel>
 
                     <!-- 分割线 -->
                     <Border Height="1"

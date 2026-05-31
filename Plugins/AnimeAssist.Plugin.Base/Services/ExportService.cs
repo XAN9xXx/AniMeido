@@ -11,19 +11,21 @@ namespace AniMeido.Plugin.Base.Services
     public class ExportService
     {
         private readonly TrackingService _tracking;
+        private readonly SavedTagService _savedTagService;
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             WriteIndented = true,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         };
 
-        public const int SchemaVersion = 1;
+        public const int SchemaVersion = 2;
 
 
 
-        public ExportService(TrackingService tracking)
+        public ExportService(TrackingService tracking, SavedTagService savedTagService)
         {
             _tracking = tracking;
+            _savedTagService = savedTagService;
         }
 
 
@@ -39,6 +41,7 @@ namespace AniMeido.Plugin.Base.Services
 
             var tracking = await _tracking.GetAllTrackingAsync();
             var config = await _tracking.LoadDragZoneConfigAsync();
+            var allSavedTags = await _savedTagService.GetAllSavedTagsAsync();
 
             var export = new ExportData
             {
@@ -52,6 +55,11 @@ namespace AniMeido.Plugin.Base.Services
                     UpdatedAt = t.UpdatedAt,
                 }).ToList(),
                 DragZones = config,
+                SavedTags = allSavedTags.SelectMany(st =>
+                {
+                    var ids = _savedTagService.GetAnimeIdsByTagAsync(st.TagName).Result;
+                    return ids.Select(id => new SavedTagEntry { AnimeId = id, TagName = st.TagName });
+                }).ToList(),
             };
 
             return JsonSerializer.Serialize(export, JsonOptions);
@@ -59,11 +67,10 @@ namespace AniMeido.Plugin.Base.Services
 
 
         /// <summary>
-        /// 从 JSON 字符串导入追番数据。导入前自动备份数据库。
-        /// 已存在的记录会被覆盖，新记录会被添加。
+        /// 从 JSON 字符串导入追番数据。
         /// </summary>
-        /// <returns>(导入的追番数, 导入的配置项数)</returns>
-        public async Task<(int trackingCount, int configCount)> ImportAsync(string json)
+        /// <returns>(导入的追番数, 导入的配置项数, 导入的标签收藏数)</returns>
+        public async Task<(int trackingCount, int configCount, int tagCount)> ImportAsync(string json)
         {
             var export = JsonSerializer.Deserialize<ExportData>(json, JsonOptions);
             if (export?.Tracking == null)
@@ -83,7 +90,17 @@ namespace AniMeido.Plugin.Base.Services
                 configCount = export.DragZones.Count;
             }
 
-            return (trackingCount, configCount);
+            int tagCount = 0;
+            if (export.SavedTags is { Count: > 0 })
+            {
+                foreach (var st in export.SavedTags)
+                {
+                    await _savedTagService.SaveTagAsync(st.AnimeId, st.TagName);
+                    tagCount++;
+                }
+            }
+
+            return (trackingCount, configCount, tagCount);
         }
 
 
@@ -106,6 +123,7 @@ namespace AniMeido.Plugin.Base.Services
         public string AppVersion { get; set; } = "";
         public List<TrackingEntry> Tracking { get; set; } = new();
         public List<DragZoneConfig>? DragZones { get; set; }
+        public List<SavedTagEntry>? SavedTags { get; set; }
     }
 
     public class TrackingEntry
@@ -113,5 +131,11 @@ namespace AniMeido.Plugin.Base.Services
         public int AnimeId { get; set; }
         public AniMeido.Contracts.Models.AnimeTrackingStatus Status { get; set; }
         public string UpdatedAt { get; set; } = "";
+    }
+
+    public class SavedTagEntry
+    {
+        public int AnimeId { get; set; }
+        public string TagName { get; set; } = "";
     }
 }

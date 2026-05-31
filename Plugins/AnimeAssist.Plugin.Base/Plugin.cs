@@ -45,6 +45,7 @@ namespace AniMeido.Plugin.Base
         {
             services.AddBangumiService();
             services.AddSingleton<ExportService>();
+            services.AddSingleton<SavedTagService>();
             services.AddSingleton<LocalSearchService>(sp =>
                 new LocalSearchService(
                     sp.GetRequiredService<TrackingService>(),

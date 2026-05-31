@@ -213,6 +213,21 @@ namespace AniMeido.App.Services
             // 未来迁移示例：
             // if (version < 2) { ... PRAGMA user_version = 2; }
             // if (version < 3) { ... PRAGMA user_version = 3; }
+            if (version < 2)
+            {
+                // v2: Bangumi Tag 收藏
+                cmd.CommandText = """
+                    CREATE TABLE IF NOT EXISTS saved_tags(
+                        AnimeId INTEGER NOT NULL,
+                        TagName TEXT NOT NULL,
+                        PRIMARY KEY (AnimeId, TagName)
+                    )
+                """;
+                await cmd.ExecuteNonQueryAsync();
+                cmd.CommandText = "PRAGMA user_version = 2";
+                await cmd.ExecuteNonQueryAsync();
+                version = 2;
+            }
         }
     }
 }
