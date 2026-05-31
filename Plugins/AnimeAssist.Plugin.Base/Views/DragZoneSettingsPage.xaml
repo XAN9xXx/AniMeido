@@ -96,6 +96,10 @@
                                 <x:String>追番</x:String>
                                 <x:String>补番</x:String>
                                 <x:String>不感兴趣</x:String>
+                                <x:String>关注</x:String>
+                                <x:String>已看完</x:String>
+                                <x:String>已弃番</x:String>
+                                <x:String>屏蔽</x:String>
                             </ComboBox>
                             <Button Grid.Column="2"
                                     Content="×"

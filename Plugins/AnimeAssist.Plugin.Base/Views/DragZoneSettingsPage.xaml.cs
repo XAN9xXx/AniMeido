@@ -598,6 +598,10 @@ namespace AniMeido.Plugin.Base.Views
             DragAction.Watching => new SolidColorBrush(Color.FromArgb(220, 0x44, 0x88, 0xFF)),
             DragAction.PlanToWatch => new SolidColorBrush(Color.FromArgb(220, 0x44, 0xFF, 0x88)),
             DragAction.NotInterested => new SolidColorBrush(Color.FromArgb(220, 0xFF, 0x44, 0x44)),
+            DragAction.Following => new SolidColorBrush(Color.FromArgb(220, 0xFF, 0xAA, 0x00)),
+            DragAction.Completed => new SolidColorBrush(Color.FromArgb(220, 0x88, 0x44, 0xFF)),
+            DragAction.Dropped => new SolidColorBrush(Color.FromArgb(220, 0x88, 0x88, 0x88)),
+            DragAction.Blocked => new SolidColorBrush(Color.FromArgb(220, 0x44, 0x44, 0x44)),
             _ => new SolidColorBrush(Color.FromArgb(160, 0x88, 0x88, 0x88)),
         };
     }
