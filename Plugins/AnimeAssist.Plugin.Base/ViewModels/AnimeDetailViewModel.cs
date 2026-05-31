@@ -142,6 +142,70 @@ namespace AniMeido.Plugin.Base.ViewModels
         }
 
         [RelayCommand]
+        private async Task SetFollowingAsync()
+        {
+            if (_lastAnimeID <= 0) return;
+            if (CurrentStatus == AnimeTrackingStatus.Following)
+            {
+                await _trackingService.RemoveStatusAsync(_lastAnimeID);
+                CurrentStatus = AnimeTrackingStatus.None;
+            }
+            else
+            {
+                await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.Following);
+                CurrentStatus = AnimeTrackingStatus.Following;
+            }
+        }
+
+        [RelayCommand]
+        private async Task SetCompletedAsync()
+        {
+            if (_lastAnimeID <= 0) return;
+            if (CurrentStatus == AnimeTrackingStatus.Completed)
+            {
+                await _trackingService.RemoveStatusAsync(_lastAnimeID);
+                CurrentStatus = AnimeTrackingStatus.None;
+            }
+            else
+            {
+                await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.Completed);
+                CurrentStatus = AnimeTrackingStatus.Completed;
+            }
+        }
+
+        [RelayCommand]
+        private async Task SetDroppedAsync()
+        {
+            if (_lastAnimeID <= 0) return;
+            if (CurrentStatus == AnimeTrackingStatus.Dropped)
+            {
+                await _trackingService.RemoveStatusAsync(_lastAnimeID);
+                CurrentStatus = AnimeTrackingStatus.None;
+            }
+            else
+            {
+                await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.Dropped);
+                CurrentStatus = AnimeTrackingStatus.Dropped;
+            }
+        }
+
+        [RelayCommand]
+        private async Task SetBlockedAsync()
+        {
+            if (_lastAnimeID <= 0) return;
+            if (CurrentStatus == AnimeTrackingStatus.Blocked)
+            {
+                await _trackingService.RemoveStatusAsync(_lastAnimeID);
+                CurrentStatus = AnimeTrackingStatus.None;
+            }
+            else
+            {
+                await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.Blocked);
+                CurrentStatus = AnimeTrackingStatus.Blocked;
+            }
+        }
+
+        [RelayCommand]
         private async Task ClearTrackingStatusAsync()
         {
             if (_lastAnimeID <= 0) return;

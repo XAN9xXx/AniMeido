@@ -61,6 +61,26 @@ namespace AniMeido.Plugin.Base.Views
                         NotInterestedCountText.Text = $"不感兴趣 ({ViewModel.NotInterestedCount})";
                         NotInterestedEmpty.Visibility = ViewModel.NotInterestedCount > 0 ? Visibility.Collapsed : Visibility.Visible;
                         break;
+
+                    case nameof(ManagementViewModel.FollowingCount):
+                        FollowingCountText.Text = $"关注 ({ViewModel.FollowingCount})";
+                        FollowingEmpty.Visibility = ViewModel.FollowingCount > 0 ? Visibility.Collapsed : Visibility.Visible;
+                        break;
+
+                    case nameof(ManagementViewModel.CompletedCount):
+                        CompletedCountText.Text = $"已看完 ({ViewModel.CompletedCount})";
+                        CompletedEmpty.Visibility = ViewModel.CompletedCount > 0 ? Visibility.Collapsed : Visibility.Visible;
+                        break;
+
+                    case nameof(ManagementViewModel.DroppedCount):
+                        DroppedCountText.Text = $"弃番 ({ViewModel.DroppedCount})";
+                        DroppedEmpty.Visibility = ViewModel.DroppedCount > 0 ? Visibility.Collapsed : Visibility.Visible;
+                        break;
+
+                    case nameof(ManagementViewModel.BlockedCount):
+                        BlockedCountText.Text = $"屏蔽 ({ViewModel.BlockedCount})";
+                        BlockedEmpty.Visibility = ViewModel.BlockedCount > 0 ? Visibility.Collapsed : Visibility.Visible;
+                        break;
                 }
             };
 
@@ -72,11 +92,19 @@ namespace AniMeido.Plugin.Base.Views
             WatchingPanel.Visibility = Visibility.Collapsed;
             PlanToWatchPanel.Visibility = Visibility.Collapsed;
             NotInterestedPanel.Visibility = Visibility.Collapsed;
+            FollowingPanel.Visibility = Visibility.Collapsed;
+            CompletedPanel.Visibility = Visibility.Collapsed;
+            DroppedPanel.Visibility = Visibility.Collapsed;
+            BlockedPanel.Visibility = Visibility.Collapsed;
 
             var transparent = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
             WatchingCard.Background = transparent;
             PlanToWatchCard.Background = transparent;
             NotInterestedCard.Background = transparent;
+            FollowingCard.Background = transparent;
+            CompletedCard.Background = transparent;
+            DroppedCard.Background = transparent;
+            BlockedCard.Background = transparent;
 
             // 重置所有指示器和文字颜色
             WatchingIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
@@ -85,12 +113,24 @@ namespace AniMeido.Plugin.Base.Views
             PlanToWatchIndicator.Visibility = Visibility.Collapsed;
             NotInterestedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
             NotInterestedIndicator.Visibility = Visibility.Collapsed;
+            FollowingIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
+            FollowingIndicator.Visibility = Visibility.Collapsed;
+            CompletedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
+            CompletedIndicator.Visibility = Visibility.Collapsed;
+            DroppedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
+            DroppedIndicator.Visibility = Visibility.Collapsed;
+            BlockedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
+            BlockedIndicator.Visibility = Visibility.Collapsed;
 
             var defaultBrush = (Microsoft.UI.Xaml.Media.Brush)Resources["TabTextDefaultBrush"];
             var selectedBrush = (Microsoft.UI.Xaml.Media.Brush)Resources["TabTextSelectedBrush"];
             WatchingLabel.Foreground = defaultBrush;
             PlanToWatchLabel.Foreground = defaultBrush;
             NotInterestedLabel.Foreground = defaultBrush;
+            FollowingLabel.Foreground = defaultBrush;
+            CompletedLabel.Foreground = defaultBrush;
+            DroppedLabel.Foreground = defaultBrush;
+            BlockedLabel.Foreground = defaultBrush;
 
             // 设置选中项
             var accentColor = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
@@ -121,13 +161,49 @@ namespace AniMeido.Plugin.Base.Views
                 NotInterestedLabel.Foreground = selectedBrush;
                 NotInterestedCard.Background = selectedBg;
             }
+            else if (sender == FollowingCard)
+            {
+                FollowingPanel.Visibility = Visibility.Visible;
+                FollowingIndicator.Visibility = Visibility.Visible;
+                FollowingIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
+                FollowingLabel.Foreground = selectedBrush;
+                FollowingCard.Background = selectedBg;
+            }
+            else if (sender == CompletedCard)
+            {
+                CompletedPanel.Visibility = Visibility.Visible;
+                CompletedIndicator.Visibility = Visibility.Visible;
+                CompletedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
+                CompletedLabel.Foreground = selectedBrush;
+                CompletedCard.Background = selectedBg;
+            }
+            else if (sender == DroppedCard)
+            {
+                DroppedPanel.Visibility = Visibility.Visible;
+                DroppedIndicator.Visibility = Visibility.Visible;
+                DroppedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
+                DroppedLabel.Foreground = selectedBrush;
+                DroppedCard.Background = selectedBg;
+            }
+            else if (sender == BlockedCard)
+            {
+                BlockedPanel.Visibility = Visibility.Visible;
+                BlockedIndicator.Visibility = Visibility.Visible;
+                BlockedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
+                BlockedLabel.Foreground = selectedBrush;
+                BlockedCard.Background = selectedBg;
+            }
         }
 
         private bool IsCardSelected(Border card)
         {
             return card == WatchingCard && WatchingPanel.Visibility == Visibility.Visible
                 || card == PlanToWatchCard && PlanToWatchPanel.Visibility == Visibility.Visible
-                || card == NotInterestedCard && NotInterestedPanel.Visibility == Visibility.Visible;
+                || card == NotInterestedCard && NotInterestedPanel.Visibility == Visibility.Visible
+                || card == FollowingCard && FollowingPanel.Visibility == Visibility.Visible
+                || card == CompletedCard && CompletedPanel.Visibility == Visibility.Visible
+                || card == DroppedCard && DroppedPanel.Visibility == Visibility.Visible
+                || card == BlockedCard && BlockedPanel.Visibility == Visibility.Visible;
         }
 
         private void OnCardPointerEntered(object sender, PointerRoutedEventArgs e)
@@ -181,6 +257,18 @@ namespace AniMeido.Plugin.Base.Views
                         break;
                     case "NotInterested":
                         ViewModel.RemoveFromNotInterestedCommand.Execute(anime.ID);
+                        break;
+                    case "Following":
+                        ViewModel.RemoveFromFollowingCommand.Execute(anime.ID);
+                        break;
+                    case "Completed":
+                        ViewModel.RemoveFromCompletedCommand.Execute(anime.ID);
+                        break;
+                    case "Dropped":
+                        ViewModel.RemoveFromDroppedCommand.Execute(anime.ID);
+                        break;
+                    case "Blocked":
+                        ViewModel.RemoveFromBlockedCommand.Execute(anime.ID);
                         break;
                 }
             }

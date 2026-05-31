@@ -7,9 +7,12 @@
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
     <Page.Resources>
-        <SolidColorBrush x:Key="TabIndicatorBrush" Color="{ThemeResource SystemAccentColor}"/>
-        <SolidColorBrush x:Key="TabTextSelectedBrush" Color="{ThemeResource SystemAccentColor}"/>
-        <SolidColorBrush x:Key="TabTextDefaultBrush" Color="#E9E9E9"/>
+        <SolidColorBrush x:Key="TabIndicatorBrush"
+                Color="{ThemeResource SystemAccentColor}"/>
+        <SolidColorBrush x:Key="TabTextSelectedBrush"
+                Color="{ThemeResource SystemAccentColor}"/>
+        <SolidColorBrush x:Key="TabTextDefaultBrush"
+                Color="#E9E9E9"/>
     </Page.Resources>
 
     <Grid Padding="24">
@@ -18,139 +21,689 @@
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <InfoBar Grid.ColumnSpan="2" x:Name="ErrorInfoBar"
-                 Severity="Error" IsClosable="True"
-                 IsOpen="False" Visibility="Collapsed" Margin="0,0,0,12"/>
+        <InfoBar Grid.ColumnSpan="2"
+                x:Name="ErrorInfoBar"
+                 Severity="Error"
+                IsClosable="True"
+                 IsOpen="False"
+                Visibility="Collapsed"
+                Margin="0,0,0,12"/>
 
-        <StackPanel Grid.Column="0" Margin="0,0,16,0" Spacing="0">
-            <TextBlock Text="关注管理" FontSize="20" FontWeight="Bold" Margin="0,0,0,12"/>
-            <Border x:Name="WatchingCard" Padding="12,10,12,10" Height="40"
-                    Tapped="OnTabClicked" PointerEntered="OnCardPointerEntered" PointerExited="OnCardPointerExited">
+        <StackPanel Grid.Column="0"
+                Margin="0,0,16,0"
+                Spacing="0">
+            <TextBlock Text="关注管理"
+                    FontSize="20"
+                    FontWeight="Bold"
+                    Margin="0,0,0,12"/>
+            <Border x:Name="WatchingCard"
+                    Padding="12,10,12,10"
+                    Height="40"
+                    Tapped="OnTabClicked"
+                    PointerEntered="OnCardPointerEntered"
+                    PointerExited="OnCardPointerExited">
                 <Grid ColumnDefinitions="3,*">
-                    <Rectangle x:Name="WatchingIndicator" Width="3" Height="20" Fill="{ThemeResource TabIndicatorBrush}" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="WatchingLabel" Grid.Column="1" Text="追番中" FontSize="14" Foreground="{ThemeResource TabTextSelectedBrush}" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                    <Rectangle x:Name="WatchingIndicator"
+                            Width="3"
+                            Height="20"
+                            Fill="{ThemeResource TabIndicatorBrush}"
+                            VerticalAlignment="Center"/>
+                    <TextBlock x:Name="WatchingLabel"
+                            Grid.Column="1"
+                            Text="追番中"
+                            FontSize="14"
+                            Foreground="{ThemeResource TabTextSelectedBrush}"
+                            VerticalAlignment="Center"
+                            Margin="12,0,0,0"/>
                 </Grid>
             </Border>
-            <Border x:Name="PlanToWatchCard" Padding="12,10,12,10" Height="40"
-                    Tapped="OnTabClicked" PointerEntered="OnCardPointerEntered" PointerExited="OnCardPointerExited">
+            <Border x:Name="PlanToWatchCard"
+                    Padding="12,10,12,10"
+                    Height="40"
+                    Tapped="OnTabClicked"
+                    PointerEntered="OnCardPointerEntered"
+                    PointerExited="OnCardPointerExited">
                 <Grid ColumnDefinitions="3,*">
-                    <Rectangle x:Name="PlanToWatchIndicator" Width="3" Height="20" Fill="Transparent" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="PlanToWatchLabel" Grid.Column="1" Text="补番中" FontSize="14" Foreground="{ThemeResource TabTextDefaultBrush}" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                    <Rectangle x:Name="PlanToWatchIndicator"
+                            Width="3"
+                            Height="20"
+                            Fill="Transparent"
+                            VerticalAlignment="Center"/>
+                    <TextBlock x:Name="PlanToWatchLabel"
+                            Grid.Column="1"
+                            Text="补番中"
+                            FontSize="14"
+                            Foreground="{ThemeResource TabTextDefaultBrush}"
+                            VerticalAlignment="Center"
+                            Margin="12,0,0,0"/>
                 </Grid>
             </Border>
-            <Border x:Name="NotInterestedCard" Padding="12,10,12,10" Height="40"
-                    Tapped="OnTabClicked" PointerEntered="OnCardPointerEntered" PointerExited="OnCardPointerExited">
+            <Border x:Name="NotInterestedCard"
+                    Padding="12,10,12,10"
+                    Height="40"
+                    Tapped="OnTabClicked"
+                    PointerEntered="OnCardPointerEntered"
+                    PointerExited="OnCardPointerExited">
                 <Grid ColumnDefinitions="3,*">
-                    <Rectangle x:Name="NotInterestedIndicator" Width="3" Height="20" Fill="Transparent" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="NotInterestedLabel" Grid.Column="1" Text="不感兴趣" FontSize="14" Foreground="{ThemeResource TabTextDefaultBrush}" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                    <Rectangle x:Name="NotInterestedIndicator"
+                            Width="3"
+                            Height="20"
+                            Fill="Transparent"
+                            VerticalAlignment="Center"/>
+                    <TextBlock x:Name="NotInterestedLabel"
+                            Grid.Column="1"
+                            Text="不感兴趣"
+                            FontSize="14"
+                            Foreground="{ThemeResource TabTextDefaultBrush}"
+                            VerticalAlignment="Center"
+                            Margin="12,0,0,0"/>
+                </Grid>
+            </Border>
+            <Border x:Name="FollowingCard"
+                    Padding="12,10,12,10"
+                    Height="40"
+                    Tapped="OnTabClicked"
+                    PointerEntered="OnCardPointerEntered"
+                    PointerExited="OnCardPointerExited">
+                <Grid ColumnDefinitions="3,*">
+                    <Rectangle x:Name="FollowingIndicator"
+                            Width="3"
+                            Height="20"
+                            Fill="Transparent"
+                            VerticalAlignment="Center"/>
+                    <TextBlock x:Name="FollowingLabel"
+                            Grid.Column="1"
+                            Text="关注"
+                            FontSize="14"
+                            Foreground="{ThemeResource TabTextDefaultBrush}"
+                            VerticalAlignment="Center"
+                            Margin="12,0,0,0"/>
+                </Grid>
+            </Border>
+            <Border x:Name="CompletedCard"
+                    Padding="12,10,12,10"
+                    Height="40"
+                    Tapped="OnTabClicked"
+                    PointerEntered="OnCardPointerEntered"
+                    PointerExited="OnCardPointerExited">
+                <Grid ColumnDefinitions="3,*">
+                    <Rectangle x:Name="CompletedIndicator"
+                            Width="3"
+                            Height="20"
+                            Fill="Transparent"
+                            VerticalAlignment="Center"/>
+                    <TextBlock x:Name="CompletedLabel"
+                            Grid.Column="1"
+                            Text="已看完"
+                            FontSize="14"
+                            Foreground="{ThemeResource TabTextDefaultBrush}"
+                            VerticalAlignment="Center"
+                            Margin="12,0,0,0"/>
+                </Grid>
+            </Border>
+            <Border x:Name="DroppedCard"
+                    Padding="12,10,12,10"
+                    Height="40"
+                    Tapped="OnTabClicked"
+                    PointerEntered="OnCardPointerEntered"
+                    PointerExited="OnCardPointerExited">
+                <Grid ColumnDefinitions="3,*">
+                    <Rectangle x:Name="DroppedIndicator"
+                            Width="3"
+                            Height="20"
+                            Fill="Transparent"
+                            VerticalAlignment="Center"/>
+                    <TextBlock x:Name="DroppedLabel"
+                            Grid.Column="1"
+                            Text="弃番"
+                            FontSize="14"
+                            Foreground="{ThemeResource TabTextDefaultBrush}"
+                            VerticalAlignment="Center"
+                            Margin="12,0,0,0"/>
+                </Grid>
+            </Border>
+            <Border x:Name="BlockedCard"
+                    Padding="12,10,12,10"
+                    Height="40"
+                    Tapped="OnTabClicked"
+                    PointerEntered="OnCardPointerEntered"
+                    PointerExited="OnCardPointerExited">
+                <Grid ColumnDefinitions="3,*">
+                    <Rectangle x:Name="BlockedIndicator"
+                            Width="3"
+                            Height="20"
+                            Fill="Transparent"
+                            VerticalAlignment="Center"/>
+                    <TextBlock x:Name="BlockedLabel"
+                            Grid.Column="1"
+                            Text="屏蔽"
+                            FontSize="14"
+                            Foreground="{ThemeResource TabTextDefaultBrush}"
+                            VerticalAlignment="Center"
+                            Margin="12,0,0,0"/>
                 </Grid>
             </Border>
         </StackPanel>
 
         <Grid Grid.Column="1">
-            <Grid x:Name="LoadingOverlay" Visibility="Collapsed" Background="Transparent">
-                <ProgressRing x:Name="LoadingRing" Width="32" Height="32" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+            <Grid x:Name="LoadingOverlay"
+                    Visibility="Collapsed"
+                    Background="Transparent">
+                <ProgressRing x:Name="LoadingRing"
+                        Width="32"
+                        Height="32"
+                        VerticalAlignment="Center"
+                        HorizontalAlignment="Center"/>
             </Grid>
 
-            <ScrollViewer x:Name="WatchingPanel" Visibility="Visible" Padding="0,0,8,0">
+            <ScrollViewer x:Name="WatchingPanel"
+                    Visibility="Visible"
+                    Padding="0,0,8,0">
                 <StackPanel>
-                    <TextBlock x:Name="WatchingCountText" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                    <TextBlock x:Name="WatchingCountText"
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            Margin="0,0,0,12"/>
                     <ItemsControl ItemsSource="{Binding WatchingList}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="contracts:Anime">
-                                <Border Background="{ThemeResource CardBackgroundFillColorDefault}" CornerRadius="10" Padding="0" Margin="0,0,0,10"
-                                        PointerEntered="OnCardEntered" PointerExited="OnCardExited"
-                                        PointerPressed="OnCardPressed" PointerReleased="OnCardReleased">
-                                    <Grid Height="80" Tapped="OnItemTapped">
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                        CornerRadius="10"
+                                        Padding="0"
+                                        Margin="0,0,0,10"
+                                        PointerEntered="OnCardEntered"
+                                        PointerExited="OnCardExited"
+                                        PointerPressed="OnCardPressed"
+                                        PointerReleased="OnCardReleased">
+                                    <Grid Height="80"
+                                            Tapped="OnItemTapped">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="64"/>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="40"/>
                                         </Grid.ColumnDefinitions>
-                                        <Border Grid.Column="0" CornerRadius="10,0,0,10" Background="{ThemeResource SolidBackgroundFillColorTertiary}">
-                                            <Image Source="{Binding CoverURL}" Stretch="UniformToFill"/>
+                                        <Border Grid.Column="0"
+                                                CornerRadius="10,0,0,10"
+                                                Background="{ThemeResource SolidBackgroundFillColorTertiary}">
+                                            <Image Source="{Binding CoverURL}"
+                                                    Stretch="UniformToFill"/>
                                         </Border>
-                                        <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="15" TextTrimming="CharacterEllipsis" MaxLines="2" LineHeight="20"/>
-                                            <TextBlock Text="{Binding AirDate}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="0,6,0,0"/>
+                                        <StackPanel Grid.Column="1"
+                                                Margin="14,0,0,0"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Title}"
+                                                    FontWeight="SemiBold"
+                                                    FontSize="15"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    MaxLines="2"
+                                                    LineHeight="20"/>
+                                            <TextBlock Text="{Binding AirDate}"
+                                                    FontSize="12"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                    Margin="0,6,0,0"/>
                                         </StackPanel>
-                                        <Button Grid.Column="2" Width="32" Height="32" Margin="0,0,4,0" VerticalAlignment="Top" HorizontalAlignment="Center" Background="Transparent" Padding="0" ToolTipService.ToolTip="取消标记" Click="OnRemoveClick" Tag="Watching">
-                                            <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        <Button Grid.Column="2"
+                                                Width="32"
+                                                Height="32"
+                                                Margin="0,0,4,0"
+                                                VerticalAlignment="Top"
+                                                HorizontalAlignment="Center"
+                                                Background="Transparent"
+                                                Padding="0"
+                                                ToolTipService.ToolTip="取消标记"
+                                                Click="OnRemoveClick"
+                                                Tag="Watching">
+                                            <FontIcon Glyph="&#xE711;"
+                                                    FontSize="12"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                         </Button>
                                     </Grid>
                                 </Border>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <TextBlock x:Name="WatchingEmpty" Text="暂无追番标记" Foreground="Gray" Margin="0,12,0,0"/>
+                    <TextBlock x:Name="WatchingEmpty"
+                            Text="暂无追番标记"
+                            Foreground="Gray"
+                            Margin="0,12,0,0"/>
                 </StackPanel>
             </ScrollViewer>
 
-            <ScrollViewer x:Name="PlanToWatchPanel" Visibility="Collapsed" Padding="0,0,8,0">
+            <ScrollViewer x:Name="PlanToWatchPanel"
+                    Visibility="Collapsed"
+                    Padding="0,0,8,0">
                 <StackPanel>
-                    <TextBlock x:Name="PlanToWatchCountText" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                    <TextBlock x:Name="PlanToWatchCountText"
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            Margin="0,0,0,12"/>
                     <ItemsControl ItemsSource="{Binding PlanToWatchList}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="contracts:Anime">
-                                <Border Background="{ThemeResource CardBackgroundFillColorDefault}" CornerRadius="10" Padding="0" Margin="0,0,0,10"
-                                        PointerEntered="OnCardEntered" PointerExited="OnCardExited"
-                                        PointerPressed="OnCardPressed" PointerReleased="OnCardReleased">
-                                    <Grid Height="80" Tapped="OnItemTapped">
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                        CornerRadius="10"
+                                        Padding="0"
+                                        Margin="0,0,0,10"
+                                        PointerEntered="OnCardEntered"
+                                        PointerExited="OnCardExited"
+                                        PointerPressed="OnCardPressed"
+                                        PointerReleased="OnCardReleased">
+                                    <Grid Height="80"
+                                            Tapped="OnItemTapped">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="64"/>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="40"/>
                                         </Grid.ColumnDefinitions>
-                                        <Border Grid.Column="0" CornerRadius="10,0,0,10" Background="{ThemeResource SolidBackgroundFillColorTertiary}">
-                                            <Image Source="{Binding CoverURL}" Stretch="UniformToFill"/>
+                                        <Border Grid.Column="0"
+                                                CornerRadius="10,0,0,10"
+                                                Background="{ThemeResource SolidBackgroundFillColorTertiary}">
+                                            <Image Source="{Binding CoverURL}"
+                                                    Stretch="UniformToFill"/>
                                         </Border>
-                                        <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="15" TextTrimming="CharacterEllipsis" MaxLines="2" LineHeight="20"/>
-                                            <TextBlock Text="{Binding AirDate}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="0,6,0,0"/>
+                                        <StackPanel Grid.Column="1"
+                                                Margin="14,0,0,0"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Title}"
+                                                    FontWeight="SemiBold"
+                                                    FontSize="15"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    MaxLines="2"
+                                                    LineHeight="20"/>
+                                            <TextBlock Text="{Binding AirDate}"
+                                                    FontSize="12"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                    Margin="0,6,0,0"/>
                                         </StackPanel>
-                                        <Button Grid.Column="2" Width="32" Height="32" Margin="0,0,4,0" VerticalAlignment="Top" HorizontalAlignment="Center" Background="Transparent" Padding="0" ToolTipService.ToolTip="取消标记" Click="OnRemoveClick" Tag="PlanToWatch">
-                                            <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        <Button Grid.Column="2"
+                                                Width="32"
+                                                Height="32"
+                                                Margin="0,0,4,0"
+                                                VerticalAlignment="Top"
+                                                HorizontalAlignment="Center"
+                                                Background="Transparent"
+                                                Padding="0"
+                                                ToolTipService.ToolTip="取消标记"
+                                                Click="OnRemoveClick"
+                                                Tag="PlanToWatch">
+                                            <FontIcon Glyph="&#xE711;"
+                                                    FontSize="12"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                         </Button>
                                     </Grid>
                                 </Border>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <TextBlock x:Name="PlanToWatchEmpty" Text="暂无补番标记" Foreground="Gray" Margin="0,12,0,0"/>
+                    <TextBlock x:Name="PlanToWatchEmpty"
+                            Text="暂无补番标记"
+                            Foreground="Gray"
+                            Margin="0,12,0,0"/>
                 </StackPanel>
             </ScrollViewer>
 
-            <ScrollViewer x:Name="NotInterestedPanel" Visibility="Collapsed" Padding="0,0,8,0">
+            <ScrollViewer x:Name="NotInterestedPanel"
+                    Visibility="Collapsed"
+                    Padding="0,0,8,0">
                 <StackPanel>
-                    <TextBlock x:Name="NotInterestedCountText" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                    <TextBlock x:Name="NotInterestedCountText"
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            Margin="0,0,0,12"/>
                     <ItemsControl ItemsSource="{Binding NotInterestedList}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="contracts:Anime">
-                                <Border Background="{ThemeResource CardBackgroundFillColorDefault}" CornerRadius="10" Padding="0" Margin="0,0,0,10"
-                                        PointerEntered="OnCardEntered" PointerExited="OnCardExited"
-                                        PointerPressed="OnCardPressed" PointerReleased="OnCardReleased">
-                                    <Grid Height="80" Tapped="OnItemTapped">
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                        CornerRadius="10"
+                                        Padding="0"
+                                        Margin="0,0,0,10"
+                                        PointerEntered="OnCardEntered"
+                                        PointerExited="OnCardExited"
+                                        PointerPressed="OnCardPressed"
+                                        PointerReleased="OnCardReleased">
+                                    <Grid Height="80"
+                                            Tapped="OnItemTapped">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="64"/>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="40"/>
                                         </Grid.ColumnDefinitions>
-                                        <Border Grid.Column="0" CornerRadius="10,0,0,10" Background="{ThemeResource SolidBackgroundFillColorTertiary}">
-                                            <Image Source="{Binding CoverURL}" Stretch="UniformToFill"/>
+                                        <Border Grid.Column="0"
+                                                CornerRadius="10,0,0,10"
+                                                Background="{ThemeResource SolidBackgroundFillColorTertiary}">
+                                            <Image Source="{Binding CoverURL}"
+                                                    Stretch="UniformToFill"/>
                                         </Border>
-                                        <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="15" TextTrimming="CharacterEllipsis" MaxLines="2" LineHeight="20"/>
-                                            <TextBlock Text="{Binding AirDate}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="0,6,0,0"/>
+                                        <StackPanel Grid.Column="1"
+                                                Margin="14,0,0,0"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Title}"
+                                                    FontWeight="SemiBold"
+                                                    FontSize="15"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    MaxLines="2"
+                                                    LineHeight="20"/>
+                                            <TextBlock Text="{Binding AirDate}"
+                                                    FontSize="12"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                    Margin="0,6,0,0"/>
                                         </StackPanel>
-                                        <Button Grid.Column="2" Width="32" Height="32" Margin="0,0,4,0" VerticalAlignment="Top" HorizontalAlignment="Center" Background="Transparent" Padding="0" ToolTipService.ToolTip="取消标记" Click="OnRemoveClick" Tag="NotInterested">
-                                            <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        <Button Grid.Column="2"
+                                                Width="32"
+                                                Height="32"
+                                                Margin="0,0,4,0"
+                                                VerticalAlignment="Top"
+                                                HorizontalAlignment="Center"
+                                                Background="Transparent"
+                                                Padding="0"
+                                                ToolTipService.ToolTip="取消标记"
+                                                Click="OnRemoveClick"
+                                                Tag="NotInterested">
+                                            <FontIcon Glyph="&#xE711;"
+                                                    FontSize="12"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                         </Button>
                                     </Grid>
                                 </Border>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <TextBlock x:Name="NotInterestedEmpty" Text="暂无不感兴趣标记" Foreground="Gray" Margin="0,12,0,0"/>
+                    <TextBlock x:Name="NotInterestedEmpty"
+                            Text="暂无不感兴趣标记"
+                            Foreground="Gray"
+                            Margin="0,12,0,0"/>
+                </StackPanel>
+            </ScrollViewer>
+
+            <ScrollViewer x:Name="FollowingPanel"
+                    Visibility="Collapsed"
+                    Padding="0,0,8,0">
+                <StackPanel>
+                    <TextBlock x:Name="FollowingCountText"
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            Margin="0,0,0,12"/>
+                    <ItemsControl ItemsSource="{Binding FollowingList}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="contracts:Anime">
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                        CornerRadius="10"
+                                        Padding="0"
+                                        Margin="0,0,0,10"
+                                        PointerEntered="OnCardEntered"
+                                        PointerExited="OnCardExited"
+                                        PointerPressed="OnCardPressed"
+                                        PointerReleased="OnCardReleased">
+                                    <Grid Height="80"
+                                            Tapped="OnItemTapped">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="64"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="40"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0"
+                                                CornerRadius="10,0,0,10"
+                                                Background="{ThemeResource SolidBackgroundFillColorTertiary}">
+                                            <Image Source="{Binding CoverURL}"
+                                                    Stretch="UniformToFill"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1"
+                                                Margin="14,0,0,0"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Title}"
+                                                    FontWeight="SemiBold"
+                                                    FontSize="15"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    MaxLines="2"
+                                                    LineHeight="20"/>
+                                            <TextBlock Text="{Binding AirDate}"
+                                                    FontSize="12"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                    Margin="0,6,0,0"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="2"
+                                                Width="32"
+                                                Height="32"
+                                                Margin="0,0,4,0"
+                                                VerticalAlignment="Top"
+                                                HorizontalAlignment="Center"
+                                                Background="Transparent"
+                                                Padding="0"
+                                                ToolTipService.ToolTip="取消标记"
+                                                Click="OnRemoveClick"
+                                                Tag="Following">
+                                            <FontIcon Glyph="&#xE711;"
+                                                    FontSize="12"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock x:Name="FollowingEmpty"
+                            Text="暂无关注标记"
+                            Foreground="Gray"
+                            Margin="0,12,0,0"/>
+                </StackPanel>
+            </ScrollViewer>
+
+            <ScrollViewer x:Name="CompletedPanel"
+                    Visibility="Collapsed"
+                    Padding="0,0,8,0">
+                <StackPanel>
+                    <TextBlock x:Name="CompletedCountText"
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            Margin="0,0,0,12"/>
+                    <ItemsControl ItemsSource="{Binding CompletedList}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="contracts:Anime">
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                        CornerRadius="10"
+                                        Padding="0"
+                                        Margin="0,0,0,10"
+                                        PointerEntered="OnCardEntered"
+                                        PointerExited="OnCardExited"
+                                        PointerPressed="OnCardPressed"
+                                        PointerReleased="OnCardReleased">
+                                    <Grid Height="80"
+                                            Tapped="OnItemTapped">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="64"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="40"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0"
+                                                CornerRadius="10,0,0,10"
+                                                Background="{ThemeResource SolidBackgroundFillColorTertiary}">
+                                            <Image Source="{Binding CoverURL}"
+                                                    Stretch="UniformToFill"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1"
+                                                Margin="14,0,0,0"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Title}"
+                                                    FontWeight="SemiBold"
+                                                    FontSize="15"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    MaxLines="2"
+                                                    LineHeight="20"/>
+                                            <TextBlock Text="{Binding AirDate}"
+                                                    FontSize="12"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                    Margin="0,6,0,0"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="2"
+                                                Width="32"
+                                                Height="32"
+                                                Margin="0,0,4,0"
+                                                VerticalAlignment="Top"
+                                                HorizontalAlignment="Center"
+                                                Background="Transparent"
+                                                Padding="0"
+                                                ToolTipService.ToolTip="取消标记"
+                                                Click="OnRemoveClick"
+                                                Tag="Completed">
+                                            <FontIcon Glyph="&#xE711;"
+                                                    FontSize="12"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock x:Name="CompletedEmpty"
+                            Text="暂无已看完标记"
+                            Foreground="Gray"
+                            Margin="0,12,0,0"/>
+                </StackPanel>
+            </ScrollViewer>
+
+            <ScrollViewer x:Name="DroppedPanel"
+                    Visibility="Collapsed"
+                    Padding="0,0,8,0">
+                <StackPanel>
+                    <TextBlock x:Name="DroppedCountText"
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            Margin="0,0,0,12"/>
+                    <ItemsControl ItemsSource="{Binding DroppedList}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="contracts:Anime">
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                        CornerRadius="10"
+                                        Padding="0"
+                                        Margin="0,0,0,10"
+                                        PointerEntered="OnCardEntered"
+                                        PointerExited="OnCardExited"
+                                        PointerPressed="OnCardPressed"
+                                        PointerReleased="OnCardReleased">
+                                    <Grid Height="80"
+                                            Tapped="OnItemTapped">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="64"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="40"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0"
+                                                CornerRadius="10,0,0,10"
+                                                Background="{ThemeResource SolidBackgroundFillColorTertiary}">
+                                            <Image Source="{Binding CoverURL}"
+                                                    Stretch="UniformToFill"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1"
+                                                Margin="14,0,0,0"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Title}"
+                                                    FontWeight="SemiBold"
+                                                    FontSize="15"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    MaxLines="2"
+                                                    LineHeight="20"/>
+                                            <TextBlock Text="{Binding AirDate}"
+                                                    FontSize="12"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                    Margin="0,6,0,0"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="2"
+                                                Width="32"
+                                                Height="32"
+                                                Margin="0,0,4,0"
+                                                VerticalAlignment="Top"
+                                                HorizontalAlignment="Center"
+                                                Background="Transparent"
+                                                Padding="0"
+                                                ToolTipService.ToolTip="取消标记"
+                                                Click="OnRemoveClick"
+                                                Tag="Dropped">
+                                            <FontIcon Glyph="&#xE711;"
+                                                    FontSize="12"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock x:Name="DroppedEmpty"
+                            Text="暂无弃番标记"
+                            Foreground="Gray"
+                            Margin="0,12,0,0"/>
+                </StackPanel>
+            </ScrollViewer>
+
+            <ScrollViewer x:Name="BlockedPanel"
+                    Visibility="Collapsed"
+                    Padding="0,0,8,0">
+                <StackPanel>
+                    <TextBlock x:Name="BlockedCountText"
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            Margin="0,0,0,12"/>
+                    <ItemsControl ItemsSource="{Binding BlockedList}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="contracts:Anime">
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                        CornerRadius="10"
+                                        Padding="0"
+                                        Margin="0,0,0,10"
+                                        PointerEntered="OnCardEntered"
+                                        PointerExited="OnCardExited"
+                                        PointerPressed="OnCardPressed"
+                                        PointerReleased="OnCardReleased">
+                                    <Grid Height="80"
+                                            Tapped="OnItemTapped">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="64"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="40"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0"
+                                                CornerRadius="10,0,0,10"
+                                                Background="{ThemeResource SolidBackgroundFillColorTertiary}">
+                                            <Image Source="{Binding CoverURL}"
+                                                    Stretch="UniformToFill"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1"
+                                                Margin="14,0,0,0"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Title}"
+                                                    FontWeight="SemiBold"
+                                                    FontSize="15"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    MaxLines="2"
+                                                    LineHeight="20"/>
+                                            <TextBlock Text="{Binding AirDate}"
+                                                    FontSize="12"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                    Margin="0,6,0,0"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="2"
+                                                Width="32"
+                                                Height="32"
+                                                Margin="0,0,4,0"
+                                                VerticalAlignment="Top"
+                                                HorizontalAlignment="Center"
+                                                Background="Transparent"
+                                                Padding="0"
+                                                ToolTipService.ToolTip="取消标记"
+                                                Click="OnRemoveClick"
+                                                Tag="Blocked">
+                                            <FontIcon Glyph="&#xE711;"
+                                                    FontSize="12"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock x:Name="BlockedEmpty"
+                            Text="暂无屏蔽标记"
+                            Foreground="Gray"
+                            Margin="0,12,0,0"/>
                 </StackPanel>
             </ScrollViewer>
         </Grid>

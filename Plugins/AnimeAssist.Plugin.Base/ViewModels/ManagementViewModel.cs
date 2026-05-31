@@ -172,5 +172,41 @@ namespace AniMeido.Plugin.Base.ViewModels
             if (item != null) NotInterestedList.Remove(item);
             NotInterestedCount = NotInterestedList.Count;
         }
+
+        [RelayCommand]
+        private async Task RemoveFromFollowingAsync(int animeId)
+        {
+            await _trackingService.RemoveStatusAsync(animeId);
+            var item = FollowingList.FirstOrDefault(a => a.ID == animeId);
+            if (item != null) FollowingList.Remove(item);
+            FollowingCount = FollowingList.Count;
+        }
+
+        [RelayCommand]
+        private async Task RemoveFromCompletedAsync(int animeId)
+        {
+            await _trackingService.RemoveStatusAsync(animeId);
+            var item = CompletedList.FirstOrDefault(a => a.ID == animeId);
+            if (item != null) CompletedList.Remove(item);
+            CompletedCount = CompletedList.Count;
+        }
+
+        [RelayCommand]
+        private async Task RemoveFromDroppedAsync(int animeId)
+        {
+            await _trackingService.RemoveStatusAsync(animeId);
+            var item = DroppedList.FirstOrDefault(a => a.ID == animeId);
+            if (item != null) DroppedList.Remove(item);
+            DroppedCount = DroppedList.Count;
+        }
+
+        [RelayCommand]
+        private async Task RemoveFromBlockedAsync(int animeId)
+        {
+            await _trackingService.RemoveStatusAsync(animeId);
+            var item = BlockedList.FirstOrDefault(a => a.ID == animeId);
+            if (item != null) BlockedList.Remove(item);
+            BlockedCount = BlockedList.Count;
+        }
     }
 }
