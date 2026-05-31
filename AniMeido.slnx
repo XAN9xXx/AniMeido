@@ -4,9 +4,14 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
+  <Folder Name="/AnimeAssist.Contracts/" />
+  <Folder Name="/AnimeAssist.Tests/">
+    <Project Path="AnimeAssist.Tests/AniMeido.Tests.csproj" />
+  </Folder>
   <Folder Name="/Plugins/">
     <Project Path="Plugins/AnimeAssist.Plugin.Base/AniMeido.Plugin.Base.csproj" Id="70cbece3-4de2-4b18-b9c6-a07dd5c7a53c" />
   </Folder>
+  <Folder Name="/Plugins/AnimeAssist.Plugin.Base/" />
   <Project Path="AnimeAssist.App/AniMeido.App.csproj">
     <Platform Solution="*|ARM64" Project="ARM64" />
     <Platform Solution="*|x64" Project="x64" />
