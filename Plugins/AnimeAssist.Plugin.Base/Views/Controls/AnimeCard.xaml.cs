@@ -1,4 +1,5 @@
 ﻿using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Services;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -39,7 +40,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
             set => SetValue(ShowWeekdayBadgeProperty, value);
         }
 
-        private static readonly Uri PlaceholderUri = new("ms-appx:///Assets/Placeholder_cover.png");
+        private static readonly Uri PlaceholderUri = ImageCacheHelper.PlaceholderUri;
 
         public AnimeCard()
         {
@@ -48,9 +49,23 @@ namespace AniMeido.Plugin.Base.Views.Controls
             DataContextChanged += (s, e) =>
             {
                 UpdateWeekdayBadge();
-                // 当 CoverURL 为空时使用占位图
-                if (DataContext is Anime anime && string.IsNullOrEmpty(anime.CoverURL))
-                    CoverImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(PlaceholderUri);
+                if (DataContext is Anime anime)
+                {
+                    if (string.IsNullOrEmpty(anime.CoverURL))
+                    {
+                        CoverImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(PlaceholderUri);
+                    }
+                    else
+                    {
+                        // 通过 GetImageUri 统一处理本地缓存/网络/占位图
+                        CoverImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
+                            ImageCacheHelper.GetImageUri(anime.ID, anime.CoverURL));
+
+                        // 后台下载缓存（GetImageUri 已经检查过本地文件，HasLocalCache 二次检查无额外 I/O）
+                        if (!ImageCacheHelper.HasLocalCache(anime.ID))
+                            _ = ImageCacheHelper.CacheImageAsync(anime.ID, anime.CoverURL);
+                    }
+                }
             };
             PointerEntered += OnPointerEntered;
             PointerExited += OnPointerExited;

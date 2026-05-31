@@ -40,8 +40,10 @@
                         MaxWidth="400"
                         VerticalAlignment="Top"
                         Background="{ThemeResource CardBackgroundFillColorDefault}">
-                    <Image Source="{Binding AnimeDetail.CoverURL}"
-                           Stretch="Uniform"/>
+                    <Image x:Name="DetailCoverImage"
+                           Source="{Binding AnimeDetail.CoverURL}"
+                           Stretch="Uniform"
+                           ImageFailed="OnDetailCoverImageFailed"/>
                 </Border>
 
                 <!-- 右列：信息 -->

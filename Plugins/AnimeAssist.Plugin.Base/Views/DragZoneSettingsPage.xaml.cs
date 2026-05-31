@@ -46,18 +46,21 @@ namespace AniMeido.Plugin.Base.Views
         private async Task UpdateCacheInfoAsync()
         {
             if (_cacheService == null) return;
-            var (count, sizeKB) = await _cacheService.GetCacheStatsAsync();
-            var sizeText = sizeKB >= 1024
-                ? $"{sizeKB / 1024.0:F1} MB"
-                : $"{sizeKB:F0} KB";
-            CacheInfoText.Text = $"{count} 条数据，约 {sizeText}";
+
+            var (dbCount, dbSizeKB) = await _cacheService.GetCacheStatsAsync();
+            var (imgCount, imgSizeKB) = ImageCacheHelper.GetCacheStats();
+            var totalSizeKB = dbSizeKB + imgSizeKB;
+            var sizeText = totalSizeKB >= 1024
+                ? $"{totalSizeKB / 1024.0:F1} MB"
+                : $"{totalSizeKB:F0} KB";
+            CacheInfoText.Text = $"占用约 {sizeText}";
         }
 
         private async void OnClearCacheClick(object sender, RoutedEventArgs e)
         {
             if (_cacheService == null) return;
 
-            // 确认弹窗（如果有 XamlRoot）
+            // 确认弹窗
             if (ClearCacheButton.XamlRoot is { } xamlRoot)
             {
                 var dialog = new ContentDialog
@@ -79,6 +82,7 @@ namespace AniMeido.Plugin.Base.Views
             try
             {
                 await _cacheService.ClearAllCacheAsync();
+                ImageCacheHelper.ClearAll();
                 await UpdateCacheInfoAsync();
             }
             finally

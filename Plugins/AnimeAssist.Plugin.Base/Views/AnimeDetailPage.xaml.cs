@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
 
 namespace AniMeido.Plugin.Base.Views
@@ -31,6 +32,8 @@ namespace AniMeido.Plugin.Base.Views
                     case nameof(AnimeDetailViewModel.IsError):
                     case nameof(AnimeDetailViewModel.HasData):
                         UpdateOverlayState();
+                        if (ViewModel.HasData)
+                            UpdateCoverImage();
                         break;
 
                     case nameof(AnimeDetailViewModel.CurrentStatus):
@@ -252,6 +255,26 @@ namespace AniMeido.Plugin.Base.Views
             sy.InsertKeyFrame(1.0f, 1.05f); sy.Duration = TimeSpan.FromMilliseconds(100);
             visual.StartAnimation("Scale.X", sx);
             visual.StartAnimation("Scale.Y", sy);
+        }
+
+        private void UpdateCoverImage()
+        {
+            var anime = ViewModel.AnimeDetail;
+            if (anime == null) return;
+
+            if (!string.IsNullOrEmpty(anime.CoverURL))
+            {
+                DetailCoverImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
+                    ImageCacheHelper.GetImageUri(anime.ID, anime.CoverURL));
+
+                if (!ImageCacheHelper.HasLocalCache(anime.ID))
+                    _ = ImageCacheHelper.CacheImageAsync(anime.ID, anime.CoverURL);
+            }
+        }
+
+        private void OnDetailCoverImageFailed(object sender, ExceptionRoutedEventArgs e)
+        {
+            DetailCoverImage.Source = new BitmapImage(ImageCacheHelper.PlaceholderUri);
         }
     }
 }
