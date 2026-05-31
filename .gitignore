@@ -368,3 +368,8 @@ MigrationBackup/
 FodyWeavers.xsd
 /AnimeAssist.App/scripts
 /.github/copilot-instructions.md
+
+imagecache/
+*.lscache
+*.csproj.user
+*.csproj.lscache
