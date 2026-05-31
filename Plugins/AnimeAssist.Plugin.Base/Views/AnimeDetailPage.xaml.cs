@@ -119,6 +119,10 @@ namespace AniMeido.Plugin.Base.Views
                 AnimeTrackingStatus.Watching => "追番中",
                 AnimeTrackingStatus.PlanToWatch => "补番中",
                 AnimeTrackingStatus.NotInterested => "不感兴趣",
+                AnimeTrackingStatus.Following => "关注中",
+                AnimeTrackingStatus.Completed => "已看完",
+                AnimeTrackingStatus.Dropped => "已弃番",
+                AnimeTrackingStatus.Blocked => "已屏蔽",
                 _ => ""
             };
             StatusHint.Text = $"当前标记：{label}";
@@ -138,6 +142,12 @@ namespace AniMeido.Plugin.Base.Views
                     break;
                 case AnimeTrackingStatus.NotInterested:
                     SetButtonActive(NotInterestedBtn, NotInterestedIcon, NotInterestedText, accent, whiteBrush);
+                    break;
+                case AnimeTrackingStatus.Following:
+                case AnimeTrackingStatus.Completed:
+                case AnimeTrackingStatus.Dropped:
+                case AnimeTrackingStatus.Blocked:
+                    // 新状态暂不关联已有按钮，只显示提示文字
                     break;
             }
         }

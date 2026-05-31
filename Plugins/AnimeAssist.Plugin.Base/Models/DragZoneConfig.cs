@@ -6,6 +6,10 @@ namespace AniMeido.Plugin.Base.Models
         Watching = 1,
         PlanToWatch = 2,
         NotInterested = 3,
+        Following = 4,
+        Completed = 5,
+        Dropped = 6,
+        Blocked = 7,
     }
 
     public class DragZoneConfig

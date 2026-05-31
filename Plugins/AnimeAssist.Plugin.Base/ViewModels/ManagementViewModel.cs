@@ -20,6 +20,14 @@ namespace AniMeido.Plugin.Base.ViewModels
         [ObservableProperty]
         private ObservableCollection<Anime> _notInterestedList = [];
         [ObservableProperty]
+        private ObservableCollection<Anime> _followingList = [];
+        [ObservableProperty]
+        private ObservableCollection<Anime> _completedList = [];
+        [ObservableProperty]
+        private ObservableCollection<Anime> _droppedList = [];
+        [ObservableProperty]
+        private ObservableCollection<Anime> _blockedList = [];
+        [ObservableProperty]
         private bool _isLoading = false;
         [ObservableProperty]
         private bool _isError = false;
@@ -31,6 +39,14 @@ namespace AniMeido.Plugin.Base.ViewModels
         private int _planToWatchCount = 0;
         [ObservableProperty]
         private int _notInterestedCount = 0;
+        [ObservableProperty]
+        private int _followingCount = 0;
+        [ObservableProperty]
+        private int _completedCount = 0;
+        [ObservableProperty]
+        private int _droppedCount = 0;
+        [ObservableProperty]
+        private int _blockedCount = 0;
         [ObservableProperty]
         private int _selectedTabIndex = 0;
 
@@ -55,6 +71,10 @@ namespace AniMeido.Plugin.Base.ViewModels
                 var watchingIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Watching);
                 var planIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.PlanToWatch);
                 var notInterestedIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.NotInterested);
+                var followingIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Following);
+                var completedIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Completed);
+                var droppedIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Dropped);
+                var blockedIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
 
                 // 逐个加载番剧详情（最多显示 20 条）
                 WatchingList.Clear();
@@ -78,9 +98,41 @@ namespace AniMeido.Plugin.Base.ViewModels
                     if (anime != null) NotInterestedList.Add(anime);
                 }
 
+                FollowingList.Clear();
+                foreach (var id in followingIds.Take(20))
+                {
+                    var anime = await _animeDataSource.GetAnimeDetailAsync(id, CancellationToken.None);
+                    if (anime != null) FollowingList.Add(anime);
+                }
+
+                CompletedList.Clear();
+                foreach (var id in completedIds.Take(20))
+                {
+                    var anime = await _animeDataSource.GetAnimeDetailAsync(id, CancellationToken.None);
+                    if (anime != null) CompletedList.Add(anime);
+                }
+
+                DroppedList.Clear();
+                foreach (var id in droppedIds.Take(20))
+                {
+                    var anime = await _animeDataSource.GetAnimeDetailAsync(id, CancellationToken.None);
+                    if (anime != null) DroppedList.Add(anime);
+                }
+
+                BlockedList.Clear();
+                foreach (var id in blockedIds.Take(20))
+                {
+                    var anime = await _animeDataSource.GetAnimeDetailAsync(id, CancellationToken.None);
+                    if (anime != null) BlockedList.Add(anime);
+                }
+
                 WatchingCount = WatchingList.Count;
                 PlanToWatchCount = PlanToWatchList.Count;
                 NotInterestedCount = NotInterestedList.Count;
+                FollowingCount = FollowingList.Count;
+                CompletedCount = CompletedList.Count;
+                DroppedCount = DroppedList.Count;
+                BlockedCount = BlockedList.Count;
             }
             catch (Exception ex)
             {

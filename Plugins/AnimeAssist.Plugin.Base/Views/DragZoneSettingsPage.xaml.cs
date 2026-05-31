@@ -586,6 +586,10 @@ namespace AniMeido.Plugin.Base.Views
             DragAction.Watching => "追番",
             DragAction.PlanToWatch => "补番",
             DragAction.NotInterested => "不感兴趣",
+            DragAction.Following => "关注",
+            DragAction.Completed => "已看完",
+            DragAction.Dropped => "已弃番",
+            DragAction.Blocked => "屏蔽",
             _ => "禁用"
         };
 
