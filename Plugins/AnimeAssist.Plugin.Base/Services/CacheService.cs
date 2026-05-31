@@ -48,5 +48,39 @@ namespace AniMeido.Plugin.Base.Services
             var result = await command.ExecuteScalarAsync();
             return result as string;
         }
+
+        /// <summary>
+        /// 清空所有缓存数据。
+        /// </summary>
+        public async Task ClearAllCacheAsync()
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM cache";
+            await command.ExecuteNonQueryAsync();
+        }
+
+        /// <summary>
+        /// 获取当前缓存条目数和预估大小（KB）。
+        /// </summary>
+        public async Task<(int count, double sizeKB)> GetCacheStatsAsync()
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            var countCmd = connection.CreateCommand();
+            countCmd.CommandText = "SELECT COUNT(*) FROM cache";
+            var count = Convert.ToInt32(await countCmd.ExecuteScalarAsync());
+
+            var sizeCmd = connection.CreateCommand();
+            // 近似：Data 字段的字符数 * 2 作为字节估算
+            sizeCmd.CommandText = "SELECT COALESCE(SUM(LENGTH(Data)), 0) FROM cache";
+            var totalChars = Convert.ToInt32(await sizeCmd.ExecuteScalarAsync());
+            var sizeKB = totalChars * 2.0 / 1024.0;
+
+            return (count, sizeKB);
+        }
     }
 }

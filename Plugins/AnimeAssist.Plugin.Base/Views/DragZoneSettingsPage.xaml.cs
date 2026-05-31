@@ -24,6 +24,7 @@ namespace AniMeido.Plugin.Base.Views
         private double _dragOffsetX, _dragOffsetY;
         private double _dragStartX, _dragStartY, _dragStartW, _dragStartH;
         private bool _previewInitialized;
+        private CacheService? _cacheService;
 
         public DragZoneSettingsPage()
         {
@@ -35,8 +36,56 @@ namespace AniMeido.Plugin.Base.Views
             _suppressEvents = true;
             var tracking = AppServices.Provider!.GetRequiredService<TrackingService>();
             _dragZones = await tracking.LoadDragZoneConfigAsync();
+            _cacheService = AppServices.Provider!.GetRequiredService<CacheService>();
             RebuildAll();
             _suppressEvents = false;
+
+            _ = UpdateCacheInfoAsync();
+        }
+
+        private async Task UpdateCacheInfoAsync()
+        {
+            if (_cacheService == null) return;
+            var (count, sizeKB) = await _cacheService.GetCacheStatsAsync();
+            var sizeText = sizeKB >= 1024
+                ? $"{sizeKB / 1024.0:F1} MB"
+                : $"{sizeKB:F0} KB";
+            CacheInfoText.Text = $"{count} 条数据，约 {sizeText}";
+        }
+
+        private async void OnClearCacheClick(object sender, RoutedEventArgs e)
+        {
+            if (_cacheService == null) return;
+
+            // 确认弹窗（如果有 XamlRoot）
+            if (ClearCacheButton.XamlRoot is { } xamlRoot)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = "清理缓存",
+                    Content = "确定要清空所有本地缓存数据吗？下次访问时将重新从网络获取。",
+                    PrimaryButtonText = "确认清理",
+                    CloseButtonText = "取消",
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = xamlRoot
+                };
+                var result = await dialog.ShowAsync();
+                if (result != ContentDialogResult.Primary) return;
+            }
+
+            ClearCacheButton.IsEnabled = false;
+            ClearCacheButton.Content = "清理中…";
+
+            try
+            {
+                await _cacheService.ClearAllCacheAsync();
+                await UpdateCacheInfoAsync();
+            }
+            finally
+            {
+                ClearCacheButton.IsEnabled = true;
+                ClearCacheButton.Content = "清理缓存";
+            }
         }
 
         private void OnPreviewBorderSizeChanged(object sender, SizeChangedEventArgs e)

@@ -20,6 +20,34 @@
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                        TextWrapping="WrapWholeWords"/>
 
+            <!-- 缓存管理 -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                    CornerRadius="8"
+                    Padding="16">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="本地缓存"
+                               FontSize="16"
+                               FontWeight="SemiBold"/>
+                    <TextBlock Text="番剧数据缓存到本地后可离线浏览，减少重复请求。"
+                               FontSize="13"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="WrapWholeWords"/>
+                    <Grid ColumnDefinitions="*,Auto"
+                          ColumnSpacing="12">
+                        <TextBlock x:Name="CacheInfoText"
+                                   VerticalAlignment="Center"
+                                   FontSize="13"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <Button x:Name="ClearCacheButton"
+                                Grid.Column="1"
+                                Content="清理缓存"
+                                Height="32"
+                                MinWidth="80"
+                                Click="OnClearCacheClick"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <!-- 可视化预览区 -->
             <Border x:Name="PreviewBorder"
                     Height="360"
