@@ -1,8 +1,9 @@
 ﻿using AniMeido.Contracts.Models;
-using Microsoft.Extensions.Logging;
 using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models.Bangumi;
+using Microsoft.Extensions.Logging;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.Services
 {
@@ -13,6 +14,7 @@ namespace AniMeido.Plugin.Base.Services
     {
         private readonly BangumiApiClient _apiClient;
         private readonly ILogger<BangumiDataSource> _logger;
+        private readonly CacheService _cacheService;
         private const string FallbackTitle = "不好，标题走丢了Q^Q";
         private const string FallbackDescription = "No description available.";
         private static readonly string? FallbackImageUrl = null;
@@ -21,15 +23,23 @@ namespace AniMeido.Plugin.Base.Services
 
 
 
-        public BangumiDataSource(ILogger<BangumiDataSource> logger, BangumiApiClient apiClient)
+        internal BangumiDataSource(ILogger<BangumiDataSource> logger, BangumiApiClient apiClient, CacheService cacheService)
         {
             ArgumentNullException.ThrowIfNull(logger, nameof(logger));
             ArgumentNullException.ThrowIfNull(apiClient, nameof(apiClient));
+            ArgumentNullException.ThrowIfNull(cacheService, nameof(cacheService));
             _logger = logger;
             _apiClient = apiClient;
+            _cacheService = cacheService;
         }
 
 
+
+        private static readonly JsonSerializerOptions JsonOptions = new()
+        {
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+        };
 
         // 以年-季度为条件从API筛选番剧，返回Anime列表的辅助方法
         private async Task<List<Anime>> FetchByBrowse(int year, int seasonMonth, CancellationToken ct)
@@ -63,6 +73,28 @@ namespace AniMeido.Plugin.Base.Services
             return result;
         }
 
+        private async Task<T?> GetCacheAsync<T>(string cacheKey, TimeSpan expiration, Func<Task<T?>> fetchFunc) where T : class
+        {
+            // 尝试从缓存读取
+            var cached = await _cacheService.GetCacheAsync(cacheKey);
+            if (cached != null)
+            {
+                var result = JsonSerializer.Deserialize<T>(cached, JsonOptions);
+                if (result != null) return result;
+            }
+
+            var data = await fetchFunc();
+
+            if (data != null) 
+            {
+                var json = JsonSerializer.Serialize(data, JsonOptions);
+                await _cacheService.SetCacheAsync(cacheKey, json, expiration);
+            }
+            return data;
+        }
+
+
+
         // 将CalendarItem对象映射为Anime对象，使用默认值处理缺失的信息，并记录无法解析的放送日期的警告日志
         private Anime MapToAnime(CalendarItem item, int year, int seasonMonth)
         {
@@ -76,10 +108,10 @@ namespace AniMeido.Plugin.Base.Services
             (
                 item.Id,
                 ResolveTitle(item.NameCn, item.Name),
-                null, // BangumiAPI的Calendar接口不提供制作公司信息，因此这里设置为null
+                null,
                 FallbackCVs,
                 parsedDate,
-                item.Images?.Large is { Length: > 0 } large ? large : FallbackImageUrl,
+                ResolveImageUrl(item.Images?.Large) ?? FallbackImageUrl,
                 item.Summary ?? FallbackDescription,
                 year,
                 seasonMonth,
@@ -87,12 +119,10 @@ namespace AniMeido.Plugin.Base.Services
                 );
         }
 
-
-
         // 将ActorInfo映射为一个VoiceActor
         private static VoiceActor MapToVoiceActor(ActorInfo actor)
         {
-            return new VoiceActor(actor.Id, actor.Name, actor.Image?.Grid is { Length: > 0 } grid ? grid : FallbackImageUrl);
+            return new VoiceActor(actor.Id, actor.Name, ResolveImageUrl(actor.Image?.Grid) ?? FallbackImageUrl);
         }
 
         // 将ActorInfo列表映射为VoiceActor列表，处理可能的null值并返回空列表作为默认值。
@@ -105,11 +135,17 @@ namespace AniMeido.Plugin.Base.Services
         private static CharacterRole MapToCharacterRole(RelatedCharacterResponse character)
         {
             var actors = MapToVoiceActor(character.Actors);
-            var image = character.Images?.Grid is { Length: > 0 } ? character.Images.Grid : FallbackImageUrl;
+            var image = ResolveImageUrl(character.Images?.Grid) ?? FallbackImageUrl;
             return new CharacterRole(character.Id, character.Name, character.Summary, image, actors);
         }
 
 
+
+        // 将 Bangumi 图片 URL 替换为反代地址
+        private static string? ResolveImageUrl(string? rawUrl)
+            => rawUrl is { Length: > 0 }
+                ? rawUrl.Replace("https://lain.bgm.tv", "https://bgm-proxy.animeido.com")
+                : null;
 
         // 优先使用中文译名，其次日文原名，最后后备文字；同时处理 API 返回空字符串的情况
         private static string ResolveTitle(string? nameCn, string? name)
@@ -147,10 +183,10 @@ namespace AniMeido.Plugin.Base.Services
             return new Anime(
                 item.Id,
                 ResolveTitle(item.NameCn, item.Name),
-                null,          // Studio 由单独的 GetStudioAsync() 获取
-                FallbackCVs,   // CVs 由单独的 GetCVsAsync() 获取
+                null,
+                FallbackCVs,
                 parsedDate,
-                item.Images?.Large is { Length: > 0 } large ? large : FallbackImageUrl,
+                ResolveImageUrl(item.Images?.Large) ?? FallbackImageUrl,
                 item.Summary ?? FallbackDescription,
                 resolvedYear,
                 resolvedSeasonMonth
@@ -169,6 +205,14 @@ namespace AniMeido.Plugin.Base.Services
         /// <exception cref="ArgumentOutOfRangeException">筛选条件超出范围</exception>
         public async Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct)
         {
+            var cacheKey = $"season:{year}:{season}";
+            var cached = await _cacheService.GetCacheAsync(cacheKey);
+            if (cached != null)
+            {
+                var result = JsonSerializer.Deserialize<List<Anime>>(cached, JsonOptions);
+                if (result != null) return result;
+            }
+
             if (!Enum.IsDefined(season))
             {
                 throw new ArgumentOutOfRangeException(nameof(season));
@@ -181,7 +225,10 @@ namespace AniMeido.Plugin.Base.Services
                                     .Select(item => MapToAnime(item, year, seasonMonth))
                                     .ToList();
             if (animes.Count > 0)
+            {
+                await _cacheService.SetCacheAsync($"season:{year}:{season}", JsonSerializer.Serialize(animes, JsonOptions), TimeSpan.FromHours(24));
                 return animes;
+            }
             if (year < DateTime.Now.Year)
                 return await FetchByBrowse(year, seasonMonth, ct);
             var currentSeason = SeasonHelper.FromMonth(DateTime.Now.Month);
@@ -198,10 +245,12 @@ namespace AniMeido.Plugin.Base.Services
         /// <returns>番剧详情信息</returns>
         public async Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct)
         {
-            var result = await _apiClient.GetJsonAsync<SubjectResponse>($"/v0/subjects/{animeID}", ct).ConfigureAwait(false);
-            if (result is null) return null;
-
-            return MapFromSubject(result);
+            return await GetCacheAsync($"detail:{animeID}", TimeSpan.FromDays(7),
+                async () =>
+                {
+                    var result = await _apiClient.GetJsonAsync<SubjectResponse>($"/v0/subjects/{animeID}", ct).ConfigureAwait(false);
+                    return result != null ? MapFromSubject(result) : null;
+                });
         }
 
         /// <summary>
@@ -212,11 +261,15 @@ namespace AniMeido.Plugin.Base.Services
         /// <returns>Studio列表</returns>
         public async Task<List<Studio>> GetStudioAsync(int animeID, CancellationToken ct)
         {
-            var result = await _apiClient.GetJsonAsync<List<RelatedPersonResponse>>($"/v0/subjects/{animeID}/persons", ct).ConfigureAwait(false);
-            if (result is null) return new List<Studio>();
-            return result.Where(person => person.Type == 2 && StudioFilter.Contains(person.Relation)) // API中Type 2 代表参与制作的商业实体，此处仅筛选制作/原作。
-                .Select(person => new Studio(person.Id, person.Name, person.Images?.Grid))
-                .ToList();
+            return await GetCacheAsync($"studio:{animeID}", TimeSpan.FromDays(7),
+                async () =>
+                {
+                    var result = await _apiClient.GetJsonAsync<List<RelatedPersonResponse>>($"/v0/subjects/{animeID}/persons", ct).ConfigureAwait(false);
+                    if (result is null) return new List<Studio>();
+                    return result.Where(person => person.Type == 2 && StudioFilter.Contains(person.Relation))
+                        .Select(person => new Studio(person.Id, person.Name, ResolveImageUrl(person.Images?.Grid)))
+                        .ToList();
+                }) ?? [];
         }
 
         /// <summary>
@@ -227,13 +280,13 @@ namespace AniMeido.Plugin.Base.Services
         /// <returns>Tag列表</returns>
         public async Task<List<Tag>> GetTagsAsync(int animeID, CancellationToken ct)
         {
-            var result = await _apiClient.GetJsonAsync<SubjectResponse>($"/v0/subjects/{animeID}", ct).ConfigureAwait(false);
-            if (result is null)
-            {
-                return new List<Tag>();
-            }
-            return result.MetaTags?.Select(tag => new Tag(tag))
-                .ToList() ?? new List<Tag>();
+            return await GetCacheAsync($"tags:{animeID}", TimeSpan.FromDays(7),
+                async () =>
+                {
+                    var result = await _apiClient.GetJsonAsync<SubjectResponse>($"/v0/subjects/{animeID}", ct).ConfigureAwait(false);
+                    if (result is null) return new List<Tag>();
+                    return result.MetaTags?.Select(tag => new Tag(tag)).ToList() ?? [];
+                }) ?? [];
         }
 
         /// <summary>
@@ -244,16 +297,17 @@ namespace AniMeido.Plugin.Base.Services
         /// <returns>VoiceActor列表</returns>
         public async Task<List<VoiceActor>> GetCVsAsync(int animeID, CancellationToken ct)
         {
-            var result = await _apiClient.GetJsonAsync<List<RelatedCharacterResponse>>($"/v0/subjects/{animeID}/characters", ct).ConfigureAwait(false);
-            if (result is null)
-            {
-                return new List<VoiceActor>();
-            }
-            var sorted = result.OrderBy(c => GetCharacterPriority(c.Relation)).ToList(); // 根据角色定位排序，主角优先
-            return sorted.Select(character => MapToVoiceActor(character.Actors))
-                .SelectMany(cvs => cvs)
-                .DistinctBy(v => v.VoiceActorId) // 去重，确保同一声优只出现一次
-                .ToList();
+            return await GetCacheAsync($"cvs:{animeID}", TimeSpan.FromDays(7),
+                async () =>
+                {
+                    var result = await _apiClient.GetJsonAsync<List<RelatedCharacterResponse>>($"/v0/subjects/{animeID}/characters", ct).ConfigureAwait(false);
+                    if (result is null) return new List<VoiceActor>();
+                    var sorted = result.OrderBy(c => GetCharacterPriority(c.Relation)).ToList();
+                    return sorted.Select(character => MapToVoiceActor(character.Actors))
+                        .SelectMany(cvs => cvs)
+                        .DistinctBy(v => v.VoiceActorId)
+                        .ToList();
+                }) ?? [];
         }
 
         /// <summary>
@@ -264,13 +318,14 @@ namespace AniMeido.Plugin.Base.Services
         /// <returns>CV-角色对照列表</returns>
         public async Task<List<CharacterRole>> GetCharacterRolesAsync(int animeID, CancellationToken ct)
         {
-            var result = await _apiClient.GetJsonAsync<List<RelatedCharacterResponse>>($"/v0/subjects/{animeID}/characters", ct).ConfigureAwait(false);
-            if (result is null)
-            {
-                return new List<CharacterRole>();
-            }
-            var sorted = result.OrderBy(c => GetCharacterPriority(c.Relation)).ToList(); // 根据角色定位排序，主角优先
-            return sorted.Select(MapToCharacterRole).ToList();
+            return await GetCacheAsync($"characters:{animeID}", TimeSpan.FromDays(7),
+                async () =>
+                {
+                    var result = await _apiClient.GetJsonAsync<List<RelatedCharacterResponse>>($"/v0/subjects/{animeID}/characters", ct).ConfigureAwait(false);
+                    if (result is null) return new List<CharacterRole>();
+                    var sorted = result.OrderBy(c => GetCharacterPriority(c.Relation)).ToList();
+                    return sorted.Select(MapToCharacterRole).ToList();
+                }) ?? [];
         }
     }
 

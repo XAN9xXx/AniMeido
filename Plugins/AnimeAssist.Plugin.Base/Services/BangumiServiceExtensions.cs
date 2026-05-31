@@ -1,5 +1,6 @@
 ﻿using AniMeido.Contracts;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace AniMeido.Plugin.Base.Services
 {
@@ -21,7 +22,13 @@ namespace AniMeido.Plugin.Base.Services
                 client.Timeout = TimeSpan.FromSeconds(30);
                 client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "XAN9xXx/AniMeido/1.0.0 (https://github.com/XAN9xXx/AniMeido)");
             });
-            services.AddSingleton<IAnimeDataSource, BangumiDataSource>();
+            services.AddSingleton<IAnimeDataSource>(sp =>
+            {
+                var logger = sp.GetRequiredService<ILogger<BangumiDataSource>>();
+                var apiClient = sp.GetRequiredService<BangumiApiClient>();
+                var cache = sp.GetRequiredService<CacheService>();
+                return new BangumiDataSource(logger, apiClient, cache);
+            });
             services.AddSingleton<BangumiApiClient>();
             services.AddSingleton<TrackingService>();
             services.AddSingleton<CacheService>();
