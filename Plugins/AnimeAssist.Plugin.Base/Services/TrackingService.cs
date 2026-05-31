@@ -84,6 +84,29 @@ namespace AniMeido.Plugin.Base.Services
             await command.ExecuteNonQueryAsync();
         }
 
+        /// <summary>
+        /// 获取所有追番记录（用于导出）。
+        /// </summary>
+        public async Task<List<(int AnimeId, AnimeTrackingStatus Status, string UpdatedAt)>> GetAllTrackingAsync()
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT AnimeId, Status, UpdatedAt FROM tracking ORDER BY UpdatedAt DESC";
+
+            var list = new List<(int, AnimeTrackingStatus, string)>();
+            using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var animeId = Convert.ToInt32(reader.GetInt64(0));
+                var status = (AnimeTrackingStatus)Convert.ToInt32(reader.GetInt64(1));
+                var updatedAt = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                list.Add((animeId, status, updatedAt));
+            }
+            return list;
+        }
+
         // ======== 拖放配置 ========
 
         public async Task SaveDragZoneConfigAsync(List<DragZoneConfig> configs)

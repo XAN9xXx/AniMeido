@@ -41,6 +41,7 @@ namespace AniMeido.Plugin.Base.Views
             _suppressEvents = false;
 
             _ = UpdateCacheInfoAsync();
+            InitDataSettings();
         }
 
         private async Task UpdateCacheInfoAsync()
@@ -603,6 +604,197 @@ namespace AniMeido.Plugin.Base.Views
             DragAction.Blocked => new SolidColorBrush(Color.FromArgb(220, 0x44, 0x44, 0x44)),
             _ => new SolidColorBrush(Color.FromArgb(160, 0x88, 0x88, 0x88)),
         };
+
+        // ======== 数据管理 ========
+
+        private ExportService? _exportService;
+
+        private void InitDataSettings()
+        {
+            _exportService = AppServices.Provider?.GetService<ExportService>();
+
+            DbPathText.Text = AppServices.DatabasePath ?? "（未知）";
+            BackupPathText.Text = AppServices.BackupDirectory ?? "（未知）";
+            LogPathText.Text = AppServices.LogDirectory ?? "（未知）";
+        }
+
+        private void OnOpenDbDirClick(object sender, RoutedEventArgs e)
+        {
+            var dir = Path.GetDirectoryName(AppServices.DatabasePath);
+            if (dir != null)
+                _ = Windows.System.Launcher.LaunchFolderPathAsync(dir);
+        }
+
+        private void OnOpenBackupDirClick(object sender, RoutedEventArgs e)
+        {
+            if (AppServices.BackupDirectory != null)
+                _ = Windows.System.Launcher.LaunchFolderPathAsync(AppServices.BackupDirectory);
+        }
+
+        private void OnOpenLogDirClick(object sender, RoutedEventArgs e)
+        {
+            if (AppServices.LogDirectory != null)
+                _ = Windows.System.Launcher.LaunchFolderPathAsync(AppServices.LogDirectory);
+        }
+
+        private async void OnBackupNowClick(object sender, RoutedEventArgs e)
+        {
+            if (AppServices.BackupDatabaseAsync == null) return;
+            BackupNowButton.IsEnabled = false;
+            BackupNowButton.Content = "备份中…";
+            try
+            {
+                await AppServices.BackupDatabaseAsync();
+
+                var dialog = new ContentDialog
+                {
+                    Title = "备份完成",
+                    Content = $"数据库已备份到：\n{AppServices.BackupDirectory}",
+                    CloseButtonText = "确定",
+                    XamlRoot = this.XamlRoot
+                };
+                await dialog.ShowAsync();
+            }
+            catch (Exception ex)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = "备份失败",
+                    Content = ex.Message,
+                    CloseButtonText = "确定",
+                    XamlRoot = this.XamlRoot
+                };
+                await dialog.ShowAsync();
+            }
+            finally
+            {
+                BackupNowButton.IsEnabled = true;
+                BackupNowButton.Content = "备份";
+            }
+        }
+
+        private async void OnExportClick(object sender, RoutedEventArgs e)
+        {
+            if (_exportService == null) return;
+
+            ExportButton.IsEnabled = false;
+            ExportButton.Content = "导出中…";
+            try
+            {
+                var json = await _exportService.ExportAsync();
+
+                var picker = new Windows.Storage.Pickers.FileSavePicker();
+                picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
+                picker.FileTypeChoices.Add("JSON 文件", new[] { ".json" });
+                picker.SuggestedFileName = $"AniMeido-{DateTime.Now:yyyyMMdd}.json";
+
+                if (AppServices.MainWindow is Microsoft.UI.Xaml.Window w)
+                {
+                    var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(w);
+                    WinRT.Interop.InitializeWithWindow.Initialize(picker, hWnd);
+                }
+
+                var file = await picker.PickSaveFileAsync();
+                if (file != null)
+                {
+                    await Windows.Storage.FileIO.WriteTextAsync(file, json);
+                }
+            }
+            catch (Exception ex)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = "导出失败",
+                    Content = ex.Message,
+                    CloseButtonText = "确定",
+                    XamlRoot = this.XamlRoot
+                };
+                await dialog.ShowAsync();
+            }
+            finally
+            {
+                ExportButton.IsEnabled = true;
+                ExportButton.Content = "导出";
+            }
+        }
+
+        private async void OnImportClick(object sender, RoutedEventArgs e)
+        {
+            if (_exportService == null) return;
+
+            var picker = new Windows.Storage.Pickers.FileOpenPicker();
+            picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
+            picker.FileTypeFilter.Add(".json");
+
+            if (AppServices.MainWindow is Microsoft.UI.Xaml.Window w)
+            {
+                var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(w);
+                WinRT.Interop.InitializeWithWindow.Initialize(picker, hWnd);
+            }
+
+            var file = await picker.PickSingleFileAsync();
+            if (file == null) return;
+
+            try
+            {
+                var json = await Windows.Storage.FileIO.ReadTextAsync(file);
+
+                var preview = ExportService.Preview(json);
+                if (preview == null)
+                {
+                    var errDialog = new ContentDialog
+                    {
+                        Title = "导入失败",
+                        Content = "文件格式无效，请选择有效的 AniMeido 导出文件。",
+                        CloseButtonText = "确定",
+                        XamlRoot = this.XamlRoot
+                    };
+                    await errDialog.ShowAsync();
+                    return;
+                }
+
+                var confirmDialog = new ContentDialog
+                {
+                    Title = "确认导入",
+                    Content = $"将导入 {preview.Tracking.Count} 条追番记录"
+                             + (preview.DragZones?.Count > 0 ? $" 和 {preview.DragZones.Count} 项拖放配置" : "")
+                             + "\n\n导入前会自动备份当前数据库。",
+                    PrimaryButtonText = "开始导入",
+                    CloseButtonText = "取消",
+                    DefaultButton = ContentDialogButton.Primary,
+                    XamlRoot = this.XamlRoot
+                };
+
+                if (await confirmDialog.ShowAsync() != ContentDialogResult.Primary)
+                    return;
+
+                if (AppServices.BackupDatabaseAsync != null)
+                    await AppServices.BackupDatabaseAsync();
+
+                var (trackingCount, configCount) = await _exportService.ImportAsync(json);
+
+                var doneDialog = new ContentDialog
+                {
+                    Title = "导入完成",
+                    Content = $"成功导入 {trackingCount} 条追番记录"
+                             + (configCount > 0 ? $" 和 {configCount} 项拖放配置" : ""),
+                    CloseButtonText = "确定",
+                    XamlRoot = this.XamlRoot
+                };
+                await doneDialog.ShowAsync();
+            }
+            catch (Exception ex)
+            {
+                var errDialog = new ContentDialog
+                {
+                    Title = "导入失败",
+                    Content = $"导入时发生错误：{ex.Message}",
+                    CloseButtonText = "确定",
+                    XamlRoot = this.XamlRoot
+                };
+                await errDialog.ShowAsync();
+            }
+        }
     }
 
     // ======== 预览 Zone 视觉元素 ========

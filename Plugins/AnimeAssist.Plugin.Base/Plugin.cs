@@ -44,6 +44,7 @@ namespace AniMeido.Plugin.Base
         public Task InitializeAsync(IServiceCollection services)
         {
             services.AddBangumiService();
+            services.AddSingleton<ExportService>();
             return Task.CompletedTask;
         }
     }

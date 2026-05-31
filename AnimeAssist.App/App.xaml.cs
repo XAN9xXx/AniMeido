@@ -26,6 +26,7 @@ namespace AniMeido.App
         }
 
         public static IServiceProvider? Services { get; private set; }
+        public static Window? MainWindow { get; private set; }
         public static ThemeService ThemeService { get; } = new ThemeService();
         public static PrivacyService PrivacyService { get; } = new PrivacyService();
         public static IReadOnlyList<IPlugin>? Plugins { get; private set; }
@@ -70,8 +71,14 @@ namespace AniMeido.App
             Services = provider;
             var db = provider.GetRequiredService<DatabaseService>();
             await db.InitializeAsync();
+            Contracts.AppServices.DatabasePath = db.DbPath;
+            Contracts.AppServices.BackupDirectory = db.BackupDir;
+            Contracts.AppServices.LogDirectory = db.LogDir;
+            Contracts.AppServices.BackupDatabaseAsync = db.BackupAsync;
 
             _window = new MainWindow(naviItems);
+            MainWindow = _window;
+            Contracts.AppServices.MainWindow = _window;
 
             // 窗口关闭时清理日志，进程退出由全局异常处理器统一处理
             _window.Closed += (_, _) =>
