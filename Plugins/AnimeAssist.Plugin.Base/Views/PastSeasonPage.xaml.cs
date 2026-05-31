@@ -124,9 +124,23 @@ namespace AniMeido.Plugin.Base.Views
             int currentYear = DateTime.Now.Year;
             for (int y = 2000; y <= currentYear; y++)
                 YearComboBox.Items.Add(y);
-            YearComboBox.SelectedItem = currentYear;
 
-            RebuildSeasonItems(currentYear);
+            // 计算上一个季度及对应的年份
+            var previousSeason = GetPreviousSeason();
+            var currentSeason = GetCurrentSeason();
+            var previousYear = currentYear;
+            if (currentSeason == Season.Winter && previousSeason == Season.Fall)
+                previousYear--;
+
+            // 默认识别到上一个年度的最后一个季度之前的季度
+            var previousYear2 = currentSeason switch
+            {
+                Season.Winter => currentYear,
+                _ => currentYear
+            };
+
+            YearComboBox.SelectedItem = previousYear;
+            RebuildSeasonItems(previousYear, previousSeason);
 
             YearComboBox.SelectionChanged += OnYearSelectionChanged;
             SeasonComboBox.SelectionChanged += OnSeasonSelectionChanged;
@@ -139,15 +153,46 @@ namespace AniMeido.Plugin.Base.Views
             }
         }
 
-        private void RebuildSeasonItems(int year)
+        private static Season GetCurrentSeason()
+        {
+            return DateTime.Now.Month switch
+            {
+                >= 1 and <= 3 => Season.Winter,
+                >= 4 and <= 6 => Season.Spring,
+                >= 7 and <= 9 => Season.Summer,
+                _ => Season.Fall
+            };
+        }
+
+        private static Season GetPreviousSeason()
+        {
+            var current = DateTime.Now.Month switch
+            {
+                >= 1 and <= 3 => Season.Winter,
+                >= 4 and <= 6 => Season.Spring,
+                >= 7 and <= 9 => Season.Summer,
+                _ => Season.Fall
+            };
+            return current switch
+            {
+                Season.Winter => Season.Fall,
+                Season.Spring => Season.Winter,
+                Season.Summer => Season.Spring,
+                Season.Fall => Season.Summer,
+                _ => Season.Winter
+            };
+        }
+
+        private void RebuildSeasonItems(int year, Season? defaultSeason = null)
         {
             SeasonComboBox.SelectionChanged -= OnSeasonSelectionChanged;
             SeasonComboBox.Items.Clear();
 
             var allSeasons = new[] { Season.Winter, Season.Spring, Season.Summer, Season.Fall };
+            var maxSeason = defaultSeason ?? GetPreviousSeason();
             var validSeasons = year < DateTime.Now.Year
                 ? allSeasons
-                : allSeasons.TakeWhile(s => s <= GetCurrentSeason()).ToArray();
+                : allSeasons.TakeWhile(s => s <= maxSeason).ToArray();
 
             foreach (var season in validSeasons)
             {
@@ -165,11 +210,10 @@ namespace AniMeido.Plugin.Base.Views
                 });
             }
 
-            // 选中当前季度（如果可用），否则选中最后一个
-            var currentSeason = GetCurrentSeason();
+            // 选中默认季度
             for (int i = 0; i < SeasonComboBox.Items.Count; i++)
             {
-                if (((ComboBoxItem)SeasonComboBox.Items[i]).Tag is Season s && s == currentSeason)
+                if (((ComboBoxItem)SeasonComboBox.Items[i]).Tag is Season s && s == maxSeason)
                 {
                     SeasonComboBox.SelectedIndex = i;
                     SeasonComboBox.SelectionChanged += OnSeasonSelectionChanged;
@@ -178,17 +222,6 @@ namespace AniMeido.Plugin.Base.Views
             }
             SeasonComboBox.SelectedIndex = SeasonComboBox.Items.Count - 1;
             SeasonComboBox.SelectionChanged += OnSeasonSelectionChanged;
-        }
-
-        private static Season GetCurrentSeason()
-        {
-            return DateTime.Now.Month switch
-            {
-                >= 1 and <= 3 => Season.Winter,
-                >= 4 and <= 6 => Season.Spring,
-                >= 7 and <= 9 => Season.Summer,
-                _ => Season.Fall
-            };
         }
 
         private void OnYearSelectionChanged(object sender, SelectionChangedEventArgs e)
