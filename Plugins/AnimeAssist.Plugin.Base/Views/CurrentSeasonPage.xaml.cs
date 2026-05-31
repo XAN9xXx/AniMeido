@@ -11,6 +11,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using System.Collections.ObjectModel;
 using Windows.Foundation;
 using Windows.UI;
 
@@ -23,6 +24,7 @@ namespace AniMeido.Plugin.Base.Views
         static bool _hasAutoScrolledOnce = false;
         private List<DragZoneConfig> _dragZones = DragZoneConfig.GetDefaults();
         private TrackingService? _tracking;
+        private readonly List<Anime> _allAnime = new();
 
         public CurrentSeasonPage()
         {
@@ -40,7 +42,12 @@ namespace AniMeido.Plugin.Base.Views
                     case nameof(CurrentSeasonViewModel.IsLoading):
                         UpdateOverlayState();
                         if (!ViewModel.IsLoading)
+                        {
                             UpdateViewState();
+                            // 保存原始数据用于过滤
+                            _allAnime.Clear();
+                            _allAnime.AddRange(ViewModel.AnimeList);
+                        }
 
                         // 首次打开时自动跳转到今天对应的星期分组
                         if (!_hasAutoScrolledOnce && !ViewModel.IsLoading && ViewModel.WeekdayGroups.Count > 0)
@@ -489,6 +496,78 @@ namespace AniMeido.Plugin.Base.Views
                 if (result != null) return result;
             }
             return null;
+        }
+
+        // ======== 即时过滤 ========
+
+        private void OnFilterTextChanged(object sender, TextChangedEventArgs e)
+        {
+            ApplyFilter(FilterBox.Text);
+        }
+
+        private void ApplyFilter(string query)
+        {
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                // 恢复全部分组
+                ViewModel.WeekdayGroups.Clear();
+                var groups = _allAnime
+                    .GroupBy(a => a.Weekday)
+                    .OrderBy(g => g.Key ?? 99)
+                    .Select(g => new WeekdayGroup
+                    {
+                        WeekdayName = g.Key switch
+                        {
+                            1 => "周一",
+                            2 => "周二",
+                            3 => "周三",
+                            4 => "周四",
+                            5 => "周五",
+                            6 => "周六",
+                            7 => "周日",
+                            _ => "其他",
+                        },
+                        Items = new ObservableCollection<Anime>(g)
+                    });
+                foreach (var group in groups)
+                    ViewModel.WeekdayGroups.Add(group);
+                return;
+            }
+
+            var lower = query.ToLowerInvariant();
+            var filtered = _allAnime
+                .Where(a => a.Title.Contains(lower, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            ViewModel.WeekdayGroups.Clear();
+            if (filtered.Count == 0)
+            {
+                // 无匹配时显示提示（通过空状态处理）
+                ViewModel.HasData = false;
+                return;
+            }
+
+            ViewModel.HasData = true;
+            var filteredGroups = filtered
+                .GroupBy(a => a.Weekday)
+                .OrderBy(g => g.Key ?? 99)
+                .Select(g => new WeekdayGroup
+                {
+                    WeekdayName = g.Key switch
+                    {
+                        1 => "周一",
+                        2 => "周二",
+                        3 => "周三",
+                        4 => "周四",
+                        5 => "周五",
+                        6 => "周六",
+                        7 => "周日",
+                        _ => "其他",
+                    },
+                    Items = new ObservableCollection<Anime>(g)
+                });
+            foreach (var group in filteredGroups)
+                ViewModel.WeekdayGroups.Add(group);
         }
     }
 

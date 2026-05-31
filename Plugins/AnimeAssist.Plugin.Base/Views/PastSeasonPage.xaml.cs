@@ -20,6 +20,7 @@ namespace AniMeido.Plugin.Base.Views
         public PastSeasonViewModel ViewModel => _viewModel;
         private List<DragZoneConfig> _dragZones = DragZoneConfig.GetDefaults();
         private TrackingService? _tracking;
+        private readonly List<Anime> _allAnime = new();
 
         public PastSeasonPage()
         {
@@ -55,6 +56,11 @@ namespace AniMeido.Plugin.Base.Views
                         {
                             StatsCard.Visibility = Visibility.Visible;
                             TotalCountText.Text = ViewModel.TotalCount.ToString();
+                            // 数据加载完成后保存原始列表、显示过滤框
+                            _allAnime.Clear();
+                            _allAnime.AddRange(ViewModel.AnimeList);
+                            FilterCard.Visibility = Visibility.Visible;
+                            FilterBox.Text = "";
                         }
                         else
                         {
@@ -544,6 +550,33 @@ namespace AniMeido.Plugin.Base.Views
                 if (result != null) return result;
             }
             return null;
+        }
+
+        // ======== 即时过滤 ========
+
+        private void OnFilterTextChanged(object sender, TextChangedEventArgs e)
+        {
+            ApplyFilter(FilterBox.Text);
+        }
+
+        private void ApplyFilter(string query)
+        {
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                ViewModel.AnimeList.Clear();
+                foreach (var a in _allAnime)
+                    ViewModel.AnimeList.Add(a);
+                return;
+            }
+
+            var lower = query.ToLowerInvariant();
+            var filtered = _allAnime
+                .Where(a => a.Title.Contains(lower, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            ViewModel.AnimeList.Clear();
+            foreach (var a in filtered)
+                ViewModel.AnimeList.Add(a);
         }
     }
 

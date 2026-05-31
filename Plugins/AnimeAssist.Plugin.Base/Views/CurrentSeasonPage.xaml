@@ -50,6 +50,28 @@
                                Margin="0,12,0,0"/>
                 </StackPanel>
 
+                <!-- 搜索过滤 -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                        CornerRadius="8"
+                        Margin="0,0,0,12"
+                        Padding="12,6">
+                    <Grid ColumnDefinitions="Auto,*"
+                          ColumnSpacing="8">
+                        <TextBlock Text="&#xE71A;"
+                                   FontFamily="Segoe MDL2 Assets"
+                                   FontSize="14"
+                                   VerticalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBox x:Name="FilterBox"
+                                 Grid.Column="1"
+                                 PlaceholderText="搜索当前季番剧…"
+                                 BorderThickness="0"
+                                 Background="Transparent"
+                                 FontSize="14"
+                                 TextChanged="OnFilterTextChanged"/>
+                    </Grid>
+                </Border>
+
                 <!-- 按星期分组展示当季番剧 -->
                 <ItemsControl x:Name="WeekdayRepeater"
                               ItemsSource="{x:Bind ViewModel.WeekdayGroups}">
