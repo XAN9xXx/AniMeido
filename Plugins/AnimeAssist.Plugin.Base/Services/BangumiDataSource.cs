@@ -83,9 +83,29 @@ namespace AniMeido.Plugin.Base.Services
                 if (result != null) return result;
             }
 
-            var data = await fetchFunc();
+            T? data;
+            try
+            {
+                data = await fetchFunc();
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            {
+                // 网络失败时尝试返回过期缓存降级
+                _logger.LogWarning("Network request failed for cache key {Key}: {Msg}", cacheKey, ex.Message);
+                var stale = await _cacheService.GetCacheAllowExpiredAsync(cacheKey);
+                if (stale != null)
+                {
+                    var staleResult = JsonSerializer.Deserialize<T>(stale, JsonOptions);
+                    if (staleResult != null)
+                    {
+                        _logger.LogInformation("Returning stale cache for {Key}", cacheKey);
+                        return staleResult;
+                    }
+                }
+                throw; // 没有过期缓存可用，继续保持原异常向上传播
+            }
 
-            if (data != null) 
+            if (data != null)
             {
                 var json = JsonSerializer.Serialize(data, JsonOptions);
                 await _cacheService.SetCacheAsync(cacheKey, json, expiration);
@@ -205,6 +225,9 @@ namespace AniMeido.Plugin.Base.Services
         /// <exception cref="ArgumentOutOfRangeException">筛选条件超出范围</exception>
         public async Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct)
         {
+            if (!Enum.IsDefined(season))
+                throw new ArgumentOutOfRangeException(nameof(season));
+
             var cacheKey = $"season:{year}:{season}";
             var cached = await _cacheService.GetCacheAsync(cacheKey);
             if (cached != null)
@@ -213,28 +236,42 @@ namespace AniMeido.Plugin.Base.Services
                 if (result != null) return result;
             }
 
-            if (!Enum.IsDefined(season))
+            try
             {
-                throw new ArgumentOutOfRangeException(nameof(season));
+                int seasonMonth = SeasonHelper.ToMonth(season);
+                var days = await FetchCalendarAsync(ct).ConfigureAwait(false);
+                List<Anime> animes = days.SelectMany(day => day.Items)
+                                        .Where(item => BelongsToSeason(item, year, season))
+                                        .Select(item => MapToAnime(item, year, seasonMonth))
+                                        .ToList();
+                if (animes.Count > 0)
+                {
+                    await _cacheService.SetCacheAsync(cacheKey, JsonSerializer.Serialize(animes, JsonOptions), TimeSpan.FromHours(24));
+                    return animes;
+                }
+                if (year < DateTime.Now.Year)
+                    return await FetchByBrowse(year, seasonMonth, ct);
+                var currentSeason = SeasonHelper.FromMonth(DateTime.Now.Month);
+                if (season != currentSeason)
+                    return await FetchByBrowse(year, seasonMonth, ct);
+                return [];
             }
-
-            int seasonMonth = SeasonHelper.ToMonth(season);
-            var days = await FetchCalendarAsync(ct).ConfigureAwait(false);
-            List<Anime> animes = days.SelectMany(day => day.Items)
-                                    .Where(item => BelongsToSeason(item, year, season))
-                                    .Select(item => MapToAnime(item, year, seasonMonth))
-                                    .ToList();
-            if (animes.Count > 0)
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
             {
-                await _cacheService.SetCacheAsync($"season:{year}:{season}", JsonSerializer.Serialize(animes, JsonOptions), TimeSpan.FromHours(24));
-                return animes;
+                // 网络失败时尝试返回过期缓存降级
+                _logger.LogWarning("Network request failed for season {Year}/{Season}: {Msg}", year, season, ex.Message);
+                var stale = await _cacheService.GetCacheAllowExpiredAsync(cacheKey);
+                if (stale != null)
+                {
+                    var staleResult = JsonSerializer.Deserialize<List<Anime>>(stale, JsonOptions);
+                    if (staleResult != null)
+                    {
+                        _logger.LogInformation("Returning stale cache for season {Year}/{Season}", year, season);
+                        return staleResult;
+                    }
+                }
+                throw;
             }
-            if (year < DateTime.Now.Year)
-                return await FetchByBrowse(year, seasonMonth, ct);
-            var currentSeason = SeasonHelper.FromMonth(DateTime.Now.Month);
-            if (season != currentSeason)
-                return await FetchByBrowse(year, seasonMonth, ct);
-            return [];
         }
 
         /// <summary>

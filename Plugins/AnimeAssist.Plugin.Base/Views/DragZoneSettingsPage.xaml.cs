@@ -48,12 +48,11 @@ namespace AniMeido.Plugin.Base.Views
             if (_cacheService == null) return;
 
             var (dbCount, dbSizeKB) = await _cacheService.GetCacheStatsAsync();
-            var (imgCount, imgSizeKB) = ImageCacheHelper.GetCacheStats();
-            var totalSizeKB = dbSizeKB + imgSizeKB;
-            var sizeText = totalSizeKB >= 1024
-                ? $"{totalSizeKB / 1024.0:F1} MB"
-                : $"{totalSizeKB:F0} KB";
-            CacheInfoText.Text = $"占用约 {sizeText}";
+            var (imgCount, imgSizeMB) = ImageCacheHelper.GetCacheStats();
+            var totalSizeMB = dbSizeKB / 1024.0 + imgSizeMB;
+            CacheInfoText.Text = totalSizeMB >= 1.0
+                ? $"占用约 {totalSizeMB:F1} MB"
+                : $"占用约 {dbSizeKB + imgSizeMB * 1024.0:F0} KB";
         }
 
         private async void OnClearCacheClick(object sender, RoutedEventArgs e)
