@@ -144,10 +144,16 @@ namespace AniMeido.Plugin.Base.Views
                     SetButtonActive(NotInterestedBtn, NotInterestedIcon, NotInterestedText, accent, whiteBrush);
                     break;
                 case AnimeTrackingStatus.Following:
+                    SetButtonActive(FollowingBtn, FollowingIcon, FollowingText, accent, whiteBrush);
+                    break;
                 case AnimeTrackingStatus.Completed:
+                    SetButtonActive(CompletedBtn, CompletedIcon, CompletedText, accent, whiteBrush);
+                    break;
                 case AnimeTrackingStatus.Dropped:
+                    SetButtonActive(DroppedBtn, DroppedIcon, DroppedText, accent, whiteBrush);
+                    break;
                 case AnimeTrackingStatus.Blocked:
-                    // 新状态暂不关联已有按钮，只显示提示文字
+                    SetButtonActive(BlockedBtn, BlockedIcon, BlockedText, accent, whiteBrush);
                     break;
             }
         }
@@ -163,6 +169,10 @@ namespace AniMeido.Plugin.Base.Views
             SetButtonInactive(WatchingBtn, WatchingIcon, WatchingText, defaultBg, secondaryBrush);
             SetButtonInactive(PlanToWatchBtn, PlanToWatchIcon, PlanToWatchText, defaultBg, secondaryBrush);
             SetButtonInactive(NotInterestedBtn, NotInterestedIcon, NotInterestedText, defaultBg, secondaryBrush);
+            SetButtonInactive(FollowingBtn, FollowingIcon, FollowingText, defaultBg, secondaryBrush);
+            SetButtonInactive(CompletedBtn, CompletedIcon, CompletedText, defaultBg, secondaryBrush);
+            SetButtonInactive(DroppedBtn, DroppedIcon, DroppedText, defaultBg, secondaryBrush);
+            SetButtonInactive(BlockedBtn, BlockedIcon, BlockedText, defaultBg, secondaryBrush);
         }
 
         private void SetButtonActive(Button btn, FontIcon icon, TextBlock text,
