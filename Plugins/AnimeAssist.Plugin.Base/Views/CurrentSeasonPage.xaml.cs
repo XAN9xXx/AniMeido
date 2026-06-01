@@ -26,6 +26,23 @@ namespace AniMeido.Plugin.Base.Views
         private TrackingService? _tracking;
         private readonly List<Anime> _allAnime = new();
 
+        /// <summary>
+        /// 供 MainWindow 在开屏淡出后调用，触发自动跳转到今日星期分组。
+        /// </summary>
+        public void TriggerAutoScroll()
+        {
+            if (!_hasAutoScrolledOnce && ViewModel.WeekdayGroups.Count > 0)
+            {
+                _hasAutoScrolledOnce = true;
+                int todayIndex = DateTime.Now.DayOfWeek switch
+                {
+                    DayOfWeek.Sunday => 6,
+                    _ => (int)DateTime.Now.DayOfWeek - 1
+                };
+                DelayedScrollToGroup(todayIndex);
+            }
+        }
+
         public CurrentSeasonPage()
         {
             var ds = AppServices.Provider!.GetRequiredService<IAnimeDataSource>();
@@ -50,16 +67,7 @@ namespace AniMeido.Plugin.Base.Views
                         }
 
                         // 首次打开时自动跳转到今天对应的星期分组
-                        if (!_hasAutoScrolledOnce && !ViewModel.IsLoading && ViewModel.WeekdayGroups.Count > 0)
-                        {
-                            _hasAutoScrolledOnce = true;
-                            int todayIndex = DateTime.Now.DayOfWeek switch
-                            {
-                                DayOfWeek.Sunday => 6,
-                                _ => (int)DateTime.Now.DayOfWeek - 1
-                            };
-                            DelayedScrollToGroup(todayIndex);
-                        }
+                        // （开屏模式下由 MainWindow 在淡出后触发）
                         break;
 
                     case nameof(CurrentSeasonViewModel.ErrorMessage):

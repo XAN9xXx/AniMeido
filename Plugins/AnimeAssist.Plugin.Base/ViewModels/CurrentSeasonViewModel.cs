@@ -92,12 +92,16 @@ namespace AniMeido.Plugin.Base.ViewModels
 
                 RebuildGroups();
                 HasData = AnimeList.Count > 0;
+
+                // 首个页面加载完成，通知开屏淡出
+                AppServices.FirstPageLoaded.TrySetResult();
             }
             catch (Exception ex)
             {
                 ErrorMessage = $"Fail to load: {ex.Message}";
                 HasData = false;
                 IsError = true;
+                AppServices.FirstPageLoaded.TrySetResult();
             }
             finally
             {

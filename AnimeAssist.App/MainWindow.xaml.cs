@@ -27,7 +27,11 @@ namespace AniMeido.App
             // 非打包模式下用本地路径加载开屏图
             var splashPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "SplashScreen.png");
             if (System.IO.File.Exists(splashPath))
-                SplashImage.Source = new BitmapImage(new Uri(splashPath));
+            {
+                var img = new BitmapImage();
+                img.UriSource = new Uri($"file:///{splashPath.Replace('\\', '/')}");
+                SplashImage.Source = img;
+            }
 
             // 设置 Alt+Tab 窗口图标
             var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "icon.ico");
@@ -39,24 +43,13 @@ namespace AniMeido.App
                 appWindow.SetIcon(iconPath);
             }
 
-            // 关闭窗口时进程退出由 App 层统一管理（全局异常处理器）
-            // 此处不再重复调用 Application.Current.Exit()
-
             _naviItems = naviItems;
             BuildNavigationMenu();
-
-            if (MainNaviView.MenuItems.Count > 0)
-            {
-                MainNaviView.SelectedItem = MainNaviView.MenuItems[0];
-                NavigateTo(_naviItems[0].PageTypeName);
-            }
 
             MainNaviView.ItemInvoked += OnNaviItemInvoked;
             ContentFrame.Navigated += OnContentFrameNavigated;
             ExtendsContentIntoTitleBar = true;
             SetTitleBar(AppTitleBar);
-
-            // 初始状态：无历史，返回按钮变灰
             UpdateBackButton();
         }
 
@@ -172,10 +165,44 @@ namespace AniMeido.App
 
         private async void OnMainNaviViewLoaded(object sender, RoutedEventArgs e)
         {
+            // 等待开屏图加载完成
+            if (SplashImage.Source is BitmapImage bmp)
+            {
+                var tcs = new TaskCompletionSource();
+                bmp.ImageOpened += (s, e) => tcs.TrySetResult();
+                bmp.ImageFailed += (s, e) => tcs.TrySetResult();
+                await Task.WhenAny(tcs.Task, Task.Delay(5000));
+            }
+
+            // 开屏至少显示 2 秒
+            var splashStart = DateTime.UtcNow;
+
+            // 开始导航到首页
+            if (MainNaviView.MenuItems.Count > 0)
+            {
+                MainNaviView.SelectedItem = MainNaviView.MenuItems[0];
+                NavigateTo(_naviItems[0].PageTypeName);
+            }
+
+            // 等待首个页面数据加载完成
+            await AppServices.FirstPageLoaded.Task;
+
+            // 确保最低显示时间
+            var elapsed = (DateTime.UtcNow - splashStart).TotalMilliseconds;
+            if (elapsed < 2000)
+                await Task.Delay((int)(2000 - elapsed));
+
+            // 开屏淡出
+            await FadeOutSplashAsync();
+
+            // 触发当季页自动跳转到今日分组
+            if (ContentFrame.Content is AniMeido.Plugin.Base.Views.CurrentSeasonPage seasonPage)
+                seasonPage.TriggerAutoScroll();
+
+            // 弹窗在开屏结束后显示
             await ShowPrivacyDialogAsync();
             await ShowAnnouncementDialogAsync();
             UpdateTitleBarButtons();
-            await FadeOutSplashAsync();
         }
 
         private async Task FadeOutSplashAsync()

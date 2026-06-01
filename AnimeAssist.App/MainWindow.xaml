@@ -55,7 +55,7 @@
         <Grid x:Name="SplashOverlay"
               Visibility="Visible"
               IsHitTestVisible="False"
-              Background="{ThemeResource SolidBackgroundFillColorBase}"
+              Background="#FF1A1A2E"
               VerticalAlignment="Stretch"
               HorizontalAlignment="Stretch">
             <Image x:Name="SplashImage"

@@ -32,5 +32,10 @@
         /// 触发数据库备份。由 App 层在启动时注册。
         /// </summary>
         public static Func<Task>? BackupDatabaseAsync { get; set; }
+
+        /// <summary>
+        /// 首个页面数据加载完成信号。用于控制开屏图淡出时机。
+        /// </summary>
+        public static TaskCompletionSource FirstPageLoaded { get; } = new();
     }
 }
