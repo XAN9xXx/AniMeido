@@ -53,6 +53,25 @@ namespace AniMeido.Plugin.Base.Views
             // 用 AddHandler 确保即使子元素处理了事件也能收到指针按下
             RootGrid.AddHandler(UIElement.PointerPressedEvent,
                 new PointerEventHandler(OnRootPointerPressed), true);
+
+            // 提前加载屏蔽列表，确保后续数据加载能正确过滤
+            _ = LoadBlockedIdsAsync();
+        }
+
+        private async Task LoadBlockedIdsAsync()
+        {
+            var tracking = AppServices.Provider?.GetRequiredService<TrackingService>();
+            if (tracking != null)
+            {
+                var blocked = await tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
+                _blockedIds = blocked.ToHashSet();
+                // 如果数据已经加载完成，重新过滤
+                if (_allData != null && _allData.Count > 0)
+                {
+                    _allData = _allData.Where(a => !_blockedIds.Contains(a.ID)).ToList();
+                    ShowPage(0);
+                }
+            }
         }
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
@@ -112,7 +131,7 @@ namespace AniMeido.Plugin.Base.Views
                     var deserialized = JsonSerializer.Deserialize<List<Anime>>(cached, JsonOptions);
                     if (deserialized != null && deserialized.Count > 0)
                     {
-                        _allData = deserialized;
+                        _allData = deserialized.Where(a => !_blockedIds.Contains(a.ID)).ToList();
                         _allData = SortLocally(_allData);
                         ShowPage(0);
                         return;
@@ -138,7 +157,7 @@ namespace AniMeido.Plugin.Base.Views
                     await LoadYearDataAsync(y, allResults, seenIds);
                 }
 
-                _allData = allResults;
+                _allData = allResults.Where(a => !_blockedIds.Contains(a.ID)).ToList();
 
                 if (_cacheService != null && _allData.Count > 0)
                 {
@@ -287,6 +306,7 @@ namespace AniMeido.Plugin.Base.Views
         // ======== 拖放标记（移植自 CurrentSeasonPage） ========
 
         private TrackingService? _tracking;
+        private HashSet<int> _blockedIds = new();
         private List<DragZoneConfig> _dragZones = DragZoneConfig.GetDefaults();
         private readonly Dictionary<string, DragOverlayZone> _overlayZones = new();
 
@@ -358,7 +378,11 @@ namespace AniMeido.Plugin.Base.Views
 
             _tracking ??= AppServices.Provider?.GetRequiredService<TrackingService>();
             if (_tracking != null)
+            {
                 _dragZones = await _tracking.LoadDragZoneConfigAsync();
+                var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
+                _blockedIds = blocked.ToHashSet();
+            }
 
             DragOverlay.Visibility = Visibility.Visible;
             DragOverlay.UpdateLayout();

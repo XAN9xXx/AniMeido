@@ -26,6 +26,7 @@ namespace AniMeido.Plugin.Base.Views
 
         // ======== 拖放 ========
         private TrackingService? _tracking;
+        private HashSet<int> _blockedIds = new();
         private List<DragZoneConfig> _dragZones = DragZoneConfig.GetDefaults();
         private readonly Dictionary<string, DragOverlayZone> _overlayZones = new();
         private Anime? _dragAnime;
@@ -44,6 +45,19 @@ namespace AniMeido.Plugin.Base.Views
         {
             RootGrid.AddHandler(UIElement.PointerPressedEvent,
                 new PointerEventHandler(OnRootPointerPressed), true);
+
+            // 提前加载屏蔽列表，确保后续搜索能正确过滤
+            _ = LoadBlockedIdsAsync();
+        }
+
+        private async Task LoadBlockedIdsAsync()
+        {
+            var tracking = AppServices.Provider?.GetRequiredService<TrackingService>();
+            if (tracking != null)
+            {
+                var blocked = await tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
+                _blockedIds = blocked.ToHashSet();
+            }
         }
 
         private void OnSearchClick(object sender, RoutedEventArgs e)
@@ -87,7 +101,8 @@ namespace AniMeido.Plugin.Base.Views
                 _currentOffset = offset;
                 _totalResults = total;
 
-                ResultGrid.ItemsSource = results;
+                var filtered = results.Where(a => !_blockedIds.Contains(a.ID)).ToList();
+                ResultGrid.ItemsSource = filtered;
 
                 var currentPage = (offset / PageSize) + 1;
                 var totalPages = Math.Max(1, (int)Math.Ceiling((double)total / PageSize));
@@ -199,7 +214,11 @@ namespace AniMeido.Plugin.Base.Views
 
             _tracking ??= AppServices.Provider?.GetRequiredService<TrackingService>();
             if (_tracking != null)
+            {
                 _dragZones = await _tracking.LoadDragZoneConfigAsync();
+                var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
+                _blockedIds = blocked.ToHashSet();
+            }
 
             DragOverlay.Visibility = Visibility.Visible;
             DragOverlay.UpdateLayout();

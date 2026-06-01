@@ -71,7 +71,16 @@ namespace AniMeido.Plugin.Base.Views
                     .Cast<Anime>()
                     .ToList();
 
-                ResultGrid.ItemsSource = animes;
+                var tracking = AppServices.Provider?.GetRequiredService<TrackingService>();
+                if (tracking != null)
+                {
+                    var blocked = (await tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked)).ToHashSet();
+                    ResultGrid.ItemsSource = animes.Where(a => !blocked.Contains(a.ID)).ToList();
+                }
+                else
+                {
+                    ResultGrid.ItemsSource = animes;
+                }
 
                 if (animes.Count == 0)
                 {

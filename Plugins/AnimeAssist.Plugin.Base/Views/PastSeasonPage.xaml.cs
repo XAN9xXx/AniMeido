@@ -21,6 +21,7 @@ namespace AniMeido.Plugin.Base.Views
         private List<DragZoneConfig> _dragZones = DragZoneConfig.GetDefaults();
         private TrackingService? _tracking;
         private readonly List<Anime> _allAnime = new();
+        private HashSet<int> _blockedIds = new();
 
         public PastSeasonPage()
         {
@@ -28,8 +29,9 @@ namespace AniMeido.Plugin.Base.Views
             _viewModel = new PastSeasonViewModel(ds);
             InitializeComponent();
 
-            // 异步加载拖放配置
-            _ = LoadDragConfigAsync();
+            // 先初始化 TrackingService 并加载屏蔽列表
+            _tracking = AppServices.Provider!.GetRequiredService<TrackingService>();
+            _ = LoadDragConfigAndBlockedAsync();
 
             ViewModel.PropertyChanged += (s, e) =>
             {
@@ -58,7 +60,7 @@ namespace AniMeido.Plugin.Base.Views
                             TotalCountText.Text = ViewModel.TotalCount.ToString();
                             // 数据加载完成后保存原始列表、显示过滤框
                             _allAnime.Clear();
-                            _allAnime.AddRange(ViewModel.AnimeList);
+                            _allAnime.AddRange(ViewModel.AnimeList.Where(a => !_blockedIds.Contains(a.ID)));
                             FilterCard.Visibility = Visibility.Visible;
                             FilterBox.Text = "";
                         }
@@ -255,10 +257,19 @@ namespace AniMeido.Plugin.Base.Views
                 Frame.Navigate(typeof(AnimeDetailPage), anime.ID);
         }
 
-        private async Task LoadDragConfigAsync()
+        private async Task LoadDragConfigAndBlockedAsync()
         {
-            _tracking = AppServices.Provider!.GetRequiredService<TrackingService>();
+            // _tracking 已在构造函数中初始化
             _dragZones = await _tracking.LoadDragZoneConfigAsync();
+            var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
+            _blockedIds = blocked.ToHashSet();
+            // 无论数据是否已加载，都重新从原始数据过滤一次
+            if (ViewModel.AnimeList.Count > 0)
+            {
+                _allAnime.Clear();
+                _allAnime.AddRange(ViewModel.AnimeList.Where(a => !_blockedIds.Contains(a.ID)));
+                ApplyFilter(FilterBox.Text);
+            }
         }
 
         // ======== 自定义拖放 ========
