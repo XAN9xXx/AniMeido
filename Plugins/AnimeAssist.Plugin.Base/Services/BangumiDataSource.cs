@@ -392,6 +392,34 @@ namespace AniMeido.Plugin.Base.Services
         }
 
         /// <summary>
+        /// 按关键词搜索一页番剧。
+        /// </summary>
+        /// <param name="keyword">搜索关键词。</param>
+        /// <param name="offset">分页偏移量。</param>
+        /// <param name="ct">取消令牌。</param>
+        /// <returns>(匹配的 Anime 列表, 总条数)。</returns>
+        public async Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct)
+        {
+            var request = new SearchSubjectRequest(
+                Keyword: keyword,
+                Sort: "match",
+                Filter: new SearchFilter(Type: new List<int> { 2 })
+            );
+
+            var url = $"/v0/search/subjects?limit={SearchPageLimit}&offset={offset}";
+            var result = await _apiClient.PostJsonAsync<PagedSubjectResponse>(url, request, ct).ConfigureAwait(false);
+
+            if (result?.Data == null || result.Data.Count == 0)
+                return (new List<Anime>(), result?.Total ?? 0);
+
+            var animes = result.Data
+                .Select(item => MapFromSubject(item))
+                .ToList();
+
+            return (animes, result.Total);
+        }
+
+        /// <summary>
         /// 按 Bangumi Tag 搜索一页番剧。
         /// </summary>
         /// <param name="tag">标签名称</param>

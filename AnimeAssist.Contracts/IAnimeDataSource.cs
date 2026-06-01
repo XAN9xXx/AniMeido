@@ -72,5 +72,14 @@ namespace AniMeido.Contracts
         /// <param name="ct">取消令牌。</param>
         /// <returns>人物参与的作品列表。</returns>
         Task<List<PersonWork>> GetPersonWorksAsync(int personId, CancellationToken ct);
+
+        /// <summary>
+        /// 按关键词搜索番剧（通过 Bangumi 搜索 API）。
+        /// </summary>
+        /// <param name="keyword">搜索关键词。</param>
+        /// <param name="offset">分页偏移量。</param>
+        /// <param name="ct">取消令牌。</param>
+        /// <returns>(结果列表, 总条数)。</returns>
+        Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct);
     }
 }
