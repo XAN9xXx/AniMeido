@@ -392,7 +392,17 @@ namespace AniMeido.Plugin.Base.Views
 
             textBlock.Foreground = isSaved ? whiteBrush : unsavedFg;
 
-            border.Tapped += async (s, e) =>
+            // 左键 → 跳转搜索结果页
+            border.Tapped += (s, e) =>
+            {
+                if (s is Border b && b.Tag is string name)
+                {
+                    Frame.Navigate(typeof(TagSearchResultPage), name);
+                }
+            };
+
+            // 右键 → 切换收藏状态
+            border.RightTapped += async (s, e) =>
             {
                 if (s is Border b && b.Tag is string name)
                 {

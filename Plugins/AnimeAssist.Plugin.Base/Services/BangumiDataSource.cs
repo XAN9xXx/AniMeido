@@ -366,6 +366,52 @@ namespace AniMeido.Plugin.Base.Services
                     return sorted.Select(MapToCharacterRole).ToList();
                 }) ?? [];
         }
-    }
 
+        /// <summary>
+        /// 按 Tag 搜索番剧（通过 Bangumi 搜索 API）。
+        private const int SearchPageLimit = 20;      // API强制20
+
+        /// <summary>
+        /// 按 Bangumi Tag 搜索一页番剧。
+        /// </summary>
+        /// <param name="tag">标签名称</param>
+        /// <param name="offset">分页偏移量</param>
+        /// <param name="sort">排序方式："rank" / "date" / "match"</param>
+        /// <param name="ct">取消令牌</param>
+        /// <param name="airDateFrom">起始日期（含），格式 "YYYY-MM-DD"，null 不限制</param>
+        /// <param name="airDateTo">结束日期（不含），格式 "YYYY-MM-DD"，null 不限制</param>
+        /// <returns>(匹配的 Anime 列表, 总条数)</returns>
+        public async Task<(List<Anime> Results, int Total)> SearchByTagAsync(string tag, int offset, string sort, CancellationToken ct, string? airDateFrom = null, string? airDateTo = null)
+        {
+            var filter = new SearchFilter(
+                Type: new List<int> { 2 },
+                Tag: new List<string> { tag }
+            );
+
+            if (airDateFrom != null || airDateTo != null)
+            {
+                var airDate = new List<string>(2);
+                if (airDateFrom != null) airDate.Add($">={airDateFrom}");
+                if (airDateTo != null) airDate.Add($"<{airDateTo}");
+                filter = filter with { AirDate = airDate };
+            }
+
+            var request = new SearchSubjectRequest(
+                Sort: sort,
+                Filter: filter
+            );
+
+            var url = $"/v0/search/subjects?limit={SearchPageLimit}&offset={offset}";
+            var result = await _apiClient.PostJsonAsync<PagedSubjectResponse>(url, request, ct).ConfigureAwait(false);
+
+            if (result?.Data == null || result.Data.Count == 0)
+                return (new List<Anime>(), result?.Total ?? 0);
+
+            var animes = result.Data
+                .Select(item => MapFromSubject(item))
+                .ToList();
+
+            return (animes, result.Total);
+        }
+    }
 }

@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="AniMeido.Plugin.Base.Views.TagSearchResultPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:contracts="using:AniMeido.Contracts.Models"
+    xmlns:controls="using:AniMeido.Plugin.Base.Views.Controls"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 标题栏：左侧显示信息，右侧排序选择 -->
+        <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                CornerRadius="8"
+                Margin="24,16,24,0"
+                Padding="16,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Spacing="4">
+                    <TextBlock FontSize="20"
+                               FontWeight="Bold">
+                        <Run Text="Tag 搜索："/>
+                        <Run x:Name="TagTitle"
+                             FontWeight="Bold"/>
+                    </TextBlock>
+                    <TextBlock x:Name="ResultCount"
+                               FontSize="13"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center"
+                            Spacing="8">
+                    <TextBlock Text="排序方式"
+                               FontSize="13"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <ComboBox x:Name="SortSelector"
+                              SelectedIndex="0"
+                              SelectionChanged="OnSortChanged"
+                              MinWidth="100">
+                        <ComboBoxItem Tag="rank">评分</ComboBoxItem>
+                        <ComboBoxItem Tag="date">放映时间</ComboBoxItem>
+                        <ComboBoxItem Tag="match">匹配度</ComboBoxItem>
+                    </ComboBox>
+                    <ToggleButton x:Name="SortOrderToggle"
+                                  Content="↓"
+                                  IsChecked="True"
+                                  Click="OnSortOrderToggle"
+                                  MinWidth="32"
+                                  MinHeight="32"/>
+
+                    <Rectangle Width="1"
+                               Height="24"
+                               Fill="{ThemeResource DividerStrokeColorDefault}"
+                               Margin="4,0"/>
+
+                    <TextBlock Text="年份"
+                               FontSize="13"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <ComboBox x:Name="YearFromCombo"
+                              SelectedIndex="0"
+                              SelectionChanged="OnYearRangeChanged"
+                              MinWidth="85"/>
+                    <TextBlock Text="—"
+                               FontSize="13"
+                               VerticalAlignment="Center"/>
+                    <ComboBox x:Name="YearToCombo"
+                              SelectedIndex="0"
+                              SelectionChanged="OnYearRangeChanged"
+                              MinWidth="85"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 结果列表（卡片网格） -->
+        <ScrollViewer Grid.Row="1"
+                      Margin="24,12,24,0">
+            <GridView x:Name="ResultGrid"
+                      SelectionMode="None"
+                      IsItemClickEnabled="True"
+                      ItemClick="OnResultItemClick"
+                      ScrollViewer.VerticalScrollBarVisibility="Hidden"
+                      ScrollViewer.HorizontalScrollMode="Disabled"
+                      Padding="0,0,0,8">
+                <GridView.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <ItemsWrapGrid Orientation="Horizontal"
+                                       HorizontalAlignment="Left"/>
+                    </ItemsPanelTemplate>
+                </GridView.ItemsPanel>
+                <GridView.ItemContainerStyle>
+                    <Style TargetType="GridViewItem">
+                        <Setter Property="UseSystemFocusVisuals"
+                                Value="False"/>
+                        <Setter Property="IsTabStop"
+                                Value="False"/>
+                        <Setter Property="Margin"
+                                Value="0,0,4,8"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="GridViewItem">
+                                    <ContentPresenter
+                                        Content="{TemplateBinding Content}"
+                                        ContentTemplate="{TemplateBinding ContentTemplate}"
+                                        ContentTransitions="{TemplateBinding ContentTransitions}"
+                                        HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                        VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                        Margin="0"/>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </GridView.ItemContainerStyle>
+                <GridView.ItemTemplate>
+                    <DataTemplate>
+                        <controls:AnimeCard/>
+                    </DataTemplate>
+                </GridView.ItemTemplate>
+            </GridView>
+        </ScrollViewer>
+
+        <!-- 翻页栏 -->
+        <Border Grid.Row="2"
+                Background="{ThemeResource CardBackgroundFillColorDefault}"
+                CornerRadius="8"
+                Margin="24,8,24,16"
+                Padding="12,8"
+                Visibility="Collapsed"
+                x:Name="PaginationBar">
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Center"
+                        Spacing="12">
+                <Button x:Name="PrevButton"
+                        Content="← 上一页"
+                        Click="OnPrevPage"/>
+                <TextBlock x:Name="PageInfo"
+                           VerticalAlignment="Center"
+                           FontSize="14"/>
+                <Button x:Name="NextButton"
+                        Content="下一页 →"
+                        Click="OnNextPage"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 加载覆盖层 -->
+        <Grid Grid.RowSpan="3"
+              x:Name="LoadingOverlay"
+              Visibility="Collapsed"
+              Background="Transparent">
+            <StackPanel VerticalAlignment="Center"
+                        HorizontalAlignment="Center"
+                        Spacing="8">
+                <ProgressRing x:Name="LoadingRing"
+                              Width="32"
+                              Height="32"
+                              HorizontalAlignment="Center"/>
+                <TextBlock x:Name="LoadingText"
+                           Text="正在加载数据..."
+                           FontSize="14"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Page>

@@ -1,0 +1,274 @@
+using AniMeido.Contracts;
+using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Services;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Navigation;
+using System.Collections.ObjectModel;
+using System.Text.Json;
+
+namespace AniMeido.Plugin.Base.Views
+{
+    public sealed partial class TagSearchResultPage : Page
+    {
+        private IAnimeDataSource? _dataSource;
+        private CacheService? _cacheService;
+        private string? _currentTag;
+        private string _currentSort = "rank";
+        private bool _sortDescending = true;
+        private const int PageSize = 20;
+        private const int YearStart = 1960;
+
+        private static readonly JsonSerializerOptions JsonOptions = new()
+        {
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+        };
+
+        // 年份区间状态
+        private int _yearFrom;
+        private int _yearTo;
+
+        // 全量数据（当前年份区间）
+        private List<Anime>? _allData;
+        private int _currentOffset;
+
+        private readonly ObservableCollection<Anime> _animeSource = new();
+
+        public TagSearchResultPage()
+        {
+            InitializeComponent();
+            ResultGrid.ItemsSource = _animeSource;
+        }
+
+        protected override async void OnNavigatedTo(NavigationEventArgs e)
+        {
+            base.OnNavigatedTo(e);
+            if (e.Parameter is string tagName && !string.IsNullOrEmpty(tagName))
+            {
+                TagTitle.Text = tagName;
+                _currentTag = tagName;
+                var sp = AppServices.Provider;
+                _dataSource = sp?.GetRequiredService<IAnimeDataSource>();
+                _cacheService = sp?.GetService<CacheService>();
+                _currentSort = "rank";
+                _sortDescending = true;
+                SortOrderToggle.IsChecked = true;
+                _currentOffset = 0;
+                _animeSource.Clear();
+
+                InitYearComboBoxes();
+                await LoadYearRangeAsync();
+            }
+        }
+
+        private void InitYearComboBoxes()
+        {
+            var currentYear = DateTime.Now.Year;
+
+            for (int y = currentYear; y >= YearStart; y--)
+            {
+                YearFromCombo.Items.Add(new ComboBoxItem { Content = y.ToString(), Tag = y });
+                YearToCombo.Items.Add(new ComboBoxItem { Content = y.ToString(), Tag = y });
+            }
+
+            // 默认近 3 年
+            _yearFrom = currentYear - 3;
+            _yearTo = currentYear;
+
+            foreach (var item in YearFromCombo.Items)
+                if (item is ComboBoxItem ci && ci.Tag is int y && y == _yearFrom)
+                    YearFromCombo.SelectedItem = item;
+            foreach (var item in YearToCombo.Items)
+                if (item is ComboBoxItem ci && ci.Tag is int y && y == _yearTo)
+                    YearToCombo.SelectedItem = item;
+        }
+
+        private async Task LoadYearRangeAsync()
+        {
+            if (_dataSource == null || _currentTag == null) return;
+
+            var cacheKey = $"tag_search:{_currentTag}:{_yearFrom}:{_yearTo}";
+
+            if (_cacheService != null)
+            {
+                var cached = await _cacheService.GetCacheAsync(cacheKey);
+                if (cached != null)
+                {
+                    var deserialized = JsonSerializer.Deserialize<List<Anime>>(cached, JsonOptions);
+                    if (deserialized != null && deserialized.Count > 0)
+                    {
+                        _allData = deserialized;
+                        _allData = SortLocally(_allData);
+                        ShowPage(0);
+                        return;
+                    }
+                }
+            }
+
+            LoadingOverlay.Visibility = Visibility.Visible;
+            LoadingRing.IsActive = true;
+            PrevButton.IsEnabled = false;
+            NextButton.IsEnabled = false;
+
+            try
+            {
+                var allResults = new List<Anime>();
+                var seenIds = new HashSet<int>();
+                var yearCount = _yearTo - _yearFrom + 1;
+
+                for (int y = _yearFrom; y <= _yearTo; y++)
+                {
+                    var idx = y - _yearFrom + 1;
+                    LoadingText.Text = $"正在加载 {y} 年数据… 第 {idx}/{yearCount} 年";
+                    await LoadYearDataAsync(y, allResults, seenIds);
+                }
+
+                _allData = allResults;
+
+                if (_cacheService != null && _allData.Count > 0)
+                {
+                    var json = JsonSerializer.Serialize(_allData, JsonOptions);
+                    await _cacheService.SetCacheAsync(cacheKey, json, TimeSpan.FromHours(6));
+                }
+
+                _allData = SortLocally(_allData);
+                ShowPage(0);
+            }
+            catch (Exception ex)
+            {
+                ResultCount.Text = $"搜索失败：{ex.Message}";
+                PaginationBar.Visibility = Visibility.Collapsed;
+            }
+            finally
+            {
+                LoadingOverlay.Visibility = Visibility.Collapsed;
+                LoadingRing.IsActive = false;
+            }
+        }
+
+        private async Task LoadYearDataAsync(int year, List<Anime> results, HashSet<int> seenIds)
+        {
+            if (_dataSource == null || _currentTag == null) return;
+
+            var dateFrom = $"{year}-01-01";
+            var dateTo = $"{year + 1}-01-01";
+
+            for (int offset = 0; ;)
+            {
+                var (data, _) = await _dataSource.SearchByTagAsync(_currentTag, offset, "match", CancellationToken.None,
+                    airDateFrom: dateFrom, airDateTo: dateTo);
+
+                if (data.Count == 0) break;
+
+                foreach (var anime in data)
+                    if (seenIds.Add(anime.ID))
+                        results.Add(anime);
+
+                if (data.Count < PageSize) break;
+                offset += PageSize;
+            }
+        }
+
+        private void ShowPage(int offset)
+        {
+            if (_allData == null || _allData.Count == 0)
+            {
+                _animeSource.Clear();
+                ResultCount.Text = "未找到相关番剧";
+                PaginationBar.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            _currentOffset = offset;
+
+            _animeSource.Clear();
+            for (int i = offset; i < offset + PageSize && i < _allData.Count; i++)
+                _animeSource.Add(_allData[i]);
+
+            var currentPage = (offset / PageSize) + 1;
+            var totalPages = Math.Max(1, (int)Math.Ceiling((double)_allData.Count / PageSize));
+            ResultCount.Text = $"找到 {_allData.Count} 部番剧 · 第 {currentPage}/{totalPages} 页";
+            PageInfo.Text = $"{currentPage} / {totalPages}";
+
+            PrevButton.IsEnabled = offset > 0;
+            NextButton.IsEnabled = (offset + PageSize) < _allData.Count;
+            PaginationBar.Visibility = Visibility.Visible;
+        }
+
+        private void OnYearRangeChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (YearFromCombo.SelectedItem == null || YearToCombo.SelectedItem == null) return;
+
+            var from = (int)((ComboBoxItem)YearFromCombo.SelectedItem).Tag;
+            var to = (int)((ComboBoxItem)YearToCombo.SelectedItem).Tag;
+
+            if (from > to) return;
+
+            _yearFrom = from;
+            _yearTo = to;
+
+            _currentOffset = 0;
+            _animeSource.Clear();
+            _ = LoadYearRangeAsync();
+        }
+
+        private void OnSortChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_allData == null) return;
+
+            if (SortSelector.SelectedItem is ComboBoxItem item && item.Tag is string sort)
+            {
+                _currentSort = sort;
+                _allData = SortLocally(_allData);
+                ShowPage(0);
+            }
+        }
+
+        private void OnSortOrderToggle(object sender, RoutedEventArgs e)
+        {
+            if (_allData == null) return;
+
+            _sortDescending = SortOrderToggle.IsChecked == true;
+            SortOrderToggle.Content = _sortDescending ? "↓" : "↑";
+            _allData = SortLocally(_allData);
+            ShowPage(0);
+        }
+
+        private List<Anime> SortLocally(List<Anime> items)
+        {
+            var sorted = _currentSort switch
+            {
+                "rank" => items.OrderBy(a => a.Score ?? 0),
+                "date" => items.OrderBy(a => a.AirDate.HasValue ? 0 : 1)
+                               .ThenBy(a => a.AirDate ?? DateOnly.MinValue),
+                _ => (IOrderedEnumerable<Anime>)items.OrderBy(a => 0)
+            };
+
+            return _sortDescending
+                ? sorted.Reverse().ToList()
+                : sorted.ToList();
+        }
+
+        private void OnPrevPage(object sender, RoutedEventArgs e)
+        {
+            var newOffset = _currentOffset - PageSize;
+            if (newOffset >= 0)
+                ShowPage(newOffset);
+        }
+
+        private void OnNextPage(object sender, RoutedEventArgs e)
+        {
+            var newOffset = _currentOffset + PageSize;
+            if (newOffset < _allData?.Count)
+                ShowPage(newOffset);
+        }
+
+        private void OnResultItemClick(object sender, ItemClickEventArgs e)
+        {
+            if (e.ClickedItem is Anime anime)
+                Frame.Navigate(typeof(AnimeDetailPage), anime.ID);
+        }
+    }
+}

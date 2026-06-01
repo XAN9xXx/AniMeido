@@ -3,6 +3,14 @@
     /// <summary>
     /// 以分页形式储存SubjectResponse
     /// </summary>
-    /// <param name="Data">要分为一页的SubjectResponse列表</param>
-    internal record PagedSubjectResponse(List<SubjectResponse> Data);
+    /// <param name="Total">总条目数</param>
+    /// <param name="Limit">每页条数</param>
+    /// <param name="Offset">当前偏移</param>
+    /// <param name="Data">当前页的SubjectResponse列表</param>
+    internal record PagedSubjectResponse(
+        int Total,
+        int Limit,
+        int Offset,
+        List<SubjectResponse> Data
+    );
 }

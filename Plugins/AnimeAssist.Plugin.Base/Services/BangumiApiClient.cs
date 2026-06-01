@@ -79,5 +79,47 @@ namespace AniMeido.Plugin.Base.Services
                 throw new BangumiApiException("Error parsing JSON from Bangumi API", ex);
             }
         }
+
+        /// <summary>
+        /// 发送 POST 请求并解析 JSON 响应。
+        /// </summary>
+        internal async Task<T?> PostJsonAsync<T>(string url, object body, CancellationToken ct)
+        {
+            var client = _httpFactory.CreateClient("BangumiAPI");
+            var jsonBody = JsonSerializer.Serialize(body, JsonOptions);
+            var content = new StringContent(jsonBody, System.Text.Encoding.UTF8, "application/json");
+
+            string? json;
+            try
+            {
+                var response = await client.PostAsync(url, content, ct).ConfigureAwait(false);
+                json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(ex, "Error posting data to Bangumi API");
+                throw new BangumiApiException("Error posting data to Bangumi API", ex);
+            }
+            catch (TaskCanceledException ex) when (ex.CancellationToken == ct)
+            {
+                _logger.LogWarning("Request to Bangumi API was canceled");
+                throw;
+            }
+            catch (TaskCanceledException ex)
+            {
+                _logger.LogError(ex, "Request to Bangumi API timed out");
+                throw new BangumiApiException("Request to Bangumi API timed out", ex);
+            }
+
+            try
+            {
+                return JsonSerializer.Deserialize<T>(json, JsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError(ex, "Error parsing JSON from Bangumi API POST response");
+                throw new BangumiApiException("Error parsing JSON from Bangumi API POST response", ex);
+            }
+        }
     }
 }

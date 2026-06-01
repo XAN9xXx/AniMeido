@@ -53,5 +53,16 @@ namespace AniMeido.Contracts
         /// <returns>角色-声优对照列表；如未找到则返回空列表。</returns>
         Task<List<CharacterRole>> GetCharacterRolesAsync(int animeID, CancellationToken ct);
 
+        /// <summary>
+        /// 按 Tag 搜索番剧（通过 Bangumi 搜索 API），支持分页、排序和时间范围。
+        /// </summary>
+        /// <param name="tag">标签名称。</param>
+        /// <param name="offset">分页偏移量。</param>
+        /// <param name="sort">排序方式："rank" / "date" / "match"。</param>
+        /// <param name="ct">取消令牌。</param>
+        /// <param name="airDateFrom">起始日期（含），格式 "YYYY-MM-DD"，null 表示不限制。</param>
+        /// <param name="airDateTo">结束日期（不含），格式 "YYYY-MM-DD"，null 表示不限制。</param>
+        /// <returns>(结果列表, 总条数)。</returns>
+        Task<(List<Anime> Results, int Total)> SearchByTagAsync(string tag, int offset, string sort, CancellationToken ct, string? airDateFrom = null, string? airDateTo = null);
     }
 }

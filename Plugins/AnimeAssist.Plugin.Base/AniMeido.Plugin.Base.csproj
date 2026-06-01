@@ -13,6 +13,7 @@
     <None Remove="Views\DragZonePreviewPage.xaml" />
     <None Remove="Views\DragZoneSettingsPage.xaml" />
     <None Remove="Views\PastSeasonPage.xaml" />
+    <None Remove="Views\TagSearchResultPage.xaml" />
   </ItemGroup>
 
   <ItemGroup>
@@ -59,6 +60,12 @@
 
   <ItemGroup>
     <Page Update="Views\Controls\AnimeCard.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Page Update="Views\TagSearchResultPage.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
   </ItemGroup>
