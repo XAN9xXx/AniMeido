@@ -65,6 +65,12 @@
                                FontSize="14"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
+                    <!-- 评分 -->
+                    <TextBlock x:Name="DetailScore"
+                               FontSize="14"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Visibility="Collapsed"/>
+
                     <!-- 分割线 -->
                     <Border Height="1"
                             Background="{ThemeResource DividerStrokeColorDefault}"/>

@@ -136,7 +136,8 @@ namespace AniMeido.Plugin.Base.Services
                 year,
                 seasonMonth,
                 item.AirWeekday
-                );
+                )
+            { Score = item.Rating?.Score };
         }
 
         // 将ActorInfo映射为一个VoiceActor
@@ -210,7 +211,8 @@ namespace AniMeido.Plugin.Base.Services
                 item.Summary ?? FallbackDescription,
                 resolvedYear,
                 resolvedSeasonMonth
-                );
+                )
+            { Score = item.Rating?.Score };
         }
 
 

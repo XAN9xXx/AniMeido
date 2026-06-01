@@ -49,6 +49,20 @@
                                FontWeight="Bold"/>
                 </Border>
 
+                <!-- 评分角标（封面右下角） -->
+                <Border x:Name="ScoreBadge"
+                        Background="{ThemeResource SystemAccentColor}"
+                        CornerRadius="8,0,0,0"
+                        Padding="6,3"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Bottom"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="ScoreText"
+                               Foreground="White"
+                               FontSize="12"
+                               FontWeight="Bold"/>
+                </Border>
+
                 <!-- 文字信息 -->
                 <StackPanel Grid.Row="1"
                             Padding="10,8">

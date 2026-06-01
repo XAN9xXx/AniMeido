@@ -12,5 +12,6 @@
     /// <param name="Description">动漫的简介。</param>
     /// <param name="SeasonYear">动漫所属的季度年份，例如2024。</param>
     /// <param name="SeasonMonth">动漫所属的季度月份，例如1=冬 4=春 7=夏 10=秋。</param>
-    public record Anime(int ID, string Title, string? Studio, IReadOnlyList<VoiceActor> CVs, DateOnly? AirDate, string? CoverURL, string Description, int SeasonYear, int SeasonMonth, int? Weekday = null);
+    /// <param name="Score">动漫的评分（0-10）。</param>
+    public record Anime(int ID, string Title, string? Studio, IReadOnlyList<VoiceActor> CVs, DateOnly? AirDate, string? CoverURL, string Description, int SeasonYear, int SeasonMonth, int? Weekday = null, double? Score = null);
 }

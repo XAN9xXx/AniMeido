@@ -49,6 +49,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
             DataContextChanged += (s, e) =>
             {
                 UpdateWeekdayBadge();
+                UpdateScoreBadge();
                 if (DataContext is Anime anime)
                 {
                     if (string.IsNullOrEmpty(anime.CoverURL))
@@ -123,6 +124,19 @@ namespace AniMeido.Plugin.Base.Views.Controls
             else
             {
                 WeekdayBadge.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private void UpdateScoreBadge()
+        {
+            if (DataContext is Anime anime && anime.Score.HasValue && anime.Score.Value > 0)
+            {
+                ScoreText.Text = anime.Score.Value.ToString("F1");
+                ScoreBadge.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                ScoreBadge.Visibility = Visibility.Collapsed;
             }
         }
 

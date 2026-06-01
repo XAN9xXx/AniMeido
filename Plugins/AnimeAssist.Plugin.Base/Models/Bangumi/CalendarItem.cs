@@ -26,6 +26,8 @@
         public int AirWeekday { get; init; }
         /// <summary>番剧封面图片的多种尺寸信息。</summary>
         public ImageInfo? Images { get; init; }
+        /// <summary>番剧的评分数据。</summary>
+        public SubjectRating? Rating { get; init; }
     }
 
 }

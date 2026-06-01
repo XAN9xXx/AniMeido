@@ -38,7 +38,10 @@ namespace AniMeido.Plugin.Base.Views
                     case nameof(AnimeDetailViewModel.HasData):
                         UpdateOverlayState();
                         if (ViewModel.HasData)
+                        {
                             UpdateCoverImage();
+                            UpdateScore();
+                        }
                         break;
 
                     case nameof(AnimeDetailViewModel.CurrentStatus):
@@ -298,6 +301,20 @@ namespace AniMeido.Plugin.Base.Views
 
                 if (!ImageCacheHelper.HasLocalCache(anime.ID))
                     _ = ImageCacheHelper.CacheImageAsync(anime.ID, anime.CoverURL);
+            }
+        }
+
+        private void UpdateScore()
+        {
+            var anime = ViewModel.AnimeDetail;
+            if (anime?.Score.HasValue == true && anime.Score.Value > 0)
+            {
+                DetailScore.Text = $"评分：{anime.Score.Value:F1}";
+                DetailScore.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                DetailScore.Visibility = Visibility.Collapsed;
             }
         }
 
