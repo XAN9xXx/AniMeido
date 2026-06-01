@@ -499,8 +499,8 @@ namespace AniMeido.Plugin.Base.Views
 
             if (bangumiTags == null || bangumiTags.Count == 0) return;
 
-            var savedTags = await _savedTagService!.GetSavedTagsAsync(_currentAnimeId);
-            var savedSet = new HashSet<string>(savedTags);
+            var allSavedTags = await _savedTagService!.GetAllSavedTagsAsync();
+            var savedSet = new HashSet<string>(allSavedTags);
 
             // 去重
             var distinctTags = bangumiTags
@@ -569,14 +569,14 @@ namespace AniMeido.Plugin.Base.Views
 
                     if (isCurrentlySaved)
                     {
-                        await _savedTagService!.RemoveTagAsync(_currentAnimeId, name);
+                        await _savedTagService!.RemoveTagAsync(name);
                         b.Background = unsavedBg;
                         if (b.Child is TextBlock tb)
                             tb.Foreground = unsavedFg;
                     }
                     else
                     {
-                        await _savedTagService!.SaveTagAsync(_currentAnimeId, name);
+                        await _savedTagService!.SaveTagAsync(name);
                         b.Background = savedBg;
                         if (b.Child is TextBlock tb)
                             tb.Foreground = whiteBrush;

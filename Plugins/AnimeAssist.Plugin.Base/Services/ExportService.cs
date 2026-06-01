@@ -41,7 +41,7 @@ namespace AniMeido.Plugin.Base.Services
 
             var tracking = await _tracking.GetAllTrackingAsync();
             var config = await _tracking.LoadDragZoneConfigAsync();
-            var allSavedTags = await _savedTagService.GetAllSavedTagsAsync();
+            var savedTags = await _savedTagService.GetAllSavedTagsAsync();
 
             var export = new ExportData
             {
@@ -55,11 +55,7 @@ namespace AniMeido.Plugin.Base.Services
                     UpdatedAt = t.UpdatedAt,
                 }).ToList(),
                 DragZones = config,
-                SavedTags = allSavedTags.SelectMany(st =>
-                {
-                    var ids = _savedTagService.GetAnimeIdsByTagAsync(st.TagName).Result;
-                    return ids.Select(id => new SavedTagEntry { AnimeId = id, TagName = st.TagName });
-                }).ToList(),
+                SavedTags = savedTags.Select(name => new SavedTagEntry { TagName = name }).ToList(),
             };
 
             return JsonSerializer.Serialize(export, JsonOptions);
@@ -95,7 +91,7 @@ namespace AniMeido.Plugin.Base.Services
             {
                 foreach (var st in export.SavedTags)
                 {
-                    await _savedTagService.SaveTagAsync(st.AnimeId, st.TagName);
+                    await _savedTagService.SaveTagAsync(st.TagName);
                     tagCount++;
                 }
             }
@@ -135,7 +131,6 @@ namespace AniMeido.Plugin.Base.Services
 
     public class SavedTagEntry
     {
-        public int AnimeId { get; set; }
         public string TagName { get; set; } = "";
     }
 }

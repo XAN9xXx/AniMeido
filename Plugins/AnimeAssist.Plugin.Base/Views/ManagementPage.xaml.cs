@@ -20,12 +20,19 @@ namespace AniMeido.Plugin.Base.Views
         private LocalSearchService? _searchService;
         private CancellationTokenSource? _searchCts;
 
+        /// <summary>
+        /// 用于 XAML 绑定的静态方法：根据 IsExpanded 返回 Visibility。
+        /// </summary>
+        public static Visibility TagAnimeListVisibility(bool isExpanded)
+            => isExpanded ? Visibility.Visible : Visibility.Collapsed;
+
         public ManagementPage()
         {
             var ts = AppServices.Provider!.GetRequiredService<TrackingService>();
             var ds = AppServices.Provider!.GetRequiredService<IAnimeDataSource>();
+            var sts = AppServices.Provider!.GetRequiredService<SavedTagService>();
             _searchService = AppServices.Provider!.GetRequiredService<LocalSearchService>();
-            ViewModel = new ManagementViewModel(ts, ds);
+            ViewModel = new ManagementViewModel(ts, ds, sts);
             DataContext = ViewModel;
             InitializeComponent();
 
@@ -86,6 +93,10 @@ namespace AniMeido.Plugin.Base.Views
                         BlockedCountText.Text = $"屏蔽 ({ViewModel.BlockedCount})";
                         BlockedEmpty.Visibility = ViewModel.BlockedCount > 0 ? Visibility.Collapsed : Visibility.Visible;
                         break;
+
+                    case nameof(ManagementViewModel.HasTags):
+                        TagEmptyText.Visibility = ViewModel.HasTags ? Visibility.Collapsed : Visibility.Visible;
+                        break;
                 }
             };
 
@@ -105,6 +116,7 @@ namespace AniMeido.Plugin.Base.Views
             CompletedPanel.Visibility = Visibility.Collapsed;
             DroppedPanel.Visibility = Visibility.Collapsed;
             BlockedPanel.Visibility = Visibility.Collapsed;
+            TagPanel.Visibility = Visibility.Collapsed;
 
             var transparent = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
             WatchingCard.Background = transparent;
@@ -114,6 +126,7 @@ namespace AniMeido.Plugin.Base.Views
             CompletedCard.Background = transparent;
             DroppedCard.Background = transparent;
             BlockedCard.Background = transparent;
+            TagCard.Background = transparent;
 
             // 重置所有指示器和文字颜色
             WatchingIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
@@ -130,6 +143,8 @@ namespace AniMeido.Plugin.Base.Views
             DroppedIndicator.Visibility = Visibility.Collapsed;
             BlockedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
             BlockedIndicator.Visibility = Visibility.Collapsed;
+            TagIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
+            TagIndicator.Visibility = Visibility.Collapsed;
 
             var defaultBrush = (Microsoft.UI.Xaml.Media.Brush)Resources["TabTextDefaultBrush"];
             var selectedBrush = (Microsoft.UI.Xaml.Media.Brush)Resources["TabTextSelectedBrush"];
@@ -140,6 +155,7 @@ namespace AniMeido.Plugin.Base.Views
             CompletedLabel.Foreground = defaultBrush;
             DroppedLabel.Foreground = defaultBrush;
             BlockedLabel.Foreground = defaultBrush;
+            TagLabel.Foreground = defaultBrush;
 
             // 设置选中项
             var accentColor = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
@@ -202,6 +218,15 @@ namespace AniMeido.Plugin.Base.Views
                 BlockedLabel.Foreground = selectedBrush;
                 BlockedCard.Background = selectedBg;
             }
+            else if (sender == TagCard)
+            {
+                TagPanel.Visibility = Visibility.Visible;
+                TagIndicator.Visibility = Visibility.Visible;
+                TagIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
+                TagLabel.Foreground = selectedBrush;
+                TagCard.Background = selectedBg;
+                ViewModel.LoadTagsCommand.Execute(null);
+            }
         }
 
         private bool IsCardSelected(Border card)
@@ -212,7 +237,8 @@ namespace AniMeido.Plugin.Base.Views
                 || card == FollowingCard && FollowingPanel.Visibility == Visibility.Visible
                 || card == CompletedCard && CompletedPanel.Visibility == Visibility.Visible
                 || card == DroppedCard && DroppedPanel.Visibility == Visibility.Visible
-                || card == BlockedCard && BlockedPanel.Visibility == Visibility.Visible;
+                || card == BlockedCard && BlockedPanel.Visibility == Visibility.Visible
+                || card == TagCard && TagPanel.Visibility == Visibility.Visible;
         }
 
         private void OnCardPointerEntered(object sender, PointerRoutedEventArgs e)
@@ -454,6 +480,7 @@ namespace AniMeido.Plugin.Base.Views
             CompletedPanel.Visibility = Visibility.Collapsed;
             DroppedPanel.Visibility = Visibility.Collapsed;
             BlockedPanel.Visibility = Visibility.Collapsed;
+            TagPanel.Visibility = Visibility.Collapsed;
         }
 
         private void HideSearchResults()
@@ -476,6 +503,7 @@ namespace AniMeido.Plugin.Base.Views
             if (CompletedIndicator.Visibility == Visibility.Visible) return CompletedPanel;
             if (DroppedIndicator.Visibility == Visibility.Visible) return DroppedPanel;
             if (BlockedIndicator.Visibility == Visibility.Visible) return BlockedPanel;
+            if (TagIndicator.Visibility == Visibility.Visible) return TagPanel;
             return WatchingPanel;
         }
 
@@ -591,5 +619,23 @@ namespace AniMeido.Plugin.Base.Views
             AnimeTrackingStatus.Blocked => new SolidColorBrush(Color.FromArgb(220, 0x44, 0x44, 0x44)),
             _ => new SolidColorBrush(Color.FromArgb(160, 0x88, 0x88, 0x88)),
         };
+
+        // ======== Tag 管理 ========
+
+        private void OnTagItemTapped(object sender, TappedRoutedEventArgs e)
+        {
+            if (sender is FrameworkElement fe && fe.DataContext is TagItem tag)
+            {
+                ViewModel.ToggleTagCommand.Execute(tag);
+            }
+        }
+
+        private void OnTagAnimeTapped(object sender, TappedRoutedEventArgs e)
+        {
+            if (sender is FrameworkElement fe && fe.DataContext is Anime anime)
+            {
+                Frame.Navigate(typeof(AnimeDetailPage), anime.ID);
+            }
+        }
     }
 }

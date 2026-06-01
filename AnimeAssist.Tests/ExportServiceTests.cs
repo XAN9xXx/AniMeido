@@ -36,7 +36,7 @@ namespace AniMeido.Tests
             // 准备数据
             await tracking.SetStatusAsync(1, AnimeTrackingStatus.Watching);
             await tracking.SetStatusAsync(2, AnimeTrackingStatus.Completed);
-            await savedTag.SaveTagAsync(1, "原创");
+            await savedTag.SaveTagAsync("原创");
 
             // 导出
             var svc = new ExportService(tracking, savedTag);
@@ -66,9 +66,7 @@ namespace AniMeido.Tests
                 await importCmd.ExecuteNonQueryAsync();
                 importCmd.CommandText = """
                     CREATE TABLE IF NOT EXISTS saved_tags(
-                        AnimeId INTEGER NOT NULL,
-                        TagName TEXT NOT NULL,
-                        PRIMARY KEY (AnimeId, TagName)
+                        TagName TEXT NOT NULL PRIMARY KEY
                     )
                 """;
                 await importCmd.ExecuteNonQueryAsync();
@@ -87,7 +85,7 @@ namespace AniMeido.Tests
             // 验证导入结果
             var status1 = await new TrackingService(importDbPath).GetStatusAsync(1);
             var status2 = await new TrackingService(importDbPath).GetStatusAsync(2);
-            var tags = await new SavedTagService(importDbPath).GetSavedTagsAsync(1);
+            var tags = await new SavedTagService(importDbPath).GetAllSavedTagsAsync();
 
             Assert.Equal(AnimeTrackingStatus.Watching, status1);
             Assert.Equal(AnimeTrackingStatus.Completed, status2);

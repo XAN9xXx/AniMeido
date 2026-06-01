@@ -1,8 +1,11 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="AniMeido.Plugin.Base.Views.ManagementPage"
+    x:Name="RootPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:AniMeido.Plugin.Base.Views"
+    xmlns:vm="using:AniMeido.Plugin.Base.ViewModels"
     xmlns:contracts="using:AniMeido.Contracts.Models"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
@@ -200,6 +203,27 @@
                     <TextBlock x:Name="BlockedLabel"
                                Grid.Column="1"
                                Text="屏蔽"
+                               FontSize="14"
+                               Foreground="{ThemeResource TabTextDefaultBrush}"
+                               VerticalAlignment="Center"
+                               Margin="12,0,0,0"/>
+                </Grid>
+            </Border>
+            <Border x:Name="TagCard"
+                    Padding="12,10,12,10"
+                    Height="40"
+                    Tapped="OnTabClicked"
+                    PointerEntered="OnCardPointerEntered"
+                    PointerExited="OnCardPointerExited">
+                <Grid ColumnDefinitions="3,*">
+                    <Rectangle x:Name="TagIndicator"
+                               Width="3"
+                               Height="20"
+                               Fill="Transparent"
+                               VerticalAlignment="Center"/>
+                    <TextBlock x:Name="TagLabel"
+                               Grid.Column="1"
+                               Text="Tag 管理"
                                FontSize="14"
                                Foreground="{ThemeResource TabTextDefaultBrush}"
                                VerticalAlignment="Center"
@@ -738,6 +762,99 @@
                     </ItemsControl>
                     <TextBlock x:Name="BlockedEmpty"
                                Text="暂无屏蔽标记"
+                               Foreground="Gray"
+                               Margin="0,12,0,0"/>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Tag 管理面板 -->
+            <ScrollViewer x:Name="TagPanel"
+                          Visibility="Collapsed"
+                          Padding="0,0,8,0">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Tag 管理"
+                               FontSize="18"
+                               FontWeight="Bold"
+                               Margin="0,0,0,8"/>
+                    <ProgressRing IsActive="{x:Bind ViewModel.IsTagLoading, Mode=OneWay}"
+                                  Width="20"
+                                  Height="20"/>
+
+                    <!-- Tag 列表：chip 布局 -->
+                    <ItemsControl ItemsSource="{x:Bind ViewModel.TagList, Mode=OneWay}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsWrapGrid Orientation="Horizontal"
+                                               MaximumRowsOrColumns="4"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:TagItem">
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                        CornerRadius="14"
+                                        Padding="14,6"
+                                        Margin="0,0,6,6"
+                                        Tapped="OnTagItemTapped"
+                                        ToolTipService.ToolTip="点击展开此 Tag 的番剧列表">
+                                    <Grid ColumnDefinitions="Auto,Auto"
+                                          ColumnSpacing="6">
+                                        <TextBlock Text="{x:Bind TagName}"
+                                                   FontSize="13"
+                                                   VerticalAlignment="Center"/>
+                                        <Button Grid.Column="1"
+                                                Width="20"
+                                                Height="20"
+                                                Padding="0"
+                                                Background="Transparent"
+                                                ToolTipService.ToolTip="删除此 Tag"
+                                                Command="{Binding ElementName=RootPage, Path=ViewModel.DeleteTagCommand}"
+                                                CommandParameter="{Binding}">
+                                            <FontIcon Glyph="&#xE711;"
+                                                      FontSize="8"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- 展开后的 Anime 列表 -->
+                    <ItemsControl x:Name="TagAnimeItems"
+                                  ItemsSource="{x:Bind ViewModel.TagAnimeList, Mode=OneWay}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="contracts:Anime">
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                        CornerRadius="8"
+                                        Padding="8"
+                                        Margin="0,0,0,6"
+                                        Tapped="OnTagAnimeTapped">
+                                    <Grid ColumnDefinitions="40,*,Auto"
+                                          ColumnSpacing="8"
+                                          Height="48">
+                                        <Image Source="{Binding CoverURL}"
+                                               Width="40"
+                                               Height="48"
+                                               Stretch="UniformToFill"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding Title}"
+                                                   FontSize="13"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2"
+                                                   Text="{Binding AirDate}"
+                                                   FontSize="11"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- 空状态 -->
+                    <TextBlock x:Name="TagEmptyText"
+                               Text="暂无收藏的 Tag"
                                Foreground="Gray"
                                Margin="0,12,0,0"/>
                 </StackPanel>

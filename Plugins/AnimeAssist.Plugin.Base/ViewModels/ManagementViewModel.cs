@@ -7,10 +7,13 @@ using AniMeido.Plugin.Base.Services;
 
 namespace AniMeido.Plugin.Base.ViewModels
 {
+    public record TagItem(string TagName, bool IsExpanded);
+
     public partial class ManagementViewModel : ObservableObject
     {
         private readonly TrackingService _trackingService;
         private readonly IAnimeDataSource _animeDataSource;
+        private readonly SavedTagService _savedTagService;
 
 
         [ObservableProperty]
@@ -50,11 +53,24 @@ namespace AniMeido.Plugin.Base.ViewModels
         [ObservableProperty]
         private int _selectedTabIndex = 0;
 
+        // Tag 管理
+        [ObservableProperty]
+        private ObservableCollection<TagItem> _tagList = [];
+        [ObservableProperty]
+        private ObservableCollection<Anime> _tagAnimeList = [];
+        [ObservableProperty]
+        private bool _isTagLoading = false;
+        [ObservableProperty]
+        private bool _hasTags = false;
+        [ObservableProperty]
+        private string _tagSearchText = "";
 
-        public ManagementViewModel(TrackingService trackingService, IAnimeDataSource dataSource)
+
+        public ManagementViewModel(TrackingService trackingService, IAnimeDataSource dataSource, SavedTagService savedTagService)
         {
             _trackingService = trackingService;
             _animeDataSource = dataSource;
+            _savedTagService = savedTagService;
         }
 
 
@@ -207,6 +223,103 @@ namespace AniMeido.Plugin.Base.ViewModels
             var item = BlockedList.FirstOrDefault(a => a.ID == animeId);
             if (item != null) BlockedList.Remove(item);
             BlockedCount = BlockedList.Count;
+        }
+
+        // ======== Tag 管理 ========
+
+        [RelayCommand]
+        private async Task LoadTagsAsync()
+        {
+            IsTagLoading = true;
+            try
+            {
+                var tags = await _savedTagService.GetAllSavedTagsAsync();
+                TagList.Clear();
+                foreach (var name in tags)
+                {
+                    TagList.Add(new TagItem(name, false));
+                }
+                HasTags = TagList.Count > 0;
+                TagAnimeList.Clear();
+            }
+            finally
+            {
+                IsTagLoading = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task ToggleTagAsync(TagItem tag)
+        {
+            // 先关闭其他展开的 tag
+            for (int i = TagList.Count - 1; i >= 0; i--)
+            {
+                var t = TagList[i];
+                if (t != tag && t.IsExpanded)
+                {
+                    TagList[i] = t with { IsExpanded = false };
+                }
+            }
+
+            var tagName = tag.TagName;
+            var index = -1;
+            for (int i = TagList.Count - 1; i >= 0; i--)
+            {
+                if (TagList[i].TagName == tagName)
+                {
+                    index = i;
+                    break;
+                }
+            }
+            if (index < 0) return;
+
+            var current = TagList[index];
+            var expanded = !current.IsExpanded;
+            TagList[index] = current with { IsExpanded = expanded };
+
+            if (expanded)
+            {
+                IsTagLoading = true;
+                try
+                {
+                    TagAnimeList.Clear();
+                    // 通过 Bangumi API 搜索带此 Tag 的番剧
+                    var (results, _) = await _animeDataSource.SearchByTagAsync(
+                        tagName, 0, "rank", CancellationToken.None);
+                    foreach (var anime in results.Take(20))
+                    {
+                        TagAnimeList.Add(anime);
+                    }
+                }
+                finally
+                {
+                    IsTagLoading = false;
+                }
+            }
+            else
+            {
+                TagAnimeList.Clear();
+            }
+        }
+
+        [RelayCommand]
+        private async Task DeleteTagAsync(TagItem tag)
+        {
+            var tagName = tag.TagName;
+
+            // 先在 UI 上移除（避免异步等待期间用户重复操作）
+            for (int i = TagList.Count - 1; i >= 0; i--)
+            {
+                if (TagList[i].TagName == tagName)
+                {
+                    TagList.RemoveAt(i);
+                    break;
+                }
+            }
+
+            TagAnimeList.Clear();
+            HasTags = TagList.Count > 0;
+            await _savedTagService.RemoveTagAsync(tagName);
         }
     }
 }

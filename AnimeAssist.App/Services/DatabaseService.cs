@@ -215,7 +215,7 @@ namespace AniMeido.App.Services
             // if (version < 3) { ... PRAGMA user_version = 3; }
             if (version < 2)
             {
-                // v2: Bangumi Tag 收藏
+                // v2: Bangumi Tag 收藏（旧表，AnimeId + TagName）
                 cmd.CommandText = """
                     CREATE TABLE IF NOT EXISTS saved_tags(
                         AnimeId INTEGER NOT NULL,
@@ -227,6 +227,22 @@ namespace AniMeido.App.Services
                 cmd.CommandText = "PRAGMA user_version = 2";
                 await cmd.ExecuteNonQueryAsync();
                 version = 2;
+            }
+
+            if (version < 3)
+            {
+                // v3: 全局 Tag 收藏（去掉 AnimeId，Tag 名称全局唯一）
+                cmd.CommandText = "DROP TABLE IF EXISTS saved_tags";
+                await cmd.ExecuteNonQueryAsync();
+                cmd.CommandText = """
+                    CREATE TABLE IF NOT EXISTS saved_tags(
+                        TagName TEXT NOT NULL PRIMARY KEY
+                    )
+                """;
+                await cmd.ExecuteNonQueryAsync();
+                cmd.CommandText = "PRAGMA user_version = 3";
+                await cmd.ExecuteNonQueryAsync();
+                version = 3;
             }
         }
     }
