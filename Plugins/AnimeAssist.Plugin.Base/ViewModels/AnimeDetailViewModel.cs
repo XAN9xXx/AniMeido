@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
+using System.Collections.ObjectModel;
 
 namespace AniMeido.Plugin.Base.ViewModels
 {
@@ -24,6 +25,11 @@ namespace AniMeido.Plugin.Base.ViewModels
         private bool _isCurrentSeason = false;
         [ObservableProperty]
         private bool _isOldSeason = false;
+        [ObservableProperty]
+        private string? _studiosText = null;
+
+        public ObservableCollection<CharacterRole> Characters { get; } = new();
+
         public string? BangumiUrl => _lastAnimeID > 0
             ? $"https://bgm.tv/subject/{_lastAnimeID}"
             : null;
@@ -59,6 +65,12 @@ namespace AniMeido.Plugin.Base.ViewModels
                 AnimeDetail = await _animeDataSource.GetAnimeDetailAsync(animeID, CancellationToken.None);
                 HasData = true;
                 OnPropertyChanged(nameof(BangumiUrl));
+
+                // 并行加载 Studio 和角色
+                await Task.WhenAll(
+                    LoadStudiosAsync(animeID),
+                    LoadCharactersAsync(animeID)
+                );
 
                 // 判断是当前季还是往季
                 IsCurrentSeason = false;
@@ -211,6 +223,36 @@ namespace AniMeido.Plugin.Base.ViewModels
             if (_lastAnimeID <= 0) return;
             await _trackingService.RemoveStatusAsync(_lastAnimeID);
             CurrentStatus = AnimeTrackingStatus.None;
+        }
+
+        private async Task LoadStudiosAsync(int animeID)
+        {
+            try
+            {
+                var studios = await _animeDataSource.GetStudioAsync(animeID, CancellationToken.None);
+                StudiosText = studios.Count > 0
+                    ? $"制作/原作：{string.Join("、", studios.Select(s => s.Name))}"
+                    : null;
+            }
+            catch
+            {
+                // Studio 加载失败不阻塞详情
+            }
+        }
+
+        private async Task LoadCharactersAsync(int animeID)
+        {
+            try
+            {
+                var characters = await _animeDataSource.GetCharacterRolesAsync(animeID, CancellationToken.None);
+                Characters.Clear();
+                foreach (var c in characters)
+                    Characters.Add(c);
+            }
+            catch
+            {
+                // 角色加载失败不阻塞详情
+            }
         }
     }
 }

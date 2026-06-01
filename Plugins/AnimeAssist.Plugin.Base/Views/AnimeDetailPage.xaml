@@ -56,6 +56,12 @@
                                FontWeight="Bold"
                                TextWrapping="Wrap"/>
 
+                    <!-- 制作/原作 -->
+                    <TextBlock x:Name="DetailStudio"
+                               FontSize="14"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Visibility="Collapsed"/>
+
                     <!-- 分割线 -->
                     <Border Height="1"
                             Background="{ThemeResource DividerStrokeColorDefault}"/>
@@ -79,7 +85,24 @@
                     <TextBlock Text="{Binding AnimeDetail.Description}"
                                FontSize="15"
                                TextWrapping="Wrap"
-                               LineHeight="24"/>
+                               LineHeight="24">
+                    </TextBlock>
+
+                    <!-- 角色区 -->
+                    <StackPanel x:Name="CharacterSection"
+                                Visibility="Collapsed"
+                                Spacing="8">
+                        <TextBlock Text="角色"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"/>
+                        <ScrollViewer HorizontalScrollMode="Auto"
+                                      VerticalScrollMode="Disabled"
+                                      HorizontalScrollBarVisibility="Hidden">
+                            <StackPanel x:Name="CharacterPanel"
+                                        Orientation="Horizontal"
+                                        Spacing="8"/>
+                        </ScrollViewer>
+                    </StackPanel>
 
                     <!-- 分割线 -->
                     <Border Height="1"

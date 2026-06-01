@@ -372,6 +372,26 @@ namespace AniMeido.Plugin.Base.Services
         private const int SearchPageLimit = 20;      // API强制20
 
         /// <summary>
+        /// 获取声优/人物参与的作品列表。
+        /// </summary>
+        /// <param name="personId">人物 ID。</param>
+        /// <param name="ct">取消令牌。</param>
+        /// <returns>人物参与的作品列表。</returns>
+        public async Task<List<PersonWork>> GetPersonWorksAsync(int personId, CancellationToken ct)
+        {
+            return await GetCacheAsync($"person_works:{personId}", TimeSpan.FromDays(7),
+                async () =>
+                {
+                    var result = await _apiClient.GetJsonAsync<List<RelatedSubjectResponse>>($"/v0/persons/{personId}/subjects", ct).ConfigureAwait(false);
+                    if (result is null) return new List<PersonWork>();
+                    return result
+                        .Where(s => s.Type == 2) // 仅动画
+                        .Select(s => new PersonWork(s.Id, ResolveTitle(s.NameCn, s.Name), s.Staff, ResolveImageUrl(s.Image)))
+                        .ToList();
+                }) ?? [];
+        }
+
+        /// <summary>
         /// 按 Bangumi Tag 搜索一页番剧。
         /// </summary>
         /// <param name="tag">标签名称</param>

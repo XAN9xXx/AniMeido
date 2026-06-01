@@ -7,8 +7,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
+using Windows.UI;
 
 namespace AniMeido.Plugin.Base.Views
 {
@@ -48,6 +50,10 @@ namespace AniMeido.Plugin.Base.Views
                         UpdateStatusHint();
                         break;
 
+                    case nameof(AnimeDetailViewModel.StudiosText):
+                        UpdateStudios();
+                        break;
+
                     case nameof(AnimeDetailViewModel.IsCurrentSeason):
                     case nameof(AnimeDetailViewModel.IsOldSeason):
                         WatchingBtn.Visibility = ViewModel.IsCurrentSeason ? Visibility.Visible : Visibility.Collapsed;
@@ -55,6 +61,9 @@ namespace AniMeido.Plugin.Base.Views
                         break;
                 }
             };
+
+            // 监听角色集合变化
+            ViewModel.Characters.CollectionChanged += (s, e) => UpdateCharacters();
 
             ViewModel.LoadDetailCommand.PropertyChanged += (s, e) =>
             {
@@ -316,6 +325,155 @@ namespace AniMeido.Plugin.Base.Views
             {
                 DetailScore.Visibility = Visibility.Collapsed;
             }
+        }
+
+        private void UpdateStudios()
+        {
+            if (!string.IsNullOrEmpty(ViewModel.StudiosText))
+            {
+                DetailStudio.Text = ViewModel.StudiosText;
+                DetailStudio.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                DetailStudio.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private void UpdateCharacters()
+        {
+            CharacterPanel.Children.Clear();
+
+            if (ViewModel.Characters.Count == 0)
+            {
+                CharacterSection.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            CharacterSection.Visibility = Visibility.Visible;
+
+            foreach (var character in ViewModel.Characters)
+            {
+                var card = CreateCharacterCard(character);
+                CharacterPanel.Children.Add(card);
+            }
+        }
+
+        private Border CreateCharacterCard(CharacterRole character)
+        {
+            // 角色头像
+            var avatarBorder = new Border
+            {
+                Width = 64,
+                Height = 64,
+                CornerRadius = new CornerRadius(32),
+                Background = new SolidColorBrush(Color.FromArgb(30, 128, 128, 128)),
+                Child = new Image
+                {
+                    Width = 64,
+                    Height = 64,
+                    Stretch = Microsoft.UI.Xaml.Media.Stretch.UniformToFill,
+                    Source = !string.IsNullOrEmpty(character.CharacterImage)
+                        ? new BitmapImage(new Uri(character.CharacterImage))
+                        : new BitmapImage(ImageCacheHelper.PlaceholderUri),
+                }
+            };
+            if (avatarBorder.Child is Image img)
+            {
+                img.ImageFailed += (s, e) =>
+                {
+                    img.Source = new BitmapImage(ImageCacheHelper.PlaceholderUri);
+                };
+            }
+
+            // 角色名
+            var nameText = new TextBlock
+            {
+                Text = character.CharacterName,
+                FontSize = 13,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxLines = 1,
+                HorizontalAlignment = HorizontalAlignment.Center,
+            };
+
+            // 声优名
+            var cvText = new TextBlock
+            {
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromArgb(160, 128, 128, 128)),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxLines = 1,
+                HorizontalAlignment = HorizontalAlignment.Center,
+            };
+
+            if (character.Actors.Count > 0)
+                cvText.Text = $"CV: {character.Actors[0].Name}";
+            else
+                cvText.Text = "CV: —";
+
+            var stack = new StackPanel
+            {
+                Width = 90,
+                Spacing = 4,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Children = { avatarBorder, nameText, cvText }
+            };
+
+            var card = new Border
+            {
+                Width = 90,
+                Padding = new Thickness(4),
+                CornerRadius = new CornerRadius(8),
+                Background = new SolidColorBrush(Color.FromArgb(10, 255, 255, 255)),
+                Child = stack,
+                Tag = character,
+            };
+
+            // 设置 CenterPoint 使缩放以卡片中心为基准
+            card.SizeChanged += (s, e) =>
+            {
+                var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(card);
+                visual.CenterPoint = new System.Numerics.Vector3(
+                    (float)e.NewSize.Width / 2,
+                    (float)e.NewSize.Height / 2,
+                    0);
+            };
+
+            // 点击 → 跳转声优作品页
+            card.Tapped += (s, e) =>
+            {
+                if (s is Border b && b.Tag is CharacterRole ch && ch.Actors.Count > 0)
+                {
+                    Frame.Navigate(typeof(PersonSearchResultPage), (ch.Actors[0].VoiceActorId, ch.Actors[0].Name));
+                }
+            };
+
+            // hover 缩放动效
+            card.PointerEntered += (s, e) =>
+            {
+                var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(card);
+                var compositor = visual.Compositor;
+                var sx = compositor.CreateScalarKeyFrameAnimation();
+                sx.InsertKeyFrame(1.0f, 1.08f); sx.Duration = TimeSpan.FromMilliseconds(200);
+                var sy = compositor.CreateScalarKeyFrameAnimation();
+                sy.InsertKeyFrame(1.0f, 1.08f); sy.Duration = TimeSpan.FromMilliseconds(200);
+                visual.StartAnimation("Scale.X", sx);
+                visual.StartAnimation("Scale.Y", sy);
+            };
+            card.PointerExited += (s, e) =>
+            {
+                var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(card);
+                var compositor = visual.Compositor;
+                var sx = compositor.CreateScalarKeyFrameAnimation();
+                sx.InsertKeyFrame(1.0f, 1.0f); sx.Duration = TimeSpan.FromMilliseconds(200);
+                var sy = compositor.CreateScalarKeyFrameAnimation();
+                sy.InsertKeyFrame(1.0f, 1.0f); sy.Duration = TimeSpan.FromMilliseconds(200);
+                visual.StartAnimation("Scale.X", sx);
+                visual.StartAnimation("Scale.Y", sy);
+            };
+
+            return card;
         }
 
         private void OnDetailCoverImageFailed(object sender, ExceptionRoutedEventArgs e)

@@ -64,5 +64,13 @@ namespace AniMeido.Contracts
         /// <param name="airDateTo">结束日期（不含），格式 "YYYY-MM-DD"，null 表示不限制。</param>
         /// <returns>(结果列表, 总条数)。</returns>
         Task<(List<Anime> Results, int Total)> SearchByTagAsync(string tag, int offset, string sort, CancellationToken ct, string? airDateFrom = null, string? airDateTo = null);
+
+        /// <summary>
+        /// 获取声优/人物参与的作品列表。
+        /// </summary>
+        /// <param name="personId">人物 ID。</param>
+        /// <param name="ct">取消令牌。</param>
+        /// <returns>人物参与的作品列表。</returns>
+        Task<List<PersonWork>> GetPersonWorksAsync(int personId, CancellationToken ct);
     }
 }
