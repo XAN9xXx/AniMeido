@@ -6,7 +6,11 @@
     xmlns:controls="using:AniMeido.Plugin.Base.Views.Controls"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
-    <Grid>
+    <Grid x:Name="RootGrid"
+          Loaded="OnPageLoaded"
+          PointerMoved="OnRootPointerMoved"
+          PointerReleased="OnRootPointerReleased"
+          PointerCanceled="OnRootPointerCanceled">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -120,7 +124,7 @@
                         Spacing="8">
                 <ProgressRing x:Name="LoadingRing"
                               Width="32"
-                        Height="32"
+                              Height="32"
                               HorizontalAlignment="Center"/>
                 <TextBlock x:Name="LoadingText"
                            Text="正在搜索..."
@@ -129,5 +133,11 @@
                            HorizontalAlignment="Center"/>
             </StackPanel>
         </Grid>
+
+        <!-- 拖放覆盖层 -->
+        <Grid Grid.RowSpan="3"
+              x:Name="DragOverlay"
+              Visibility="Collapsed"
+              AllowDrop="True"/>
     </Grid>
 </Page>
