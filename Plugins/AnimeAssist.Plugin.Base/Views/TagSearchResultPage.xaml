@@ -7,7 +7,11 @@
     xmlns:controls="using:AniMeido.Plugin.Base.Views.Controls"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
-    <Grid>
+    <Grid x:Name="RootGrid"
+          Loaded="OnPageLoaded"
+          PointerMoved="OnRootPointerMoved"
+          PointerReleased="OnRootPointerReleased"
+          PointerCanceled="OnRootPointerCanceled">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -173,5 +177,11 @@
                            HorizontalAlignment="Center"/>
             </StackPanel>
         </Grid>
+
+        <!-- 拖放覆盖层 -->
+        <Grid Grid.RowSpan="3"
+              x:Name="DragOverlay"
+              Visibility="Collapsed"
+              AllowDrop="True"/>
     </Grid>
 </Page>
