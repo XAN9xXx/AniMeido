@@ -87,7 +87,7 @@ namespace AniMeido.Plugin.Base.Services
         }
 
         /// <summary>
-        /// 清空所有缓存数据（内存 + SQLite）。
+        /// 清空所有缓存数据（内存 + SQLite + 图片文件）。
         /// </summary>
         public async Task ClearAllCacheAsync()
         {
@@ -104,10 +104,12 @@ namespace AniMeido.Plugin.Base.Services
             {
                 _syncLock.Release();
             }
+
+            ImageCacheHelper.ClearAll();
         }
 
         /// <summary>
-        /// 获取当前缓存条目数和预估大小（KB），含内存缓存条目。
+        /// 获取当前缓存条目数和预估大小（KB），含内存缓存条目和图片缓存。
         /// </summary>
         public async Task<(int count, double sizeKB)> GetCacheStatsAsync()
         {
@@ -118,9 +120,12 @@ namespace AniMeido.Plugin.Base.Services
             var sizeCmd = _connection.CreateCommand();
             sizeCmd.CommandText = "SELECT COALESCE(SUM(LENGTH(Data)), 0) FROM cache";
             var totalChars = Convert.ToInt32(await sizeCmd.ExecuteScalarAsync());
-            var sizeKB = totalChars * 2.0 / 1024.0;
+            var dbSizeKB = totalChars * 2.0 / 1024.0;
 
-            return (count, sizeKB);
+            var (_, imgSizeMB) = ImageCacheHelper.GetCacheStats();
+            var totalSizeKB = dbSizeKB + imgSizeMB * 1024.0;
+
+            return (count, totalSizeKB);
         }
 
         // ---- 私有辅助 ----
