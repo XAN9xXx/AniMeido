@@ -159,7 +159,7 @@ namespace AniMeido.Plugin.Base.Views
             var selectedBg = new Microsoft.UI.Xaml.Media.SolidColorBrush(
                 Windows.UI.Color.FromArgb(20, accentColor.R, accentColor.G, accentColor.B));
 
-            if (sender == WatchingCard)
+            if (sender == (object)WatchingCard)
             {
                 WatchingPanel.Visibility = Visibility.Visible;
                 WatchingIndicator.Visibility = Visibility.Visible;
@@ -167,7 +167,7 @@ namespace AniMeido.Plugin.Base.Views
                 WatchingLabel.Foreground = selectedBrush;
                 WatchingCard.Background = selectedBg;
             }
-            else if (sender == PlanToWatchCard)
+            else if (sender == (object)PlanToWatchCard)
             {
                 PlanToWatchPanel.Visibility = Visibility.Visible;
                 PlanToWatchIndicator.Visibility = Visibility.Visible;
@@ -175,7 +175,7 @@ namespace AniMeido.Plugin.Base.Views
                 PlanToWatchLabel.Foreground = selectedBrush;
                 PlanToWatchCard.Background = selectedBg;
             }
-            else if (sender == NotInterestedCard)
+            else if (sender == (object)NotInterestedCard)
             {
                 NotInterestedPanel.Visibility = Visibility.Visible;
                 NotInterestedIndicator.Visibility = Visibility.Visible;
@@ -183,7 +183,7 @@ namespace AniMeido.Plugin.Base.Views
                 NotInterestedLabel.Foreground = selectedBrush;
                 NotInterestedCard.Background = selectedBg;
             }
-            else if (sender == FollowingCard)
+            else if (sender == (object)FollowingCard)
             {
                 FollowingPanel.Visibility = Visibility.Visible;
                 FollowingIndicator.Visibility = Visibility.Visible;
@@ -191,7 +191,7 @@ namespace AniMeido.Plugin.Base.Views
                 FollowingLabel.Foreground = selectedBrush;
                 FollowingCard.Background = selectedBg;
             }
-            else if (sender == CompletedCard)
+            else if (sender == (object)CompletedCard)
             {
                 CompletedPanel.Visibility = Visibility.Visible;
                 CompletedIndicator.Visibility = Visibility.Visible;
@@ -199,7 +199,7 @@ namespace AniMeido.Plugin.Base.Views
                 CompletedLabel.Foreground = selectedBrush;
                 CompletedCard.Background = selectedBg;
             }
-            else if (sender == DroppedCard)
+            else if (sender == (object)DroppedCard)
             {
                 DroppedPanel.Visibility = Visibility.Visible;
                 DroppedIndicator.Visibility = Visibility.Visible;
@@ -207,7 +207,7 @@ namespace AniMeido.Plugin.Base.Views
                 DroppedLabel.Foreground = selectedBrush;
                 DroppedCard.Background = selectedBg;
             }
-            else if (sender == BlockedCard)
+            else if (sender == (object)BlockedCard)
             {
                 BlockedPanel.Visibility = Visibility.Visible;
                 BlockedIndicator.Visibility = Visibility.Visible;
@@ -215,7 +215,7 @@ namespace AniMeido.Plugin.Base.Views
                 BlockedLabel.Foreground = selectedBrush;
                 BlockedCard.Background = selectedBg;
             }
-            else if (sender == TagCard)
+            else if (sender == (object)TagCard)
             {
                 TagPanel.Visibility = Visibility.Visible;
                 TagIndicator.Visibility = Visibility.Visible;
