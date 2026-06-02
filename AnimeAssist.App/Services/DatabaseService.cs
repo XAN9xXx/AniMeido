@@ -180,8 +180,6 @@ namespace AniMeido.App.Services
             """;
             await cmd.ExecuteNonQueryAsync();
 
-            // browse_history 表预留，后续需要时启用
-            /*
             cmd.CommandText = """
                 CREATE TABLE IF NOT EXISTS browse_history(
                     AnimeID       INTEGER PRIMARY KEY,
@@ -191,7 +189,6 @@ namespace AniMeido.App.Services
                 )
             """;
             await cmd.ExecuteNonQueryAsync();
-            */
         }
 
         private async Task RunMigrationsAsync(SqliteConnection connection)
@@ -245,5 +242,6 @@ namespace AniMeido.App.Services
                 version = 3;
             }
         }
+
     }
 }

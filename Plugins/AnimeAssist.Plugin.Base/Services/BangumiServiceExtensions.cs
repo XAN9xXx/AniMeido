@@ -32,6 +32,7 @@ namespace AniMeido.Plugin.Base.Services
             services.AddSingleton<BangumiApiClient>();
             services.AddSingleton<TrackingService>();
             services.AddSingleton<CacheService>();
+            services.AddSingleton<BrowseHistoryService>();
             return services;
         }
     }

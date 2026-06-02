@@ -75,6 +75,7 @@ namespace AniMeido.App
             services.AddTransient<Plugin.Base.Views.ManagementPage>();
             services.AddTransient<Plugin.Base.Views.AnimeDetailPage>();
             services.AddTransient<Plugin.Base.Views.PersonSearchResultPage>();
+            services.AddTransient<Plugin.Base.Views.BrowseHistoryPage>();
             services.AddTransient<Plugin.Base.Views.DragZoneSettingsPage>();
             services.AddTransient<Plugin.Base.Views.DragZonePreviewPage>();
             services.AddTransient<Views.SettingPage>();

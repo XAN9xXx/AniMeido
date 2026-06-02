@@ -18,12 +18,14 @@ namespace AniMeido.Plugin.Base.Views
     {
         public AnimeDetailViewModel ViewModel { get; }
         private SavedTagService _savedTagService;
+        private readonly BrowseHistoryService _browseHistory;
         private IAnimeDataSource _dataSource;
         private int _currentAnimeId;
 
-        public AnimeDetailPage(IAnimeDataSource dataSource, TrackingService trackingService, SavedTagService savedTagService)
+        public AnimeDetailPage(IAnimeDataSource dataSource, TrackingService trackingService, SavedTagService savedTagService, BrowseHistoryService browseHistory)
         {
             _dataSource = dataSource;
+            _browseHistory = browseHistory;
             _savedTagService = savedTagService;
             ViewModel = new AnimeDetailViewModel(dataSource, trackingService);
             DataContext = ViewModel;
@@ -85,6 +87,10 @@ namespace AniMeido.Plugin.Base.Views
                 _currentAnimeId = animeID;
                 ViewModel.LoadDetailCommand.Execute(animeID);
                 _ = LoadBangumiTagsAsync();
+
+                // 记录浏览历史
+                var snapshot = ViewModel.AnimeDetail?.Title ?? $"#{animeID}";
+                _ = _browseHistory.RecordAsync(animeID, snapshot);
             }
         }
 
