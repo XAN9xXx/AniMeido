@@ -77,6 +77,7 @@ namespace AniMeido.App
             services.AddTransient<Plugin.Base.Views.PersonSearchResultPage>();
             services.AddTransient<Plugin.Base.Views.DragZoneSettingsPage>();
             services.AddTransient<Plugin.Base.Views.DragZonePreviewPage>();
+            services.AddTransient<Views.SettingPage>();
 
             var provider = services.BuildServiceProvider();
             Services = provider;

@@ -264,7 +264,7 @@ namespace AniMeido.App
             if (container?.Content?.ToString() == "设置")
             {
                 if (ContentFrame.Content?.GetType() != typeof(Views.SettingPage))
-                    ContentFrame.Navigate(typeof(Views.SettingPage));
+                    NavigateToPage(typeof(Views.SettingPage));
                 return;
             }
             if (container == null)

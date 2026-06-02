@@ -4,17 +4,20 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Shapes;
+using AniMeido.App.Services;
 using AniMeido.Contracts;
 
 namespace AniMeido.App.Views
 {
     public sealed partial class SettingPage : Page
     {
+        private readonly PageFactory _pageFactory;
         // 记录所有插件导航项的可视元素，用于切换选中态
         private readonly List<PluginNavVisual> _pluginNavs = new();
 
-        public SettingPage()
+        public SettingPage(PageFactory pageFactory)
         {
+            _pageFactory = pageFactory;
             InitializeComponent();
 
             // 填充插件设置导航项（按插件名显示）
@@ -110,7 +113,14 @@ namespace AniMeido.App.Views
                     .Select(a => a.GetType(entry.PageTypeName))
                     .FirstOrDefault(t => t != null);
                 if (pageType != null)
+                {
+                    var page = _pageFactory.CreatePage(pageType);
+                    SettingsFrame.Content = page;
+                }
+                else
+                {
                     SettingsFrame.Navigate(pageType);
+                }
 
                 // 取消 App 设置选中态
                 AppSettingsCard.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
