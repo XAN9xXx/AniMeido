@@ -22,10 +22,9 @@ namespace AniMeido.Plugin.Base.Views
         public CurrentSeasonViewModel ViewModel { get; }
 
         static bool _hasAutoScrolledOnce = false;
-        private List<DragZoneConfig> _dragZones = DragZoneConfig.GetDefaults();
-        private TrackingService? _tracking;
         private readonly List<Anime> _allAnime = new();
         private HashSet<int> _blockedIds = new();
+        private DragDropService _dragDrop = null!;
 
         /// <summary>
         /// 供 MainWindow 在开屏淡出后调用，触发自动跳转到今日星期分组。
@@ -46,12 +45,12 @@ namespace AniMeido.Plugin.Base.Views
 
         public CurrentSeasonPage()
         {
-            var ds = AppServices.Provider!.GetRequiredService<IAnimeDataSource>();
+            var sp = AppServices.Provider!;
+            var ds = sp.GetRequiredService<IAnimeDataSource>();
             ViewModel = new CurrentSeasonViewModel(ds);
+            _dragDrop = sp.GetRequiredService<DragDropService>();
             InitializeComponent();
 
-            // 先同步初始化 TrackingService 并加载屏蔽列表，确保数据加载前屏蔽列表已可用
-            _tracking = AppServices.Provider!.GetRequiredService<TrackingService>();
             _ = LoadDragConfigAndBlockedAsync();
 
             ViewModel.PropertyChanged += (s, e) =>
@@ -207,15 +206,13 @@ namespace AniMeido.Plugin.Base.Views
             visual.StartAnimation("Scale.Y", scaleY);
         }
 
-        // ======== 拖放标记（动态生成） ========
-
-        private readonly Dictionary<string, DragOverlayZone> _overlayZones = new();
+        // ======== 拖放标记 ========
 
         private async Task LoadDragConfigAndBlockedAsync()
         {
-            // _tracking 已在构造函数中初始化
-            _dragZones = await _tracking.LoadDragZoneConfigAsync();
-            var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
+            var tracking = AppServices.Provider!.GetRequiredService<TrackingService>();
+            await _dragDrop.ReloadConfigAsync();
+            var blocked = await tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
             _blockedIds = blocked.ToHashSet();
             // 无论数据是否已加载，都重新从原始数据过滤一次
             if (ViewModel.AnimeList.Count > 0)
@@ -228,295 +225,39 @@ namespace AniMeido.Plugin.Base.Views
 
         // ======== 自定义拖放 ========
 
-        private Anime? _dragAnime;
-        private bool _dragPointerDown;
-        private Point _dragPointerDownPos;
-        private Point _dragGhostOffset;
-        private Border? _dragGhost;
-        private bool _isDragging;
-
         private void OnCapturedPointerPressed(object sender, PointerRoutedEventArgs e)
         {
-            if (_isDragging) return;
-            _dragPointerDown = true;
-            _dragPointerDownPos = e.GetCurrentPoint(this).Position;
-
-            // 查找指针下方是否有 AnimeCard
-            _dragAnime = null;
-            var cards = FindAllElements<AnimeCard>(this);
-            foreach (var card in cards)
-            {
-                var t = card.TransformToVisual(this);
-                var o = t.TransformPoint(new Point(0, 0));
-                var r = new Rect(o.X, o.Y, card.ActualWidth, card.ActualHeight);
-                if (r.Contains(_dragPointerDownPos))
-                {
-                    _dragAnime = card.DataContext as Anime;
-                    break;
-                }
-            }
+            _dragDrop.HandlePointerPressed(this, e);
         }
 
         private void OnRootPointerMoved(object sender, PointerRoutedEventArgs e)
         {
-            if (_isDragging && _dragGhost != null)
-            {
-                var pt = e.GetCurrentPoint(DragOverlay).Position;
-                _dragGhost.Margin = new Thickness(pt.X + _dragGhostOffset.X, pt.Y + _dragGhostOffset.Y, 0, 0);
-                return;
-            }
-
-            if (!_dragPointerDown || _dragAnime == null) return;
-            var cp = e.GetCurrentPoint(this).Position;
-            if (Math.Abs(cp.X - _dragPointerDownPos.X) < 8 &&
-                Math.Abs(cp.Y - _dragPointerDownPos.Y) < 8) return;
-
-            _dragPointerDown = false;
-            _ = BeginDragAsync(_dragAnime);
+            _dragDrop.HandlePointerMoved(this, DragOverlay, e, DragAction.PlanToWatch);
         }
 
         private void OnRootPointerReleased(object sender, PointerRoutedEventArgs e)
         {
-            _dragPointerDown = false;
-            if (!_isDragging) return;
-            EndDrag(e.GetCurrentPoint(DragOverlay).Position);
+            _dragDrop.HandlePointerReleased(DragOverlay, e);
+            CleanupOverlayAfterDrag();
         }
 
         private void OnRootPointerCanceled(object sender, PointerRoutedEventArgs e)
         {
-            _dragPointerDown = false;
-            if (!_isDragging) return;
-            CancelDrag();
+            _dragDrop.HandlePointerCanceled();
+            CleanupOverlayAfterDrag();
         }
 
-        private async Task BeginDragAsync(Anime anime)
+        private void CleanupOverlayAfterDrag()
         {
-            if (_isDragging) return;
-            _isDragging = true;
-
-            if (_tracking == null)
-                _tracking = AppServices.Provider!.GetRequiredService<TrackingService>();
-            _dragZones = await _tracking.LoadDragZoneConfigAsync();
-
-            DragOverlay.Visibility = Visibility.Visible;
-            DragOverlay.UpdateLayout();
-            BuildAndShowZones();
-
-            var ghost = new Border
+            if (!_dragDrop.IsDragging)
             {
-                Width = 150,
-                Height = 256,
-                CornerRadius = new CornerRadius(8),
-                Background = new SolidColorBrush(Color.FromArgb(200, 30, 30, 30)),
-                Opacity = 0.85,
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Top,
-                IsHitTestVisible = false,
-            };
-
-            // 带封面图的卡片副本
-            var ghostGrid = new Grid();
-            ghostGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(200) });
-            ghostGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            var cover = new Image
-            {
-                Stretch = Microsoft.UI.Xaml.Media.Stretch.UniformToFill,
-                Height = 200,
-                VerticalAlignment = VerticalAlignment.Top,
-            };
-            if (!string.IsNullOrEmpty(anime.CoverURL))
-            {
-                cover.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(anime.CoverURL));
+                // 移除 Ghost 和 Zones
+                if (_dragDrop.DragGhost != null)
+                    DragOverlay.Children.Remove(_dragDrop.DragGhost);
+                foreach (var zone in _dragDrop.ActiveZones)
+                    DragOverlay.Children.Remove(zone.Border);
+                DragOverlay.Visibility = Visibility.Collapsed;
             }
-            Grid.SetRow(cover, 0);
-            ghostGrid.Children.Add(cover);
-
-            var titleBlock = new TextBlock
-            {
-                Text = anime.Title ?? "Anime",
-                Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
-                FontSize = 13,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                TextTrimming = Microsoft.UI.Xaml.TextTrimming.CharacterEllipsis,
-                TextWrapping = TextWrapping.Wrap,
-                MaxLines = 2,
-                Margin = new Thickness(8, 6, 8, 6),
-                HorizontalAlignment = HorizontalAlignment.Left,
-            };
-            Grid.SetRow(titleBlock, 1);
-            ghostGrid.Children.Add(titleBlock);
-
-            var clipRect = new RectangleGeometry();
-            clipRect.Rect = new Rect(0, 0, 150, 200);
-            cover.Clip = clipRect;
-
-            ghost.Child = ghostGrid;
-
-            _dragGhostOffset = new Point(-75, -128);
-            ghost.Margin = new Thickness(
-                _dragPointerDownPos.X + _dragGhostOffset.X,
-                _dragPointerDownPos.Y + _dragGhostOffset.Y, 0, 0);
-            DragOverlay.Children.Add(ghost);
-            _dragGhost = ghost;
-        }
-
-        private void EndDrag(Point dropPoint)
-        {
-            foreach (var kv in _overlayZones)
-            {
-                var z = kv.Value.OuterBorder;
-                var zr = new Rect(z.Margin.Left, z.Margin.Top, z.ActualWidth, z.ActualHeight);
-                if (zr.Contains(dropPoint))
-                {
-                    var cfg = _dragZones.Find(c => c.Id == kv.Key);
-                    if (cfg != null && cfg.Action != DragAction.None && _dragAnime != null)
-                    {
-                        var st = cfg.Action switch
-                        {
-                            DragAction.Watching => AnimeTrackingStatus.Watching,
-                            DragAction.PlanToWatch => AnimeTrackingStatus.PlanToWatch,
-                            DragAction.NotInterested => AnimeTrackingStatus.NotInterested,
-                            DragAction.Following => AnimeTrackingStatus.Following,
-                            DragAction.Completed => AnimeTrackingStatus.Completed,
-                            DragAction.Dropped => AnimeTrackingStatus.Dropped,
-                            DragAction.Blocked => AnimeTrackingStatus.Blocked,
-                            _ => AnimeTrackingStatus.None
-                        };
-                        if (st != AnimeTrackingStatus.None)
-                            _ = _tracking?.SetStatusAsync(_dragAnime.ID, st);
-                    }
-                    break;
-                }
-            }
-            CleanupDrag();
-        }
-
-        private void CancelDrag() => CleanupDrag();
-
-        private void CleanupDrag()
-        {
-            _isDragging = false;
-            _dragAnime = null;
-            if (_dragGhost != null) { DragOverlay.Children.Remove(_dragGhost); _dragGhost = null; }
-            foreach (var kv in _overlayZones) DragOverlay.Children.Remove(kv.Value.OuterBorder);
-            _overlayZones.Clear();
-            DragOverlay.Visibility = Visibility.Collapsed;
-        }
-
-        private static List<T> FindAllElements<T>(DependencyObject parent) where T : DependencyObject
-        {
-            var r = new List<T>();
-            FindAllRecursive(parent, r);
-            return r;
-        }
-
-        private static void FindAllRecursive<T>(DependencyObject p, List<T> r) where T : DependencyObject
-        {
-            int c = VisualTreeHelper.GetChildrenCount(p);
-            for (int i = 0; i < c; i++)
-            {
-                var ch = VisualTreeHelper.GetChild(p, i);
-                if (ch is T t) r.Add(t);
-                FindAllRecursive(ch, r);
-            }
-        }
-
-        // ======== Zone 构建 ========
-
-        private void BuildAndShowZones()
-        {
-            // 清除旧的动态 zone
-            foreach (var kv in _overlayZones)
-            {
-                DragOverlay.Children.Remove(kv.Value.OuterBorder);
-            }
-            _overlayZones.Clear();
-
-            var pw = DragOverlay.ActualWidth;
-            var ph = DragOverlay.ActualHeight;
-
-            foreach (var config in _dragZones)
-            {
-                // 追番页面不显示补番/禁用目标区
-                if (config.Action == DragAction.None || config.Action == DragAction.PlanToWatch) continue;
-
-                var label = new TextBlock
-                {
-                    Text = GetActionLabel(config.Action),
-                    FontSize = 16,
-                    FontWeight = Microsoft.UI.Text.FontWeights.Bold,
-                    Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
-                };
-
-                var inner = new Border
-                {
-                    Child = label,
-                    CornerRadius = new CornerRadius(8),
-                    Padding = new Thickness(16, 12, 16, 12),
-                    Background = new SolidColorBrush(Color.FromArgb(180, 0x44, 0x88, 0xFF)),
-                    Opacity = 0.7,
-                };
-
-                var zone = new Border
-                {
-                    Child = inner,
-                    HorizontalAlignment = HorizontalAlignment.Left,
-                    VerticalAlignment = VerticalAlignment.Top,
-                    Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)),
-                    AllowDrop = true,
-                    Tag = config.Id,
-                };
-
-                if (pw > 0 && ph > 0)
-                {
-                    zone.Width = pw * config.WidthPercent;
-                    zone.Height = ph * config.HeightPercent;
-                    zone.Margin = new Thickness(pw * config.XPercent, ph * config.YPercent, 0, 0);
-                }
-
-                zone.DragOver += OnZoneDragOver;
-
-                DragOverlay.Children.Add(zone);
-                _overlayZones[config.Id] = new DragOverlayZone(zone, inner, label);
-            }
-        }
-
-        private void OnZoneDragOver(object sender, DragEventArgs e)
-        {
-            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-            if (sender is Border zone && zone.Tag is string id
-                && _overlayZones.TryGetValue(id, out var dz))
-            {
-                dz.Inner.Visibility = Visibility.Visible;
-            }
-        }
-
-        private static string GetActionLabel(DragAction action) => action switch
-        {
-            DragAction.Watching => "追番",
-            DragAction.PlanToWatch => "补番",
-            DragAction.NotInterested => "不感兴趣",
-            DragAction.Following => "关注",
-            DragAction.Completed => "已看完",
-            DragAction.Dropped => "已弃番",
-            DragAction.Blocked => "屏蔽",
-            _ => "禁用"
-        };
-
-        // ======== 辅助方法 ========
-
-        private static T? FindChild<T>(DependencyObject parent) where T : DependencyObject
-        {
-            int count = VisualTreeHelper.GetChildrenCount(parent);
-            for (int i = 0; i < count; i++)
-            {
-                var child = VisualTreeHelper.GetChild(parent, i);
-                if (child is T typed) return typed;
-                var result = FindChild<T>(child);
-                if (result != null) return result;
-            }
-            return null;
         }
 
         // ======== 即时过滤 ========
@@ -591,11 +332,4 @@ namespace AniMeido.Plugin.Base.Views
                 ViewModel.WeekdayGroups.Add(group);
         }
     }
-
-    // ======== 覆盖层 Zone 元素记录 ========
-
-    internal record DragOverlayZone(
-        Border OuterBorder,
-        Border Inner,
-        TextBlock Label);
 }
