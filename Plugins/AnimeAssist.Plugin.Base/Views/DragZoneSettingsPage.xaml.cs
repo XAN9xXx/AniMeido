@@ -22,15 +22,17 @@ namespace AniMeido.Plugin.Base.Views
         private string? _resizeEdge;
         private double _dragOffsetX, _dragOffsetY;
         private double _dragStartX, _dragStartY, _dragStartW, _dragStartH;
-        private bool _previewInitialized;
+
+
 
         public DragZoneSettingsPage(TrackingService tracking)
         {
             _tracking = tracking;
             InitializeComponent();
+            _ = LoadAsync();
         }
 
-        protected override async void OnNavigatedTo(NavigationEventArgs e)
+        private async Task LoadAsync()
         {
             _suppressEvents = true;
             _dragZones = await _tracking.LoadDragZoneConfigAsync();
@@ -40,19 +42,21 @@ namespace AniMeido.Plugin.Base.Views
 
         private void OnPreviewBorderSizeChanged(object sender, SizeChangedEventArgs e)
         {
-            // 保持 16:9 比例
-            var targetH = e.NewSize.Width * 9.0 / 16.0;
-            PreviewBorder.Height = Math.Clamp(targetH, 200, 400);
-
-            if (!_previewInitialized)
+            if (!_zonesReady)
             {
-                _previewInitialized = true;
-                PreviewBorder.SizeChanged -= OnPreviewBorderSizeChanged;
+                _zonesReady = true;
 
                 // 导航到预览页面
                 if (PreviewFrame.Content == null)
                     PreviewFrame.Navigate(typeof(DragZonePreviewPage));
+
+                // 布局就绪后添加预览 Zone
+                PopulatePreviewZones();
             }
+
+            // 保持 16:9 比例
+            var targetH = e.NewSize.Width * 9.0 / 16.0;
+            PreviewBorder.Height = Math.Clamp(targetH, 200, 400);
 
             // 更新所有 zone 位置
             PositionAllZones();
@@ -60,11 +64,15 @@ namespace AniMeido.Plugin.Base.Views
 
         // ======== 重建所有 UI ========
 
+        private bool _zonesReady; // 标记布局是否就绪
+
         private void RebuildAll()
         {
             ClearAllZones();
-            PopulatePreviewZones();
             PopulateConfigPanel();
+            // 预览区 Zone 仅在布局就绪后添加，否则等待 SizeChanged
+            if (_zonesReady)
+                PopulatePreviewZones();
         }
 
         private void ClearAllZones()
