@@ -9,7 +9,7 @@
 
     <ScrollViewer>
         <StackPanel Padding="24,16"
-                Spacing="16">
+                    Spacing="16">
 
             <TextBlock Text="App 设置"
                        FontSize="24"
@@ -92,7 +92,7 @@
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
                     <Grid Margin="16,0,16,0"
-                            Height="44">
+                          Height="44">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
@@ -108,11 +108,11 @@
                     </Grid>
 
                     <Rectangle Height="1"
-                            Fill="{ThemeResource DividerStrokeColorDefault}"
-                            Margin="16,0"/>
+                               Fill="{ThemeResource DividerStrokeColorDefault}"
+                               Margin="16,0"/>
 
                     <Grid Margin="16,0,16,0"
-                            Height="44">
+                          Height="44">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
@@ -128,11 +128,11 @@
                     </Grid>
 
                     <Rectangle Height="1"
-                            Fill="{ThemeResource DividerStrokeColorDefault}"
-                            Margin="16,0"/>
+                               Fill="{ThemeResource DividerStrokeColorDefault}"
+                               Margin="16,0"/>
 
                     <Grid Margin="16,0,16,0"
-                            Height="44">
+                          Height="44">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
@@ -148,11 +148,11 @@
                     </Grid>
 
                     <Rectangle Height="1"
-                            Fill="{ThemeResource DividerStrokeColorDefault}"
-                            Margin="16,0"/>
+                               Fill="{ThemeResource DividerStrokeColorDefault}"
+                               Margin="16,0"/>
 
                     <Grid Margin="16,0,16,0"
-                            Height="44">
+                          Height="44">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
@@ -178,11 +178,11 @@
                     </Grid>
 
                     <Rectangle Height="1"
-                            Fill="{ThemeResource DividerStrokeColorDefault}"
-                            Margin="16,0"/>
+                               Fill="{ThemeResource DividerStrokeColorDefault}"
+                               Margin="16,0"/>
 
                     <Grid Margin="16,0,16,0"
-                            Height="44">
+                          Height="44">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
@@ -198,11 +198,11 @@
                     </Grid>
 
                     <Rectangle Height="1"
-                            Fill="{ThemeResource DividerStrokeColorDefault}"
-                            Margin="16,0"/>
+                               Fill="{ThemeResource DividerStrokeColorDefault}"
+                               Margin="16,0"/>
 
                     <Grid Margin="16,0,16,0"
-                            Height="44">
+                          Height="44">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
@@ -239,11 +239,11 @@
                     </Grid>
 
                     <Rectangle Height="1"
-                            Fill="{ThemeResource DividerStrokeColorDefault}"
-                            Margin="16,0"/>
+                               Fill="{ThemeResource DividerStrokeColorDefault}"
+                               Margin="16,0"/>
 
                     <Grid Margin="16,0,16,0"
-                            Height="44">
+                          Height="44">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
@@ -328,44 +328,72 @@
                                Style="{StaticResource CaptionTextBlockStyle}"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
-                    <Grid Margin="16,0,16,0" Height="44">
+                    <Grid Margin="16,0,16,0"
+                            Height="44">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel VerticalAlignment="Center">
-                            <TextBlock Text="数据库路径" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <TextBlock x:Name="DbPathText" FontSize="13"/>
+                            <TextBlock Text="数据库路径"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock x:Name="DbPathText"
+                                    FontSize="13"/>
                         </StackPanel>
-                        <Button Grid.Column="1" Content="打开文件夹" Height="32" VerticalAlignment="Center" Click="OnOpenDbDirClick"/>
+                        <Button Grid.Column="1"
+                                Content="打开文件夹"
+                                Height="32"
+                                VerticalAlignment="Center"
+                                Click="OnOpenDbDirClick"/>
                     </Grid>
 
-                    <Rectangle Height="1" Fill="{ThemeResource DividerStrokeColorDefault}" Margin="16,0"/>
+                    <Rectangle Height="1"
+                            Fill="{ThemeResource DividerStrokeColorDefault}"
+                            Margin="16,0"/>
 
-                    <Grid Margin="16,0,16,0" Height="44">
+                    <Grid Margin="16,0,16,0"
+                            Height="44">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel VerticalAlignment="Center">
-                            <TextBlock Text="备份路径" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <TextBlock x:Name="BackupPathText" FontSize="13"/>
+                            <TextBlock Text="备份路径"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock x:Name="BackupPathText"
+                                    FontSize="13"/>
                         </StackPanel>
-                        <Button Grid.Column="1" Content="打开文件夹" Height="32" VerticalAlignment="Center" Click="OnOpenBackupDirClick"/>
+                        <Button Grid.Column="1"
+                                Content="打开文件夹"
+                                Height="32"
+                                VerticalAlignment="Center"
+                                Click="OnOpenBackupDirClick"/>
                     </Grid>
 
-                    <Rectangle Height="1" Fill="{ThemeResource DividerStrokeColorDefault}" Margin="16,0"/>
+                    <Rectangle Height="1"
+                            Fill="{ThemeResource DividerStrokeColorDefault}"
+                            Margin="16,0"/>
 
-                    <Grid Margin="16,0,16,0" Height="44">
+                    <Grid Margin="16,0,16,0"
+                            Height="44">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel VerticalAlignment="Center">
-                            <TextBlock Text="日志路径" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <TextBlock x:Name="LogPathText" FontSize="13"/>
+                            <TextBlock Text="日志路径"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock x:Name="LogPathText"
+                                    FontSize="13"/>
                         </StackPanel>
-                        <Button Grid.Column="1" Content="打开文件夹" Height="32" VerticalAlignment="Center" Click="OnOpenLogDirClick"/>
+                        <Button Grid.Column="1"
+                                Content="打开文件夹"
+                                Height="32"
+                                VerticalAlignment="Center"
+                                Click="OnOpenLogDirClick"/>
                     </Grid>
                 </StackPanel>
             </Border>
@@ -378,13 +406,21 @@
                                Margin="16,12,16,4"
                                Style="{StaticResource CaptionTextBlockStyle}"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <Grid Margin="16,0,16,0" Height="44">
+                    <Grid Margin="16,0,16,0"
+                            Height="44">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="立即备份" VerticalAlignment="Center" FontSize="15"/>
-                        <Button Grid.Column="1" x:Name="BackupNowButton" Content="备份" Height="32" VerticalAlignment="Center" Click="OnBackupNowClick"/>
+                        <TextBlock Text="立即备份"
+                                VerticalAlignment="Center"
+                                FontSize="15"/>
+                        <Button Grid.Column="1"
+                                x:Name="BackupNowButton"
+                                Content="备份"
+                                Height="32"
+                                VerticalAlignment="Center"
+                                Click="OnBackupNowClick"/>
                     </Grid>
                 </StackPanel>
             </Border>
@@ -397,22 +433,40 @@
                                Margin="16,12,16,4"
                                Style="{StaticResource CaptionTextBlockStyle}"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <Grid Margin="16,0,16,0" Height="44">
+                    <Grid Margin="16,0,16,0"
+                            Height="44">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="导出追番数据" VerticalAlignment="Center" FontSize="15"/>
-                        <Button Grid.Column="1" x:Name="ExportButton" Content="导出" Height="32" VerticalAlignment="Center" Click="OnExportClick"/>
+                        <TextBlock Text="导出追番数据"
+                                VerticalAlignment="Center"
+                                FontSize="15"/>
+                        <Button Grid.Column="1"
+                                x:Name="ExportButton"
+                                Content="导出"
+                                Height="32"
+                                VerticalAlignment="Center"
+                                Click="OnExportClick"/>
                     </Grid>
-                    <Rectangle Height="1" Fill="{ThemeResource DividerStrokeColorDefault}" Margin="16,0"/>
-                    <Grid Margin="16,0,16,0" Height="44">
+                    <Rectangle Height="1"
+                            Fill="{ThemeResource DividerStrokeColorDefault}"
+                            Margin="16,0"/>
+                    <Grid Margin="16,0,16,0"
+                            Height="44">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="导入追番数据" VerticalAlignment="Center" FontSize="15"/>
-                        <Button Grid.Column="1" x:Name="ImportButton" Content="导入" Height="32" VerticalAlignment="Center" Click="OnImportClick"/>
+                        <TextBlock Text="导入追番数据"
+                                VerticalAlignment="Center"
+                                FontSize="15"/>
+                        <Button Grid.Column="1"
+                                x:Name="ImportButton"
+                                Content="导入"
+                                Height="32"
+                                VerticalAlignment="Center"
+                                Click="OnImportClick"/>
                     </Grid>
                 </StackPanel>
             </Border>
