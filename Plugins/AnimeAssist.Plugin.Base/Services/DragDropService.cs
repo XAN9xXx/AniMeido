@@ -108,17 +108,17 @@ namespace AniMeido.Plugin.Base.Services
         {
             _dragPointerDown = false;
             if (!_isDragging) return;
-            EndDrag(e.GetCurrentPoint(overlay).Position);
+            EndDrag(overlay, e.GetCurrentPoint(overlay).Position);
         }
 
         /// <summary>
         /// 处理指针取消。
         /// </summary>
-        public void HandlePointerCanceled()
+        public void HandlePointerCanceled(UIElement overlay)
         {
             _dragPointerDown = false;
             if (!_isDragging) return;
-            CancelDrag();
+            CancelDrag(overlay);
         }
 
         private async Task BeginDragAsync(UIElement overlay, params DragAction[] excludeActions)
@@ -193,16 +193,35 @@ namespace AniMeido.Plugin.Base.Services
             _dragGhost = ghost;
         }
 
-        private void EndDrag(Point dropPoint)
+        private void EndDrag(UIElement overlay, Point dropPoint)
         {
             ExecuteDrop(dropPoint);
-            CleanupDrag();
+            CleanupDrag(overlay);
         }
 
-        private void CancelDrag() => CleanupDrag();
+        private void CancelDrag(UIElement overlay) => CleanupDrag(overlay);
 
-        private void CleanupDrag()
+        /// <summary>
+        /// 传入 overlay 以便从视觉树中移除 Ghost 和 Zone。
+        /// 如果 overlay 不可用，UI 元素可能残留。
+        /// </summary>
+        public void CleanupDrag(UIElement? overlay = null)
         {
+            if (overlay is Panel panel)
+            {
+                // 移除 ghost
+                if (_dragGhost != null && panel.Children.Contains(_dragGhost))
+                {
+                    panel.Children.Remove(_dragGhost);
+                }
+                // 移除 zone
+                foreach (var kv in _overlayZones)
+                {
+                    if (panel.Children.Contains(kv.Value.Border))
+                        panel.Children.Remove(kv.Value.Border);
+                }
+            }
+
             _isDragging = false;
             _dragAnime = null;
             _dragGhost = null;

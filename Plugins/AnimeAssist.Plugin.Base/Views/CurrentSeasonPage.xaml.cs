@@ -242,7 +242,7 @@ namespace AniMeido.Plugin.Base.Views
 
         private void OnRootPointerCanceled(object sender, PointerRoutedEventArgs e)
         {
-            _dragDrop.HandlePointerCanceled();
+            _dragDrop.HandlePointerCanceled(DragOverlay);
             CleanupOverlayAfterDrag();
         }
 
