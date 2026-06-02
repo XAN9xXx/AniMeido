@@ -1,4 +1,5 @@
-﻿using AniMeido.Contracts;
+﻿using AniMeido.App.Services;
+using AniMeido.Contracts;
 using Microsoft.UI;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Windowing;
@@ -178,10 +179,11 @@ namespace AniMeido.App
             var splashStart = DateTime.UtcNow;
 
             // 开始导航到首页
-            if (MainNaviView.MenuItems.Count > 0)
+            if (MainNaviView.MenuItems.Count > 0 && _naviItems.Count > 0)
             {
                 MainNaviView.SelectedItem = MainNaviView.MenuItems[0];
-                NavigateTo(_naviItems[0].PageTypeName);
+                var firstItem = _naviItems[0];
+                NavigateToPage(firstItem.PageType ?? Type.GetType(firstItem.PageTypeName));
             }
 
             // 等待首个页面数据加载完成
@@ -272,22 +274,30 @@ namespace AniMeido.App
             if (string.IsNullOrEmpty(pageTypeName))
                 return;
 
-            NavigateTo(pageTypeName);
+            // 通过 PageTypeName 查找对应的导航项，获取 Type
+            var navItem = _naviItems.FirstOrDefault(n => n.PageTypeName == pageTypeName);
+            var pageType = navItem?.PageType ?? System.Type.GetType(pageTypeName);
+            if (pageType != null)
+                NavigateToPage(pageType);
         }
 
-        // 
-        private void NavigateTo(string pageTypeName)
+        //
+        private void NavigateToPage(Type? pageType)
         {
-            var pageType = AppDomain.CurrentDomain.GetAssemblies()
-            .Select(a => a.GetType(pageTypeName))
-            .FirstOrDefault(t => t != null);
+            if (pageType == null) return;
             if (ContentFrame.Content?.GetType() == pageType) return;
-            if (pageType == null)
+
+            var pageFactory = App.Services?.GetService(typeof(PageFactory)) as PageFactory;
+            if (pageFactory != null)
             {
-                Debug.WriteLine($"页面类型未找到: {pageTypeName}");
-                return;
+                var page = pageFactory.CreatePage(pageType);
+                ContentFrame.Content = page;
+                SyncNavigationSelection(pageType);
             }
-            ContentFrame.Navigate(pageType, null, new EntranceNavigationTransitionInfo());
+            else
+            {
+                ContentFrame.Navigate(pageType, null, new EntranceNavigationTransitionInfo());
+            }
         }
     }
 }

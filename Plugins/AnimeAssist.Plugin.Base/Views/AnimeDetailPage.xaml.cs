@@ -17,17 +17,15 @@ namespace AniMeido.Plugin.Base.Views
     public sealed partial class AnimeDetailPage : Page
     {
         public AnimeDetailViewModel ViewModel { get; }
-        private SavedTagService? _savedTagService;
-        private IAnimeDataSource? _dataSource;
+        private SavedTagService _savedTagService;
+        private IAnimeDataSource _dataSource;
         private int _currentAnimeId;
 
-        public AnimeDetailPage()
+        public AnimeDetailPage(IAnimeDataSource dataSource, TrackingService trackingService, SavedTagService savedTagService)
         {
-            var ds = AppServices.Provider!.GetRequiredService<IAnimeDataSource>();
-            var ts = AppServices.Provider!.GetRequiredService<TrackingService>();
-            _savedTagService = AppServices.Provider!.GetRequiredService<SavedTagService>();
-            _dataSource = ds;
-            ViewModel = new AnimeDetailViewModel(ds, ts);
+            _dataSource = dataSource;
+            _savedTagService = savedTagService;
+            ViewModel = new AnimeDetailViewModel(dataSource, trackingService);
             DataContext = ViewModel;
             InitializeComponent();
 

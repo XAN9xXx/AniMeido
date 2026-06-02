@@ -15,28 +15,38 @@ namespace AniMeido.Plugin.Base.Views
 {
     public sealed partial class DragZoneSettingsPage : Page
     {
+        private readonly TrackingService _tracking;
+        private readonly CacheService _cacheService;
+        private readonly ExportService? _exportService;
         private List<DragZoneConfig> _dragZones = DragZoneConfig.GetDefaults();
+
+        private static readonly string AppDataDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "AniMeido");
+        private static string DbPath => Path.Combine(AppDataDir, "AniMeido.db");
+        private static string BackupDir => Path.Combine(AppDataDir, "Backups");
+        private static string LogDir => Path.Combine(AppDataDir, "logs");
         private readonly Dictionary<string, ZoneVisual> _zoneVisuals = new();
         private bool _suppressEvents;
-        private string? _dragAction; // "move" or "resize"
+        private string? _dragAction;
         private string? _activeZoneId;
-        private string? _resizeEdge; // "left"/"right"/"top"/"bottom" or combined
+        private string? _resizeEdge;
         private double _dragOffsetX, _dragOffsetY;
         private double _dragStartX, _dragStartY, _dragStartW, _dragStartH;
         private bool _previewInitialized;
-        private CacheService? _cacheService;
 
-        public DragZoneSettingsPage()
+        public DragZoneSettingsPage(TrackingService tracking, CacheService cacheService, ExportService? exportService)
         {
+            _tracking = tracking;
+            _cacheService = cacheService;
+            _exportService = exportService;
             InitializeComponent();
         }
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
             _suppressEvents = true;
-            var tracking = AppServices.Provider!.GetRequiredService<TrackingService>();
-            _dragZones = await tracking.LoadDragZoneConfigAsync();
-            _cacheService = AppServices.Provider!.GetRequiredService<CacheService>();
+            _dragZones = await _tracking.LoadDragZoneConfigAsync();
             RebuildAll();
             _suppressEvents = false;
 
@@ -574,9 +584,7 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task SaveAsync()
         {
-            if (AppServices.Provider == null) return;
-            var tracking = AppServices.Provider.GetRequiredService<TrackingService>();
-            await tracking.SaveDragZoneConfigAsync(_dragZones);
+            await _tracking.SaveDragZoneConfigAsync(_dragZones);
         }
 
         // ======== 辅助方法 ========
@@ -607,49 +615,48 @@ namespace AniMeido.Plugin.Base.Views
 
         // ======== 数据管理 ========
 
-        private ExportService? _exportService;
-
         private void InitDataSettings()
         {
-            _exportService = AppServices.Provider?.GetService<ExportService>();
-
-            DbPathText.Text = AppServices.DatabasePath ?? "（未知）";
-            BackupPathText.Text = AppServices.BackupDirectory ?? "（未知）";
-            LogPathText.Text = AppServices.LogDirectory ?? "（未知）";
+            DbPathText.Text = DbPath;
+            BackupPathText.Text = BackupDir;
+            LogPathText.Text = LogDir;
         }
 
         private void OnOpenDbDirClick(object sender, RoutedEventArgs e)
         {
-            var dir = Path.GetDirectoryName(AppServices.DatabasePath);
+            var dir = Path.GetDirectoryName(DbPath);
             if (dir != null)
                 _ = Windows.System.Launcher.LaunchFolderPathAsync(dir);
         }
 
         private void OnOpenBackupDirClick(object sender, RoutedEventArgs e)
         {
-            if (AppServices.BackupDirectory != null)
-                _ = Windows.System.Launcher.LaunchFolderPathAsync(AppServices.BackupDirectory);
+            if (BackupDir != null)
+                _ = Windows.System.Launcher.LaunchFolderPathAsync(BackupDir);
         }
 
         private void OnOpenLogDirClick(object sender, RoutedEventArgs e)
         {
-            if (AppServices.LogDirectory != null)
-                _ = Windows.System.Launcher.LaunchFolderPathAsync(AppServices.LogDirectory);
+            if (LogDir != null)
+                _ = Windows.System.Launcher.LaunchFolderPathAsync(LogDir);
         }
 
         private async void OnBackupNowClick(object sender, RoutedEventArgs e)
         {
-            if (AppServices.BackupDatabaseAsync == null) return;
             BackupNowButton.IsEnabled = false;
             BackupNowButton.Content = "备份中…";
             try
             {
-                await AppServices.BackupDatabaseAsync();
+                // 简单文件复制备份
+                var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                var backupFile = Path.Combine(BackupDir, $"AniMeido-{timestamp}.db");
+                Directory.CreateDirectory(BackupDir);
+                File.Copy(DbPath, backupFile, overwrite: true);
 
                 var dialog = new ContentDialog
                 {
                     Title = "备份完成",
-                    Content = $"数据库已备份到：\n{AppServices.BackupDirectory}",
+                    Content = $"数据库已备份到：\n{BackupDir}",
                     CloseButtonText = "确定",
                     XamlRoot = this.XamlRoot
                 };
@@ -768,8 +775,11 @@ namespace AniMeido.Plugin.Base.Views
                 if (await confirmDialog.ShowAsync() != ContentDialogResult.Primary)
                     return;
 
-                if (AppServices.BackupDatabaseAsync != null)
-                    await AppServices.BackupDatabaseAsync();
+                // 导入前自动备份
+                var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                var backupFile = Path.Combine(BackupDir, $"AniMeido-{timestamp}.db");
+                Directory.CreateDirectory(BackupDir);
+                File.Copy(DbPath, backupFile, overwrite: true);
 
                 var (trackingCount, configCount, tagCount) = await _exportService.ImportAsync(json);
 

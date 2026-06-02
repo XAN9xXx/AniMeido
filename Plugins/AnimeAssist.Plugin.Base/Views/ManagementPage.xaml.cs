@@ -17,7 +17,7 @@ namespace AniMeido.Plugin.Base.Views
     public sealed partial class ManagementPage : Page
     {
         public ManagementViewModel ViewModel { get; }
-        private LocalSearchService? _searchService;
+        private readonly LocalSearchService _searchService;
         private CancellationTokenSource? _searchCts;
 
         /// <summary>
@@ -26,13 +26,10 @@ namespace AniMeido.Plugin.Base.Views
         public static Visibility TagAnimeListVisibility(bool isExpanded)
             => isExpanded ? Visibility.Visible : Visibility.Collapsed;
 
-        public ManagementPage()
+        public ManagementPage(TrackingService trackingService, IAnimeDataSource dataSource, SavedTagService savedTagService, LocalSearchService searchService)
         {
-            var ts = AppServices.Provider!.GetRequiredService<TrackingService>();
-            var ds = AppServices.Provider!.GetRequiredService<IAnimeDataSource>();
-            var sts = AppServices.Provider!.GetRequiredService<SavedTagService>();
-            _searchService = AppServices.Provider!.GetRequiredService<LocalSearchService>();
-            ViewModel = new ManagementViewModel(ts, ds, sts);
+            _searchService = searchService;
+            ViewModel = new ManagementViewModel(trackingService, dataSource, savedTagService);
             DataContext = ViewModel;
             InitializeComponent();
 

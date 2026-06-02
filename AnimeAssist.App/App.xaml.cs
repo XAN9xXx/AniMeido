@@ -65,16 +65,23 @@ namespace AniMeido.App
                     sp.GetRequiredService<IHttpClientFactory>(),
                     "https://animeido.com/version.json"
                 ));
+            services.AddSingleton<PageFactory>();
+
+            // 注册所有页面类型（用于 PageFactory 从 DI 创建）
+            services.AddTransient<Plugin.Base.Views.CurrentSeasonPage>();
+            services.AddTransient<Plugin.Base.Views.PastSeasonPage>();
+            services.AddTransient<Plugin.Base.Views.GlobalSearchPage>();
+            services.AddTransient<Plugin.Base.Views.TagSearchResultPage>();
+            services.AddTransient<Plugin.Base.Views.ManagementPage>();
+            services.AddTransient<Plugin.Base.Views.AnimeDetailPage>();
+            services.AddTransient<Plugin.Base.Views.PersonSearchResultPage>();
+            services.AddTransient<Plugin.Base.Views.DragZoneSettingsPage>();
+            services.AddTransient<Plugin.Base.Views.DragZonePreviewPage>();
 
             var provider = services.BuildServiceProvider();
-            Contracts.AppServices.Provider = provider;
             Services = provider;
             var db = provider.GetRequiredService<DatabaseService>();
             await db.InitializeAsync();
-            Contracts.AppServices.DatabasePath = db.DbPath;
-            Contracts.AppServices.BackupDirectory = db.BackupDir;
-            Contracts.AppServices.LogDirectory = db.LogDir;
-            Contracts.AppServices.BackupDatabaseAsync = db.BackupAsync;
 
             _window = new MainWindow(naviItems);
             MainWindow = _window;

@@ -8,7 +8,7 @@ namespace AniMeido.Plugin.Base.Services
     /// 内存缓存条目在写入 SQLite 后加入内存，并发读取时优先命中内存，避免 SQLite I/O。
     /// 内存缓存使用弱引用+过期时间，不会无限增长。
     /// </summary>
-    internal class CacheService : IDisposable
+    public class CacheService : IDisposable
     {
         private readonly SqliteConnection _connection;
         private readonly SemaphoreSlim _syncLock = new(1, 1);

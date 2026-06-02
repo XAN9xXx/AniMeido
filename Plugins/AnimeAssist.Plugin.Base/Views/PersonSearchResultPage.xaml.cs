@@ -11,10 +11,13 @@ namespace AniMeido.Plugin.Base.Views
 {
     public sealed partial class PersonSearchResultPage : Page
     {
-        private IAnimeDataSource? _dataSource;
+        private readonly IAnimeDataSource _dataSource;
+        private readonly TrackingService _tracking;
 
-        public PersonSearchResultPage()
+        public PersonSearchResultPage(IAnimeDataSource dataSource, TrackingService tracking)
         {
+            _dataSource = dataSource;
+            _tracking = tracking;
             InitializeComponent();
         }
 
@@ -24,7 +27,6 @@ namespace AniMeido.Plugin.Base.Views
             if (e.Parameter is (int personId, string personName))
             {
                 TitleBlock.Text = $"声优作品：{personName}";
-                _dataSource = AppServices.Provider?.GetRequiredService<IAnimeDataSource>();
                 await LoadAsync(personId);
             }
         }
@@ -71,16 +73,8 @@ namespace AniMeido.Plugin.Base.Views
                     .Cast<Anime>()
                     .ToList();
 
-                var tracking = AppServices.Provider?.GetRequiredService<TrackingService>();
-                if (tracking != null)
-                {
-                    var blocked = (await tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked)).ToHashSet();
-                    ResultGrid.ItemsSource = animes.Where(a => !blocked.Contains(a.ID)).ToList();
-                }
-                else
-                {
-                    ResultGrid.ItemsSource = animes;
-                }
+                var blocked = (await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked)).ToHashSet();
+                ResultGrid.ItemsSource = animes.Where(a => !blocked.Contains(a.ID)).ToList();
 
                 if (animes.Count == 0)
                 {

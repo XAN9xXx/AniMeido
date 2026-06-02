@@ -42,11 +42,20 @@ namespace AniMeido.Plugin.Base.Views
 
         private readonly ObservableCollection<Anime> _animeSource = new();
 
-        public TagSearchResultPage()
+        // ======== 拖放标记 ========
+
+        private DragDropService _dragDrop;
+        private TrackingService _tracking;
+        private HashSet<int> _blockedIds = new();
+
+        public TagSearchResultPage(DragDropService dragDropService, IAnimeDataSource dataSource, CacheService? cacheService, TrackingService trackingService)
         {
             InitializeComponent();
             ResultGrid.ItemsSource = _animeSource;
-            _dragDrop = AppServices.Provider!.GetRequiredService<DragDropService>();
+            _dragDrop = dragDropService;
+            _dataSource = dataSource;
+            _cacheService = cacheService;
+            _tracking = trackingService;
         }
 
         private void OnPageLoaded(object sender, RoutedEventArgs e)
@@ -61,17 +70,13 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task LoadBlockedIdsAsync()
         {
-            var tracking = AppServices.Provider?.GetRequiredService<TrackingService>();
-            if (tracking != null)
+            var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
+            _blockedIds = blocked.ToHashSet();
+            // 如果数据已经加载完成，重新过滤
+            if (_allData != null && _allData.Count > 0)
             {
-                var blocked = await tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
-                _blockedIds = blocked.ToHashSet();
-                // 如果数据已经加载完成，重新过滤
-                if (_allData != null && _allData.Count > 0)
-                {
-                    _allData = _allData.Where(a => !_blockedIds.Contains(a.ID)).ToList();
-                    ShowPage(0);
-                }
+                _allData = _allData.Where(a => !_blockedIds.Contains(a.ID)).ToList();
+                ShowPage(0);
             }
         }
 
@@ -82,9 +87,6 @@ namespace AniMeido.Plugin.Base.Views
             {
                 TagTitle.Text = tagName;
                 _currentTag = tagName;
-                var sp = AppServices.Provider;
-                _dataSource = sp?.GetRequiredService<IAnimeDataSource>();
-                _cacheService = sp?.GetService<CacheService>();
                 _currentSort = "rank";
                 _sortDescending = true;
                 SortOrderToggle.IsChecked = true;
@@ -305,9 +307,6 @@ namespace AniMeido.Plugin.Base.Views
         }
 
         // ======== 拖放标记 ========
-
-        private DragDropService _dragDrop = null!;
-        private HashSet<int> _blockedIds = new();
 
         private void OnRootPointerMoved(object sender, PointerRoutedEventArgs e)
         {

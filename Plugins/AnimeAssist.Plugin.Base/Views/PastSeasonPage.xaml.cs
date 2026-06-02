@@ -18,17 +18,16 @@ namespace AniMeido.Plugin.Base.Views
     {
         private readonly PastSeasonViewModel _viewModel;
         public PastSeasonViewModel ViewModel => _viewModel;
-        private List<DragZoneConfig> _dragZones = DragZoneConfig.GetDefaults();
         private readonly List<Anime> _allAnime = new();
         private HashSet<int> _blockedIds = new();
-        private DragDropService _dragDrop = null!;
+        private DragDropService _dragDrop;
+        private TrackingService _tracking;
 
-        public PastSeasonPage()
+        public PastSeasonPage(IAnimeDataSource dataSource, DragDropService dragDropService, TrackingService trackingService)
         {
-            var sp = AppServices.Provider!;
-            var ds = sp.GetRequiredService<IAnimeDataSource>();
-            _viewModel = new PastSeasonViewModel(ds);
-            _dragDrop = sp.GetRequiredService<DragDropService>();
+            _viewModel = new PastSeasonViewModel(dataSource);
+            _dragDrop = dragDropService;
+            _tracking = trackingService;
             InitializeComponent();
 
             _ = LoadDragConfigAndBlockedAsync();
@@ -259,9 +258,8 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task LoadDragConfigAndBlockedAsync()
         {
-            var tracking = AppServices.Provider!.GetRequiredService<TrackingService>();
             await _dragDrop.ReloadConfigAsync();
-            var blocked = await tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
+            var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
             _blockedIds = blocked.ToHashSet();
             // 无论数据是否已加载，都重新从原始数据过滤一次
             if (ViewModel.AnimeList.Count > 0)

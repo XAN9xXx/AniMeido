@@ -18,20 +18,21 @@ namespace AniMeido.Plugin.Base.Views
 {
     public sealed partial class GlobalSearchPage : Page
     {
-        private IAnimeDataSource? _dataSource;
+        private IAnimeDataSource _dataSource;
+        private DragDropService _dragDrop;
+        private TrackingService _tracking;
         private string? _currentKeyword;
         private int _currentOffset;
         private int _totalResults;
         private const int PageSize = 20;
-
-        // ======== 拖放 ========
-        private DragDropService _dragDrop = null!;
         private HashSet<int> _blockedIds = new();
 
-        public GlobalSearchPage()
+        public GlobalSearchPage(DragDropService dragDropService, IAnimeDataSource dataSource, TrackingService trackingService)
         {
             InitializeComponent();
-            _dragDrop = AppServices.Provider!.GetRequiredService<DragDropService>();
+            _dragDrop = dragDropService;
+            _dataSource = dataSource;
+            _tracking = trackingService;
         }
 
         private void OnPageLoaded(object sender, RoutedEventArgs e)
@@ -45,12 +46,8 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task LoadBlockedIdsAsync()
         {
-            var tracking = AppServices.Provider?.GetRequiredService<TrackingService>();
-            if (tracking != null)
-            {
-                var blocked = await tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
-                _blockedIds = blocked.ToHashSet();
-            }
+            var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
+            _blockedIds = blocked.ToHashSet();
         }
 
         private void OnSearchClick(object sender, RoutedEventArgs e)
@@ -76,12 +73,6 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task SearchAsync(int offset)
         {
-            if (_dataSource == null || _currentKeyword == null)
-            {
-                _dataSource = AppServices.Provider?.GetRequiredService<IAnimeDataSource>();
-                if (_dataSource == null) return;
-            }
-
             LoadingOverlay.Visibility = Visibility.Visible;
             LoadingRing.IsActive = true;
             PrevButton.IsEnabled = false;
@@ -89,7 +80,7 @@ namespace AniMeido.Plugin.Base.Views
 
             try
             {
-                var (results, total) = await _dataSource.SearchByKeywordAsync(_currentKeyword, offset, CancellationToken.None);
+                var (results, total) = await _dataSource.SearchByKeywordAsync(_currentKeyword ?? string.Empty, offset, CancellationToken.None);
 
                 _currentOffset = offset;
                 _totalResults = total;

@@ -25,13 +25,25 @@ namespace AniMeido.Plugin.Base
         {
             return new List<PluginNavigationItem>
             {
-                //TODO: 这里的\uE713需要改成实际的导航栏logo
-                new PluginNavigationItem("正在放送", "\uE713", "AniMeido.Plugin.Base.Views.CurrentSeasonPage"),
-                new PluginNavigationItem("补番计划", "\uE713", "AniMeido.Plugin.Base.Views.PastSeasonPage"),
-                new PluginNavigationItem("搜索", "\uE71A", "AniMeido.Plugin.Base.Views.GlobalSearchPage"),
-                new PluginNavigationItem("关注管理", "\uE72E", "AniMeido.Plugin.Base.Views.ManagementPage"),
+                new PluginNavigationItem("正在放送", "\uE713", "AniMeido.Plugin.Base.Views.CurrentSeasonPage")
+                {
+                    PageType = typeof(Views.CurrentSeasonPage)
+                },
+                new PluginNavigationItem("补番计划", "\uE713", "AniMeido.Plugin.Base.Views.PastSeasonPage")
+                {
+                    PageType = typeof(Views.PastSeasonPage)
+                },
+                new PluginNavigationItem("搜索", "\uE71A", "AniMeido.Plugin.Base.Views.GlobalSearchPage")
+                {
+                    PageType = typeof(Views.GlobalSearchPage)
+                },
+                new PluginNavigationItem("关注管理", "\uE72E", "AniMeido.Plugin.Base.Views.ManagementPage")
+                {
+                    PageType = typeof(Views.ManagementPage)
+                },
                 new PluginNavigationItem("拖放标记", "\uE713", "AniMeido.Plugin.Base.Views.DragZoneSettingsPage")
                 {
+                    PageType = typeof(Views.DragZoneSettingsPage),
                     IsSettingsPage = true
                 }
             };

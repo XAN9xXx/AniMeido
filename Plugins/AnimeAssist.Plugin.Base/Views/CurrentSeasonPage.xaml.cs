@@ -24,7 +24,8 @@ namespace AniMeido.Plugin.Base.Views
         static bool _hasAutoScrolledOnce = false;
         private readonly List<Anime> _allAnime = new();
         private HashSet<int> _blockedIds = new();
-        private DragDropService _dragDrop = null!;
+        private DragDropService _dragDrop;
+        private TrackingService _tracking;
 
         /// <summary>
         /// 供 MainWindow 在开屏淡出后调用，触发自动跳转到今日星期分组。
@@ -43,12 +44,11 @@ namespace AniMeido.Plugin.Base.Views
             }
         }
 
-        public CurrentSeasonPage()
+        public CurrentSeasonPage(IAnimeDataSource dataSource, DragDropService dragDropService, TrackingService trackingService)
         {
-            var sp = AppServices.Provider!;
-            var ds = sp.GetRequiredService<IAnimeDataSource>();
-            ViewModel = new CurrentSeasonViewModel(ds);
-            _dragDrop = sp.GetRequiredService<DragDropService>();
+            ViewModel = new CurrentSeasonViewModel(dataSource);
+            _dragDrop = dragDropService;
+            _tracking = trackingService;
             InitializeComponent();
 
             _ = LoadDragConfigAndBlockedAsync();
@@ -210,9 +210,8 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task LoadDragConfigAndBlockedAsync()
         {
-            var tracking = AppServices.Provider!.GetRequiredService<TrackingService>();
             await _dragDrop.ReloadConfigAsync();
-            var blocked = await tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
+            var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
             _blockedIds = blocked.ToHashSet();
             // 无论数据是否已加载，都重新从原始数据过滤一次
             if (ViewModel.AnimeList.Count > 0)

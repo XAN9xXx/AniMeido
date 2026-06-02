@@ -3,13 +3,16 @@
 namespace AniMeido.Contracts
 {
     /// <summary>
-    /// 将插件提供的导航项信息封装为一个记录类型，包含显示名称、图标和页面类型名称属性。
+    /// 将插件提供的导航项信息封装为一个记录类型，包含显示名称、图标、页面类型。
     /// </summary>
     /// <param name="Label">导航栏显示名称。</param>
     /// <param name="Icon">导航栏图标。</param>
-    /// <param name="PageTypeName">页面类型名称。</param>
+    /// <param name="PageTypeName">页面类型名称（字符串形式，兼容旧版反射导航）。</param>
     public record PluginNavigationItem(string Label, string Icon, string PageTypeName)
     {
+        /// <summary>页面类型。由插件在返回导航项时填充，用于编译期安全的导航。</summary>
+        public Type? PageType { get; init; }
+
         /// <summary>是否为插件设置页面。设置页不会显示在主导航中，而是聚合到设置页内。</summary>
         public bool IsSettingsPage { get; init; }
     }
