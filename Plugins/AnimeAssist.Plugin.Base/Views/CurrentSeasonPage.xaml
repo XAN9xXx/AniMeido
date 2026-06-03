@@ -160,10 +160,11 @@
         </Grid>
 
         <!-- 拖放目标覆盖层：拖放开始时显示，动态生成 zone -->
-        <Grid x:Name="DragOverlay"
-              Grid.RowSpan="2"
-              Visibility="Collapsed"
-              AllowDrop="True">
-        </Grid>
+        <Canvas x:Name="DragOverlay"
+                Grid.RowSpan="2"
+                Visibility="Collapsed"
+                Background="Transparent"
+                AllowDrop="True"
+                PointerMoved="OnRootPointerMoved"/>
     </Grid>
 </Page>

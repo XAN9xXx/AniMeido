@@ -39,7 +39,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             try
             {
                 var records = await _browseHistory.GetHistoryAsync(50);
-                HistoryList.Clear();
+                var items = new List<Anime>();
 
                 foreach (var (animeId, title, lastViewed, viewCount) in records)
                 {
@@ -68,9 +68,11 @@ namespace AniMeido.Plugin.Base.ViewModels
                         );
                     }
 
-                    HistoryList.Add(anime);
+                    items.Add(anime);
                 }
 
+                // 一次性替换集合引用（单次 PropertyChanged）
+                HistoryList = new ObservableCollection<Anime>(items);
                 HasData = HistoryList.Count > 0;
                 IsEmpty = HistoryList.Count == 0;
             }

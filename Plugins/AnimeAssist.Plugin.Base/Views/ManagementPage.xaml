@@ -7,6 +7,7 @@
     xmlns:local="using:AniMeido.Plugin.Base.Views"
     xmlns:vm="using:AniMeido.Plugin.Base.ViewModels"
     xmlns:contracts="using:AniMeido.Contracts.Models"
+    xmlns:services="using:AniMeido.Plugin.Base.Services"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
     <Page.Resources>
@@ -233,18 +234,62 @@
         </StackPanel>
 
         <Grid Grid.Column="1">
-            <!-- 搜索结果面板 -->
-            <ScrollViewer x:Name="SearchResultPanel"
-                          Visibility="Collapsed"
-                          Padding="0,0,8,0">
-                <StackPanel x:Name="SearchResultContainer"
-                            Spacing="8">
+            <!-- 搜索结果面板：ListView 支持虚拟化 -->
+            <ListView x:Name="SearchResultPanel"
+                      Visibility="Collapsed"
+                      ItemsSource="{x:Bind _searchResults}"
+                      IsItemClickEnabled="True"
+                      ItemClick="OnSearchResultClick"
+                      SelectionMode="None"
+                      Padding="0,0,8,0">
+                <ListView.Header>
                     <TextBlock x:Name="SearchResultCount"
                                FontSize="16"
                                FontWeight="SemiBold"
-                               Margin="0,0,0,4"/>
-                </StackPanel>
-            </ScrollViewer>
+                               Margin="0,0,0,8"/>
+                </ListView.Header>
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="services:SearchResult">
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                CornerRadius="8"
+                                Padding="12"
+                                Margin="0,0,0,8">
+                            <Grid ColumnDefinitions="64,*"
+                                  ColumnSpacing="12">
+                                <!-- 封面 -->
+                                <Border Width="64"
+                                        Height="90"
+                                        CornerRadius="4">
+                                    <Image Stretch="UniformToFill"
+                                           Source="{x:Bind CoverImage}"/>
+                                </Border>
+                                <!-- 信息 -->
+                                <StackPanel Grid.Column="1"
+                                        Spacing="4">
+                                    <TextBlock Text="{x:Bind Anime.Title}"
+                                               FontSize="15"
+                                               FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <Border CornerRadius="4"
+                                            Padding="6,2"
+                                            HorizontalAlignment="Left"
+                                            Background="{ThemeResource SystemAccentColor}">
+                                        <TextBlock Text="{x:Bind StatusLabel}"
+                                                   FontSize="12"
+                                                   Foreground="White"/>
+                                    </Border>
+                                    <TextBlock Text="{x:Bind Anime.Description}"
+                                               FontSize="12"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               TextTrimming="CharacterEllipsis"
+                                               MaxLines="2"
+                                               TextWrapping="WrapWholeWords"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
 
             <Grid x:Name="LoadingOverlay"
                   Visibility="Collapsed"

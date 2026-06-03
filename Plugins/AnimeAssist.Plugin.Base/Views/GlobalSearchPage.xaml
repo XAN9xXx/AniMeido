@@ -133,9 +133,11 @@
         </Grid>
 
         <!-- 拖放覆盖层 -->
-        <Grid Grid.RowSpan="3"
-              x:Name="DragOverlay"
-              Visibility="Collapsed"
-              AllowDrop="True"/>
+        <Canvas Grid.RowSpan="3"
+                x:Name="DragOverlay"
+                Visibility="Collapsed"
+                Background="Transparent"
+                AllowDrop="True"
+                PointerMoved="OnRootPointerMoved"/>
     </Grid>
 </Page>

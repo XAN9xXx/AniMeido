@@ -29,7 +29,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         [ObservableProperty]
         private string? _studiosText = null;
 
-        public ObservableCollection<CharacterRole> Characters { get; } = new();
+        public ObservableCollection<CharacterRole> Characters { get; private set; } = new();
 
         public string? BangumiUrl => _lastAnimeID > 0
             ? $"https://bgm.tv/subject/{_lastAnimeID}"
@@ -214,9 +214,8 @@ namespace AniMeido.Plugin.Base.ViewModels
             try
             {
                 var characters = await _animeDataSource.GetCharacterRolesAsync(animeID, CancellationToken.None);
-                Characters.Clear();
-                foreach (var c in characters)
-                    Characters.Add(c);
+                // 一次性替换集合引用
+                Characters = new ObservableCollection<CharacterRole>(characters);
             }
             catch (HttpRequestException)
             {

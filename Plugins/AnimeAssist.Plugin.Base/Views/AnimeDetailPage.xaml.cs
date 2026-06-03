@@ -318,8 +318,10 @@ namespace AniMeido.Plugin.Base.Views
 
             if (!string.IsNullOrEmpty(anime.CoverURL))
             {
-                DetailCoverImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
-                    ImageCacheHelper.GetImageUri(anime.ID, anime.CoverURL));
+                var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                bmp.DecodePixelWidth = 300;
+                bmp.UriSource = ImageCacheHelper.GetImageUri(anime.ID, anime.CoverURL);
+                DetailCoverImage.Source = bmp;
 
                 if (!ImageCacheHelper.HasLocalCache(anime.ID))
                     _ = ImageCacheHelper.CacheImageAsync(anime.ID, anime.CoverURL);
@@ -387,7 +389,7 @@ namespace AniMeido.Plugin.Base.Views
                     Height = 64,
                     Stretch = Microsoft.UI.Xaml.Media.Stretch.UniformToFill,
                     Source = ImageCacheHelper.TryCreateValidImageUri(character.CharacterImage ?? "", out var charUri)
-                        ? new BitmapImage(charUri)
+                        ? new BitmapImage(charUri) { DecodePixelWidth = 128 }
                         : new BitmapImage(ImageCacheHelper.PlaceholderUri),
                 }
             };

@@ -114,7 +114,8 @@
                 </StackPanel>
 
                 <!-- 番剧网格 -->
-                <GridView ItemsSource="{x:Bind ViewModel.AnimeList}"
+                <GridView x:Name="AnimeGridView"
+                          ItemsSource="{x:Bind ViewModel.AnimeList}"
                           IsItemClickEnabled="True"
                           ItemClick="OnItemClick"
                           SelectionMode="None">
@@ -185,10 +186,11 @@
             </StackPanel>
         </Grid>
 
-        <Grid x:Name="DragOverlay"
-              Grid.RowSpan="2"
-              Visibility="Collapsed"
-              AllowDrop="True">
-        </Grid>
+        <Canvas x:Name="DragOverlay"
+                Grid.RowSpan="2"
+                Visibility="Collapsed"
+                Background="Transparent"
+                AllowDrop="True"
+                PointerMoved="OnRootPointerMoved"/>
     </Grid>
 </Page>

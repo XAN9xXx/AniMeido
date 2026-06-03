@@ -1,13 +1,16 @@
 ﻿using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Views.Controls;
+using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Input;
 using Windows.Foundation;
 using Windows.UI;
 using Microsoft.UI.Xaml.Media.Imaging;
+using System.Numerics;
 
 namespace AniMeido.Plugin.Base.Services
 {
@@ -25,6 +28,7 @@ namespace AniMeido.Plugin.Base.Services
         private Point _dragPointerDownPos;
         private Point _dragGhostOffset;
         private Border? _dragGhost;
+        private Visual? _ghostVisual;  // Composition Visual for ghost positioning
         private bool _isDragging;
 
         // Zone 状态
@@ -53,7 +57,7 @@ namespace AniMeido.Plugin.Base.Services
         }
 
         /// <summary>
-        /// 处理指针按下：检测是否在 AnimeCard 上，记录拖放起点。
+        /// 处理指针按下：从 OriginalSource 向上查找 AnimeCard，记录拖放起点。
         /// </summary>
         public void HandlePointerPressed(UIElement pageRoot, PointerRoutedEventArgs e)
         {
@@ -62,31 +66,31 @@ namespace AniMeido.Plugin.Base.Services
             _dragPointerDownPos = e.GetCurrentPoint(pageRoot).Position;
 
             _dragAnime = null;
-            var cards = FindAllElements<AnimeCard>(pageRoot);
-            foreach (var card in cards)
+            // 从原始事件源向上遍历视觉树，查找 AnimeCard（O(depth)而非 O(cards×depth)）
+            var element = e.OriginalSource as DependencyObject;
+            while (element != null)
             {
-                var t = card.TransformToVisual(pageRoot);
-                var o = t.TransformPoint(new Point(0, 0));
-                var r = new Rect(o.X, o.Y, card.ActualWidth, card.ActualHeight);
-                if (r.Contains(_dragPointerDownPos))
+                if (element is AnimeCard card)
                 {
                     _dragAnime = card.DataContext as Anime;
                     break;
                 }
+                element = VisualTreeHelper.GetParent(element);
             }
         }
 
         /// <summary>
-        /// 处理指针移动：跟踪 Ghost 位置，或触发拖放开始。
+        /// 处理指针移动：通过 Composition Offset 更新 Ghost 位置（合成线程，零布局开销）。
         /// </summary>
-        /// <param name="excludeActions">Zone 中排除的 DragAction（页面自定义）。</param>
-        /// <returns>拖放是否已开始。</returns>
         public bool HandlePointerMoved(UIElement pageRoot, UIElement overlay, PointerRoutedEventArgs e, params DragAction[] excludeActions)
         {
-            if (_isDragging && _dragGhost != null)
+            if (_isDragging && _ghostVisual != null)
             {
                 var pt = e.GetCurrentPoint(overlay).Position;
-                _dragGhost.Margin = new Thickness(pt.X + _dragGhostOffset.X, pt.Y + _dragGhostOffset.Y, 0, 0);
+                _ghostVisual.Offset = new Vector3(
+                    (float)(pt.X + _dragGhostOffset.X),
+                    (float)(pt.Y + _dragGhostOffset.Y),
+                    0);
                 return true;
             }
 
@@ -127,71 +131,57 @@ namespace AniMeido.Plugin.Base.Services
 
             try
             {
-                _dragZones = await _tracking.LoadDragZoneConfigAsync();
-
                 overlay.Visibility = Visibility.Visible;
-                overlay.UpdateLayout();
                 BuildAndShowZones(overlay, excludeActions);
 
                 var anime = _dragAnime!;
+
+                // 创建轻量 Ghost：仅 Border + Image（去掉不可读的 TextBlock 降低合成负担）
+                var coverImage = new Image
+                {
+                    Stretch = Stretch.UniformToFill,
+                    Height = 200,
+                    Width = 150,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                };
+                if (!string.IsNullOrEmpty(anime.CoverURL))
+                {
+                    var bmp = new BitmapImage();
+                    bmp.DecodePixelWidth = 300; // 指定解码尺寸，避免全分辨率解码
+                    bmp.UriSource = ImageCacheHelper.GetImageUri(anime.ID, anime.CoverURL);
+                    coverImage.Source = bmp;
+                }
+                var clipRect = new RectangleGeometry();
+                clipRect.Rect = new Rect(0, 0, 150, 200);
+                coverImage.Clip = clipRect;
+
                 var ghost = new Border
                 {
                     Width = 150,
-                    Height = 256,
+                    Height = 200,
                     CornerRadius = new CornerRadius(8),
                     Background = new SolidColorBrush(Color.FromArgb(200, 30, 30, 30)),
                     Opacity = 0.85,
                     HorizontalAlignment = HorizontalAlignment.Left,
                     VerticalAlignment = VerticalAlignment.Top,
                     IsHitTestVisible = false,
+                    Child = coverImage,
                 };
 
-            var ghostGrid = new Grid();
-            ghostGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(200) });
-            ghostGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                _dragGhostOffset = new Point(-75, -100);
+                var initialX = (float)(_dragPointerDownPos.X + _dragGhostOffset.X);
+                var initialY = (float)(_dragPointerDownPos.Y + _dragGhostOffset.Y);
 
-            var cover = new Image
-            {
-                Stretch = Stretch.UniformToFill,
-                Height = 200,
-                VerticalAlignment = VerticalAlignment.Top,
-            };
-            if (!string.IsNullOrEmpty(anime.CoverURL))
-            {
-                cover.Source = new BitmapImage(ImageCacheHelper.GetImageUri(anime.ID, anime.CoverURL));
-            }
-            var clipRect = new Microsoft.UI.Xaml.Media.RectangleGeometry();
-            clipRect.Rect = new Rect(0, 0, 150, 200);
-            cover.Clip = clipRect;
-            Grid.SetRow(cover, 0);
-            ghostGrid.Children.Add(cover);
+                if (overlay is Panel overlayPanel)
+                {
+                    overlayPanel.Children.Add(ghost);
+                }
+                _dragGhost = ghost;
 
-            var titleBlock = new TextBlock
-            {
-                Text = anime.Title ?? "",
-                Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
-                FontSize = 13,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                TextWrapping = TextWrapping.Wrap,
-                MaxLines = 2,
-                Margin = new Thickness(8, 6, 8, 6),
-                HorizontalAlignment = HorizontalAlignment.Left,
-            };
-            Grid.SetRow(titleBlock, 1);
-            ghostGrid.Children.Add(titleBlock);
-
-            ghost.Child = ghostGrid;
-
-            _dragGhostOffset = new Point(-75, -128);
-            ghost.Margin = new Thickness(
-                _dragPointerDownPos.X + _dragGhostOffset.X,
-                _dragPointerDownPos.Y + _dragGhostOffset.Y, 0, 0);
-            if (overlay is Panel overlayPanel)
-            {
-                overlayPanel.Children.Add(ghost);
-            }
-            _dragGhost = ghost;
+                // 用 Composition Offset 替代 Margin 定位——合成线程执行，不触发 UI 线程布局
+                _ghostVisual = ElementCompositionPreview.GetElementVisual(ghost);
+                _ghostVisual.Offset = new Vector3(initialX, initialY, 0);
             }
 #pragma warning disable CA1031 // 拖放初始化失败应清理 UI 而非崩溃
             catch (Exception ex)
@@ -235,6 +225,7 @@ namespace AniMeido.Plugin.Base.Services
             _isDragging = false;
             _dragAnime = null;
             _dragGhost = null;
+            _ghostVisual = null;
             _overlayZones.Clear();
             _dragPointerDown = false;
         }
@@ -293,10 +284,12 @@ namespace AniMeido.Plugin.Base.Services
                 {
                     zone.Width = pw * config.WidthPercent;
                     zone.Height = ph * config.HeightPercent;
-                    zone.Margin = new Thickness(pw * config.XPercent, ph * config.YPercent, 0, 0);
+                    // Canvas 用附加属性定位，不触发 measure/arrange，避免拖放时布局干扰
+                    Canvas.SetLeft(zone, pw * config.XPercent);
+                    Canvas.SetTop(zone, ph * config.YPercent);
                 }
 
-                if (overlay is Panel p) p.Children.Add(zone);
+                if (overlay is Canvas canvas) canvas.Children.Add(zone);
                 _overlayZones[config.Id] = new DragDropZoneInfo(zone, inner, label);
             }
         }

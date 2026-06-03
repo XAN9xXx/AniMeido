@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 
 namespace AniMeido.Plugin.Base.Views
 {
@@ -231,11 +232,21 @@ namespace AniMeido.Plugin.Base.Views
             _loadCts = new CancellationTokenSource();
             var version = Interlocked.Increment(ref _loadVersion);
 
+            // 数据加载期间禁用入场动画，避免 50+ 项同时触发交错动画导致卡顿
+            AnimeGridView.ItemContainerTransitions = null;
+
             await ViewModel.LoadPastSeasonAnimeAsync(year, season, _loadCts.Token);
 
             // 如果已有更新的请求，丢弃此结果
             if (version != _loadVersion) return;
             UpdateViewState();
+
+            // 数据加载完成后恢复入场动画（用于后续浏览时的视觉效果）
+            await Task.Delay(300);
+            AnimeGridView.ItemContainerTransitions = new TransitionCollection
+            {
+                new EntranceThemeTransition { IsStaggeringEnabled = true }
+            };
         }
 
         private void OnYearSelectionChanged(object sender, SelectionChangedEventArgs e)

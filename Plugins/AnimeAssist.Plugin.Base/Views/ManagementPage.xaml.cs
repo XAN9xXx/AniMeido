@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using System.Collections.ObjectModel;
 using Windows.UI;
 
 namespace AniMeido.Plugin.Base.Views
@@ -18,6 +19,7 @@ namespace AniMeido.Plugin.Base.Views
         private readonly LocalSearchService _searchService;
         private readonly IPluginNavigator _pluginNavigator;
         private CancellationTokenSource? _searchCts;
+        private readonly ObservableCollection<SearchResult> _searchResults = [];
 
         /// <summary>
         /// 用于 XAML 绑定的静态方法：根据 IsExpanded 返回 Visibility。
@@ -164,6 +166,7 @@ namespace AniMeido.Plugin.Base.Views
                 WatchingIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
                 WatchingLabel.Foreground = selectedBrush;
                 WatchingCard.Background = selectedBg;
+                _ = ViewModel.LoadPanelAnimeAsync(AnimeTrackingStatus.Watching);
             }
             else if (sender == (object)PlanToWatchCard)
             {
@@ -172,6 +175,7 @@ namespace AniMeido.Plugin.Base.Views
                 PlanToWatchIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
                 PlanToWatchLabel.Foreground = selectedBrush;
                 PlanToWatchCard.Background = selectedBg;
+                _ = ViewModel.LoadPanelAnimeAsync(AnimeTrackingStatus.PlanToWatch);
             }
             else if (sender == (object)NotInterestedCard)
             {
@@ -180,6 +184,7 @@ namespace AniMeido.Plugin.Base.Views
                 NotInterestedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
                 NotInterestedLabel.Foreground = selectedBrush;
                 NotInterestedCard.Background = selectedBg;
+                _ = ViewModel.LoadPanelAnimeAsync(AnimeTrackingStatus.NotInterested);
             }
             else if (sender == (object)FollowingCard)
             {
@@ -188,6 +193,7 @@ namespace AniMeido.Plugin.Base.Views
                 FollowingIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
                 FollowingLabel.Foreground = selectedBrush;
                 FollowingCard.Background = selectedBg;
+                _ = ViewModel.LoadPanelAnimeAsync(AnimeTrackingStatus.Following);
             }
             else if (sender == (object)CompletedCard)
             {
@@ -196,6 +202,7 @@ namespace AniMeido.Plugin.Base.Views
                 CompletedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
                 CompletedLabel.Foreground = selectedBrush;
                 CompletedCard.Background = selectedBg;
+                _ = ViewModel.LoadPanelAnimeAsync(AnimeTrackingStatus.Completed);
             }
             else if (sender == (object)DroppedCard)
             {
@@ -204,6 +211,7 @@ namespace AniMeido.Plugin.Base.Views
                 DroppedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
                 DroppedLabel.Foreground = selectedBrush;
                 DroppedCard.Background = selectedBg;
+                _ = ViewModel.LoadPanelAnimeAsync(AnimeTrackingStatus.Dropped);
             }
             else if (sender == (object)BlockedCard)
             {
@@ -212,6 +220,7 @@ namespace AniMeido.Plugin.Base.Views
                 BlockedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
                 BlockedLabel.Foreground = selectedBrush;
                 BlockedCard.Background = selectedBg;
+                _ = ViewModel.LoadPanelAnimeAsync(AnimeTrackingStatus.Blocked);
             }
             else if (sender == (object)TagCard)
             {
@@ -409,61 +418,29 @@ namespace AniMeido.Plugin.Base.Views
             _searchCts = new CancellationTokenSource();
             var ct = _searchCts.Token;
 
-            // 切换到搜索面板
             ShowSearchPanel();
-
-            var loadingText = new TextBlock
-            {
-                Text = "搜索中…",
-                Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(160, 128, 128, 128)),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 24, 0, 0),
-            };
-            SearchResultContainer.Children.Clear();
-            SearchResultContainer.Children.Add(loadingText);
+            SearchResultCount.Text = "搜索中…";
+            _searchResults.Clear();
 
             try
             {
                 var results = await _searchService.SearchTrackedAsync(query, ct);
 
-                SearchResultContainer.Children.Clear();
-
                 SearchResultCount.Text = $"搜索结果：共 {results.Count} 条";
 
-                if (results.Count == 0)
-                {
-                    var emptyText = new TextBlock
-                    {
-                        Text = $"未找到与「{query}」匹配的番剧",
-                        Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(160, 128, 128, 128)),
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        Margin = new Thickness(0, 24, 0, 0),
-                    };
-                    SearchResultContainer.Children.Add(emptyText);
-                    return;
-                }
-
-                foreach (var result in results)
-                {
-                    var card = CreateSearchResultCard(result);
-                    SearchResultContainer.Children.Add(card);
-                }
+                // 一次性替换数据源（ListView 虚拟化，仅渲染可见项）
+                _searchResults.Clear();
+                foreach (var r in results)
+                    _searchResults.Add(r);
             }
             catch (OperationCanceledException) { }
-#pragma warning disable CA1031 // 搜索结果为空时显示错误提示
+#pragma warning disable CA1031 // 搜索异常不应崩溃页面，错误信息已通过 SearchResultCount 展示
             catch (Exception ex)
             {
-                SearchResultContainer.Children.Clear();
-#pragma warning restore CA1031
-                var errText = new TextBlock
-                {
-                    Text = $"搜索出错：{ex.Message}",
-                    Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(200, 255, 80, 80)),
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    Margin = new Thickness(0, 24, 0, 0),
-                };
-                SearchResultContainer.Children.Add(errText);
+                SearchResultCount.Text = $"搜索出错：{ex.Message}";
+                _searchResults.Clear();
             }
+#pragma warning restore CA1031
         }
 
         private void ShowSearchPanel()
@@ -483,12 +460,18 @@ namespace AniMeido.Plugin.Base.Views
         private void HideSearchResults()
         {
             SearchResultPanel.Visibility = Visibility.Collapsed;
-            SearchResultContainer.Children.Clear();
+            _searchResults.Clear();
 
             // 恢复当前选中的 tab
             var selectedTab = GetSelectedTab();
             if (selectedTab != null)
                 selectedTab.Visibility = Visibility.Visible;
+        }
+
+        private void OnSearchResultClick(object sender, ItemClickEventArgs e)
+        {
+            if (e.ClickedItem is SearchResult result)
+                _pluginNavigator.Navigate(typeof(AnimeDetailPage), result.Anime.ID);
         }
 
         private ScrollViewer? GetSelectedTab()
@@ -503,119 +486,6 @@ namespace AniMeido.Plugin.Base.Views
             if (TagIndicator.Visibility == Visibility.Visible) return TagPanel;
             return WatchingPanel;
         }
-
-        private Border CreateSearchResultCard(SearchResult result)
-        {
-            var anime = result.Anime;
-            var statusLabel = GetStatusLabel(result.TrackingStatus);
-            var statusColor = GetStatusColor(result.TrackingStatus);
-
-            var coverBorder = new Border
-            {
-                Width = 64,
-                Height = 90,
-                CornerRadius = new CornerRadius(4),
-                Child = new Image
-                {
-                    Stretch = Stretch.UniformToFill,
-                    Source = new BitmapImage(ImageCacheHelper.GetImageUri(anime.ID, anime.CoverURL)),
-                }
-            };
-
-            var titleText = new TextBlock
-            {
-                Text = anime.Title,
-                FontSize = 15,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-            };
-
-            var statusBadge = new Border
-            {
-                CornerRadius = new CornerRadius(4),
-                Background = statusColor,
-                Padding = new Thickness(6, 2, 6, 2),
-                Child = new TextBlock
-                {
-                    Text = statusLabel,
-                    FontSize = 12,
-                    Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
-                }
-            };
-
-            var descText = new TextBlock
-            {
-                Text = anime.Description,
-                FontSize = 12,
-                Foreground = new SolidColorBrush(Color.FromArgb(160, 128, 128, 128)),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                MaxLines = 2,
-                TextWrapping = TextWrapping.WrapWholeWords,
-            };
-
-            var infoStack = new StackPanel
-            {
-                Spacing = 4,
-                Children = { titleText, statusBadge, descText }
-            };
-
-            var card = new Border
-            {
-                Background = new SolidColorBrush(Color.FromArgb(15, 255, 255, 255)),
-                CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(12),
-                Tag = anime.ID,
-            };
-            var innerGrid = new Grid
-            {
-                ColumnDefinitions =
-                {
-                    new ColumnDefinition { Width = new GridLength(64) },
-                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                },
-                ColumnSpacing = 12,
-            };
-            innerGrid.Children.Add(coverBorder);
-            Grid.SetColumn(infoStack, 1);
-            innerGrid.Children.Add(infoStack);
-            card.Child = innerGrid;
-
-            card.Tapped += (s, e) =>
-            {
-                if (s is Border b && b.Tag is int id)
-                    _pluginNavigator.Navigate(typeof(AnimeDetailPage), id);
-            };
-
-            // 后台缓存图片
-            if (!ImageCacheHelper.HasLocalCache(anime.ID) && anime.CoverURL != null)
-                _ = ImageCacheHelper.CacheImageAsync(anime.ID, anime.CoverURL);
-
-            return card;
-        }
-
-        private static string GetStatusLabel(AnimeTrackingStatus status) => status switch
-        {
-            AnimeTrackingStatus.Watching => "追番",
-            AnimeTrackingStatus.PlanToWatch => "补番",
-            AnimeTrackingStatus.NotInterested => "不感兴趣",
-            AnimeTrackingStatus.Following => "关注",
-            AnimeTrackingStatus.Completed => "已看完",
-            AnimeTrackingStatus.Dropped => "已弃番",
-            AnimeTrackingStatus.Blocked => "屏蔽",
-            _ => "未标记",
-        };
-
-        private static SolidColorBrush GetStatusColor(AnimeTrackingStatus status) => status switch
-        {
-            AnimeTrackingStatus.Watching => new SolidColorBrush(Color.FromArgb(220, 0x44, 0x88, 0xFF)),
-            AnimeTrackingStatus.PlanToWatch => new SolidColorBrush(Color.FromArgb(220, 0x44, 0xFF, 0x88)),
-            AnimeTrackingStatus.NotInterested => new SolidColorBrush(Color.FromArgb(220, 0xFF, 0x44, 0x44)),
-            AnimeTrackingStatus.Following => new SolidColorBrush(Color.FromArgb(220, 0xFF, 0xAA, 0x00)),
-            AnimeTrackingStatus.Completed => new SolidColorBrush(Color.FromArgb(220, 0x88, 0x44, 0xFF)),
-            AnimeTrackingStatus.Dropped => new SolidColorBrush(Color.FromArgb(220, 0x88, 0x88, 0x88)),
-            AnimeTrackingStatus.Blocked => new SolidColorBrush(Color.FromArgb(220, 0x44, 0x44, 0x44)),
-            _ => new SolidColorBrush(Color.FromArgb(160, 0x88, 0x88, 0x88)),
-        };
 
         // ======== Tag 管理 ========
 

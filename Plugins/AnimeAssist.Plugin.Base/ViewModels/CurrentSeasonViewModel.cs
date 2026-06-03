@@ -87,9 +87,8 @@ namespace AniMeido.Plugin.Base.ViewModels
                     year,
                     season,
                     ct);
-                AnimeList.Clear();
-                foreach (var anime in list)
-                    AnimeList.Add(anime);
+                // 一次性替换集合引用（单次 PropertyChanged），避免 N 次 Add 触发 N 次布局
+                AnimeList = new ObservableCollection<Anime>(list);
 
                 RebuildGroups();
                 HasData = AnimeList.Count > 0;

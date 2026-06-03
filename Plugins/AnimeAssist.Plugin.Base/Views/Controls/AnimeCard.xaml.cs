@@ -57,9 +57,11 @@ namespace AniMeido.Plugin.Base.Views.Controls
                     }
                     else
                     {
-                        // 通过 GetImageUri 统一处理本地缓存/网络/占位图
-                        CoverImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(
-                            ImageCacheHelper.GetImageUri(anime.ID, anime.CoverURL));
+                        // 指定解码宽度 300（应对 2x 缩放），避免全分辨率解码
+                        var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                        bmp.DecodePixelWidth = 300;
+                        bmp.UriSource = ImageCacheHelper.GetImageUri(anime.ID, anime.CoverURL);
+                        CoverImage.Source = bmp;
 
                         // 后台下载缓存（GetImageUri 已经检查过本地文件，HasLocalCache 二次检查无额外 I/O）
                         if (!ImageCacheHelper.HasLocalCache(anime.ID))

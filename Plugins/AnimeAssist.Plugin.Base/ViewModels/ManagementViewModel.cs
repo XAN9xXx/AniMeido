@@ -18,6 +18,10 @@ namespace AniMeido.Plugin.Base.ViewModels
         private readonly IAnimeDataSource _animeDataSource;
         private readonly SavedTagService _savedTagService;
 
+        // 按需加载：缓存各状态的 ID 列表 + 已加载标记
+        private Dictionary<AnimeTrackingStatus, IReadOnlyList<int>> _statusIdsCache = new();
+        private HashSet<AnimeTrackingStatus> _panelsLoaded = new();
+
 
         [ObservableProperty]
         private ObservableCollection<Anime> _watchingList = [];
@@ -77,16 +81,22 @@ namespace AniMeido.Plugin.Base.ViewModels
         }
 
 
+        /// <summary>
+        /// 初始化：仅加载各状态计数（7 次快速 DB 查询，无 API 调用）。
+        /// 首次面板（追番中）的番剧详情也一并加载。
+        /// </summary>
         [RelayCommand]
         private async Task LoadDataAsync(CancellationToken ct = default)
         {
             IsLoading = true;
             IsError = false;
             ErrorMessage = null;
+            _panelsLoaded.Clear();
+            _statusIdsCache.Clear();
 
             try
             {
-                // 获取各状态的番剧 ID 列表
+                // 获取各状态的番剧 ID 列表（仅 DB 查询，快）
                 var watchingIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Watching);
                 var planIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.PlanToWatch);
                 var notInterestedIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.NotInterested);
@@ -95,7 +105,16 @@ namespace AniMeido.Plugin.Base.ViewModels
                 var droppedIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Dropped);
                 var blockedIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
 
-                // 先设置真实计数（来自数据库），再并发加载详情
+                // 缓存 ID 列表供按需加载使用
+                _statusIdsCache[AnimeTrackingStatus.Watching] = watchingIds;
+                _statusIdsCache[AnimeTrackingStatus.PlanToWatch] = planIds;
+                _statusIdsCache[AnimeTrackingStatus.NotInterested] = notInterestedIds;
+                _statusIdsCache[AnimeTrackingStatus.Following] = followingIds;
+                _statusIdsCache[AnimeTrackingStatus.Completed] = completedIds;
+                _statusIdsCache[AnimeTrackingStatus.Dropped] = droppedIds;
+                _statusIdsCache[AnimeTrackingStatus.Blocked] = blockedIds;
+
+                // 先设置真实计数（来自数据库）
                 WatchingCount = watchingIds.Count;
                 PlanToWatchCount = planIds.Count;
                 NotInterestedCount = notInterestedIds.Count;
@@ -104,34 +123,8 @@ namespace AniMeido.Plugin.Base.ViewModels
                 DroppedCount = droppedIds.Count;
                 BlockedCount = blockedIds.Count;
 
-                // 并发加载番剧详情（限流，最多 4 个并发请求）
-                WatchingList.Clear();
-                foreach (var anime in await LoadAnimeDetailsConcurrentAsync(watchingIds, ct))
-                    WatchingList.Add(anime);
-
-                PlanToWatchList.Clear();
-                foreach (var anime in await LoadAnimeDetailsConcurrentAsync(planIds, cancellationToken: default))
-                    PlanToWatchList.Add(anime);
-
-                NotInterestedList.Clear();
-                foreach (var anime in await LoadAnimeDetailsConcurrentAsync(notInterestedIds, cancellationToken: default))
-                    NotInterestedList.Add(anime);
-
-                FollowingList.Clear();
-                foreach (var anime in await LoadAnimeDetailsConcurrentAsync(followingIds, cancellationToken: default))
-                    FollowingList.Add(anime);
-
-                CompletedList.Clear();
-                foreach (var anime in await LoadAnimeDetailsConcurrentAsync(completedIds, cancellationToken: default))
-                    CompletedList.Add(anime);
-
-                DroppedList.Clear();
-                foreach (var anime in await LoadAnimeDetailsConcurrentAsync(droppedIds, cancellationToken: default))
-                    DroppedList.Add(anime);
-
-                BlockedList.Clear();
-                foreach (var anime in await LoadAnimeDetailsConcurrentAsync(blockedIds, cancellationToken: default))
-                    BlockedList.Add(anime);
+                // 只加载首个面板（追番中）的番剧详情，其余按需加载
+                await LoadPanelAnimeAsync(AnimeTrackingStatus.Watching, ct);
             }
             catch (HttpRequestException ex)
             {
@@ -152,6 +145,35 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 IsLoading = false;
             }
+        }
+
+        /// <summary>
+        /// 按需加载指定状态面板的番剧详情。已加载的面板不会重复加载。
+        /// </summary>
+        public async Task LoadPanelAnimeAsync(AnimeTrackingStatus status, CancellationToken ct = default)
+        {
+            if (_panelsLoaded.Contains(status)) return;
+            if (!_statusIdsCache.TryGetValue(status, out var ids) || ids.Count == 0)
+            {
+                _panelsLoaded.Add(status);
+                return;
+            }
+
+            var details = await LoadAnimeDetailsConcurrentAsync(ids, ct);
+            var collection = new ObservableCollection<Anime>(details);
+
+            switch (status)
+            {
+                case AnimeTrackingStatus.Watching: WatchingList = collection; break;
+                case AnimeTrackingStatus.PlanToWatch: PlanToWatchList = collection; break;
+                case AnimeTrackingStatus.NotInterested: NotInterestedList = collection; break;
+                case AnimeTrackingStatus.Following: FollowingList = collection; break;
+                case AnimeTrackingStatus.Completed: CompletedList = collection; break;
+                case AnimeTrackingStatus.Dropped: DroppedList = collection; break;
+                case AnimeTrackingStatus.Blocked: BlockedList = collection; break;
+            }
+
+            _panelsLoaded.Add(status);
         }
 
 

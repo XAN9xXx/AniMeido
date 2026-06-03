@@ -1,5 +1,6 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using Microsoft.UI.Xaml.Media.Imaging;
 using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.Services
@@ -130,6 +131,20 @@ namespace AniMeido.Plugin.Base.Services
     {
         public Anime Anime { get; }
         public AnimeTrackingStatus TrackingStatus { get; }
+
+        public BitmapImage CoverImage => new BitmapImage(ImageCacheHelper.GetImageUri(Anime.ID, Anime.CoverURL)) { DecodePixelWidth = 128 };
+
+        public string StatusLabel => TrackingStatus switch
+        {
+            AnimeTrackingStatus.Watching => "追番中",
+            AnimeTrackingStatus.PlanToWatch => "补番中",
+            AnimeTrackingStatus.NotInterested => "不感兴趣",
+            AnimeTrackingStatus.Following => "关注",
+            AnimeTrackingStatus.Completed => "已看完",
+            AnimeTrackingStatus.Dropped => "已弃番",
+            AnimeTrackingStatus.Blocked => "已屏蔽",
+            _ => ""
+        };
 
         public SearchResult(Anime anime, AnimeTrackingStatus status)
         {
