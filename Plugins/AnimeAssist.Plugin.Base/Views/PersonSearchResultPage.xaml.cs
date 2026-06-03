@@ -1,37 +1,42 @@
-using AniMeido.Contracts;
+﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media.Imaging;
-using Microsoft.UI.Xaml.Navigation;
+using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.Views
 {
-    public sealed partial class PersonSearchResultPage : Page
+    public sealed partial class PersonSearchResultPage : Page, INavigationAware
     {
         private readonly IAnimeDataSource _dataSource;
         private readonly TrackingService _tracking;
+        private readonly IPluginNavigator _pluginNavigator;
+        private CancellationTokenSource? _loadCts;
 
-        public PersonSearchResultPage(IAnimeDataSource dataSource, TrackingService tracking)
+        public PersonSearchResultPage(IAnimeDataSource dataSource, TrackingService tracking, IPluginNavigator pluginNavigator)
         {
             _dataSource = dataSource;
             _tracking = tracking;
+            _pluginNavigator = pluginNavigator;
             InitializeComponent();
         }
 
-        protected override async void OnNavigatedTo(NavigationEventArgs e)
+        public async Task OnNavigatedToAsync(object? parameter)
         {
-            base.OnNavigatedTo(e);
-            if (e.Parameter is (int personId, string personName))
+            // 取消上一轮加载
+            _loadCts?.Cancel();
+            _loadCts = new CancellationTokenSource();
+            var token = _loadCts.Token;
+
+            if (parameter is (int personId, string personName))
             {
                 TitleBlock.Text = $"声优作品：{personName}";
-                await LoadAsync(personId);
+                await LoadAsync(personId, token);
             }
         }
 
-        private async Task LoadAsync(int personId)
+        private async Task LoadAsync(int personId, CancellationToken cancellationToken)
         {
             if (_dataSource == null) return;
 
@@ -40,24 +45,37 @@ namespace AniMeido.Plugin.Base.Views
 
             try
             {
-                var works = await _dataSource.GetPersonWorksAsync(personId, CancellationToken.None);
+                cancellationToken.ThrowIfCancellationRequested();
+                var works = await _dataSource.GetPersonWorksAsync(personId, cancellationToken);
                 ResultCount.Text = $"参与 {works.Count} 部作品";
 
-                // 并行获取每个作品的详细信息（最多同时 10 个请求）
-                var semaphore = new SemaphoreSlim(10);
+                // 并行获取每个作品的详细信息（最多同时 4 个请求）
+                var semaphore = new SemaphoreSlim(4);
                 var tasks = works
                     .Where(w => w.ID > 0)
                     .Select(async w =>
                     {
-                        await semaphore.WaitAsync();
+                        await semaphore.WaitAsync(cancellationToken);
                         try
                         {
-                            var detail = await _dataSource.GetAnimeDetailAsync(w.ID, CancellationToken.None);
+                            cancellationToken.ThrowIfCancellationRequested();
+                            var detail = await _dataSource.GetAnimeDetailAsync(w.ID, cancellationToken);
                             return detail;
                         }
-                        catch
+                        catch (OperationCanceledException)
                         {
-                            // 单个作品获取失败时，用基础信息创建 Anime
+                            throw;
+                        }
+                        catch (HttpRequestException)
+                        {
+                            // 单个作品网络请求失败时，用基础信息创建 Anime
+                            return new Anime(
+                                w.ID, w.Title, null, Array.Empty<VoiceActor>(),
+                                null, w.CoverURL, w.Staff ?? "", 0, 0, null, null);
+                        }
+                        catch (JsonException)
+                        {
+                            // 单个作品解析失败时，用基础信息创建 Anime
                             return new Anime(
                                 w.ID, w.Title, null, Array.Empty<VoiceActor>(),
                                 null, w.CoverURL, w.Staff ?? "", 0, 0, null, null);
@@ -73,6 +91,8 @@ namespace AniMeido.Plugin.Base.Views
                     .Cast<Anime>()
                     .ToList();
 
+                if (cancellationToken.IsCancellationRequested) return;
+
                 var blocked = (await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked)).ToHashSet();
                 ResultGrid.ItemsSource = animes.Where(a => !blocked.Contains(a.ID)).ToList();
 
@@ -81,9 +101,17 @@ namespace AniMeido.Plugin.Base.Views
                     ResultCount.Text = "未找到相关作品";
                 }
             }
-            catch (Exception ex)
+            catch (OperationCanceledException)
+            {
+                // 页面已离开，不更新 UI
+            }
+            catch (HttpRequestException ex)
             {
                 ResultCount.Text = $"加载失败：{ex.Message}";
+            }
+            catch (JsonException ex)
+            {
+                ResultCount.Text = $"数据解析失败：{ex.Message}";
             }
             finally
             {
@@ -95,7 +123,7 @@ namespace AniMeido.Plugin.Base.Views
         private void OnResultItemClick(object sender, ItemClickEventArgs e)
         {
             if (e.ClickedItem is Anime anime)
-                Frame.Navigate(typeof(AnimeDetailPage), anime.ID);
+                _pluginNavigator.Navigate(typeof(AnimeDetailPage), anime.ID);
         }
     }
 }

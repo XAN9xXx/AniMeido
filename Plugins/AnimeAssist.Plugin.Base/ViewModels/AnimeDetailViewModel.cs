@@ -4,6 +4,7 @@ using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
 using System.Collections.ObjectModel;
+using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.ViewModels
 {
@@ -52,7 +53,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         /// </summary>
         /// <param name="animeID">番剧的唯一标识符</param>
         [RelayCommand]
-        private async Task LoadDetailAsync(int animeID)
+        private async Task LoadDetailAsync(int animeID, CancellationToken ct = default)
         {
             IsLoading = true;
             IsError = false;
@@ -62,7 +63,15 @@ namespace AniMeido.Plugin.Base.ViewModels
             _lastAnimeID = animeID;
             try
             {
-                AnimeDetail = await _animeDataSource.GetAnimeDetailAsync(animeID, CancellationToken.None);
+                AnimeDetail = await _animeDataSource.GetAnimeDetailAsync(animeID, ct);
+                if (AnimeDetail is null)
+                {
+                    HasData = false;
+                    IsError = true;
+                    ErrorMessage = "未找到该番剧或数据暂不可用。";
+                    return;
+                }
+
                 HasData = true;
                 OnPropertyChanged(nameof(BangumiUrl));
 
@@ -87,9 +96,19 @@ namespace AniMeido.Plugin.Base.ViewModels
                 var status = await _trackingService.GetStatusAsync(animeID);
                 CurrentStatus = status ?? AnimeTrackingStatus.None;
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
-                ErrorMessage = $"Fail to load: {ex.Message}";
+                ErrorMessage = $"网络请求失败：{ex.Message}";
+                IsError = true;
+            }
+            catch (TaskCanceledException)
+            {
+                // 取消是预期行为（用户导航离开/快速切换），不当作错误处理
+                return;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or JsonException)
+            {
+                ErrorMessage = $"数据解析失败：{ex.Message}";
                 IsError = true;
             }
             finally
@@ -108,112 +127,58 @@ namespace AniMeido.Plugin.Base.ViewModels
         [RelayCommand]
         private async Task SetWatchingAsync()
         {
-            if (_lastAnimeID <= 0) return;
-            if (CurrentStatus == AnimeTrackingStatus.Watching)
-            {
-                await _trackingService.RemoveStatusAsync(_lastAnimeID);
-                CurrentStatus = AnimeTrackingStatus.None;
-            }
-            else
-            {
-                await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.Watching);
-                CurrentStatus = AnimeTrackingStatus.Watching;
-            }
+            await SetTrackingStatusAsync(AnimeTrackingStatus.Watching);
         }
 
         [RelayCommand]
         private async Task SetPlanToWatchAsync()
         {
-            if (_lastAnimeID <= 0) return;
-            if (CurrentStatus == AnimeTrackingStatus.PlanToWatch)
-            {
-                await _trackingService.RemoveStatusAsync(_lastAnimeID);
-                CurrentStatus = AnimeTrackingStatus.None;
-            }
-            else
-            {
-                await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.PlanToWatch);
-                CurrentStatus = AnimeTrackingStatus.PlanToWatch;
-            }
+            await SetTrackingStatusAsync(AnimeTrackingStatus.PlanToWatch);
         }
 
         [RelayCommand]
         private async Task SetNotInterestedAsync()
         {
-            if (_lastAnimeID <= 0) return;
-            if (CurrentStatus == AnimeTrackingStatus.NotInterested)
-            {
-                await _trackingService.RemoveStatusAsync(_lastAnimeID);
-                CurrentStatus = AnimeTrackingStatus.None;
-            }
-            else
-            {
-                await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.NotInterested);
-                CurrentStatus = AnimeTrackingStatus.NotInterested;
-            }
+            await SetTrackingStatusAsync(AnimeTrackingStatus.NotInterested);
         }
 
         [RelayCommand]
         private async Task SetFollowingAsync()
         {
-            if (_lastAnimeID <= 0) return;
-            if (CurrentStatus == AnimeTrackingStatus.Following)
-            {
-                await _trackingService.RemoveStatusAsync(_lastAnimeID);
-                CurrentStatus = AnimeTrackingStatus.None;
-            }
-            else
-            {
-                await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.Following);
-                CurrentStatus = AnimeTrackingStatus.Following;
-            }
+            await SetTrackingStatusAsync(AnimeTrackingStatus.Following);
         }
 
         [RelayCommand]
         private async Task SetCompletedAsync()
         {
-            if (_lastAnimeID <= 0) return;
-            if (CurrentStatus == AnimeTrackingStatus.Completed)
-            {
-                await _trackingService.RemoveStatusAsync(_lastAnimeID);
-                CurrentStatus = AnimeTrackingStatus.None;
-            }
-            else
-            {
-                await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.Completed);
-                CurrentStatus = AnimeTrackingStatus.Completed;
-            }
+            await SetTrackingStatusAsync(AnimeTrackingStatus.Completed);
         }
 
         [RelayCommand]
         private async Task SetDroppedAsync()
         {
-            if (_lastAnimeID <= 0) return;
-            if (CurrentStatus == AnimeTrackingStatus.Dropped)
-            {
-                await _trackingService.RemoveStatusAsync(_lastAnimeID);
-                CurrentStatus = AnimeTrackingStatus.None;
-            }
-            else
-            {
-                await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.Dropped);
-                CurrentStatus = AnimeTrackingStatus.Dropped;
-            }
+            await SetTrackingStatusAsync(AnimeTrackingStatus.Dropped);
         }
 
         [RelayCommand]
         private async Task SetBlockedAsync()
         {
+            await SetTrackingStatusAsync(AnimeTrackingStatus.Blocked);
+        }
+
+        /// <summary>统一设置番剧状态：已设置则取消，未设置则设置。</summary>
+        private async Task SetTrackingStatusAsync(AnimeTrackingStatus status)
+        {
             if (_lastAnimeID <= 0) return;
-            if (CurrentStatus == AnimeTrackingStatus.Blocked)
+            if (CurrentStatus == status)
             {
                 await _trackingService.RemoveStatusAsync(_lastAnimeID);
                 CurrentStatus = AnimeTrackingStatus.None;
             }
             else
             {
-                await _trackingService.SetStatusAsync(_lastAnimeID, AnimeTrackingStatus.Blocked);
-                CurrentStatus = AnimeTrackingStatus.Blocked;
+                await _trackingService.SetStatusAsync(_lastAnimeID, status);
+                CurrentStatus = status;
             }
         }
 
@@ -234,9 +199,13 @@ namespace AniMeido.Plugin.Base.ViewModels
                     ? $"制作/原作：{string.Join("、", studios.Select(s => s.Name))}"
                     : null;
             }
-            catch
+            catch (HttpRequestException)
             {
-                // Studio 加载失败不阻塞详情
+                // Studio 网络请求失败不阻塞详情
+            }
+            catch (JsonException)
+            {
+                // Studio 解析失败不阻塞详情
             }
         }
 
@@ -249,9 +218,13 @@ namespace AniMeido.Plugin.Base.ViewModels
                 foreach (var c in characters)
                     Characters.Add(c);
             }
-            catch
+            catch (HttpRequestException)
             {
-                // 角色加载失败不阻塞详情
+                // 角色网络请求失败不阻塞详情
+            }
+            catch (JsonException)
+            {
+                // 角色解析失败不阻塞详情
             }
         }
     }

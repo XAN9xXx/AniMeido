@@ -33,6 +33,7 @@ namespace AniMeido.Plugin.Base.Services
             services.AddSingleton<TrackingService>();
             services.AddSingleton<CacheService>();
             services.AddSingleton<BrowseHistoryService>();
+            services.AddSingleton<BackupService>();
             return services;
         }
     }

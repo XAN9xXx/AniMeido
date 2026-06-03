@@ -6,7 +6,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
 using Windows.UI;
 
 namespace AniMeido.Plugin.Base.Views
@@ -34,10 +33,20 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task LoadAsync()
         {
-            _suppressEvents = true;
-            _dragZones = await _tracking.LoadDragZoneConfigAsync();
-            RebuildAll();
-            _suppressEvents = false;
+            try
+            {
+                _suppressEvents = true;
+                _dragZones = await _tracking.LoadDragZoneConfigAsync();
+                RebuildAll();
+                _suppressEvents = false;
+            }
+#pragma warning disable CA1031 // 拖放配置加载失败不阻止页面显示
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DragZoneSettings] LoadAsync failed: {ex.Message}");
+                _suppressEvents = false;
+            }
+#pragma warning restore CA1031
         }
 
         private void OnPreviewBorderSizeChanged(object sender, SizeChangedEventArgs e)
@@ -528,7 +537,16 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task SaveAsync()
         {
-            await _tracking.SaveDragZoneConfigAsync(_dragZones);
+            try
+            {
+                await _tracking.SaveDragZoneConfigAsync(_dragZones);
+            }
+#pragma warning disable CA1031 // 拖放配置保存失败不阻塞操作
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DragZoneSettings] SaveAsync failed: {ex.Message}");
+            }
+#pragma warning restore CA1031
         }
 
         // ======== 辅助方法 ========

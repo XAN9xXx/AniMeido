@@ -1,9 +1,7 @@
-using AniMeido.Contracts;
+﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
@@ -18,6 +16,7 @@ namespace AniMeido.Plugin.Base.Views
     {
         public ManagementViewModel ViewModel { get; }
         private readonly LocalSearchService _searchService;
+        private readonly IPluginNavigator _pluginNavigator;
         private CancellationTokenSource? _searchCts;
 
         /// <summary>
@@ -26,9 +25,10 @@ namespace AniMeido.Plugin.Base.Views
         public static Visibility TagAnimeListVisibility(bool isExpanded)
             => isExpanded ? Visibility.Visible : Visibility.Collapsed;
 
-        public ManagementPage(TrackingService trackingService, IAnimeDataSource dataSource, SavedTagService savedTagService, LocalSearchService searchService)
+        public ManagementPage(TrackingService trackingService, IAnimeDataSource dataSource, SavedTagService savedTagService, LocalSearchService searchService, IPluginNavigator pluginNavigator)
         {
             _searchService = searchService;
+            _pluginNavigator = pluginNavigator;
             ViewModel = new ManagementViewModel(trackingService, dataSource, savedTagService);
             DataContext = ViewModel;
             InitializeComponent();
@@ -47,12 +47,10 @@ namespace AniMeido.Plugin.Base.Views
                         {
                             ErrorInfoBar.Message = ViewModel.ErrorMessage;
                             ErrorInfoBar.IsOpen = true;
-                            ErrorInfoBar.Visibility = Visibility.Visible;
                         }
                         else
                         {
                             ErrorInfoBar.IsOpen = false;
-                            ErrorInfoBar.Visibility = Visibility.Collapsed;
                         }
                         break;
 
@@ -310,7 +308,7 @@ namespace AniMeido.Plugin.Base.Views
         {
             if (sender is FrameworkElement fe && fe.DataContext is Anime anime)
             {
-                Frame.Navigate(typeof(AnimeDetailPage), anime.ID);
+                _pluginNavigator.Navigate(typeof(AnimeDetailPage), anime.ID);
             }
         }
 
@@ -452,9 +450,11 @@ namespace AniMeido.Plugin.Base.Views
                 }
             }
             catch (OperationCanceledException) { }
+#pragma warning disable CA1031 // 搜索结果为空时显示错误提示
             catch (Exception ex)
             {
                 SearchResultContainer.Children.Clear();
+#pragma warning restore CA1031
                 var errText = new TextBlock
                 {
                     Text = $"搜索出错：{ex.Message}",
@@ -583,7 +583,7 @@ namespace AniMeido.Plugin.Base.Views
             card.Tapped += (s, e) =>
             {
                 if (s is Border b && b.Tag is int id)
-                    Frame.Navigate(typeof(AnimeDetailPage), id);
+                    _pluginNavigator.Navigate(typeof(AnimeDetailPage), id);
             };
 
             // 后台缓存图片
@@ -631,7 +631,7 @@ namespace AniMeido.Plugin.Base.Views
         {
             if (sender is FrameworkElement fe && fe.DataContext is Anime anime)
             {
-                Frame.Navigate(typeof(AnimeDetailPage), anime.ID);
+                _pluginNavigator.Navigate(typeof(AnimeDetailPage), anime.ID);
             }
         }
     }

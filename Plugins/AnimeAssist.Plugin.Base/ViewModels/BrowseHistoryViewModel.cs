@@ -49,9 +49,13 @@ namespace AniMeido.Plugin.Base.ViewModels
                     {
                         anime = await _dataSource.GetAnimeDetailAsync(animeId, CancellationToken.None);
                     }
-                    catch
+                    catch (HttpRequestException)
                     {
                         // 网络失败时使用快照标题
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        // 请求取消时使用快照标题
                     }
 
                     if (anime == null)

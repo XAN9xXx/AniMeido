@@ -7,7 +7,7 @@ namespace AniMeido.Tests
     {
         private TrackingService CreateService()
         {
-            return new TrackingService(DbPath);
+            return new TrackingService(DbFactory);
         }
 
         [Fact]

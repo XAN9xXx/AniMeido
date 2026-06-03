@@ -2,6 +2,7 @@
 using AniMeido.Contracts.Models;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using System.Text.Json;
 using System.Collections.ObjectModel;
 
 namespace AniMeido.Plugin.Base.ViewModels
@@ -38,7 +39,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         /// </summary>
         /// <param name="year">要加载的年份</param>
         /// <param name="season">要加载的季度</param>
-        public async Task LoadPastSeasonAnimeAsync(int year, Season season)
+        public async Task LoadPastSeasonAnimeAsync(int year, Season season, CancellationToken ct = default)
         {
             _lastYear = year;
             _lastSeason = season;
@@ -54,7 +55,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 var list = await _animeDataSource.GetAnimeBySeasonAsync(
                     year,
                     season,
-                    CancellationToken.None);
+                    ct);
                 AnimeList.Clear();
                 foreach (var anime in list)
                 {
@@ -65,9 +66,20 @@ namespace AniMeido.Plugin.Base.ViewModels
                 TotalCount = list.Count;
                 HasData = list.Count > 0;
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
-                ErrorMessage = $"Fail to load: {ex.Message}";
+                ErrorMessage = $"网络请求失败：{ex.Message}";
+                HasData = false;
+                IsError = true;
+            }
+            catch (TaskCanceledException)
+            {
+                // 取消是预期行为（被新请求替代），不当作错误处理
+                return;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or JsonException)
+            {
+                ErrorMessage = $"数据解析失败：{ex.Message}";
                 HasData = false;
                 IsError = true;
             }

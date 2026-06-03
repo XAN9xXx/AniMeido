@@ -1,4 +1,5 @@
-﻿using Microsoft.Data.Sqlite;
+﻿using AniMeido.Contracts;
+using Microsoft.Data.Sqlite;
 using System.Collections.Concurrent;
 
 namespace AniMeido.Plugin.Base.Services
@@ -6,53 +7,40 @@ namespace AniMeido.Plugin.Base.Services
     /// <summary>
     /// 二级缓存服务：内存（热数据）+ SQLite（持久化）。
     /// 内存缓存条目在写入 SQLite 后加入内存，并发读取时优先命中内存，避免 SQLite I/O。
-    /// 内存缓存使用弱引用+过期时间，不会无限增长。
+    /// 内存缓存使用过期时间，不会无限增长。
+    ///
+    /// SQLite 操作每次使用独立连接（与 TrackingService 等模式一致），避免单个长期连接上的并发冲突。
     /// </summary>
-    public class CacheService : IDisposable
+    public class CacheService
     {
-        private readonly SqliteConnection _connection;
-        private readonly SemaphoreSlim _syncLock = new(1, 1);
+        private readonly SqliteConnectionFactory _dbFactory;
 
         // 内存缓存：key → (json数据, 过期UTC)
         private readonly ConcurrentDictionary<string, (string data, DateTime expiresAt)> _memoryCache = new();
 
-        public CacheService(string dbPath)
+        public CacheService(SqliteConnectionFactory dbFactory)
         {
-            _connection = new SqliteConnection($"Data Source={dbPath}");
-            _connection.Open();
-        }
-
-        public void Dispose()
-        {
-            _connection?.Close();
-            _connection?.Dispose();
-            _syncLock?.Dispose();
-            _memoryCache.Clear();
+            _dbFactory = dbFactory;
+            // 启动时自动清理过期缓存（CleanExpiredAsync 内部有 try-catch）
+            _ = CleanExpiredAsync();
         }
 
         public async Task SetCacheAsync(string key, string data, TimeSpan expiration)
         {
             var expiresAt = DateTime.UtcNow.Add(expiration);
 
-            // 先写入 SQLite
-            await _syncLock.WaitAsync();
-            try
-            {
-                using var command = _connection.CreateCommand();
-                command.CommandText = """
-                    INSERT OR REPLACE INTO cache (CacheKey, Data, ExpiresAt)
-                    VALUES (@key, @data, @expiresAt)
-                    """;
-                command.Parameters.AddWithValue("@key", key);
-                command.Parameters.AddWithValue("@data", data);
-                command.Parameters.AddWithValue("@expiresAt", expiresAt.ToString("O"));
+            // 先写入 SQLite（每次使用独立连接）
+            using var connection = await _dbFactory.OpenAsync();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT OR REPLACE INTO cache (CacheKey, Data, ExpiresAt)
+                VALUES (@key, @data, @expiresAt)
+                """;
+            command.Parameters.AddWithValue("@key", key);
+            command.Parameters.AddWithValue("@data", data);
+            command.Parameters.AddWithValue("@expiresAt", expiresAt.ToString("O"));
 
-                await command.ExecuteNonQueryAsync();
-            }
-            finally
-            {
-                _syncLock.Release();
-            }
+            await command.ExecuteNonQueryAsync();
 
             // 再写入内存缓存
             _memoryCache[key] = (data, expiresAt);
@@ -87,23 +75,30 @@ namespace AniMeido.Plugin.Base.Services
         }
 
         /// <summary>
+        /// 删除指定缓存键（内存 + SQLite）。
+        /// </summary>
+        public async Task RemoveCacheAsync(string key)
+        {
+            _memoryCache.TryRemove(key, out _);
+
+            using var connection = await _dbFactory.OpenAsync();
+            using var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM cache WHERE CacheKey = @key";
+            command.Parameters.AddWithValue("@key", key);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        /// <summary>
         /// 清空所有缓存数据（内存 + SQLite + 图片文件）。
         /// </summary>
         public async Task ClearAllCacheAsync()
         {
             _memoryCache.Clear();
 
-            await _syncLock.WaitAsync();
-            try
-            {
-                using var command = _connection.CreateCommand();
-                command.CommandText = "DELETE FROM cache";
-                await command.ExecuteNonQueryAsync();
-            }
-            finally
-            {
-                _syncLock.Release();
-            }
+            using var connection = await _dbFactory.OpenAsync();
+            using var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM cache";
+            await command.ExecuteNonQueryAsync();
 
             ImageCacheHelper.ClearAll();
         }
@@ -113,14 +108,16 @@ namespace AniMeido.Plugin.Base.Services
         /// </summary>
         public async Task<(int count, double sizeKB)> GetCacheStatsAsync()
         {
-            var countCmd = _connection.CreateCommand();
+            using var connection = await _dbFactory.OpenAsync();
+
+            var countCmd = connection.CreateCommand();
             countCmd.CommandText = "SELECT COUNT(*) FROM cache";
             var count = Convert.ToInt32(await countCmd.ExecuteScalarAsync());
 
-            var sizeCmd = _connection.CreateCommand();
+            var sizeCmd = connection.CreateCommand();
             sizeCmd.CommandText = "SELECT COALESCE(SUM(LENGTH(Data)), 0) FROM cache";
-            var totalChars = Convert.ToInt32(await sizeCmd.ExecuteScalarAsync());
-            var dbSizeKB = totalChars * 2.0 / 1024.0;
+            var totalBytes = Convert.ToInt64(await sizeCmd.ExecuteScalarAsync());
+            var dbSizeKB = totalBytes / 1024.0;
 
             var (_, imgSizeMB) = ImageCacheHelper.GetCacheStats();
             var totalSizeKB = dbSizeKB + imgSizeMB * 1024.0;
@@ -128,11 +125,41 @@ namespace AniMeido.Plugin.Base.Services
             return (count, totalSizeKB);
         }
 
+        /// <summary>
+        /// 清理所有已过期的缓存条目。
+        /// </summary>
+        public async Task CleanExpiredAsync()
+        {
+            try
+            {
+                using var connection = await _dbFactory.OpenAsync();
+                using var command = connection.CreateCommand();
+                command.CommandText = "DELETE FROM cache WHERE ExpiresAt <= @now";
+                command.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("O"));
+                await command.ExecuteNonQueryAsync();
+
+                // 同时清理内存中的过期条目
+                var expiredKeys = _memoryCache
+                    .Where(kvp => kvp.Value.expiresAt <= DateTime.UtcNow)
+                    .Select(kvp => kvp.Key)
+                    .ToList();
+                foreach (var key in expiredKeys)
+                    _memoryCache.TryRemove(key, out _);
+            }
+#pragma warning disable CA1031 // 后台缓存清理失败不应影响主流程
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[CacheService] CleanExpiredAsync failed: {ex.Message}");
+            }
+#pragma warning restore CA1031
+        }
+
         // ---- 私有辅助 ----
 
         private async Task<string?> GetFromSqliteAsync(string key, bool onlyValid)
         {
-            using var command = _connection.CreateCommand();
+            using var connection = await _dbFactory.OpenAsync();
+            using var command = connection.CreateCommand();
             command.CommandText = onlyValid
                 ? """
                     SELECT Data, ExpiresAt FROM cache
@@ -164,3 +191,4 @@ namespace AniMeido.Plugin.Base.Services
         }
     }
 }
+

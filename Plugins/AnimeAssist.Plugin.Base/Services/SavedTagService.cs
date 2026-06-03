@@ -1,3 +1,4 @@
+﻿using AniMeido.Contracts;
 using Microsoft.Data.Sqlite;
 
 namespace AniMeido.Plugin.Base.Services
@@ -9,18 +10,17 @@ namespace AniMeido.Plugin.Base.Services
     /// </summary>
     public class SavedTagService
     {
-        private readonly string _connectionString;
+        private readonly SqliteConnectionFactory _dbFactory;
 
-        public SavedTagService(string dbPath)
+        public SavedTagService(SqliteConnectionFactory dbFactory)
         {
-            _connectionString = $"Data Source={dbPath}";
+            _dbFactory = dbFactory;
         }
 
         /// <summary>获取所有已收藏的 Tag 名称。</summary>
         public async Task<List<string>> GetAllSavedTagsAsync()
         {
-            using var conn = new SqliteConnection(_connectionString);
-            await conn.OpenAsync();
+            using var conn = await _dbFactory.OpenAsync();
             var cmd = conn.CreateCommand();
             cmd.CommandText = "SELECT TagName FROM saved_tags ORDER BY TagName";
             var list = new List<string>();
@@ -33,8 +33,7 @@ namespace AniMeido.Plugin.Base.Services
         /// <summary>检查指定 Tag 是否已被收藏。</summary>
         public async Task<bool> IsTagSavedAsync(string tagName)
         {
-            using var conn = new SqliteConnection(_connectionString);
-            await conn.OpenAsync();
+            using var conn = await _dbFactory.OpenAsync();
             var cmd = conn.CreateCommand();
             cmd.CommandText = "SELECT COUNT(*) FROM saved_tags WHERE TagName = @tag";
             cmd.Parameters.AddWithValue("@tag", tagName);
@@ -45,8 +44,7 @@ namespace AniMeido.Plugin.Base.Services
         /// <summary>收藏一个 Tag（全局）。</summary>
         public async Task SaveTagAsync(string tagName)
         {
-            using var conn = new SqliteConnection(_connectionString);
-            await conn.OpenAsync();
+            using var conn = await _dbFactory.OpenAsync();
             var cmd = conn.CreateCommand();
             cmd.CommandText = "INSERT OR IGNORE INTO saved_tags (TagName) VALUES (@tag)";
             cmd.Parameters.AddWithValue("@tag", tagName);
@@ -56,8 +54,7 @@ namespace AniMeido.Plugin.Base.Services
         /// <summary>取消收藏一个 Tag。</summary>
         public async Task RemoveTagAsync(string tagName)
         {
-            using var conn = new SqliteConnection(_connectionString);
-            await conn.OpenAsync();
+            using var conn = await _dbFactory.OpenAsync();
             var cmd = conn.CreateCommand();
             cmd.CommandText = "DELETE FROM saved_tags WHERE TagName = @tag";
             cmd.Parameters.AddWithValue("@tag", tagName);

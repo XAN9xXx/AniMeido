@@ -3,17 +3,11 @@ using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
-using AniMeido.Plugin.Base.Views.Controls;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
 using System.Collections.ObjectModel;
-using Windows.Foundation;
-using Windows.UI;
 
 namespace AniMeido.Plugin.Base.Views
 {
@@ -22,33 +16,19 @@ namespace AniMeido.Plugin.Base.Views
         public CurrentSeasonViewModel ViewModel { get; }
 
         static bool _hasAutoScrolledOnce = false;
+        private bool _loadedHandlerAttached;
         private readonly List<Anime> _allAnime = new();
         private HashSet<int> _blockedIds = new();
         private DragDropService _dragDrop;
         private TrackingService _tracking;
+        private readonly IPluginNavigator _pluginNavigator;
 
-        /// <summary>
-        /// 供 MainWindow 在开屏淡出后调用，触发自动跳转到今日星期分组。
-        /// </summary>
-        public void TriggerAutoScroll()
-        {
-            if (!_hasAutoScrolledOnce && ViewModel.WeekdayGroups.Count > 0)
-            {
-                _hasAutoScrolledOnce = true;
-                int todayIndex = DateTime.Now.DayOfWeek switch
-                {
-                    DayOfWeek.Sunday => 6,
-                    _ => (int)DateTime.Now.DayOfWeek - 1
-                };
-                DelayedScrollToGroup(todayIndex);
-            }
-        }
-
-        public CurrentSeasonPage(IAnimeDataSource dataSource, DragDropService dragDropService, TrackingService trackingService)
+        public CurrentSeasonPage(IAnimeDataSource dataSource, DragDropService dragDropService, TrackingService trackingService, IPluginNavigator pluginNavigator)
         {
             ViewModel = new CurrentSeasonViewModel(dataSource);
             _dragDrop = dragDropService;
             _tracking = trackingService;
+            _pluginNavigator = pluginNavigator;
             InitializeComponent();
 
             _ = LoadDragConfigAndBlockedAsync();
@@ -90,9 +70,71 @@ namespace AniMeido.Plugin.Base.Views
 
         private void OnPageLoaded(object sender, RoutedEventArgs e)
         {
+            if (_loadedHandlerAttached) return;
+            _loadedHandlerAttached = true;
+
             var rootGrid = (Grid)sender;
             rootGrid.AddHandler(UIElement.PointerPressedEvent,
                 new PointerEventHandler(OnCapturedPointerPressed), true);
+            rootGrid.AddHandler(UIElement.PointerReleasedEvent,
+                new PointerEventHandler(OnRootPointerReleased), true);
+            rootGrid.AddHandler(UIElement.PointerCanceledEvent,
+                new PointerEventHandler(OnRootPointerCanceled), true);
+
+            // 等待开屏淡出完成后，自动跳转到今日星期分组
+            // 开屏淡出在 FirstPageLoaded 信号 + 最低 2 秒显示 + 淡出动画后完成
+            _ = WaitForSplashAndAutoScrollAsync();
+        }
+
+        private async Task WaitForSplashAndAutoScrollAsync()
+        {
+            try
+            {
+                // 等待数据加载完成或失败（含超时兜底）
+                if (!ViewModel.HasData && !ViewModel.IsError)
+                {
+                    var tcs = new TaskCompletionSource();
+                    System.ComponentModel.PropertyChangedEventHandler? handler = null;
+                    handler = (_, e) =>
+                    {
+                        if (e.PropertyName is nameof(CurrentSeasonViewModel.HasData) or nameof(CurrentSeasonViewModel.IsError))
+                        {
+                            ViewModel.PropertyChanged -= handler;
+                            tcs.TrySetResult();
+                        }
+                    };
+                    ViewModel.PropertyChanged += handler;
+
+                    // 最多等 10 秒，防止错误状态下永久等待
+                    await Task.WhenAny(tcs.Task, Task.Delay(10000));
+                    ViewModel.PropertyChanged -= handler;
+                }
+
+                // 如果数据加载失败，不执行自动滚动
+                if (ViewModel.IsError || !ViewModel.HasData)
+                    return;
+
+                // 等待开屏淡出完成（固定等待），开屏动画至少 2 秒显示 + 1.6 秒淡出
+                await Task.Delay(3600);
+
+                // 执行自动跳转
+                if (!_hasAutoScrolledOnce && ViewModel.WeekdayGroups.Count > 0)
+                {
+                    _hasAutoScrolledOnce = true;
+                    int todayIndex = DateTime.Now.DayOfWeek switch
+                    {
+                        DayOfWeek.Sunday => 6,
+                        _ => (int)DateTime.Now.DayOfWeek - 1
+                    };
+                    _ = DispatcherQueue.TryEnqueue(() => DelayedScrollToGroup(todayIndex));
+                }
+            }
+#pragma warning disable CA1031 // 开屏动画失败不应影响页面
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[CurrentSeasonPage] WaitForSplashAndAutoScrollAsync failed: {ex.Message}");
+            }
+#pragma warning restore CA1031
         }
 
         private void UpdateViewState()
@@ -101,13 +143,11 @@ namespace AniMeido.Plugin.Base.Views
             {
                 ErrorInfoBar.Message = ViewModel.ErrorMessage;
                 ErrorInfoBar.IsOpen = true;
-                ErrorInfoBar.Visibility = Visibility.Visible;
                 EmptyState.Visibility = Visibility.Collapsed;
             }
             else
             {
                 ErrorInfoBar.IsOpen = false;
-                ErrorInfoBar.Visibility = Visibility.Collapsed;
                 EmptyState.Visibility = !ViewModel.IsLoading && !ViewModel.HasData
                     ? Visibility.Visible
                     : Visibility.Collapsed;
@@ -175,7 +215,7 @@ namespace AniMeido.Plugin.Base.Views
         private void OnWeekdayItemClick(object sender, ItemClickEventArgs e)
         {
             if (e.ClickedItem is Anime anime)
-                Frame.Navigate(typeof(AnimeDetailPage), anime.ID);
+                _pluginNavigator.Navigate(typeof(AnimeDetailPage), anime.ID);
         }
 
         private static void PlayBringIntoViewEffect(UIElement element)
@@ -210,16 +250,25 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task LoadDragConfigAndBlockedAsync()
         {
-            await _dragDrop.ReloadConfigAsync();
-            var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
-            _blockedIds = blocked.ToHashSet();
-            // 无论数据是否已加载，都重新从原始数据过滤一次
-            if (ViewModel.AnimeList.Count > 0)
+            try
             {
-                _allAnime.Clear();
-                _allAnime.AddRange(ViewModel.AnimeList.Where(a => !_blockedIds.Contains(a.ID)));
-                ApplyFilter(FilterBox.Text);
+                await _dragDrop.ReloadConfigAsync();
+                var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
+                _blockedIds = blocked.ToHashSet();
+                // 无论数据是否已加载，都重新从原始数据过滤一次
+                if (ViewModel.AnimeList.Count > 0)
+                {
+                    _allAnime.Clear();
+                    _allAnime.AddRange(ViewModel.AnimeList.Where(a => !_blockedIds.Contains(a.ID)));
+                    ApplyFilter(FilterBox.Text);
+                }
             }
+#pragma warning disable CA1031 // 拖放/屏蔽配置加载失败不阻塞页面
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[CurrentSeasonPage] LoadDragConfigAndBlockedAsync failed: {ex.Message}");
+            }
+#pragma warning restore CA1031
         }
 
         // ======== 自定义拖放 ========
@@ -271,6 +320,7 @@ namespace AniMeido.Plugin.Base.Views
             if (string.IsNullOrWhiteSpace(query))
             {
                 // 恢复全部分组
+                ViewModel.HasData = _allAnime.Count > 0;
                 ViewModel.WeekdayGroups.Clear();
                 var groups = _allAnime
                     .GroupBy(a => a.Weekday)

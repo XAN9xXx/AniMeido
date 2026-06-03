@@ -2,10 +2,8 @@
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Shapes;
-using AniMeido.App.Services;
-using AniMeido.Contracts;
+using AniMeido.App.Services; // PluginSettingsEntry, SettingsEntryCollector
 
 namespace AniMeido.App.Views
 {
@@ -20,25 +18,40 @@ namespace AniMeido.App.Views
             _pageFactory = pageFactory;
             InitializeComponent();
 
-            // 填充插件设置导航项（按插件名显示）
-            if (App.Plugins is not null)
+            // 填充插件设置导航项，按插件分组显示
+            if (App.Plugins is not null && App.Plugins.Count > 0)
             {
-                foreach (var plugin in App.Plugins)
+                var entries = SettingsEntryCollector.Collect(App.Plugins);
+
+                string? lastPluginId = null;
+                foreach (var entry in entries)
                 {
-                    var settingsItems = plugin.GetNavigationItems()
-                        .Where(n => n.IsSettingsPage).ToList();
-                    if (settingsItems.Count > 0)
+                    if (lastPluginId != entry.PluginId)
                     {
-                        var entry = new PluginSettingsEntry(
-                            plugin.DisplayName,
-                            settingsItems[0].PageTypeName);
-                        AddPluginNavItem(entry);
+                        AddPluginGroupHeader(entry.PluginDisplayName);
+                        lastPluginId = entry.PluginId;
                     }
+                    AddPluginNavItem(entry);
                 }
             }
 
             // 默认选中 App 设置
-            SettingsFrame.Navigate(typeof(AppSettingsPage));
+            SettingsFrame.Content = _pageFactory.CreatePage(typeof(AppSettingsPage));
+        }
+
+        /// <summary>添加插件分组标题。</summary>
+        private void AddPluginGroupHeader(string pluginName)
+        {
+            var header = new TextBlock
+            {
+                Text = pluginName,
+                FontSize = 12,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(153, 233, 233, 233)), // 60% opacity
+                Margin = new Thickness(12, 16, 0, 4),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            PluginSettingsList.Children.Add(header);
         }
 
         private void AddPluginNavItem(PluginSettingsEntry entry)
@@ -101,7 +114,8 @@ namespace AniMeido.App.Views
 
         private void OnNavItemTapped(object sender, TappedRoutedEventArgs e)
         {
-            SettingsFrame.Navigate(typeof(AppSettingsPage));
+            var page = _pageFactory.CreatePage(typeof(AppSettingsPage));
+            SettingsFrame.Content = page;
             SelectAppSettings();
         }
 
@@ -109,18 +123,8 @@ namespace AniMeido.App.Views
         {
             if (sender is Border border && border.Tag is PluginSettingsEntry entry)
             {
-                var pageType = AppDomain.CurrentDomain.GetAssemblies()
-                    .Select(a => a.GetType(entry.PageTypeName))
-                    .FirstOrDefault(t => t != null);
-                if (pageType != null)
-                {
-                    var page = _pageFactory.CreatePage(pageType);
-                    SettingsFrame.Content = page;
-                }
-                else
-                {
-                    SettingsFrame.Navigate(pageType);
-                }
+                var page = _pageFactory.CreatePage(entry.PageType);
+                SettingsFrame.Content = page;
 
                 // 取消 App 设置选中态
                 AppSettingsCard.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
@@ -169,10 +173,7 @@ namespace AniMeido.App.Views
             }
         }
 
-        // 插件设置入口的内部模型
-        private record PluginSettingsEntry(string Label, string PageTypeName);
-
-        // 插件导航项的可视元素，用于切换选中态
+        // 插件设置入口的内部模型（使用 AniMeido.App.Services.PluginSettingsEntry）
         private record PluginNavVisual(Border Border, Rectangle Indicator, TextBlock Label);
     }
 }

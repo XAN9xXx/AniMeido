@@ -3,29 +3,31 @@ using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
-using Microsoft.UI.Xaml.Navigation;
 using Windows.UI;
+using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.Views
 {
-    public sealed partial class AnimeDetailPage : Page
+    public sealed partial class AnimeDetailPage : Page, INavigationAware
     {
         public AnimeDetailViewModel ViewModel { get; }
         private SavedTagService _savedTagService;
         private readonly BrowseHistoryService _browseHistory;
-        private IAnimeDataSource _dataSource;
+        private readonly IAnimeDataSource _dataSource;
+        private readonly IPluginNavigator _pluginNavigator;
         private int _currentAnimeId;
+        private readonly HashSet<string> _savedTagNames = new();
 
-        public AnimeDetailPage(IAnimeDataSource dataSource, TrackingService trackingService, SavedTagService savedTagService, BrowseHistoryService browseHistory)
+        public AnimeDetailPage(IAnimeDataSource dataSource, TrackingService trackingService, SavedTagService savedTagService, BrowseHistoryService browseHistory, IPluginNavigator pluginNavigator)
         {
             _dataSource = dataSource;
             _browseHistory = browseHistory;
+            _pluginNavigator = pluginNavigator;
             _savedTagService = savedTagService;
             ViewModel = new AnimeDetailViewModel(dataSource, trackingService);
             DataContext = ViewModel;
@@ -43,6 +45,7 @@ namespace AniMeido.Plugin.Base.Views
                         {
                             UpdateCoverImage();
                             UpdateScore();
+                            RecordBrowseHistory();
                         }
                         break;
 
@@ -80,18 +83,26 @@ namespace AniMeido.Plugin.Base.Views
             };
         }
 
-        protected override void OnNavigatedTo(NavigationEventArgs e)
+        public Task OnNavigatedToAsync(object? parameter)
         {
-            if (e.Parameter is int animeID && animeID > 0)
+            if (parameter is int animeID && animeID > 0)
             {
                 _currentAnimeId = animeID;
                 ViewModel.LoadDetailCommand.Execute(animeID);
                 _ = LoadBangumiTagsAsync();
-
-                // 记录浏览历史
-                var snapshot = ViewModel.AnimeDetail?.Title ?? $"#{animeID}";
-                _ = _browseHistory.RecordAsync(animeID, snapshot);
             }
+            return Task.CompletedTask;
+        }
+
+        private bool _browseRecorded;
+
+        private void RecordBrowseHistory()
+        {
+            if (_browseRecorded || _currentAnimeId <= 0) return;
+            _browseRecorded = true;
+
+            var title = ViewModel.AnimeDetail?.Title ?? $"#{_currentAnimeId}";
+            _ = _browseHistory.RecordAsync(_currentAnimeId, title);
         }
 
         private void UpdateOverlayState()
@@ -108,13 +119,11 @@ namespace AniMeido.Plugin.Base.Views
                 LoadingHint.Text = $"{ViewModel.ErrorMessage}\n\n点击重试";
                 ErrorInfoBar.Message = ViewModel.ErrorMessage;
                 ErrorInfoBar.IsOpen = true;
-                ErrorInfoBar.Visibility = Visibility.Visible;
             }
             else
             {
                 LoadingFailedImage.Visibility = Visibility.Collapsed;
                 ErrorInfoBar.IsOpen = false;
-                ErrorInfoBar.Visibility = Visibility.Collapsed;
                 LoadingHint.Text = ViewModel.IsLoading ? "加载中…" : "";
             }
         }
@@ -377,8 +386,8 @@ namespace AniMeido.Plugin.Base.Views
                     Width = 64,
                     Height = 64,
                     Stretch = Microsoft.UI.Xaml.Media.Stretch.UniformToFill,
-                    Source = !string.IsNullOrEmpty(character.CharacterImage)
-                        ? new BitmapImage(new Uri(character.CharacterImage))
+                    Source = ImageCacheHelper.TryCreateValidImageUri(character.CharacterImage ?? "", out var charUri)
+                        ? new BitmapImage(charUri)
                         : new BitmapImage(ImageCacheHelper.PlaceholderUri),
                 }
             };
@@ -449,7 +458,7 @@ namespace AniMeido.Plugin.Base.Views
             {
                 if (s is Border b && b.Tag is CharacterRole ch && ch.Actors.Count > 0)
                 {
-                    Frame.Navigate(typeof(PersonSearchResultPage), (ch.Actors[0].VoiceActorId, ch.Actors[0].Name));
+                    _pluginNavigator.Navigate(typeof(PersonSearchResultPage), (ch.Actors[0].VoiceActorId, ch.Actors[0].Name));
                 }
             };
 
@@ -496,7 +505,11 @@ namespace AniMeido.Plugin.Base.Views
             {
                 bangumiTags = await _dataSource.GetTagsAsync(_currentAnimeId, CancellationToken.None);
             }
-            catch
+            catch (HttpRequestException)
+            {
+                return;
+            }
+            catch (JsonException)
             {
                 return;
             }
@@ -505,6 +518,8 @@ namespace AniMeido.Plugin.Base.Views
 
             var allSavedTags = await _savedTagService!.GetAllSavedTagsAsync();
             var savedSet = new HashSet<string>(allSavedTags);
+            _savedTagNames.Clear();
+            foreach (var t in savedSet) _savedTagNames.Add(t);
 
             // 去重
             var distinctTags = bangumiTags
@@ -559,7 +574,7 @@ namespace AniMeido.Plugin.Base.Views
             {
                 if (s is Border b && b.Tag is string name)
                 {
-                    Frame.Navigate(typeof(TagSearchResultPage), name);
+                    _pluginNavigator.Navigate(typeof(TagSearchResultPage), name);
                 }
             };
 
@@ -568,12 +583,12 @@ namespace AniMeido.Plugin.Base.Views
             {
                 if (s is Border b && b.Tag is string name)
                 {
-                    var isCurrentlySaved = b.Background is Microsoft.UI.Xaml.Media.SolidColorBrush brush
-                        && brush.Color.A > 200;
+                    var isCurrentlySaved = _savedTagNames.Contains(name);
 
                     if (isCurrentlySaved)
                     {
                         await _savedTagService!.RemoveTagAsync(name);
+                        _savedTagNames.Remove(name);
                         b.Background = unsavedBg;
                         if (b.Child is TextBlock tb)
                             tb.Foreground = unsavedFg;
@@ -581,6 +596,7 @@ namespace AniMeido.Plugin.Base.Views
                     else
                     {
                         await _savedTagService!.SaveTagAsync(name);
+                        _savedTagNames.Add(name);
                         b.Background = savedBg;
                         if (b.Child is TextBlock tb)
                             tb.Foreground = whiteBrush;

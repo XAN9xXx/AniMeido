@@ -1,31 +1,34 @@
+using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Navigation;
 
 namespace AniMeido.Plugin.Base.Views
 {
-    public sealed partial class BrowseHistoryPage : Page
+    public sealed partial class BrowseHistoryPage : Page, INavigationAware
     {
         public BrowseHistoryViewModel ViewModel { get; }
+        private IPluginNavigator _pluginNavigator;
 
-        public BrowseHistoryPage(BrowseHistoryViewModel viewModel)
+        public BrowseHistoryPage(BrowseHistoryViewModel viewModel, IPluginNavigator pluginNavigator)
         {
             ViewModel = viewModel;
+            _pluginNavigator = pluginNavigator;
             DataContext = ViewModel;
             InitializeComponent();
         }
 
-        protected override void OnNavigatedTo(NavigationEventArgs e)
+        public Task OnNavigatedToAsync(object? parameter)
         {
             ViewModel.LoadHistoryCommand.Execute(null);
+            return Task.CompletedTask;
         }
 
         private void OnItemClick(object sender, ItemClickEventArgs e)
         {
             if (e.ClickedItem is Anime anime)
-                Frame.Navigate(typeof(AnimeDetailPage), anime.ID);
+                _pluginNavigator.Navigate(typeof(AnimeDetailPage), anime.ID);
         }
 
         private async void OnClearClick(object sender, RoutedEventArgs e)

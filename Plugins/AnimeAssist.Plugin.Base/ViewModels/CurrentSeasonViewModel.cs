@@ -3,6 +3,7 @@ using AniMeido.Contracts.Models;
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.ViewModels
 {
@@ -71,7 +72,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         /// 加载当季番剧页面数据
         /// </summary>
         [RelayCommand]
-        private async Task LoadSeasonalAnimeAsync()
+        private async Task LoadSeasonalAnimeAsync(CancellationToken ct = default)
         {
             IsLoading = true;
             IsError = false;
@@ -85,23 +86,30 @@ namespace AniMeido.Plugin.Base.ViewModels
                 var list = await _animeDataSource.GetAnimeBySeasonAsync(
                     year,
                     season,
-                    CancellationToken.None);
+                    ct);
                 AnimeList.Clear();
                 foreach (var anime in list)
                     AnimeList.Add(anime);
 
                 RebuildGroups();
                 HasData = AnimeList.Count > 0;
-
-                // 首个页面加载完成，通知开屏淡出
-                AppServices.FirstPageLoaded.TrySetResult();
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
-                ErrorMessage = $"Fail to load: {ex.Message}";
+                ErrorMessage = $"网络请求失败：{ex.Message}";
                 HasData = false;
                 IsError = true;
-                AppServices.FirstPageLoaded.TrySetResult();
+            }
+            catch (TaskCanceledException)
+            {
+                // 取消是预期行为（被新请求替代），不当作错误处理
+                return;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or JsonException)
+            {
+                ErrorMessage = $"数据解析失败：{ex.Message}";
+                HasData = false;
+                IsError = true;
             }
             finally
             {

@@ -1,19 +1,24 @@
+using AniMeido.Plugin.Base.Services;
 using Microsoft.Data.Sqlite;
 
 namespace AniMeido.Tests
 {
     /// <summary>
-    /// 测试基类：为每个测试创建独立的内存 SQLite 数据库。
+    /// 测试基类：为每个测试创建独立临时目录和 IAppDataPaths。
     /// 测试结束后自动清理。
     /// </summary>
     public abstract class DbTestBase : IDisposable
     {
+        protected readonly MockAppDataPaths Paths;
         protected readonly string DbPath;
-        protected readonly string ConnectionString;
+        protected readonly SqliteConnectionFactory DbFactory;
+    protected readonly string ConnectionString;
 
         protected DbTestBase()
         {
-            DbPath = Path.Combine(Path.GetTempPath(), $"AniMeidoTest_{Guid.NewGuid():N}.db");
+            Paths = new MockAppDataPaths();
+            DbPath = Paths.DatabasePath;
+            DbFactory = new SqliteConnectionFactory(Paths);
             ConnectionString = $"Data Source={DbPath}";
         }
 
@@ -51,37 +56,21 @@ namespace AniMeido.Tests
             await cmd.ExecuteNonQueryAsync();
         }
 
-        /// <summary>执行完整的 migration（含 v2 saved_tags）。</summary>
+        /// <summary>使用生产 DatabaseService 执行完整迁移。</summary>
+        protected async Task RunProductionMigrationAsync()
+        {
+            var db = new AniMeido.App.Services.DatabaseService(DbFactory, Paths);
+            await db.InitializeAsync();
+        }
+
+        /// <summary>
+        /// 仅创建基础测试表（不含 migration 版本管理）。
+        /// 注意：新测试应优先使用 RunProductionMigrationAsync。
+        /// </summary>
+        [Obsolete("请优先使用 RunProductionMigrationAsync 调用生产 DatabaseService")]
         protected async Task RunFullMigrationAsync()
         {
-            using var conn = new SqliteConnection(ConnectionString);
-            await conn.OpenAsync();
-            var cmd = conn.CreateCommand();
-
-            cmd.CommandText = "PRAGMA user_version";
-            var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-
-            if (version < 1)
-            {
-                await CreateBaseTablesAsync();
-                cmd.CommandText = "PRAGMA user_version = 1";
-                await cmd.ExecuteNonQueryAsync();
-                version = 1;
-            }
-
-            if (version < 2)
-            {
-                cmd.CommandText = """
-                    CREATE TABLE IF NOT EXISTS saved_tags(
-                        AnimeId INTEGER NOT NULL,
-                        TagName TEXT NOT NULL,
-                        PRIMARY KEY (AnimeId, TagName)
-                    )
-                """;
-                await cmd.ExecuteNonQueryAsync();
-                cmd.CommandText = "PRAGMA user_version = 2";
-                await cmd.ExecuteNonQueryAsync();
-            }
+            await RunProductionMigrationAsync();
         }
 
         /// <summary>模拟数据库损坏（写入无效数据）。</summary>
@@ -92,7 +81,7 @@ namespace AniMeido.Tests
 
         public void Dispose()
         {
-            try { if (File.Exists(DbPath)) File.Delete(DbPath); } catch { }
+            try { if (File.Exists(DbPath)) File.Delete(DbPath); } catch (IOException) { }
         }
     }
 }

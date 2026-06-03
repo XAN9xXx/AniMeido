@@ -93,6 +93,7 @@ namespace AniMeido.Plugin.Base.Services
             try
             {
                 var response = await client.PostAsync(url, content, ct).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
                 json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             }
             catch (HttpRequestException ex)

@@ -2,7 +2,6 @@
 using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models.Bangumi;
 using Microsoft.Extensions.Logging;
-using System.Diagnostics;
 using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.Services
@@ -20,6 +19,20 @@ namespace AniMeido.Plugin.Base.Services
         private static readonly string? FallbackImageUrl = null;
         private static readonly IReadOnlyList<VoiceActor> FallbackCVs = Array.Empty<VoiceActor>();
         private static readonly IReadOnlyList<string> StudioFilter = new List<string> { "製作", "原作", "企画", "动画制作", "发行" }; // API中Type 2 代表参与制作的商业实体，此处仅筛选制作/原作。
+
+        /// <summary>判断异常是否为网络错误（含 BangumiApiException 包装的网络异常）。</summary>
+        private static bool IsNetworkError(Exception ex) => ex switch
+        {
+            HttpRequestException => true,
+            TaskCanceledException => true,
+            BangumiApiException bae => bae.InnerException switch
+            {
+                HttpRequestException => true,
+                TaskCanceledException => true,
+                _ => false
+            },
+            _ => false
+        };
 
 
 
@@ -79,8 +92,17 @@ namespace AniMeido.Plugin.Base.Services
             var cached = await _cacheService.GetCacheAsync(cacheKey);
             if (cached != null)
             {
-                var result = JsonSerializer.Deserialize<T>(cached, JsonOptions);
-                if (result != null) return result;
+                try
+                {
+                    var result = JsonSerializer.Deserialize<T>(cached, JsonOptions);
+                    if (result != null) return result;
+                }
+                catch (JsonException ex)
+                {
+                    // 缓存数据损坏，删除坏缓存
+                    _logger.LogWarning(ex, "Corrupted cache entry for {Key}, removing", cacheKey);
+                    await _cacheService.RemoveCacheAsync(cacheKey);
+                }
             }
 
             T? data;
@@ -88,18 +110,25 @@ namespace AniMeido.Plugin.Base.Services
             {
                 data = await fetchFunc();
             }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            catch (Exception ex) when (IsNetworkError(ex))
             {
                 // 网络失败时尝试返回过期缓存降级
                 _logger.LogWarning("Network request failed for cache key {Key}: {Msg}", cacheKey, ex.Message);
                 var stale = await _cacheService.GetCacheAllowExpiredAsync(cacheKey);
                 if (stale != null)
                 {
-                    var staleResult = JsonSerializer.Deserialize<T>(stale, JsonOptions);
-                    if (staleResult != null)
+                    try
                     {
-                        _logger.LogInformation("Returning stale cache for {Key}", cacheKey);
-                        return staleResult;
+                        var staleResult = JsonSerializer.Deserialize<T>(stale, JsonOptions);
+                        if (staleResult != null)
+                        {
+                            _logger.LogInformation("Returning stale cache for {Key}", cacheKey);
+                            return staleResult;
+                        }
+                    }
+                    catch (JsonException jex)
+                    {
+                        _logger.LogWarning(jex, "Stale cache corrupted for {Key}, falling back to network error", cacheKey);
                     }
                 }
                 throw; // 没有过期缓存可用，继续保持原异常向上传播
@@ -252,17 +281,29 @@ namespace AniMeido.Plugin.Base.Services
                     return animes;
                 }
                 if (year < DateTime.Now.Year)
-                    return await FetchByBrowse(year, seasonMonth, ct);
+                {
+                    var browseResult = await FetchByBrowse(year, seasonMonth, ct);
+                    if (browseResult.Count > 0)
+                        await _cacheService.SetCacheAsync(cacheKey, JsonSerializer.Serialize(browseResult, JsonOptions), TimeSpan.FromHours(12));
+                    return browseResult;
+                }
                 var currentSeason = SeasonHelper.FromMonth(DateTime.Now.Month);
                 if (season != currentSeason)
-                    return await FetchByBrowse(year, seasonMonth, ct);
+                {
+                    var browseResult = await FetchByBrowse(year, seasonMonth, ct);
+                    if (browseResult.Count > 0)
+                        await _cacheService.SetCacheAsync(cacheKey, JsonSerializer.Serialize(browseResult, JsonOptions), TimeSpan.FromHours(12));
+                    return browseResult;
+                }
                 return [];
             }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+#pragma warning disable CA1031 // 网络异常应使用 stale cache 降级
+            catch (Exception ex) when (IsNetworkError(ex))
             {
                 // 网络失败时尝试返回过期缓存降级
                 _logger.LogWarning("Network request failed for season {Year}/{Season}: {Msg}", year, season, ex.Message);
                 var stale = await _cacheService.GetCacheAllowExpiredAsync(cacheKey);
+#pragma warning restore CA1031
                 if (stale != null)
                 {
                     var staleResult = JsonSerializer.Deserialize<List<Anime>>(stale, JsonOptions);

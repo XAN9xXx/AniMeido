@@ -3,14 +3,10 @@ using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
-using AniMeido.Plugin.Base.Views.Controls;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Windows.Foundation;
-using Windows.UI;
 
 namespace AniMeido.Plugin.Base.Views
 {
@@ -22,12 +18,16 @@ namespace AniMeido.Plugin.Base.Views
         private HashSet<int> _blockedIds = new();
         private DragDropService _dragDrop;
         private TrackingService _tracking;
+        private IPluginNavigator _pluginNavigator;
+        private CancellationTokenSource? _loadCts;
+        private int _loadVersion;
 
-        public PastSeasonPage(IAnimeDataSource dataSource, DragDropService dragDropService, TrackingService trackingService)
+        public PastSeasonPage(IAnimeDataSource dataSource, DragDropService dragDropService, TrackingService trackingService, IPluginNavigator pluginNavigator)
         {
             _viewModel = new PastSeasonViewModel(dataSource);
             _dragDrop = dragDropService;
             _tracking = trackingService;
+            _pluginNavigator = pluginNavigator;
             InitializeComponent();
 
             _ = LoadDragConfigAndBlockedAsync();
@@ -80,13 +80,11 @@ namespace AniMeido.Plugin.Base.Views
             {
                 ErrorInfoBar.Message = ViewModel.ErrorMessage;
                 ErrorInfoBar.IsOpen = true;
-                ErrorInfoBar.Visibility = Visibility.Visible;
                 EmptyState.Visibility = Visibility.Collapsed;
             }
             else
             {
                 ErrorInfoBar.IsOpen = false;
-                ErrorInfoBar.Visibility = Visibility.Collapsed;
                 EmptyState.Visibility = !ViewModel.IsLoading && !ViewModel.HasData
                     ? Visibility.Visible
                     : Visibility.Collapsed;
@@ -140,12 +138,6 @@ namespace AniMeido.Plugin.Base.Views
                 previousYear--;
 
             // 默认识别到上一个年度的最后一个季度之前的季度
-            var previousYear2 = currentSeason switch
-            {
-                Season.Winter => currentYear,
-                _ => currentYear
-            };
-
             YearComboBox.SelectedItem = previousYear;
             RebuildSeasonItems(previousYear, previousSeason);
 
@@ -156,7 +148,7 @@ namespace AniMeido.Plugin.Base.Views
             if (YearComboBox.SelectedItem is int year &&
                 SeasonComboBox.SelectedItem is ComboBoxItem item && item.Tag is Season season)
             {
-                _ = ViewModel.LoadPastSeasonAnimeAsync(year, season);
+                _ = LoadSeasonAsync(year, season);
             }
         }
 
@@ -231,6 +223,21 @@ namespace AniMeido.Plugin.Base.Views
             SeasonComboBox.SelectionChanged += OnSeasonSelectionChanged;
         }
 
+        private async Task LoadSeasonAsync(int year, Season season)
+        {
+            // 取消上一轮请求
+            _loadCts?.Cancel();
+            _loadCts?.Dispose();
+            _loadCts = new CancellationTokenSource();
+            var version = Interlocked.Increment(ref _loadVersion);
+
+            await ViewModel.LoadPastSeasonAnimeAsync(year, season, _loadCts.Token);
+
+            // 如果已有更新的请求，丢弃此结果
+            if (version != _loadVersion) return;
+            UpdateViewState();
+        }
+
         private void OnYearSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (YearComboBox.SelectedItem is not int year) return;
@@ -239,7 +246,7 @@ namespace AniMeido.Plugin.Base.Views
             // 年份变更后立即加载新季度数据
             if (SeasonComboBox.SelectedItem is ComboBoxItem item && item.Tag is Season season)
             {
-                _ = ViewModel.LoadPastSeasonAnimeAsync(year, season);
+                _ = LoadSeasonAsync(year, season);
             }
         }
 
@@ -247,38 +254,55 @@ namespace AniMeido.Plugin.Base.Views
         {
             if (YearComboBox.SelectedItem is not int year) return;
             if (SeasonComboBox.SelectedItem is not ComboBoxItem item || item.Tag is not Season season) return;
-            await ViewModel.LoadPastSeasonAnimeAsync(year, season);
+            await LoadSeasonAsync(year, season);
         }
 
         private void OnItemClick(object sender, ItemClickEventArgs e)
         {
             if (e.ClickedItem is Anime anime)
-                Frame.Navigate(typeof(AnimeDetailPage), anime.ID);
+                _pluginNavigator.Navigate(typeof(AnimeDetailPage), anime.ID);
         }
 
         private async Task LoadDragConfigAndBlockedAsync()
         {
-            await _dragDrop.ReloadConfigAsync();
-            var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
-            _blockedIds = blocked.ToHashSet();
-            // 无论数据是否已加载，都重新从原始数据过滤一次
-            if (ViewModel.AnimeList.Count > 0)
+            try
             {
-                _allAnime.Clear();
-                _allAnime.AddRange(ViewModel.AnimeList.Where(a => !_blockedIds.Contains(a.ID)));
-                ApplyFilter(FilterBox.Text);
+                await _dragDrop.ReloadConfigAsync();
+                var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
+                _blockedIds = blocked.ToHashSet();
+                // 无论数据是否已加载，都重新从原始数据过滤一次
+                if (ViewModel.AnimeList.Count > 0)
+                {
+                    _allAnime.Clear();
+                    _allAnime.AddRange(ViewModel.AnimeList.Where(a => !_blockedIds.Contains(a.ID)));
+                    ApplyFilter(FilterBox.Text);
+                }
             }
+#pragma warning disable CA1031 // 拖放/屏蔽配置加载失败不阻塞页面
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[PastSeasonPage] LoadDragConfigAndBlockedAsync failed: {ex.Message}");
+            }
+#pragma warning restore CA1031
         }
 
         // ======== 自定义拖放 ========
 
+        private bool _loadedHandlerAttached;
+
         private void OnPageLoaded(object sender, RoutedEventArgs e)
         {
+            if (_loadedHandlerAttached) return;
+            _loadedHandlerAttached = true;
+
             var rootGrid = (Grid)sender;
             rootGrid.AddHandler(UIElement.PointerPressedEvent,
                 new PointerEventHandler(OnCapturedPointerPressed), true);
+            rootGrid.AddHandler(UIElement.PointerReleasedEvent,
+                new PointerEventHandler(OnRootPointerReleased), true);
+            rootGrid.AddHandler(UIElement.PointerCanceledEvent,
+                new PointerEventHandler(OnRootPointerCanceled), true);
         }
-
         private void OnCapturedPointerPressed(object sender, PointerRoutedEventArgs e)
         {
             _dragDrop.HandlePointerPressed(this, e);

@@ -1,7 +1,5 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
-using AniMeido.Plugin.Base.Services;
-using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.Services
@@ -90,24 +88,17 @@ namespace AniMeido.Plugin.Base.Services
         /// </summary>
         private async Task<Anime?> TryGetAnimeAsync(int animeId, CancellationToken ct)
         {
-            // 先尝试从缓存读取
-            var cached = await _cacheService.GetCacheAsync($"detail:{animeId}");
-            if (cached != null)
-            {
-                try
-                {
-                    // detail 缓存存的是 SubjectResponse，不是直接 Anime 对象
-                    // 所以这里从 API 获取（已有缓存保护）
-                }
-                catch { }
-            }
-
-            // 通过 DataSource 获取（走缓存+网络）
+            // 本地搜索不直接从 detail 缓存反序列化（缓存格式为 SubjectResponse），
+            // 由 IAnimeDataSource.GetAnimeDetailAsync 内部处理缓存。
             try
             {
                 return await _dataSource.GetAnimeDetailAsync(animeId, ct);
             }
-            catch
+            catch (HttpRequestException)
+            {
+                return null;
+            }
+            catch (TaskCanceledException)
             {
                 return null;
             }

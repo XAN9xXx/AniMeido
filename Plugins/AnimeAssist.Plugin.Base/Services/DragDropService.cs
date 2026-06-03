@@ -1,11 +1,10 @@
-using AniMeido.Contracts.Models;
+﻿using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Views.Controls;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Input;
-using System.Collections.ObjectModel;
 using Windows.Foundation;
 using Windows.UI;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -126,24 +125,26 @@ namespace AniMeido.Plugin.Base.Services
             if (_isDragging) return;
             _isDragging = true;
 
-            _dragZones = await _tracking.LoadDragZoneConfigAsync();
-
-            overlay.Visibility = Visibility.Visible;
-            overlay.UpdateLayout();
-            BuildAndShowZones(overlay, excludeActions);
-
-            var anime = _dragAnime!;
-            var ghost = new Border
+            try
             {
-                Width = 150,
-                Height = 256,
-                CornerRadius = new CornerRadius(8),
-                Background = new SolidColorBrush(Color.FromArgb(200, 30, 30, 30)),
-                Opacity = 0.85,
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Top,
-                IsHitTestVisible = false,
-            };
+                _dragZones = await _tracking.LoadDragZoneConfigAsync();
+
+                overlay.Visibility = Visibility.Visible;
+                overlay.UpdateLayout();
+                BuildAndShowZones(overlay, excludeActions);
+
+                var anime = _dragAnime!;
+                var ghost = new Border
+                {
+                    Width = 150,
+                    Height = 256,
+                    CornerRadius = new CornerRadius(8),
+                    Background = new SolidColorBrush(Color.FromArgb(200, 30, 30, 30)),
+                    Opacity = 0.85,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    IsHitTestVisible = false,
+                };
 
             var ghostGrid = new Grid();
             ghostGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(200) });
@@ -191,6 +192,15 @@ namespace AniMeido.Plugin.Base.Services
                 overlayPanel.Children.Add(ghost);
             }
             _dragGhost = ghost;
+            }
+#pragma warning disable CA1031 // 拖放初始化失败应清理 UI 而非崩溃
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DragDrop] BeginDragAsync failed: {ex.Message}");
+                _isDragging = false;
+                CleanupDrag(overlay);
+            }
+#pragma warning restore CA1031
         }
 
         private void EndDrag(UIElement overlay, Point dropPoint)
@@ -358,7 +368,7 @@ namespace AniMeido.Plugin.Base.Services
                     {
                         var st = DragActionToStatus(cfg.Action);
                         if (st != AnimeTrackingStatus.None)
-                            _ = _tracking.SetStatusAsync(_dragAnime.ID, st);
+                            _ = SetStatusSafelyAsync(_dragAnime.ID, st);
                     }
                     break;
                 }
@@ -383,6 +393,24 @@ namespace AniMeido.Plugin.Base.Services
                 if (ch is T t) r.Add(t);
                 FindAllRecursive(ch, r);
             }
+        }
+
+        /// <summary>
+        /// 安全地设置标记状态，捕获并记录异常。
+        /// fire-and-forget，不阻塞拖放操作。
+        /// </summary>
+        private async Task SetStatusSafelyAsync(int animeId, AnimeTrackingStatus status)
+        {
+            try
+            {
+                await _tracking.SetStatusAsync(animeId, status);
+            }
+#pragma warning disable CA1031 // 拖放状态写入失败不阻塞操作
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DragDrop] Failed to set tracking status. AnimeId={animeId}, Status={status}: {ex.Message}");
+            }
+#pragma warning restore CA1031
         }
     }
 

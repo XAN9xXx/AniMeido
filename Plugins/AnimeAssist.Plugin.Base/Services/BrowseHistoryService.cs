@@ -1,3 +1,4 @@
+﻿using AniMeido.Contracts;
 using Microsoft.Data.Sqlite;
 
 namespace AniMeido.Plugin.Base.Services
@@ -8,18 +9,17 @@ namespace AniMeido.Plugin.Base.Services
     /// </summary>
     public class BrowseHistoryService
     {
-        private readonly string _connectionString;
+        private readonly SqliteConnectionFactory _dbFactory;
 
-        public BrowseHistoryService(string dbPath)
+        public BrowseHistoryService(SqliteConnectionFactory dbFactory)
         {
-            _connectionString = $"Data Source={dbPath}";
+            _dbFactory = dbFactory;
         }
 
         /// <summary>记录或更新番剧浏览记录。</summary>
         public async Task RecordAsync(int animeId, string? titleSnapshot)
         {
-            using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync();
+            using var connection = await _dbFactory.OpenAsync();
 
             var cmd = connection.CreateCommand();
             cmd.CommandText = """
@@ -39,8 +39,7 @@ namespace AniMeido.Plugin.Base.Services
         /// <summary>获取浏览记录（最近 -N 条）。</summary>
         public async Task<List<(int AnimeId, string? Title, DateTime LastViewed, int ViewCount)>> GetHistoryAsync(int limit = 50)
         {
-            using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync();
+            using var connection = await _dbFactory.OpenAsync();
 
             var cmd = connection.CreateCommand();
             cmd.CommandText = """
@@ -68,8 +67,7 @@ namespace AniMeido.Plugin.Base.Services
         /// <summary>清空浏览记录。</summary>
         public async Task ClearAsync()
         {
-            using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync();
+            using var connection = await _dbFactory.OpenAsync();
 
             var cmd = connection.CreateCommand();
             cmd.CommandText = "DELETE FROM browse_history";

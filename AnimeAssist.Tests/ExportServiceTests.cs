@@ -1,4 +1,4 @@
-using AniMeido.Contracts.Models;
+﻿using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
 
 namespace AniMeido.Tests
@@ -7,15 +7,15 @@ namespace AniMeido.Tests
     {
         private ExportService CreateService()
         {
-            var tracking = new TrackingService(DbPath);
-            var savedTag = new SavedTagService(DbPath);
-            return new ExportService(tracking, savedTag);
+            var tracking = new TrackingService(DbFactory);
+            var savedTag = new SavedTagService(DbFactory);
+            return new ExportService(tracking, savedTag, DbFactory);
         }
 
         [Fact]
         public async Task Export_EmptyDatabase_ReturnsValidJson()
         {
-            await RunFullMigrationAsync();
+            await RunProductionMigrationAsync();
             var svc = CreateService();
 
             var json = await svc.ExportAsync();
@@ -29,9 +29,9 @@ namespace AniMeido.Tests
         [Fact]
         public async Task Export_And_Import_RestoresData()
         {
-            await RunFullMigrationAsync();
-            var tracking = new TrackingService(DbPath);
-            var savedTag = new SavedTagService(DbPath);
+            await RunProductionMigrationAsync();
+            var tracking = new TrackingService(DbFactory);
+            var savedTag = new SavedTagService(DbFactory);
 
             // 准备数据
             await tracking.SetStatusAsync(1, AnimeTrackingStatus.Watching);
@@ -39,11 +39,13 @@ namespace AniMeido.Tests
             await savedTag.SaveTagAsync("原创");
 
             // 导出
-            var svc = new ExportService(tracking, savedTag);
+            var svc = new ExportService(tracking, savedTag, DbFactory);
             var json = await svc.ExportAsync();
 
             // 用新的独立数据库验证导入
-            var importDbPath = Path.Combine(Path.GetTempPath(), $"AniMeidoTest_Import_{Guid.NewGuid():N}.db");
+            var mockImportPaths = new MockAppDataPaths();
+            var importDbFactory = new SqliteConnectionFactory(mockImportPaths);
+            var importDbPath = mockImportPaths.DatabasePath;
             // 在新数据库上建表
             using (var importConn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={importDbPath}"))
             {
@@ -74,8 +76,9 @@ namespace AniMeido.Tests
 
             // 导入
             var importSvc = new ExportService(
-                new TrackingService(importDbPath),
-                new SavedTagService(importDbPath));
+                new TrackingService(importDbFactory),
+                new SavedTagService(importDbFactory),
+                importDbFactory);
             var (trackingCount, configCount, tagCount) = await importSvc.ImportAsync(json);
 
             Assert.Equal(2, trackingCount);
@@ -83,22 +86,22 @@ namespace AniMeido.Tests
             Assert.Equal(1, tagCount);
 
             // 验证导入结果
-            var status1 = await new TrackingService(importDbPath).GetStatusAsync(1);
-            var status2 = await new TrackingService(importDbPath).GetStatusAsync(2);
-            var tags = await new SavedTagService(importDbPath).GetAllSavedTagsAsync();
+            var status1 = await new TrackingService(importDbFactory).GetStatusAsync(1);
+            var status2 = await new TrackingService(importDbFactory).GetStatusAsync(2);
+            var tags = await new SavedTagService(importDbFactory).GetAllSavedTagsAsync();
 
             Assert.Equal(AnimeTrackingStatus.Watching, status1);
             Assert.Equal(AnimeTrackingStatus.Completed, status2);
             Assert.Contains("原创", tags);
 
             // 清理
-            CleanupDbFile(importDbPath);
+            CleanupDbFile(mockImportPaths.DatabasePath);
         }
 
         [Fact]
         public async Task Preview_DoesNotWriteData()
         {
-            await RunFullMigrationAsync();
+            await RunProductionMigrationAsync();
             var svc = CreateService();
             var json = await svc.ExportAsync();
 
@@ -107,7 +110,7 @@ namespace AniMeido.Tests
             Assert.NotNull(preview);
 
             // 数据应未被修改（预览不写入）
-            var tracking = new TrackingService(DbPath);
+            var tracking = new TrackingService(DbFactory);
             var all = await tracking.GetAllTrackingAsync();
             Assert.Empty(all);
         }
@@ -115,7 +118,7 @@ namespace AniMeido.Tests
         [Fact]
         public async Task Import_InvalidJson_ThrowsJsonException()
         {
-            await RunFullMigrationAsync();
+            await RunProductionMigrationAsync();
             var svc = CreateService();
 
             await Assert.ThrowsAsync<System.Text.Json.JsonException>(() =>
@@ -125,7 +128,7 @@ namespace AniMeido.Tests
         [Fact]
         public async Task Import_EmptyTracking_DoesNotThrow()
         {
-            await RunFullMigrationAsync();
+            await RunProductionMigrationAsync();
             var svc = CreateService();
             var json = await svc.ExportAsync();
 

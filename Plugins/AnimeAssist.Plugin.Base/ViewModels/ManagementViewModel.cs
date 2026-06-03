@@ -1,9 +1,12 @@
+﻿using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
+using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
+using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.ViewModels
 {
@@ -75,7 +78,7 @@ namespace AniMeido.Plugin.Base.ViewModels
 
 
         [RelayCommand]
-        private async Task LoadDataAsync()
+        private async Task LoadDataAsync(CancellationToken ct = default)
         {
             IsLoading = true;
             IsError = false;
@@ -92,67 +95,57 @@ namespace AniMeido.Plugin.Base.ViewModels
                 var droppedIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Dropped);
                 var blockedIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
 
-                // 逐个加载番剧详情（最多显示 20 条）
+                // 先设置真实计数（来自数据库），再并发加载详情
+                WatchingCount = watchingIds.Count;
+                PlanToWatchCount = planIds.Count;
+                NotInterestedCount = notInterestedIds.Count;
+                FollowingCount = followingIds.Count;
+                CompletedCount = completedIds.Count;
+                DroppedCount = droppedIds.Count;
+                BlockedCount = blockedIds.Count;
+
+                // 并发加载番剧详情（限流，最多 4 个并发请求）
                 WatchingList.Clear();
-                foreach (var id in watchingIds.Take(20))
-                {
-                    var anime = await _animeDataSource.GetAnimeDetailAsync(id, CancellationToken.None);
-                    if (anime != null) WatchingList.Add(anime);
-                }
+                foreach (var anime in await LoadAnimeDetailsConcurrentAsync(watchingIds, ct))
+                    WatchingList.Add(anime);
 
                 PlanToWatchList.Clear();
-                foreach (var id in planIds.Take(20))
-                {
-                    var anime = await _animeDataSource.GetAnimeDetailAsync(id, CancellationToken.None);
-                    if (anime != null) PlanToWatchList.Add(anime);
-                }
+                foreach (var anime in await LoadAnimeDetailsConcurrentAsync(planIds, cancellationToken: default))
+                    PlanToWatchList.Add(anime);
 
                 NotInterestedList.Clear();
-                foreach (var id in notInterestedIds.Take(20))
-                {
-                    var anime = await _animeDataSource.GetAnimeDetailAsync(id, CancellationToken.None);
-                    if (anime != null) NotInterestedList.Add(anime);
-                }
+                foreach (var anime in await LoadAnimeDetailsConcurrentAsync(notInterestedIds, cancellationToken: default))
+                    NotInterestedList.Add(anime);
 
                 FollowingList.Clear();
-                foreach (var id in followingIds.Take(20))
-                {
-                    var anime = await _animeDataSource.GetAnimeDetailAsync(id, CancellationToken.None);
-                    if (anime != null) FollowingList.Add(anime);
-                }
+                foreach (var anime in await LoadAnimeDetailsConcurrentAsync(followingIds, cancellationToken: default))
+                    FollowingList.Add(anime);
 
                 CompletedList.Clear();
-                foreach (var id in completedIds.Take(20))
-                {
-                    var anime = await _animeDataSource.GetAnimeDetailAsync(id, CancellationToken.None);
-                    if (anime != null) CompletedList.Add(anime);
-                }
+                foreach (var anime in await LoadAnimeDetailsConcurrentAsync(completedIds, cancellationToken: default))
+                    CompletedList.Add(anime);
 
                 DroppedList.Clear();
-                foreach (var id in droppedIds.Take(20))
-                {
-                    var anime = await _animeDataSource.GetAnimeDetailAsync(id, CancellationToken.None);
-                    if (anime != null) DroppedList.Add(anime);
-                }
+                foreach (var anime in await LoadAnimeDetailsConcurrentAsync(droppedIds, cancellationToken: default))
+                    DroppedList.Add(anime);
 
                 BlockedList.Clear();
-                foreach (var id in blockedIds.Take(20))
-                {
-                    var anime = await _animeDataSource.GetAnimeDetailAsync(id, CancellationToken.None);
-                    if (anime != null) BlockedList.Add(anime);
-                }
-
-                WatchingCount = WatchingList.Count;
-                PlanToWatchCount = PlanToWatchList.Count;
-                NotInterestedCount = NotInterestedList.Count;
-                FollowingCount = FollowingList.Count;
-                CompletedCount = CompletedList.Count;
-                DroppedCount = DroppedList.Count;
-                BlockedCount = BlockedList.Count;
+                foreach (var anime in await LoadAnimeDetailsConcurrentAsync(blockedIds, cancellationToken: default))
+                    BlockedList.Add(anime);
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
-                ErrorMessage = $"加载失败：{ex.Message}";
+                ErrorMessage = $"网络请求失败：{ex.Message}";
+                IsError = true;
+            }
+            catch (TaskCanceledException)
+            {
+                // 取消是预期行为（被新请求替代），不当作错误处理
+                return;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or JsonException)
+            {
+                ErrorMessage = $"数据解析失败：{ex.Message}";
                 IsError = true;
             }
             finally
@@ -320,6 +313,45 @@ namespace AniMeido.Plugin.Base.ViewModels
             TagAnimeList.Clear();
             HasTags = TagList.Count > 0;
             await _savedTagService.RemoveTagAsync(tagName);
+        }
+
+        /// <summary>
+        /// 并发加载番剧详情，限制最大并发数 4。
+        /// 使用 Parallel.ForEachAsync 避免大数据量时创建过多 Task 对象。
+        /// </summary>
+        private async Task<List<Anime>> LoadAnimeDetailsConcurrentAsync(IReadOnlyList<int> ids, CancellationToken cancellationToken)
+        {
+            var results = new ConcurrentBag<Anime>();
+            var parallelOptions = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = 4,
+                CancellationToken = cancellationToken
+            };
+
+            await Parallel.ForEachAsync(ids, parallelOptions, async (id, token) =>
+            {
+                try
+                {
+                    token.ThrowIfCancellationRequested();
+                    var anime = await _animeDataSource.GetAnimeDetailAsync(id, token);
+                    if (anime != null)
+                        results.Add(anime);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (HttpRequestException)
+                {
+                    // 单个作品获取失败时跳过
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or JsonException)
+                {
+                    // 单个作品解析失败时跳过
+                }
+            });
+
+            return results.ToList();
         }
     }
 }

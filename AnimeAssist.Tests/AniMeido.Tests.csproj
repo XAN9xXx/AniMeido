@@ -7,6 +7,7 @@
         <IsPackable>false</IsPackable>
         <IsTestProject>true</IsTestProject>
         <AssemblyName>AniMeido.Tests</AssemblyName>
+        <Platforms>x64</Platforms>
     </PropertyGroup>
 
     <ItemGroup>
@@ -21,6 +22,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\AnimeAssist.Contracts\AniMeido.Contracts.csproj" />
+        <ProjectReference Include="..\AnimeAssist.App\AniMeido.App.csproj" />
         <ProjectReference Include="..\Plugins\AnimeAssist.Plugin.Base\AniMeido.Plugin.Base.csproj" />
     </ItemGroup>
 

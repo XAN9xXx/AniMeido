@@ -12,9 +12,7 @@
 
     <Grid AllowDrop="True"
           Loaded="OnPageLoaded"
-          PointerMoved="OnRootPointerMoved"
-          PointerReleased="OnRootPointerReleased"
-          PointerCanceled="OnRootPointerCanceled">
+          PointerMoved="OnRootPointerMoved">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>

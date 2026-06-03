@@ -50,6 +50,11 @@ namespace AniMeido.Plugin.Base
                 {
                     PageType = typeof(Views.DragZoneSettingsPage),
                     IsSettingsPage = true
+                },
+                new PluginNavigationItem("数据管理", "\uE8A5", "AniMeido.Plugin.Base.Views.DataManagementSettingsPage")
+                {
+                    PageType = typeof(Views.DataManagementSettingsPage),
+                    IsSettingsPage = true
                 }
             };
         }
@@ -61,6 +66,7 @@ namespace AniMeido.Plugin.Base
         /// <returns>Task完成标记</returns>
         public Task InitializeAsync(IServiceCollection services)
         {
+            services.AddSingleton<SqliteConnectionFactory>();
             services.AddBangumiService();
             services.AddSingleton<ExportService>();
             services.AddSingleton<SavedTagService>();

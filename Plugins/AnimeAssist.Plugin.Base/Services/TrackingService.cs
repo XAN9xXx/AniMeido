@@ -1,4 +1,5 @@
-﻿using AniMeido.Contracts.Models;
+﻿using AniMeido.Contracts;
+using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using Microsoft.Data.Sqlite;
 using System.Text.Json;
@@ -7,25 +8,20 @@ namespace AniMeido.Plugin.Base.Services
 {
     public class TrackingService
     {
-        private readonly string _connectionString;
+        private readonly SqliteConnectionFactory _dbFactory;
         private static readonly JsonSerializerOptions ConfigJsonOptions = new()
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         };
 
-
-
-        public TrackingService(string dbPath)
+        public TrackingService(SqliteConnectionFactory dbFactory)
         {
-            _connectionString = $"Data Source={dbPath}";
+            _dbFactory = dbFactory;
         }
-
-
 
         public async Task SetStatusAsync(int animeId, AnimeTrackingStatus status)
         {
-            using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync();
+            using var connection = await _dbFactory.OpenAsync();
 
             var command = connection.CreateCommand();
             command.CommandText = """
@@ -34,15 +30,33 @@ namespace AniMeido.Plugin.Base.Services
                 """;
             command.Parameters.AddWithValue("@animeId", animeId);
             command.Parameters.AddWithValue("@status", (int)status);
-            command.Parameters.AddWithValue("@updatedAt", DateTime.Now.ToString("O"));
+            command.Parameters.AddWithValue("@updatedAt", DateTime.UtcNow.ToString("O"));
+
+            await command.ExecuteNonQueryAsync();
+        }
+
+        /// <summary>
+        /// 导入专用方法：写入指定状态和原始 UpdatedAt，保留导出时的时间戳。
+        /// </summary>
+        public async Task SetStatusWithTimestampAsync(int animeId, AnimeTrackingStatus status, string updatedAt)
+        {
+            using var connection = await _dbFactory.OpenAsync();
+
+            var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT OR REPLACE INTO tracking (AnimeId, Status, UpdatedAt)
+                VALUES (@animeId, @status, @updatedAt)
+                """;
+            command.Parameters.AddWithValue("@animeId", animeId);
+            command.Parameters.AddWithValue("@status", (int)status);
+            command.Parameters.AddWithValue("@updatedAt", updatedAt);
 
             await command.ExecuteNonQueryAsync();
         }
 
         public async Task<AnimeTrackingStatus?> GetStatusAsync(int animeId)
         {
-            using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync();
+            using var connection = await _dbFactory.OpenAsync();
 
             var command = connection.CreateCommand();
             command.CommandText = "SELECT Status FROM tracking WHERE AnimeId = @animeId";
@@ -56,8 +70,7 @@ namespace AniMeido.Plugin.Base.Services
 
         public async Task<List<int>> GetAnimeIdsByStatusAsync(AnimeTrackingStatus status)
         {
-            using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync();
+            using var connection = await _dbFactory.OpenAsync();
 
             var command = connection.CreateCommand();
             command.CommandText = "SELECT AnimeId FROM tracking WHERE Status = @status";
@@ -74,8 +87,7 @@ namespace AniMeido.Plugin.Base.Services
 
         public async Task RemoveStatusAsync(int animeId)
         {
-            using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync();
+            using var connection = await _dbFactory.OpenAsync();
 
             var command = connection.CreateCommand();
             command.CommandText = "DELETE FROM tracking WHERE AnimeId = @animeId";
@@ -89,8 +101,7 @@ namespace AniMeido.Plugin.Base.Services
         /// </summary>
         public async Task<List<(int AnimeId, AnimeTrackingStatus Status, string UpdatedAt)>> GetAllTrackingAsync()
         {
-            using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync();
+            using var connection = await _dbFactory.OpenAsync();
 
             var command = connection.CreateCommand();
             command.CommandText = "SELECT AnimeId, Status, UpdatedAt FROM tracking ORDER BY UpdatedAt DESC";
@@ -113,8 +124,7 @@ namespace AniMeido.Plugin.Base.Services
         {
             var json = JsonSerializer.Serialize(configs, ConfigJsonOptions);
 
-            using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync();
+            using var connection = await _dbFactory.OpenAsync();
 
             var command = connection.CreateCommand();
             command.CommandText = """
@@ -127,8 +137,7 @@ namespace AniMeido.Plugin.Base.Services
 
         public async Task<List<DragZoneConfig>> LoadDragZoneConfigAsync()
         {
-            using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync();
+            using var connection = await _dbFactory.OpenAsync();
 
             var command = connection.CreateCommand();
             command.CommandText = "SELECT Value FROM config WHERE Key = 'drag_zones'";
@@ -146,3 +155,4 @@ namespace AniMeido.Plugin.Base.Services
 
     }
 }
+

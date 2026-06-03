@@ -1,0 +1,37 @@
+# AniMeido .editorconfig
+# 参考：https://docs.microsoft.com/en-us/dotnet/fundamentals/code-analysis/code-style-rule-options
+
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+tab_width = 4
+end_of_line = crlf
+charset = utf-8-bom
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.cs]
+indent_style = space
+indent_size = 4
+# 整个项目仅面向 Windows，无需平台兼容性检查
+dotnet_diagnostic.CA1416.severity = none
+
+[*.xaml]
+indent_style = space
+indent_size = 4
+
+[*.{csproj,xml,json,config}]
+indent_style = space
+indent_size = 2
+
+[*.{md,txt}]
+indent_style = space
+indent_size = 2
+trim_trailing_whitespace = false
+
+# CA1031: Do not catch general exception types — 设为 warning，必需兜底处局部 suppress
+# CA1031/CA1031 已经在 Directory.Build.props 中设为 warning
+[*.cs]
+dotnet_diagnostic.CA1031.severity = warning

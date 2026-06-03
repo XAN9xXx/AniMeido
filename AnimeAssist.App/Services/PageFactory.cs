@@ -5,8 +5,10 @@ namespace AniMeido.App.Services
 {
     /// <summary>
     /// 页面工厂：从 DI 容器创建页面实例，替代反射 + 字符串导航。
+    /// 使用 ActivatorUtilities.CreateInstance 按需注入构造函数依赖，
+    /// 不再要求页面类型提前注册到 DI 容器。
     /// </summary>
-    public class PageFactory
+    public sealed class PageFactory
     {
         private readonly IServiceProvider _serviceProvider;
 
@@ -20,7 +22,12 @@ namespace AniMeido.App.Services
         /// </summary>
         public Page CreatePage(Type pageType)
         {
-            return (Page)_serviceProvider.GetRequiredService(pageType);
+            ArgumentNullException.ThrowIfNull(pageType);
+
+            if (!typeof(Page).IsAssignableFrom(pageType))
+                throw new InvalidOperationException($"{pageType.FullName} is not a WinUI Page.");
+
+            return (Page)ActivatorUtilities.CreateInstance(_serviceProvider, pageType);
         }
     }
 }

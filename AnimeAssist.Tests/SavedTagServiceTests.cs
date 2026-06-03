@@ -1,4 +1,4 @@
-using AniMeido.Plugin.Base.Services;
+﻿using AniMeido.Plugin.Base.Services;
 
 namespace AniMeido.Tests
 {
@@ -6,13 +6,13 @@ namespace AniMeido.Tests
     {
         private SavedTagService CreateService()
         {
-            return new SavedTagService(DbPath);
+            return new SavedTagService(DbFactory);
         }
 
         [Fact]
         public async Task SaveAndGetAllSavedTags_ReturnsSavedTags()
         {
-            await RunFullMigrationAsync();
+            await RunProductionMigrationAsync();
             var svc = CreateService();
 
             await svc.SaveTagAsync("原创");
@@ -27,7 +27,7 @@ namespace AniMeido.Tests
         [Fact]
         public async Task SaveTag_Duplicate_DoesNotThrow()
         {
-            await RunFullMigrationAsync();
+            await RunProductionMigrationAsync();
             var svc = CreateService();
 
             await svc.SaveTagAsync("原创");
@@ -40,7 +40,7 @@ namespace AniMeido.Tests
         [Fact]
         public async Task RemoveTag_RemovesTag()
         {
-            await RunFullMigrationAsync();
+            await RunProductionMigrationAsync();
             var svc = CreateService();
 
             await svc.SaveTagAsync("原创");
@@ -55,7 +55,7 @@ namespace AniMeido.Tests
         [Fact]
         public async Task IsTagSaved_ReturnsCorrectStatus()
         {
-            await RunFullMigrationAsync();
+            await RunProductionMigrationAsync();
             var svc = CreateService();
 
             await svc.SaveTagAsync("原创");

@@ -1,18 +1,12 @@
-using AniMeido.Contracts;
+﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
-using AniMeido.Plugin.Base.Views.Controls;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
-using System.Collections.ObjectModel;
 using System.Text.Json;
-using Windows.Foundation;
-using Windows.UI;
 
 namespace AniMeido.Plugin.Base.Views
 {
@@ -21,24 +15,37 @@ namespace AniMeido.Plugin.Base.Views
         private IAnimeDataSource _dataSource;
         private DragDropService _dragDrop;
         private TrackingService _tracking;
+        private IPluginNavigator _pluginNavigator;
         private string? _currentKeyword;
         private int _currentOffset;
         private int _totalResults;
         private const int PageSize = 20;
         private HashSet<int> _blockedIds = new();
+        private CancellationTokenSource? _searchCts;
+        private int _searchVersion;
 
-        public GlobalSearchPage(DragDropService dragDropService, IAnimeDataSource dataSource, TrackingService trackingService)
+        public GlobalSearchPage(DragDropService dragDropService, IAnimeDataSource dataSource, TrackingService trackingService, IPluginNavigator pluginNavigator)
         {
             InitializeComponent();
             _dragDrop = dragDropService;
             _dataSource = dataSource;
             _tracking = trackingService;
+            _pluginNavigator = pluginNavigator;
         }
+
+        private bool _loadedHandlerAttached;
 
         private void OnPageLoaded(object sender, RoutedEventArgs e)
         {
+            if (_loadedHandlerAttached) return;
+            _loadedHandlerAttached = true;
+
             RootGrid.AddHandler(UIElement.PointerPressedEvent,
                 new PointerEventHandler(OnRootPointerPressed), true);
+            RootGrid.AddHandler(UIElement.PointerReleasedEvent,
+                new PointerEventHandler(OnRootPointerReleased), true);
+            RootGrid.AddHandler(UIElement.PointerCanceledEvent,
+                new PointerEventHandler(OnRootPointerCanceled), true);
 
             // 提前加载屏蔽列表，确保后续搜索能正确过滤
             _ = LoadBlockedIdsAsync();
@@ -46,8 +53,17 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task LoadBlockedIdsAsync()
         {
-            var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
-            _blockedIds = blocked.ToHashSet();
+            try
+            {
+                var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
+                _blockedIds = blocked.ToHashSet();
+            }
+#pragma warning disable CA1031 // 屏蔽列表加载失败不影响搜索
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[GlobalSearchPage] LoadBlockedIdsAsync failed: {ex.Message}");
+            }
+#pragma warning restore CA1031
         }
 
         private void OnSearchClick(object sender, RoutedEventArgs e)
@@ -73,6 +89,13 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task SearchAsync(int offset)
         {
+            // 取消上一轮搜索，避免旧结果覆盖新结果
+            _searchCts?.Cancel();
+            _searchCts?.Dispose();
+            _searchCts = new CancellationTokenSource();
+            var token = _searchCts.Token;
+            var version = Interlocked.Increment(ref _searchVersion);
+
             LoadingOverlay.Visibility = Visibility.Visible;
             LoadingRing.IsActive = true;
             PrevButton.IsEnabled = false;
@@ -80,7 +103,11 @@ namespace AniMeido.Plugin.Base.Views
 
             try
             {
-                var (results, total) = await _dataSource.SearchByKeywordAsync(_currentKeyword ?? string.Empty, offset, CancellationToken.None);
+                var (results, total) = await _dataSource.SearchByKeywordAsync(_currentKeyword ?? string.Empty, offset, token);
+
+                // 如果已有更新的搜索，丢弃此结果
+                if (version != _searchVersion || token.IsCancellationRequested)
+                    return;
 
                 _currentOffset = offset;
                 _totalResults = total;
@@ -104,15 +131,30 @@ namespace AniMeido.Plugin.Base.Views
                     PaginationBar.Visibility = Visibility.Collapsed;
                 }
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
-                ResultCount.Text = $"搜索失败：{ex.Message}";
-                PaginationBar.Visibility = Visibility.Collapsed;
+                if (version == _searchVersion)
+                    ResultCount.Text = $"搜索失败：{ex.Message}";
+            }
+            catch (TaskCanceledException)
+            {
+                // 被新请求取消时静默返回，不更新 UI
+            }
+            catch (JsonException ex)
+            {
+                if (version == _searchVersion)
+                {
+                    ResultCount.Text = $"搜索结果解析失败：{ex.Message}";
+                    PaginationBar.Visibility = Visibility.Collapsed;
+                }
             }
             finally
             {
-                LoadingOverlay.Visibility = Visibility.Collapsed;
-                LoadingRing.IsActive = false;
+                if (version == _searchVersion)
+                {
+                    LoadingOverlay.Visibility = Visibility.Collapsed;
+                    LoadingRing.IsActive = false;
+                }
             }
         }
 
@@ -133,7 +175,7 @@ namespace AniMeido.Plugin.Base.Views
         private void OnResultItemClick(object sender, ItemClickEventArgs e)
         {
             if (e.ClickedItem is Anime anime)
-                Frame.Navigate(typeof(AnimeDetailPage), anime.ID);
+                _pluginNavigator.Navigate(typeof(AnimeDetailPage), anime.ID);
         }
 
         // ======== 拖放标记 ========

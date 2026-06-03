@@ -5,7 +5,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Serilog;
-using Serilog.Sinks.File;
 
 namespace AniMeido.App
 {
@@ -14,14 +13,12 @@ namespace AniMeido.App
     {
         private Window? _window;
         private bool _isRecoverableErrorShown;
+        private ServiceProvider? _serviceProvider;
 
         public App()
         {
             InitializeComponent();
-
-            // 全局未处理异常捕获
-            AppDomain.CurrentDomain.UnhandledException += OnCurrentDomainUnhandledException;
-            TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+            GlobalExceptionHandler.Register();
             UnhandledException += OnAppUnhandledException;
         }
 
@@ -30,101 +27,57 @@ namespace AniMeido.App
         public static ThemeService ThemeService { get; } = new ThemeService();
         public static PrivacyService PrivacyService { get; } = new PrivacyService();
         public static IReadOnlyList<IPlugin>? Plugins { get; private set; }
-        public static string? LatestVersion { get; private set; }
+        public static string? LatestVersion { get; internal set; }
 
         protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
-            // 配置 Serilog — 输出到 AppData/Roaming/AniMeido/logs/
-            var logDir = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "AniMeido", "logs");
-            System.IO.Directory.CreateDirectory(logDir);
-            Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Warning()
-                .WriteTo.File(System.IO.Path.Combine(logDir, "aniMeido.log"),
-                    rollingInterval: RollingInterval.Day,
-                    retainedFileCountLimit: 3)
-                .CreateLogger();
-
-            var services = new ServiceCollection();
-            services.AddLogging(builder =>
+            try
             {
-                builder.AddSerilog(dispose: true);
-                builder.SetMinimumLevel(Microsoft.Extensions.Logging.LogLevel.Warning);
-            });
-            services.AddHttpClient();
-            var serviceProvider = services.BuildServiceProvider();
-            var logger = serviceProvider.GetRequiredService<ILogger<PluginHost>>();
-            var host = new PluginHost(services, logger);
-            var naviItems = await host.LoadPluginAsync(AppContext.BaseDirectory);
-            App.Plugins = host.GetPlugins();
-            services.AddSingleton<DatabaseService>();
-            services.AddSingleton(sp => sp.GetRequiredService<DatabaseService>().DbPath);
-            services.AddSingleton<UpdateService>(sp =>
-                new UpdateService(
-                    sp.GetRequiredService<IHttpClientFactory>(),
-                    "https://animeido.com/version.json"
-                ));
-            services.AddSingleton<PageFactory>();
+                await InitializeApplicationAsync();
+            }
+#pragma warning disable CA1031 // 启动失败应显示错误对话框而非崩溃
+            catch (Exception ex)
+            {
+                Log.Error(ex, "应用启动失败");
+                ShowRecoverableErrorDialog($"应用启动失败: {ex.Message}");
+            }
+#pragma warning restore CA1031
+        }
 
-            // 注册所有页面类型（用于 PageFactory 从 DI 创建）
-            services.AddTransient<Plugin.Base.Views.CurrentSeasonPage>();
-            services.AddTransient<Plugin.Base.Views.PastSeasonPage>();
-            services.AddTransient<Plugin.Base.Views.GlobalSearchPage>();
-            services.AddTransient<Plugin.Base.Views.TagSearchResultPage>();
-            services.AddTransient<Plugin.Base.Views.ManagementPage>();
-            services.AddTransient<Plugin.Base.Views.AnimeDetailPage>();
-            services.AddTransient<Plugin.Base.Views.PersonSearchResultPage>();
-            services.AddTransient<Plugin.Base.Views.BrowseHistoryPage>();
-            services.AddTransient<Plugin.Base.Views.DragZoneSettingsPage>();
-            services.AddTransient<Plugin.Base.Views.DragZonePreviewPage>();
-            services.AddTransient<Views.SettingPage>();
+        private async Task InitializeApplicationAsync()
+        {
+            StartupLogger.Initialize();
 
+            var services = new ServiceCollection()
+                .AddAppServices();
+
+            // 插件加载（在 ServiceProvider 构建前，因为 PluginHost 需要向 services 注册插件服务）
+            var (navItems, plugins) = await PluginStartup.LoadPluginsAsync(
+                services, AppContext.BaseDirectory);
+            App.Plugins = plugins;
+
+            // 构建 DI 容器并初始化数据库
             var provider = services.BuildServiceProvider();
+            _serviceProvider = provider;
             Services = provider;
-            var db = provider.GetRequiredService<DatabaseService>();
-            await db.InitializeAsync();
+            await DatabaseStartup.InitializeAsync(provider);
 
-            _window = new MainWindow(naviItems);
+            // 创建主窗口
+            _window = new MainWindow(navItems, provider.GetRequiredService<NavigationService>());
             MainWindow = _window;
             Contracts.AppServices.MainWindow = _window;
 
-            // 窗口关闭时清理日志，进程退出由全局异常处理器统一处理
             _window.Closed += (_, _) =>
             {
+                _serviceProvider?.Dispose();
                 Log.CloseAndFlush();
             };
-
             _window.Activate();
+
             if (_window.Content is FrameworkElement root)
                 ThemeService.InitializeTheme(root);
 
-            _ = CheckForUpdateSilentlyAsync(provider, _window);
-        }
-
-        private void OnCurrentDomainUnhandledException(object sender, System.UnhandledExceptionEventArgs e)
-        {
-            var ex = e.ExceptionObject as Exception;
-            var message = $"[AppDomain] 未处理异常: {ex?.Message}";
-            Log.Fatal(ex, "[AppDomain] 未处理异常");
-
-            if (e.IsTerminating)
-            {
-                ShowFatalErrorDialog(message);
-                Environment.Exit(1);
-            }
-            else
-            {
-                ShowRecoverableErrorDialog(message);
-            }
-        }
-
-        private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
-        {
-            var ex = e.Exception?.InnerException ?? e.Exception;
-            Log.Error(ex, "[Task] 未观察任务异常");
-            e.SetObserved();
-            ShowRecoverableErrorDialog($"[Task] 后台任务异常: {ex?.Message}");
+            _ = UpdateStartupTask.CheckForUpdateSilentlyAsync(provider, _window);
         }
 
         private void OnAppUnhandledException(object? sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
@@ -158,84 +111,15 @@ namespace AniMeido.App
                         if (result == ContentDialogResult.Primary)
                         {
                             _isRecoverableErrorShown = false;
-                            // 重新启动应用
                             _window?.Close();
                         }
                     }
                 }
-                catch
-                {
-                    // 对话框显示失败时忽略
-                }
-                finally
-                {
-                    _isRecoverableErrorShown = false;
-                }
+#pragma warning disable CA1031 // 弹窗异常不应影响应用状态
+                catch { }
+#pragma warning restore CA1031
+                finally { _isRecoverableErrorShown = false; }
             });
         }
-
-        private void ShowFatalErrorDialog(string message)
-        {
-            try
-            {
-                Log.Fatal("应用程序将因不可恢复异常退出: {Message}", message);
-                Log.CloseAndFlush();
-
-                var hWnd = _window != null
-                    ? WinRT.Interop.WindowNative.GetWindowHandle(_window)
-                    : IntPtr.Zero;
-                _ = NativeMethods.MessageBox(hWnd, message, "AniMeido - 不可恢复错误", 0x00000010);
-            }
-            catch
-            {
-            }
-        }
-
-        private static async Task CheckForUpdateSilentlyAsync(IServiceProvider provider, Window window)
-        {
-            try
-            {
-                var updateService = provider.GetRequiredService<UpdateService>();
-                var result = await updateService.CheckForUpdateAsync();
-
-                if (result != null)
-                    LatestVersion = result.LatestVersion;
-
-                if (result?.HasUpdate == true)
-                {
-                    window.DispatcherQueue.TryEnqueue(async () =>
-                    {
-                        if (window.Content is FrameworkElement fe && fe.XamlRoot is { } xamlRoot)
-                        {
-                            var dialog = new ContentDialog
-                            {
-                                Title = "发现新版本",
-                                Content = $"最新版本：{result.LatestVersion}\n\n{result.ReleaseNotes}\n\n如果下载缓慢，请尝试使用 Motrix 等工具加速下载。",
-                                PrimaryButtonText = "下载更新",
-                                CloseButtonText = "稍后再说",
-                                DefaultButton = ContentDialogButton.Primary,
-                                XamlRoot = xamlRoot
-                            };
-
-                            var dialogResult = await dialog.ShowAsync();
-                            if (dialogResult == ContentDialogResult.Primary && result.DownloadUrl != null)
-                            {
-                                await Windows.System.Launcher.LaunchUriAsync(new Uri(result.DownloadUrl));
-                            }
-                        }
-                    });
-                }
-            }
-            catch
-            {
-                // 静默失败，不干扰用户
-            }
-        }
-    }
-
-    internal static class NativeMethods
-    {
-        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
-        internal static extern int MessageBox(IntPtr hWnd, string text, string caption, uint type);
     }
 }

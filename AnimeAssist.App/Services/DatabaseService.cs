@@ -1,19 +1,15 @@
-﻿using Microsoft.Data.Sqlite;
+using AniMeido.Contracts;
+using AniMeido.Plugin.Base.Services;
+using Microsoft.Data.Sqlite;
 
 namespace AniMeido.App.Services
 {
     /// <summary>
     /// 数据库服务：初始化、自动备份、版本迁移、损坏检测。
-    /// 数据路径: %AppData%/AniMeido/AniMeido.db
-    /// 备份路径: %AppData%/AniMeido/Backups/
-    /// 日志路径: %AppData%/AniMeido/logs/
     /// </summary>
     public class DatabaseService
     {
-        private readonly string _connectionString;
-        private static readonly string AppDataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "AniMeido");
+        private readonly SqliteConnectionFactory _dbFactory;
 
         /// <summary>数据库文件路径</summary>
         public string DbPath { get; }
@@ -27,221 +23,183 @@ namespace AniMeido.App.Services
         /// <summary>最大备份保留数</summary>
         private const int MaxBackups = 10;
 
-
-
-        public DatabaseService()
+        public DatabaseService(SqliteConnectionFactory dbFactory, IAppDataPaths paths)
         {
-            DbPath = Path.Combine(AppDataDir, "AniMeido.db");
-            LogDir = Path.Combine(AppDataDir, "logs");
-            BackupDir = Path.Combine(AppDataDir, "Backups");
-            Directory.CreateDirectory(AppDataDir);
+            _dbFactory = dbFactory;
+            DbPath = dbFactory.DatabasePath;
+            LogDir = paths.LogDirectory;
+            BackupDir = paths.BackupDirectory;
+            Directory.CreateDirectory(Path.GetDirectoryName(DbPath)!);
             Directory.CreateDirectory(LogDir);
             Directory.CreateDirectory(BackupDir);
-
-            _connectionString = $"Data Source={DbPath}";
         }
 
-
-        /// <summary>
-        /// 初始化数据库：建表、迁移、自动备份。
-        /// 如果数据库损坏，会尝试从最近的备份恢复。
-        /// </summary>
         public async Task InitializeAsync()
         {
-            // 首先尝试打开/创建数据库
             try
             {
-                using var connection = new SqliteConnection(_connectionString);
-                await connection.OpenAsync();
-
+                using var connection = await _dbFactory.OpenAsync();
+                using (var pragmaCmd = connection.CreateCommand())
+                {
+                    pragmaCmd.CommandText = "PRAGMA journal_mode=WAL";
+                    await pragmaCmd.ExecuteNonQueryAsync();
+                }
                 await CreateTablesAsync(connection);
                 await RunMigrationsAsync(connection);
             }
-            catch (SqliteException ex) when (ex.SqliteErrorCode == 11) // SQLITE_CORRUPT
+            catch (SqliteException ex) when (ex.SqliteErrorCode is 11 or 26)
             {
-                // 数据库损坏 — 尝试从备份恢复
                 var restored = await TryRestoreFromBackupAsync();
                 if (!restored)
-                    throw new InvalidOperationException(
-                        "数据库文件已损坏，且没有可用备份。请手动删除数据库文件后重启应用。", ex);
-
-                return; // 恢复成功，初始化已完成
+                    throw new InvalidOperationException("数据库文件已损坏，且没有可用备份。请手动删除数据库文件后重启应用。", ex);
+                return;
             }
-
-            // 启动时自动备份（异步，不阻塞启动）
+            catch (IOException) when (!File.Exists(DbPath))
+            {
+            }
             _ = BackupAsync();
         }
 
-
-        /// <summary>
-        /// 创建数据库备份。保留最近 MaxBackups 个备份，超过则清理最旧的。
-        /// </summary>
         public async Task BackupAsync()
         {
             try
             {
+                using (var checkpointCmd = await _dbFactory.OpenAsync())
+                {
+                    using var cmd = checkpointCmd.CreateCommand();
+                    cmd.CommandText = "PRAGMA wal_checkpoint(FULL)";
+                    await cmd.ExecuteNonQueryAsync();
+                }
+                var suffix = Guid.NewGuid().ToString("N")[..8];
                 var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-                var backupPath = Path.Combine(BackupDir, $"AniMeido-{timestamp}.db");
-
-                // SQLite 在线备份
-                using var source = new SqliteConnection(_connectionString);
-                await source.OpenAsync();
+                var backupPath = Path.Combine(BackupDir, $"AniMeido-{timestamp}-{suffix}.db");
+                using var source = await _dbFactory.OpenAsync();
                 using var dest = new SqliteConnection($"Data Source={backupPath}");
                 await dest.OpenAsync();
                 source.BackupDatabase(dest);
-
-                // 清理旧备份
                 var backups = Directory.GetFiles(BackupDir, "AniMeido-*.db")
-                    .OrderByDescending(f => f)
-                    .ToList();
+                    .OrderByDescending(f => f).ToList();
                 while (backups.Count > MaxBackups)
                 {
-                    try { File.Delete(backups.Last()); } catch { }
+                    try { File.Delete(backups.Last()); } catch (IOException) { }
                     backups.RemoveAt(backups.Count - 1);
                 }
             }
-            catch
+#pragma warning disable CA1031 // 备份失败不影响主流程
+            catch (Exception ex)
             {
-                // 备份失败不影响主流程
+                Serilog.Log.Warning(ex, "Database backup failed.");
             }
+#pragma warning restore CA1031
         }
 
-
-        /// <summary>
-        /// 尝试从最近的备份恢复数据库。
-        /// </summary>
         public async Task<bool> TryRestoreFromBackupAsync()
         {
             var backups = Directory.GetFiles(BackupDir, "AniMeido-*.db")
-                .OrderByDescending(f => f)
-                .ToList();
-
+                .OrderByDescending(f => f).ToList();
             foreach (var backup in backups)
             {
                 try
                 {
-                    // 验证备份文件完整性
                     using var test = new SqliteConnection($"Data Source={backup}");
                     await test.OpenAsync();
                     var cmd = test.CreateCommand();
                     cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master";
                     await cmd.ExecuteScalarAsync();
                     test.Close();
-
-                    // 复制备份覆盖原数据库
+                    DeleteSqliteSidecarFiles(DbPath);
                     File.Copy(backup, DbPath, overwrite: true);
-
-                    // 重新初始化
-                    using var connection = new SqliteConnection(_connectionString);
-                    await connection.OpenAsync();
+                    using var connection = await _dbFactory.OpenAsync();
                     await CreateTablesAsync(connection);
                     await RunMigrationsAsync(connection);
+                    var verifyCmd = connection.CreateCommand();
+                    verifyCmd.CommandText = "PRAGMA integrity_check";
+                    var result = await verifyCmd.ExecuteScalarAsync();
+                    if (result?.ToString() != "ok")
+                    {
+                        Serilog.Log.Warning("Database integrity check after restore failed: {Result}", result);
+                        continue;
+                    }
                     return true;
                 }
+#pragma warning disable CA1031 // 备份损坏时继续尝试下一个
                 catch
                 {
-                    // 此备份也损坏，尝试下一个
-                    try { File.Delete(backup); } catch { }
+                    try { File.Delete(backup); } catch (IOException) { }
                 }
+#pragma warning restore CA1031
             }
             return false;
         }
 
-
-        // ======== 私有辅助 ========
+        private static void DeleteSqliteSidecarFiles(string dbPath)
+        {
+            foreach (var suffix in new[] { "-wal", "-shm", "-journal" })
+            {
+                var path = dbPath + suffix;
+                try { if (File.Exists(path)) File.Delete(path); } catch (IOException) { }
+            }
+        }
 
         private async Task CreateTablesAsync(SqliteConnection connection)
         {
             var cmd = connection.CreateCommand();
-
-            cmd.CommandText = """
-                CREATE TABLE IF NOT EXISTS tracking(
-                    AnimeID   INTEGER PRIMARY KEY,
-                    Status    INTEGER NOT NULL,
-                    UpdatedAt TEXT NOT NULL
-                )
-            """;
+            cmd.CommandText = "CREATE TABLE IF NOT EXISTS tracking(AnimeID INTEGER PRIMARY KEY, Status INTEGER NOT NULL, UpdatedAt TEXT NOT NULL)";
             await cmd.ExecuteNonQueryAsync();
-
-            cmd.CommandText = """
-                CREATE TABLE IF NOT EXISTS cache(
-                    CacheKey  TEXT PRIMARY KEY,
-                    Data      TEXT NOT NULL,
-                    ExpiresAt TEXT NOT NULL
-                )
-            """;
+            cmd.CommandText = "CREATE TABLE IF NOT EXISTS cache(CacheKey TEXT PRIMARY KEY, Data TEXT NOT NULL, ExpiresAt TEXT NOT NULL)";
             await cmd.ExecuteNonQueryAsync();
-
-            cmd.CommandText = """
-                CREATE TABLE IF NOT EXISTS config(
-                    Key   TEXT PRIMARY KEY,
-                    Value TEXT NOT NULL
-                )
-            """;
+            cmd.CommandText = "CREATE TABLE IF NOT EXISTS config(Key TEXT PRIMARY KEY, Value TEXT NOT NULL)";
             await cmd.ExecuteNonQueryAsync();
-
-            cmd.CommandText = """
-                CREATE TABLE IF NOT EXISTS browse_history(
-                    AnimeID       INTEGER PRIMARY KEY,
-                    TitleSnapshot TEXT,
-                    LastViewedAt  TEXT NOT NULL,
-                    ViewCount     INTEGER NOT NULL DEFAULT 1
-                )
-            """;
+            cmd.CommandText = "CREATE TABLE IF NOT EXISTS browse_history(AnimeID INTEGER PRIMARY KEY, TitleSnapshot TEXT, LastViewedAt TEXT NOT NULL, ViewCount INTEGER NOT NULL DEFAULT 1)";
+            await cmd.ExecuteNonQueryAsync();
+            cmd.CommandText = "CREATE TABLE IF NOT EXISTS saved_tags(TagName TEXT NOT NULL PRIMARY KEY)";
             await cmd.ExecuteNonQueryAsync();
         }
 
         private async Task RunMigrationsAsync(SqliteConnection connection)
         {
-            var cmd = connection.CreateCommand();
-
-            // 读取当前版本
-            cmd.CommandText = "PRAGMA user_version";
-            var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-
-            if (version < 1)
+            using var tx = connection.BeginTransaction();
+            try
             {
-                // v1: 初始版本 — 表已在 CreateTablesAsync 中创建
-                cmd.CommandText = "PRAGMA user_version = 1";
-                await cmd.ExecuteNonQueryAsync();
-                version = 1;
+                var cmd = connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = "PRAGMA user_version";
+                var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+                if (version < 1)
+                {
+                    cmd.CommandText = "PRAGMA user_version = 1";
+                    await cmd.ExecuteNonQueryAsync();
+                    version = 1;
+                }
+                if (version < 2)
+                {
+                    cmd.CommandText = "CREATE TABLE IF NOT EXISTS saved_tags(AnimeId INTEGER NOT NULL, TagName TEXT NOT NULL, PRIMARY KEY (AnimeId, TagName))";
+                    await cmd.ExecuteNonQueryAsync();
+                    cmd.CommandText = "PRAGMA user_version = 2";
+                    await cmd.ExecuteNonQueryAsync();
+                    version = 2;
+                }
+                if (version < 3)
+                {
+                    cmd.CommandText = "ALTER TABLE saved_tags RENAME TO saved_tags_old";
+                    await cmd.ExecuteNonQueryAsync();
+                    cmd.CommandText = "CREATE TABLE saved_tags(TagName TEXT NOT NULL PRIMARY KEY)";
+                    await cmd.ExecuteNonQueryAsync();
+                    cmd.CommandText = "INSERT OR IGNORE INTO saved_tags(TagName) SELECT DISTINCT TagName FROM saved_tags_old WHERE TagName IS NOT NULL AND TRIM(TagName) <> ''";
+                    await cmd.ExecuteNonQueryAsync();
+                    cmd.CommandText = "DROP TABLE saved_tags_old";
+                    await cmd.ExecuteNonQueryAsync();
+                    cmd.CommandText = "PRAGMA user_version = 3";
+                    await cmd.ExecuteNonQueryAsync();
+                    version = 3;
+                }
+                tx.Commit();
             }
-
-            // 未来迁移示例：
-            // if (version < 2) { ... PRAGMA user_version = 2; }
-            // if (version < 3) { ... PRAGMA user_version = 3; }
-            if (version < 2)
+            catch
             {
-                // v2: Bangumi Tag 收藏（旧表，AnimeId + TagName）
-                cmd.CommandText = """
-                    CREATE TABLE IF NOT EXISTS saved_tags(
-                        AnimeId INTEGER NOT NULL,
-                        TagName TEXT NOT NULL,
-                        PRIMARY KEY (AnimeId, TagName)
-                    )
-                """;
-                await cmd.ExecuteNonQueryAsync();
-                cmd.CommandText = "PRAGMA user_version = 2";
-                await cmd.ExecuteNonQueryAsync();
-                version = 2;
-            }
-
-            if (version < 3)
-            {
-                // v3: 全局 Tag 收藏（去掉 AnimeId，Tag 名称全局唯一）
-                cmd.CommandText = "DROP TABLE IF EXISTS saved_tags";
-                await cmd.ExecuteNonQueryAsync();
-                cmd.CommandText = """
-                    CREATE TABLE IF NOT EXISTS saved_tags(
-                        TagName TEXT NOT NULL PRIMARY KEY
-                    )
-                """;
-                await cmd.ExecuteNonQueryAsync();
-                cmd.CommandText = "PRAGMA user_version = 3";
-                await cmd.ExecuteNonQueryAsync();
-                version = 3;
+                tx.Rollback();
+                throw;
             }
         }
-
     }
 }

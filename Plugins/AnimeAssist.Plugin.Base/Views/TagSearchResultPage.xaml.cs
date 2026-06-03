@@ -1,25 +1,21 @@
-using AniMeido.Contracts;
+﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
-using AniMeido.Plugin.Base.Views.Controls;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
 using System.Collections.ObjectModel;
 using System.Text.Json;
-using Windows.Foundation;
-using Windows.UI;
 
 namespace AniMeido.Plugin.Base.Views
 {
-    public sealed partial class TagSearchResultPage : Page
+    public sealed partial class TagSearchResultPage : Page, INavigationAware
     {
         private IAnimeDataSource? _dataSource;
         private CacheService? _cacheService;
+        private IPluginNavigator _pluginNavigator;
         private string? _currentTag;
         private string _currentSort = "rank";
         private bool _sortDescending = true;
@@ -42,13 +38,17 @@ namespace AniMeido.Plugin.Base.Views
 
         private readonly ObservableCollection<Anime> _animeSource = new();
 
+        private bool _isInitializing;
+
         // ======== 拖放标记 ========
 
         private DragDropService _dragDrop;
         private TrackingService _tracking;
         private HashSet<int> _blockedIds = new();
+        private CancellationTokenSource? _searchCts;
+        private int _searchVersion;
 
-        public TagSearchResultPage(DragDropService dragDropService, IAnimeDataSource dataSource, CacheService? cacheService, TrackingService trackingService)
+        public TagSearchResultPage(DragDropService dragDropService, IAnimeDataSource dataSource, CacheService? cacheService, TrackingService trackingService, IPluginNavigator pluginNavigator)
         {
             InitializeComponent();
             ResultGrid.ItemsSource = _animeSource;
@@ -56,13 +56,23 @@ namespace AniMeido.Plugin.Base.Views
             _dataSource = dataSource;
             _cacheService = cacheService;
             _tracking = trackingService;
+            _pluginNavigator = pluginNavigator;
         }
+
+        private bool _loadedHandlerAttached;
 
         private void OnPageLoaded(object sender, RoutedEventArgs e)
         {
+            if (_loadedHandlerAttached) return;
+            _loadedHandlerAttached = true;
+
             // 用 AddHandler 确保即使子元素处理了事件也能收到指针按下
             RootGrid.AddHandler(UIElement.PointerPressedEvent,
                 new PointerEventHandler(OnRootPointerPressed), true);
+            RootGrid.AddHandler(UIElement.PointerReleasedEvent,
+                new PointerEventHandler(OnRootPointerReleased), true);
+            RootGrid.AddHandler(UIElement.PointerCanceledEvent,
+                new PointerEventHandler(OnRootPointerCanceled), true);
 
             // 提前加载屏蔽列表，确保后续数据加载能正确过滤
             _ = LoadBlockedIdsAsync();
@@ -70,20 +80,28 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task LoadBlockedIdsAsync()
         {
-            var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
-            _blockedIds = blocked.ToHashSet();
-            // 如果数据已经加载完成，重新过滤
-            if (_allData != null && _allData.Count > 0)
+            try
             {
-                _allData = _allData.Where(a => !_blockedIds.Contains(a.ID)).ToList();
-                ShowPage(0);
+                var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
+                _blockedIds = blocked.ToHashSet();
+                // 如果数据已经加载完成，重新过滤
+                if (_allData != null && _allData.Count > 0)
+                {
+                    _allData = _allData.Where(a => !_blockedIds.Contains(a.ID)).ToList();
+                    ShowPage(0);
+                }
             }
+#pragma warning disable CA1031 // 屏蔽列表加载失败不影响已有数据
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[TagSearchResultPage] LoadBlockedIdsAsync failed: {ex.Message}");
+            }
+#pragma warning restore CA1031
         }
 
-        protected override async void OnNavigatedTo(NavigationEventArgs e)
+        public async Task OnNavigatedToAsync(object? parameter)
         {
-            base.OnNavigatedTo(e);
-            if (e.Parameter is string tagName && !string.IsNullOrEmpty(tagName))
+            if (parameter is string tagName && !string.IsNullOrEmpty(tagName))
             {
                 TagTitle.Text = tagName;
                 _currentTag = tagName;
@@ -93,7 +111,15 @@ namespace AniMeido.Plugin.Base.Views
                 _currentOffset = 0;
                 _animeSource.Clear();
 
-                InitYearComboBoxes();
+                _isInitializing = true;
+                try
+                {
+                    InitYearComboBoxes();
+                }
+                finally
+                {
+                    _isInitializing = false;
+                }
                 await LoadYearRangeAsync();
             }
         }
@@ -124,6 +150,13 @@ namespace AniMeido.Plugin.Base.Views
         {
             if (_dataSource == null || _currentTag == null) return;
 
+            // 取消上一轮搜索
+            _searchCts?.Cancel();
+            _searchCts?.Dispose();
+            _searchCts = new CancellationTokenSource();
+            var token = _searchCts.Token;
+            var version = Interlocked.Increment(ref _searchVersion);
+
             var cacheKey = $"tag_search:{_currentTag}:{_yearFrom}:{_yearTo}";
 
             if (_cacheService != null)
@@ -134,6 +167,8 @@ namespace AniMeido.Plugin.Base.Views
                     var deserialized = JsonSerializer.Deserialize<List<Anime>>(cached, JsonOptions);
                     if (deserialized != null && deserialized.Count > 0)
                     {
+                        if (version != _searchVersion) return;
+                        // 缓存的是原始数据，展示时应用当前屏蔽列表
                         _allData = deserialized.Where(a => !_blockedIds.Contains(a.ID)).ToList();
                         _allData = SortLocally(_allData);
                         ShowPage(0);
@@ -142,10 +177,22 @@ namespace AniMeido.Plugin.Base.Views
                 }
             }
 
+            if (version != _searchVersion) return;
             LoadingOverlay.Visibility = Visibility.Visible;
             LoadingRing.IsActive = true;
             PrevButton.IsEnabled = false;
             NextButton.IsEnabled = false;
+
+            // 限制最大年份跨度为 10 年，防止大量串行 API 请求
+            const int maxYearSpan = 10;
+            if ((_yearTo - _yearFrom) > maxYearSpan)
+            {
+                if (version == _searchVersion)
+                    ResultCount.Text = $"年份跨度超过 {maxYearSpan} 年，请缩小搜索范围";
+                LoadingOverlay.Visibility = Visibility.Collapsed;
+                LoadingRing.IsActive = false;
+                return;
+            }
 
             try
             {
@@ -157,33 +204,49 @@ namespace AniMeido.Plugin.Base.Views
                 {
                     var idx = y - _yearFrom + 1;
                     LoadingText.Text = $"正在加载 {y} 年数据… 第 {idx}/{yearCount} 年";
-                    await LoadYearDataAsync(y, allResults, seenIds);
+                    await LoadYearDataAsync(y, allResults, seenIds, token);
                 }
 
                 _allData = allResults.Where(a => !_blockedIds.Contains(a.ID)).ToList();
 
-                if (_cacheService != null && _allData.Count > 0)
+                if (_cacheService != null && allResults.Count > 0)
                 {
-                    var json = JsonSerializer.Serialize(_allData, JsonOptions);
+                    // 缓存原始搜索结果（不含屏蔽过滤），展示时再应用当前屏蔽列表
+                    var json = JsonSerializer.Serialize(allResults, JsonOptions);
                     await _cacheService.SetCacheAsync(cacheKey, json, TimeSpan.FromHours(6));
                 }
 
                 _allData = SortLocally(_allData);
                 ShowPage(0);
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
-                ResultCount.Text = $"搜索失败：{ex.Message}";
+                if (version == _searchVersion)
+                    ResultCount.Text = $"搜索失败：{ex.Message}";
+                PaginationBar.Visibility = Visibility.Collapsed;
+            }
+            catch (TaskCanceledException)
+            {
+                // 被新请求取消时静默返回，不更新 UI
+                PaginationBar.Visibility = Visibility.Collapsed;
+            }
+            catch (JsonException ex)
+            {
+                if (version == _searchVersion)
+                    ResultCount.Text = $"搜索结果解析失败：{ex.Message}";
                 PaginationBar.Visibility = Visibility.Collapsed;
             }
             finally
             {
-                LoadingOverlay.Visibility = Visibility.Collapsed;
-                LoadingRing.IsActive = false;
+                if (version == _searchVersion)
+                {
+                    LoadingOverlay.Visibility = Visibility.Collapsed;
+                    LoadingRing.IsActive = false;
+                }
             }
         }
 
-        private async Task LoadYearDataAsync(int year, List<Anime> results, HashSet<int> seenIds)
+        private async Task LoadYearDataAsync(int year, List<Anime> results, HashSet<int> seenIds, CancellationToken cancellationToken)
         {
             if (_dataSource == null || _currentTag == null) return;
 
@@ -192,7 +255,9 @@ namespace AniMeido.Plugin.Base.Views
 
             for (int offset = 0; ;)
             {
-                var (data, _) = await _dataSource.SearchByTagAsync(_currentTag, offset, "match", CancellationToken.None,
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var (data, _) = await _dataSource.SearchByTagAsync(_currentTag, offset, "match", cancellationToken,
                     airDateFrom: dateFrom, airDateTo: dateTo);
 
                 if (data.Count == 0) break;
@@ -234,6 +299,7 @@ namespace AniMeido.Plugin.Base.Views
 
         private void OnYearRangeChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (_isInitializing) return;
             if (YearFromCombo.SelectedItem == null || YearToCombo.SelectedItem == null) return;
 
             var from = (int)((ComboBoxItem)YearFromCombo.SelectedItem).Tag;
@@ -303,7 +369,7 @@ namespace AniMeido.Plugin.Base.Views
         private void OnResultItemClick(object sender, ItemClickEventArgs e)
         {
             if (e.ClickedItem is Anime anime)
-                Frame.Navigate(typeof(AnimeDetailPage), anime.ID);
+                _pluginNavigator.Navigate(typeof(AnimeDetailPage), anime.ID);
         }
 
         // ======== 拖放标记 ========
