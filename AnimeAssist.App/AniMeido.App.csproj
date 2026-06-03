@@ -6,9 +6,9 @@
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>AniMeido.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Platforms>x64;</Platforms>
-    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
-    <PublishProfile>win-$(Platform).pubxml</PublishProfile>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishProfile>win-x64.pubxml</PublishProfile>
     <UseWinUI>true</UseWinUI>
     <WinUISDKReferences>false</WinUISDKReferences>
     <EnableMsixTooling>false</EnableMsixTooling>
@@ -33,8 +33,7 @@
     <Content Include="Assets\Placeholder_cover.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Empty_anime.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Loading_failed.png" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="Assets\GitHub_Invertocat_Black_Clearspace.png"
-      CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\GitHub_Invertocat_Black_Clearspace.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\icon.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
@@ -47,8 +46,7 @@
     Tools extension to be activated for this project even if the Windows App SDK Nuget
     package has not yet been restored.
   -->
-  <ItemGroup
-    Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+  <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
     <ProjectCapability Include="Msix" />
   </ItemGroup>
   <ItemGroup>
@@ -70,6 +68,9 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
   </ItemGroup>
+  <ItemGroup>
+    <Folder Include="Properties\PublishProfiles\" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <WebView2DispatchAdapterNamespace>AniMeido.App</WebView2DispatchAdapterNamespace>
   </PropertyGroup>
@@ -79,8 +80,7 @@
     Explorer "Package and Publish" context menu entry to be enabled for this project even if
     the Windows App SDK Nuget package has not yet been restored.
   -->
-  <PropertyGroup
-    Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+  <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
     <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
   </PropertyGroup>
 
@@ -91,12 +91,16 @@
     <PublishTrimmed>False</PublishTrimmed>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+
   <!-- 动态加载的插件：复制构建产物到 Plugins\ 子目录（每加一个插件加一套 Include+Copy） -->
   <!-- BasePlugin 是编译期依赖，由 ProjectReference 自动输出到根目录，无需额外复制 -->
 
   <!-- 复制 App.pri 到 publish 目录 -->
   <Target Name="CopyAppPri" AfterTargets="Publish">
-    <Copy SourceFiles="$(OutDir)$(TargetName).pri" DestinationFolder="$(PublishDir)"
-      SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(OutDir)$(TargetName).pri" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
   </Target>
 </Project>
