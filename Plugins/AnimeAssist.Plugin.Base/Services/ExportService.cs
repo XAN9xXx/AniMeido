@@ -233,7 +233,6 @@ namespace AniMeido.Plugin.Base.Services
             if (zone.XPercent + zone.WidthPercent > 1) return false;
             if (zone.YPercent + zone.HeightPercent > 1) return false;
             if (!Enum.IsDefined(typeof(DragAction), zone.Action)) return false;
-            if (zone.Action == DragAction.None) return false;
             return true;
         }
 
