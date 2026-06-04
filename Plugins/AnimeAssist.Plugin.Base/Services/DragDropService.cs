@@ -132,6 +132,7 @@ namespace AniMeido.Plugin.Base.Services
             try
             {
                 overlay.Visibility = Visibility.Visible;
+                overlay.UpdateLayout(); // 确保 overlay 布局完成，否则 ActualWidth/Height 为 0 → Zone 挤在左上角
                 BuildAndShowZones(overlay, excludeActions);
 
                 var anime = _dragAnime!;
@@ -353,7 +354,10 @@ namespace AniMeido.Plugin.Base.Services
             foreach (var kv in _overlayZones)
             {
                 var z = kv.Value.Border;
-                var zr = new Rect(z.Margin.Left, z.Margin.Top, z.ActualWidth, z.ActualHeight);
+                // Zone 使用 Canvas.SetLeft/Top 定位，命中判断必须读取 Canvas 属性而非 Margin
+                var zx = Canvas.GetLeft(z);
+                var zy = Canvas.GetTop(z);
+                var zr = new Rect(zx, zy, z.ActualWidth, z.ActualHeight);
                 if (zr.Contains(dropPoint))
                 {
                     var cfg = _dragZones.Find(c => c.Id == kv.Key);

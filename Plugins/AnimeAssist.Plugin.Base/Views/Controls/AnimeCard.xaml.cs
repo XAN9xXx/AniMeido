@@ -29,6 +29,8 @@ namespace AniMeido.Plugin.Base.Views.Controls
 
         private bool _dragPointerDown;
         private Point _dragStartPoint;
+        private int _coverLoadVersion;      // 封面加载版本号，防止旧异步任务更新新卡片
+        private int _currentAnimeId;        // 当前显示番剧 ID，用于 DataContextChanged 快速判断
         public static readonly DependencyProperty ShowWeekdayBadgeProperty =
             DependencyProperty.Register(nameof(ShowWeekdayBadge), typeof(bool), typeof(AnimeCard),
                 new PropertyMetadata(false, OnShowWeekdayBadgeChanged));
@@ -54,18 +56,24 @@ namespace AniMeido.Plugin.Base.Views.Controls
                     if (string.IsNullOrEmpty(anime.CoverURL))
                     {
                         CoverImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(PlaceholderUri);
+                        HideRetryOverlay();
                     }
                     else
                     {
+                        // 递增版本号并记录当前 Anime ID，用于防止旧异步任务污染新卡片
+                        _coverLoadVersion++;
+                        _currentAnimeId = anime.ID;
+                        HideRetryOverlay();
+
                         // 指定解码宽度 300（应对 2x 缩放），避免全分辨率解码
                         var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
                         bmp.DecodePixelWidth = 300;
                         bmp.UriSource = ImageCacheHelper.GetImageUri(anime.ID, anime.CoverURL);
                         CoverImage.Source = bmp;
 
-                        // 后台下载缓存（GetImageUri 已经检查过本地文件，HasLocalCache 二次检查无额外 I/O）
+                        // 后台下载缓存，成功后热更新当前卡片封面
                         if (!ImageCacheHelper.HasLocalCache(anime.ID))
-                            _ = ImageCacheHelper.CacheImageAsync(anime.ID, anime.CoverURL);
+                            _ = CacheAndUpdateAsync(anime);
                     }
                 }
             };
@@ -88,9 +96,100 @@ namespace AniMeido.Plugin.Base.Views.Controls
                 0);
         }
 
-        private void OnCoverImageFailed(object sender, ExceptionRoutedEventArgs e)
+        /// <summary>
+        /// 后台下载缓存，成功后热更新当前卡片封面（不需要等 GridView 回收）。
+        /// </summary>
+        private async Task CacheAndUpdateAsync(Anime anime)
         {
+            var version = _coverLoadVersion;
+
+            if (!await ImageCacheHelper.CacheImageAsync(anime.ID, anime.CoverURL!))
+                return;
+
+            // 缓存下载完成，检查版本号防止更新到已复用的卡片
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (_coverLoadVersion != version) return;
+                if (!ReferenceEquals(DataContext, anime)) return;
+                var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                bmp.DecodePixelWidth = 300;
+                bmp.UriSource = ImageCacheHelper.GetImageUri(anime.ID, anime.CoverURL);
+                CoverImage.Source = bmp;
+            });
+        }
+
+        private async void OnCoverImageFailed(object sender, ExceptionRoutedEventArgs e)
+        {
+            var dispatcher = DispatcherQueue;
+
             CoverImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(PlaceholderUri);
+            ShowRetryOverlay();
+
+            if (DataContext is Anime anime && !string.IsNullOrEmpty(anime.CoverURL))
+            {
+                var version = _coverLoadVersion;
+
+                bool success = false;
+                for (int retry = 0; retry < 3; retry++)
+                {
+                    // 检查卡片是否已被回收复用
+                    if (_coverLoadVersion != version) return;
+
+                    if (await ImageCacheHelper.CacheImageAsync(anime.ID, anime.CoverURL))
+                    {
+                        success = true;
+                        break;
+                    }
+                    await Task.Delay(3000);
+                }
+
+                await Task.Delay(500);
+
+                dispatcher.TryEnqueue(() =>
+                {
+                    if (_coverLoadVersion != version) return;
+                    if (ReferenceEquals(DataContext, anime) && success && ImageCacheHelper.HasLocalCache(anime.ID))
+                    {
+                        var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                        bmp.DecodePixelWidth = 300;
+                        bmp.UriSource = ImageCacheHelper.GetImageUri(anime.ID, anime.CoverURL);
+                        CoverImage.Source = bmp;
+                        HideRetryOverlay();
+                    }
+                    else
+                    {
+                        ShowFailedOverlay();
+                    }
+                });
+            }
+            else
+            {
+                HideRetryOverlay();
+            }
+        }
+
+        private void ShowRetryOverlay()
+        {
+            if (RetryOverlay == null) return;
+            RetryRing.Visibility = Visibility.Visible;
+            RetryOverlay.Visibility = Visibility.Visible;
+            RetryRing.IsActive = true;
+        }
+
+        private void ShowFailedOverlay()
+        {
+            if (RetryOverlay == null) return;
+            RetryRing.Visibility = Visibility.Collapsed;
+            RetryRing.IsActive = false;
+            // 保持覆盖层可见，作为失败视觉提示
+        }
+
+        private void HideRetryOverlay()
+        {
+            if (RetryOverlay == null) return;
+            RetryOverlay.Visibility = Visibility.Collapsed;
+            RetryRing.IsActive = false;
+            RetryRing.Visibility = Visibility.Visible;
         }
 
         private static void OnShowWeekdayBadgeChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)

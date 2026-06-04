@@ -24,7 +24,6 @@
                  Severity="Error"
                  IsClosable="True"
                  IsOpen="False"
-                 Visibility="Collapsed"
                  Margin="0,0,0,12"/>
         <!-- 固定顶部区域：搜索过滤 + 年份季度选择器 -->
         <StackPanel Grid.Row="0"
@@ -60,12 +59,10 @@
                             Spacing="12">
                     <ComboBox x:Name="YearComboBox"
                               Header="年份"
-                              Width="120"
-                              SelectionChanged="OnYearSelectionChanged"/>
+                              Width="120"/>
                     <ComboBox x:Name="SeasonComboBox"
                               Header="季度"
-                              Width="120"
-                              SelectionChanged="OnSeasonSelectionChanged"/>
+                              Width="120"/>
                 </StackPanel>
             </Border>
         </StackPanel>
@@ -115,7 +112,7 @@
 
                 <!-- 番剧网格 -->
                 <GridView x:Name="AnimeGridView"
-                          ItemsSource="{x:Bind ViewModel.AnimeList}"
+                          ItemsSource="{x:Bind ViewModel.AnimeList, Mode=OneWay}"
                           IsItemClickEnabled="True"
                           ItemClick="OnItemClick"
                           SelectionMode="None">
@@ -147,11 +144,6 @@
                             <controls:AnimeCard ShowWeekdayBadge="True"/>
                         </DataTemplate>
                     </GridView.ItemTemplate>
-                    <GridView.ItemContainerTransitions>
-                        <TransitionCollection>
-                            <EntranceThemeTransition IsStaggeringEnabled="True"/>
-                        </TransitionCollection>
-                    </GridView.ItemContainerTransitions>
                 </GridView>
 
             </StackPanel>
@@ -161,6 +153,7 @@
         <Grid Grid.Row="1"
               x:Name="LoadingOverlay"
               Visibility="Collapsed"
+              Background="#B0000000"
               Tapped="OnLoadingOverlayTapped">
             <StackPanel HorizontalAlignment="Center"
                         VerticalAlignment="Center"
@@ -168,7 +161,8 @@
                 <ProgressRing x:Name="LoadingRing"
                               Height="40"
                               Width="40"
-                              HorizontalAlignment="Center"/>
+                              HorizontalAlignment="Center"
+                              IsActive="True"/>
                 <Image x:Name="LoadingFailedImage"
                        Source="ms-appx:///Assets/Loading_failed.png"
                        Width="80"

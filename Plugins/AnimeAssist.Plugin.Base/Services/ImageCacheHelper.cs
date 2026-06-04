@@ -60,15 +60,36 @@ namespace AniMeido.Plugin.Base.Services
         public static string GetLocalPath(int animeId)
             => Path.Combine(CacheDir, $"{animeId}.jpg");
 
-        /// <summary>检查本地是否有已缓存的图片。</summary>
+        /// <summary>检查本地是否有已缓存的图片（同时验证文件真实存在）。</summary>
         public static bool HasLocalCache(int animeId)
-            => _cachedIds.ContainsKey(animeId);
+        {
+            if (!_cachedIds.ContainsKey(animeId))
+                return false;
 
-        /// <summary>获取用于 Image.Source 的 URI。</summary>
+            var path = GetLocalPath(animeId);
+            if (File.Exists(path))
+            {
+                var info = new FileInfo(path);
+                return info.Length > 0;
+            }
+
+            // 缓存标记存在但文件已被删除，清理标记
+            _cachedIds.TryRemove(animeId, out _);
+            return false;
+        }
+
+        /// <summary>获取用于 Image.Source 的 URI。不保证本地缓存文件存在。</summary>
         public static Uri GetImageUri(int animeId, string? originalUrl)
         {
             if (_cachedIds.ContainsKey(animeId))
-                return new Uri(GetLocalPath(animeId));
+            {
+                var localPath = GetLocalPath(animeId);
+                if (File.Exists(localPath))
+                    return new Uri(localPath);
+
+                // 缓存文件已被删除，清理标记并回退到远程 URL
+                _cachedIds.TryRemove(animeId, out _);
+            }
 
             if (!string.IsNullOrEmpty(originalUrl) && TryCreateValidImageUri(originalUrl, out var uri))
                 return uri;
@@ -97,18 +118,18 @@ namespace AniMeido.Plugin.Base.Services
         /// 校验 URL scheme、Content-Type 和大小上限。
         /// 使用流式下载，避免一次性读入大文件到内存。
         /// </summary>
-        public static async Task CacheImageAsync(int animeId, string url)
+        public static async Task<bool> CacheImageAsync(int animeId, string url)
         {
-            if (_cachedIds.ContainsKey(animeId)) return;
+            if (_cachedIds.ContainsKey(animeId)) return true;
 
             await DownloadThrottle.WaitAsync();
             try
             {
-                if (_cachedIds.ContainsKey(animeId)) return;
+                if (_cachedIds.ContainsKey(animeId)) return true;
 
                 // 校验 URL（与 GetImageUri 共享同一逻辑）
                 if (!TryCreateValidImageUri(url, out var uri))
-                    return;
+                    return false;
 
                 // 流式下载：先读 headers 校验 Content-Type 和 Content-Length
                 using var response = await SharedHttpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead)
@@ -118,11 +139,11 @@ namespace AniMeido.Plugin.Base.Services
                 // 校验 Content-Type
                 var contentType = response.Content.Headers.ContentType?.MediaType;
                 if (contentType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) != true)
-                    return;
+                    return false;
 
                 // 校验 Content-Length
                 if (response.Content.Headers.ContentLength > MaxImageBytes)
-                    return;
+                    return false;
 
                 // 流式读取到临时文件，累计字节数并强制上限
                 var localPath = GetLocalPath(animeId);
@@ -139,10 +160,9 @@ namespace AniMeido.Plugin.Base.Services
                         totalRead += bytesRead;
                         if (totalRead > MaxImageBytes)
                         {
-                            // 超过上限，中止并清理
                             fileStream.Close();
                             TryDelete(tempPath);
-                            return;
+                            return false;
                         }
                         await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead));
                     }
@@ -162,18 +182,19 @@ namespace AniMeido.Plugin.Base.Services
 
                 // 触发淘汰检查
                 _ = EvictIfNeededAsync();
+                return true;
             }
             catch (HttpRequestException)
             {
-                // 下载失败时不抛异常，下次会自动重试
+                return false;
             }
             catch (TaskCanceledException)
             {
-                // 下载超时或取消时不抛异常
+                return false;
             }
             catch (IOException)
             {
-                // 文件写入失败时不抛异常
+                return false;
             }
             finally
             {

@@ -19,20 +19,32 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- 封面图片 -->
-                <Border Grid.Row="0"
-                        CornerRadius="8,8,0,0"
-                        Height="200">
-                    <Border.Clip>
-                        <RectangleGeometry Rect="0,0,150,200"/>
-                    </Border.Clip>
-                    <Image x:Name="CoverImage"
-                           Source="{Binding CoverURL}"
-                           Height="200"
-                           Stretch="UniformToFill"
-                           HorizontalAlignment="Center"
-                           ImageFailed="OnCoverImageFailed"/>
-                </Border>
+                <!-- 封面图片 + 重试加载环 -->
+                <Grid Grid.Row="0"
+                      Height="200">
+                    <Border CornerRadius="8,8,0,0"
+                            Height="200">
+                        <Border.Clip>
+                            <RectangleGeometry Rect="0,0,150,200"/>
+                        </Border.Clip>
+                        <Image x:Name="CoverImage"
+                               Height="200"
+                               Stretch="UniformToFill"
+                               HorizontalAlignment="Center"
+                               ImageFailed="OnCoverImageFailed"/>
+                    </Border>
+                    <!-- 封面重试加载环 -->
+                    <Grid x:Name="RetryOverlay"
+                          Visibility="Collapsed"
+                          Background="#B0000000">
+                        <ProgressRing x:Name="RetryRing"
+                                      Width="24"
+                                      Height="24"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"
+                                      Foreground="{ThemeResource SystemAccentColor}"/>
+                    </Grid>
+                </Grid>
 
                 <!-- 星期放送角标（补番页使用，默认隐藏） -->
                 <Border x:Name="WeekdayBadge"

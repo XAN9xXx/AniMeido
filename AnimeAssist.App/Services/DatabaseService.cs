@@ -74,7 +74,8 @@ namespace AniMeido.App.Services
                 var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
                 var backupPath = Path.Combine(BackupDir, $"AniMeido-{timestamp}-{suffix}.db");
                 using var source = await _dbFactory.OpenAsync();
-                using var dest = new SqliteConnection($"Data Source={backupPath}");
+                using var dest = new SqliteConnection(
+                    new SqliteConnectionStringBuilder { DataSource = backupPath }.ToString());
                 await dest.OpenAsync();
                 source.BackupDatabase(dest);
                 var backups = Directory.GetFiles(BackupDir, "AniMeido-*.db")
@@ -101,7 +102,8 @@ namespace AniMeido.App.Services
             {
                 try
                 {
-                    using var test = new SqliteConnection($"Data Source={backup}");
+                    using var test = new SqliteConnection(
+                        new SqliteConnectionStringBuilder { DataSource = backup }.ToString());
                     await test.OpenAsync();
                     var cmd = test.CreateCommand();
                     cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master";

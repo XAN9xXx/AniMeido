@@ -30,7 +30,6 @@
                  Severity="Error"
                  IsClosable="True"
                  IsOpen="False"
-                 Visibility="Collapsed"
                  Margin="0,0,0,12"/>
 
         <StackPanel Grid.Column="0"
@@ -330,7 +329,7 @@
                                         <Border Grid.Column="0"
                                                 CornerRadius="10,0,0,10"
                                                 Background="{ThemeResource SolidBackgroundFillColorTertiary}">
-                                            <Image Source="{Binding CoverURL}"
+                                            <Image Source="{x:Bind local:ManagementPage.GetCoverSource(ID, CoverURL)}"
                                                    Stretch="UniformToFill"/>
                                         </Border>
                                         <StackPanel Grid.Column="1"
@@ -403,7 +402,7 @@
                                         <Border Grid.Column="0"
                                                 CornerRadius="10,0,0,10"
                                                 Background="{ThemeResource SolidBackgroundFillColorTertiary}">
-                                            <Image Source="{Binding CoverURL}"
+                                            <Image Source="{x:Bind local:ManagementPage.GetCoverSource(ID, CoverURL)}"
                                                    Stretch="UniformToFill"/>
                                         </Border>
                                         <StackPanel Grid.Column="1"
@@ -476,7 +475,7 @@
                                         <Border Grid.Column="0"
                                                 CornerRadius="10,0,0,10"
                                                 Background="{ThemeResource SolidBackgroundFillColorTertiary}">
-                                            <Image Source="{Binding CoverURL}"
+                                            <Image Source="{x:Bind local:ManagementPage.GetCoverSource(ID, CoverURL)}"
                                                    Stretch="UniformToFill"/>
                                         </Border>
                                         <StackPanel Grid.Column="1"
@@ -549,7 +548,7 @@
                                         <Border Grid.Column="0"
                                                 CornerRadius="10,0,0,10"
                                                 Background="{ThemeResource SolidBackgroundFillColorTertiary}">
-                                            <Image Source="{Binding CoverURL}"
+                                            <Image Source="{x:Bind local:ManagementPage.GetCoverSource(ID, CoverURL)}"
                                                    Stretch="UniformToFill"/>
                                         </Border>
                                         <StackPanel Grid.Column="1"
@@ -622,7 +621,7 @@
                                         <Border Grid.Column="0"
                                                 CornerRadius="10,0,0,10"
                                                 Background="{ThemeResource SolidBackgroundFillColorTertiary}">
-                                            <Image Source="{Binding CoverURL}"
+                                            <Image Source="{x:Bind local:ManagementPage.GetCoverSource(ID, CoverURL)}"
                                                    Stretch="UniformToFill"/>
                                         </Border>
                                         <StackPanel Grid.Column="1"
@@ -695,7 +694,7 @@
                                         <Border Grid.Column="0"
                                                 CornerRadius="10,0,0,10"
                                                 Background="{ThemeResource SolidBackgroundFillColorTertiary}">
-                                            <Image Source="{Binding CoverURL}"
+                                            <Image Source="{x:Bind local:ManagementPage.GetCoverSource(ID, CoverURL)}"
                                                    Stretch="UniformToFill"/>
                                         </Border>
                                         <StackPanel Grid.Column="1"
@@ -768,7 +767,7 @@
                                         <Border Grid.Column="0"
                                                 CornerRadius="10,0,0,10"
                                                 Background="{ThemeResource SolidBackgroundFillColorTertiary}">
-                                            <Image Source="{Binding CoverURL}"
+                                            <Image Source="{x:Bind local:ManagementPage.GetCoverSource(ID, CoverURL)}"
                                                    Stretch="UniformToFill"/>
                                         </Border>
                                         <StackPanel Grid.Column="1"
@@ -877,7 +876,7 @@
                                     <Grid ColumnDefinitions="40,*,Auto"
                                           ColumnSpacing="8"
                                           Height="48">
-                                        <Image Source="{Binding CoverURL}"
+                                        <Image Source="{x:Bind local:ManagementPage.GetCoverSource(ID, CoverURL)}"
                                                Width="40"
                                                Height="48"
                                                Stretch="UniformToFill"/>

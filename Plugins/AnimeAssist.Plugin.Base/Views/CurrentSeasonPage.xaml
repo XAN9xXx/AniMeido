@@ -24,7 +24,6 @@
                      Severity="Error"
                      IsClosable="True"
                      IsOpen="False"
-                     Visibility="Collapsed"
                      Margin="0,0,0,12"/>
             <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
                     CornerRadius="8"
@@ -134,6 +133,7 @@
         <Grid Grid.Row="1"
               x:Name="LoadingOverlay"
               Visibility="Collapsed"
+              Background="#B0000000"
               Tapped="OnLoadingOverlayTapped">
             <StackPanel HorizontalAlignment="Center"
                         VerticalAlignment="Center"
@@ -141,7 +141,8 @@
                 <ProgressRing x:Name="LoadingRing"
                               Height="40"
                               Width="40"
-                              HorizontalAlignment="Center"/>
+                              HorizontalAlignment="Center"
+                              IsActive="True"/>
                 <Image x:Name="LoadingFailedImage"
                        Source="ms-appx:///Assets/Loading_failed.png"
                        Width="80"

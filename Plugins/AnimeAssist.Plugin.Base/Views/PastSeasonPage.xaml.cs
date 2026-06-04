@@ -7,7 +7,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Animation;
 
 namespace AniMeido.Plugin.Base.Views
 {
@@ -22,6 +21,7 @@ namespace AniMeido.Plugin.Base.Views
         private IPluginNavigator _pluginNavigator;
         private CancellationTokenSource? _loadCts;
         private int _loadVersion;
+        private bool _isRebuilding; // 防止 ComboBox 重建期间事件穿透
 
         public PastSeasonPage(IAnimeDataSource dataSource, DragDropService dragDropService, TrackingService trackingService, IPluginNavigator pluginNavigator)
         {
@@ -38,7 +38,7 @@ namespace AniMeido.Plugin.Base.Views
                 switch (e.PropertyName)
                 {
                     case nameof(PastSeasonViewModel.IsLoading):
-                        UpdateOverlayState();
+                        // 覆盖层显隐由 LoadSeasonAsync 直接控制，不依赖 PropertyChanged 回调
                         if (!ViewModel.IsLoading)
                             UpdateViewState();
                         break;
@@ -185,6 +185,10 @@ namespace AniMeido.Plugin.Base.Views
 
         private void RebuildSeasonItems(int year, Season? defaultSeason = null)
         {
+            _isRebuilding = true;
+
+            // 禁用 ComboBox 后再修改 Items，避免 WinUI 内部处理清除/重建时计算无效 transform
+            SeasonComboBox.IsEnabled = false;
             SeasonComboBox.SelectionChanged -= OnSeasonSelectionChanged;
             SeasonComboBox.Items.Clear();
 
@@ -217,36 +221,41 @@ namespace AniMeido.Plugin.Base.Views
                 {
                     SeasonComboBox.SelectedIndex = i;
                     SeasonComboBox.SelectionChanged += OnSeasonSelectionChanged;
+                    SeasonComboBox.IsEnabled = true;
+                    _isRebuilding = false;
                     return;
                 }
             }
             SeasonComboBox.SelectedIndex = SeasonComboBox.Items.Count - 1;
             SeasonComboBox.SelectionChanged += OnSeasonSelectionChanged;
+            SeasonComboBox.IsEnabled = true;
+            _isRebuilding = false;
         }
 
         private async Task LoadSeasonAsync(int year, Season season)
         {
+            // 立即显示加载覆盖层（不依赖 PropertyChanged 的异步回调延迟）
+            LoadingOverlay.Visibility = Visibility.Visible;
+            LoadingRing.IsActive = true;
+            LoadingRing.Visibility = Visibility.Visible;
+            LoadingFailedImage.Visibility = Visibility.Collapsed;
+            LoadingHint.Text = "加载中…";
+
             // 取消上一轮请求
             _loadCts?.Cancel();
             _loadCts?.Dispose();
             _loadCts = new CancellationTokenSource();
             var version = Interlocked.Increment(ref _loadVersion);
 
-            // 数据加载期间禁用入场动画，避免 50+ 项同时触发交错动画导致卡顿
-            AnimeGridView.ItemContainerTransitions = null;
-
             await ViewModel.LoadPastSeasonAnimeAsync(year, season, _loadCts.Token);
 
-            // 如果已有更新的请求，丢弃此结果
+            // 如果已有更新的请求，丢弃此结果（此时 IsLoading 可能已被旧请求设为 false）
             if (version != _loadVersion) return;
             UpdateViewState();
 
-            // 数据加载完成后恢复入场动画（用于后续浏览时的视觉效果）
-            await Task.Delay(300);
-            AnimeGridView.ItemContainerTransitions = new TransitionCollection
-            {
-                new EntranceThemeTransition { IsStaggeringEnabled = true }
-            };
+            // 数据加载完成，隐藏覆盖层
+            LoadingOverlay.Visibility = Visibility.Collapsed;
+            LoadingRing.IsActive = false;
         }
 
         private void OnYearSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -263,6 +272,8 @@ namespace AniMeido.Plugin.Base.Views
 
         private async void OnSeasonSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            // 组合框重建期间的穿透事件被忽略，避免级联取消
+            if (_isRebuilding) return;
             if (YearComboBox.SelectedItem is not int year) return;
             if (SeasonComboBox.SelectedItem is not ComboBoxItem item || item.Tag is not Season season) return;
             await LoadSeasonAsync(year, season);

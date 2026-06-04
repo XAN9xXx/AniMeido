@@ -116,14 +116,15 @@
         <Grid Grid.RowSpan="3"
               x:Name="LoadingOverlay"
               Visibility="Collapsed"
-              Background="Transparent">
+              Background="#B0000000">
             <StackPanel VerticalAlignment="Center"
                         HorizontalAlignment="Center"
                         Spacing="8">
                 <ProgressRing x:Name="LoadingRing"
                               Width="32"
                               Height="32"
-                              HorizontalAlignment="Center"/>
+                              HorizontalAlignment="Center"
+                              IsActive="True"/>
                 <TextBlock x:Name="LoadingText"
                            Text="正在搜索..."
                            FontSize="14"

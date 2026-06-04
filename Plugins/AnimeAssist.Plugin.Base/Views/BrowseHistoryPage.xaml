@@ -63,7 +63,7 @@
                         Click="OnClearClick"/>
 
                 <!-- 番剧列表 -->
-                <GridView ItemsSource="{x:Bind ViewModel.HistoryList}"
+                <GridView ItemsSource="{x:Bind ViewModel.HistoryList, Mode=OneWay}"
                           IsItemClickEnabled="True"
                           ItemClick="OnItemClick"
                           SelectionMode="None">

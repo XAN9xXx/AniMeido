@@ -193,9 +193,26 @@ namespace AniMeido.Plugin.Base.Services
 
         // 将 Bangumi 图片 URL 替换为反代地址
         private static string? ResolveImageUrl(string? rawUrl)
-            => rawUrl is { Length: > 0 }
-                ? rawUrl.Replace("https://lain.bgm.tv", "https://bgm-proxy.animeido.com")
-                : null;
+        {
+            if (string.IsNullOrEmpty(rawUrl)) return null;
+
+            // 处理 protocol-relative URL (//host/path)
+            var url = rawUrl.AsSpan().TrimStart();
+            if (url.StartsWith("//".AsSpan()))
+                url = $"https:{rawUrl}".AsSpan();
+
+            if (!Uri.TryCreate(url.ToString(), UriKind.Absolute, out var parsed))
+                return null;
+
+            // http → https
+            var builder = new UriBuilder(parsed) { Scheme = Uri.UriSchemeHttps, Port = -1 };
+
+            // 替换 Bangumi 源站为反代
+            if (builder.Host.Equals("lain.bgm.tv", StringComparison.OrdinalIgnoreCase))
+                builder.Host = "bgm-proxy.animeido.com";
+
+            return builder.Uri.ToString();
+        }
 
         // 优先使用中文译名，其次日文原名，最后后备文字；同时处理 API 返回空字符串的情况
         private static string ResolveTitle(string? nameCn, string? name)
@@ -270,6 +287,8 @@ namespace AniMeido.Plugin.Base.Services
             try
             {
                 int seasonMonth = SeasonHelper.ToMonth(season);
+
+                // 优先使用 /calendar（适用于当前季度，实时放送数据）
                 var days = await FetchCalendarAsync(ct).ConfigureAwait(false);
                 List<Anime> animes = days.SelectMany(day => day.Items)
                                         .Where(item => BelongsToSeason(item, year, season))
@@ -280,21 +299,16 @@ namespace AniMeido.Plugin.Base.Services
                     await _cacheService.SetCacheAsync(cacheKey, JsonSerializer.Serialize(animes, JsonOptions), TimeSpan.FromHours(24));
                     return animes;
                 }
-                if (year < DateTime.Now.Year)
+
+                // /calendar 无数据（非当前季度），使用搜索 API 按放送日期范围精确筛选
+                var (airDateFrom, airDateTo) = GetSeasonDateRange(year, season);
+                var searchResult = await SearchBySeasonAsync(year, season, airDateFrom, airDateTo, ct);
+                if (searchResult.Count > 0)
                 {
-                    var browseResult = await FetchByBrowse(year, seasonMonth, ct);
-                    if (browseResult.Count > 0)
-                        await _cacheService.SetCacheAsync(cacheKey, JsonSerializer.Serialize(browseResult, JsonOptions), TimeSpan.FromHours(12));
-                    return browseResult;
+                    await _cacheService.SetCacheAsync(cacheKey, JsonSerializer.Serialize(searchResult, JsonOptions), TimeSpan.FromHours(12));
+                    return searchResult;
                 }
-                var currentSeason = SeasonHelper.FromMonth(DateTime.Now.Month);
-                if (season != currentSeason)
-                {
-                    var browseResult = await FetchByBrowse(year, seasonMonth, ct);
-                    if (browseResult.Count > 0)
-                        await _cacheService.SetCacheAsync(cacheKey, JsonSerializer.Serialize(browseResult, JsonOptions), TimeSpan.FromHours(12));
-                    return browseResult;
-                }
+
                 return [];
             }
 #pragma warning disable CA1031 // 网络异常应使用 stale cache 降级
@@ -315,6 +329,54 @@ namespace AniMeido.Plugin.Base.Services
                 }
                 throw;
             }
+        }
+
+        /// <summary>计算指定季度的放送日期范围。</summary>
+        private static (string from, string to) GetSeasonDateRange(int year, Season season)
+        {
+            return season switch
+            {
+                Season.Winter => ($"{year}-01-01", $"{year}-04-01"),
+                Season.Spring => ($"{year}-04-01", $"{year}-07-01"),
+                Season.Summer => ($"{year}-07-01", $"{year}-10-01"),
+                Season.Fall => ($"{year}-10-01", $"{(year + 1)}-01-01"),
+                _ => ($"{year}-01-01", $"{(year + 1)}-01-01"),
+            };
+        }
+
+        /// <summary>
+        /// 使用 Bangumi 搜索 API 按放送日期范围查询季度番剧。
+        /// 相比 /v0/subjects 的 year/month 参数，搜索 API 的 AirDate 筛选更精确。
+        /// </summary>
+        private async Task<List<Anime>> SearchBySeasonAsync(int year, Season season, string airDateFrom, string airDateTo, CancellationToken ct)
+        {
+            var filter = new SearchFilter(
+                Type: new List<int> { 2 },
+                AirDate: new List<string> { $">={airDateFrom}", $"<{airDateTo}" }
+            );
+
+            var request = new SearchSubjectRequest(
+                Sort: "rank",
+                Filter: filter
+            );
+
+            // 分页获取，最多 2 页（每页 20 条，共 40 条，覆盖大部分季度的番剧数）
+            var allAnimes = new List<Anime>();
+            for (int offset = 0; offset < 40; offset += 20)
+            {
+                if (ct.IsCancellationRequested) break;
+
+                var url = $"/v0/search/subjects?limit=20&offset={offset}";
+                var result = await _apiClient.PostJsonAsync<PagedSubjectResponse>(url, request, ct)
+                    .ConfigureAwait(false);
+
+                if (result?.Data == null || result.Data.Count == 0)
+                    break;
+
+                allAnimes.AddRange(result.Data.Select(item => MapFromSubject(item)));
+            }
+
+            return allAnimes;
         }
 
         /// <summary>

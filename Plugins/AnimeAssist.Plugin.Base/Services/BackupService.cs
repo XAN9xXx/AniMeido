@@ -40,7 +40,8 @@ namespace AniMeido.Plugin.Base.Services
             var backupPath = Path.Combine(_backupDir, $"AniMeido-{timestamp}-{suffix}.db");
 
             using var source = await _dbFactory.OpenAsync();
-            using var dest = new SqliteConnection($"Data Source={backupPath}");
+            using var dest = new SqliteConnection(
+                new SqliteConnectionStringBuilder { DataSource = backupPath }.ToString());
             await dest.OpenAsync();
 
             source.BackupDatabase(dest);

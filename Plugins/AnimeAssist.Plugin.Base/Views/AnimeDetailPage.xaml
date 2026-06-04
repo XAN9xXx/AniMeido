@@ -20,8 +20,7 @@
                  Grid.Row="0"
                  Severity="Error"
                  IsClosable="True"
-                 IsOpen="False"
-                 Visibility="Collapsed"/>
+                 IsOpen="False"/>
 
         <!-- 内容区域 -->
         <ScrollViewer Grid.Row="1"

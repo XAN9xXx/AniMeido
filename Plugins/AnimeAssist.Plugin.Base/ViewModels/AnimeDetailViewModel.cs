@@ -2,6 +2,7 @@
 using CommunityToolkit.Mvvm.Input;
 using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Services;
 using System.Collections.ObjectModel;
 using System.Text.Json;
@@ -101,10 +102,21 @@ namespace AniMeido.Plugin.Base.ViewModels
                 ErrorMessage = $"网络请求失败：{ex.Message}";
                 IsError = true;
             }
+            catch (BangumiApiException ex)
+            {
+                ErrorMessage = $"数据源请求失败：{ex.Message}";
+                IsError = true;
+            }
+            catch (TaskCanceledException) when (ct.IsCancellationRequested)
+            {
+                // 用户操作引起的取消，静默忽略
+                return;
+            }
             catch (TaskCanceledException)
             {
-                // 取消是预期行为（用户导航离开/快速切换），不当作错误处理
-                return;
+                // HTTP 超时或其他网络层取消，作为错误处理
+                ErrorMessage = "网络请求超时，请检查网络后重试";
+                IsError = true;
             }
             catch (Exception ex) when (ex is InvalidOperationException or JsonException)
             {
@@ -113,7 +125,8 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
             finally
             {
-                IsLoading = false;
+                if (!ct.IsCancellationRequested)
+                    IsLoading = false;
             }
         }
 
@@ -214,8 +227,9 @@ namespace AniMeido.Plugin.Base.ViewModels
             try
             {
                 var characters = await _animeDataSource.GetCharacterRolesAsync(animeID, CancellationToken.None);
-                // 一次性替换集合引用
-                Characters = new ObservableCollection<CharacterRole>(characters);
+                Characters.Clear();
+                foreach (var c in characters)
+                    Characters.Add(c);
             }
             catch (HttpRequestException)
             {

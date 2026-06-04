@@ -27,6 +27,12 @@ namespace AniMeido.Plugin.Base.Views
         public static Visibility TagAnimeListVisibility(bool isExpanded)
             => isExpanded ? Visibility.Visible : Visibility.Collapsed;
 
+        /// <summary>
+        /// 用于 XAML 绑定的静态方法：获取番剧封面 URI（优先本地缓存，回退到远程或占位图）。
+        /// </summary>
+        public static Microsoft.UI.Xaml.Media.ImageSource GetCoverSource(int animeId, string? coverUrl)
+            => new BitmapImage(ImageCacheHelper.GetImageUri(animeId, coverUrl)) { DecodePixelWidth = 128 };
+
         public ManagementPage(TrackingService trackingService, IAnimeDataSource dataSource, SavedTagService savedTagService, LocalSearchService searchService, IPluginNavigator pluginNavigator)
         {
             _searchService = searchService;
