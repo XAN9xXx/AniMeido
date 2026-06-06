@@ -36,6 +36,9 @@ namespace AniMeido.App
             ExtendsContentIntoTitleBar = true;
             SetTitleBar(AppTitleBar);
             UpdateBackButton();
+
+            // 主题切换时同步标题栏按钮颜色
+            App.ThemeService.ThemeChanged += (_, _) => UpdateTitleBarButtons();
         }
 
         private void UpdateTitleBarButtons()

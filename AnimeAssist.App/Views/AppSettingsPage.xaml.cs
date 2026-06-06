@@ -62,7 +62,8 @@ namespace AniMeido.App.Views
                 1 => ElementTheme.Dark,
                 _ => ElementTheme.Default,
             };
-            App.ThemeService.SetTheme(theme);
+            // 延迟到下一帧切换主题，让 ComboBox 弹出层/动画先完成收尾
+            DispatcherQueue.TryEnqueue(() => App.ThemeService.SetTheme(theme));
         }
 
         private async void OnGitHubCardTapped(object sender, TappedRoutedEventArgs e)

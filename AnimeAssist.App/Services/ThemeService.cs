@@ -7,6 +7,9 @@ namespace AniMeido.App.Services
         private FrameworkElement? _rootElement;
         private const string RegistryKey = @"HKEY_CURRENT_USER\Software\AniMeido";
 
+        /// <summary>主题切换后触发，供标题栏等非 XAML 绑定控件同步。</summary>
+        public event EventHandler<ElementTheme>? ThemeChanged;
+
         public void InitializeTheme(FrameworkElement rootElement)
         {
             _rootElement = rootElement;
@@ -19,10 +22,12 @@ namespace AniMeido.App.Services
 
         public void SetTheme(ElementTheme theme)
         {
-            if (_rootElement is not null)
-                _rootElement.RequestedTheme = theme;
+            if (_rootElement is null) return;
+            if (_rootElement.RequestedTheme == theme) return; // 相同主题不重复应用
+            _rootElement.RequestedTheme = theme;
             Microsoft.Win32.Registry.SetValue(
                 RegistryKey, "ThemeSetting", theme.ToString());
+            ThemeChanged?.Invoke(this, theme);
         }
 
         public ElementTheme GetCurrentTheme()

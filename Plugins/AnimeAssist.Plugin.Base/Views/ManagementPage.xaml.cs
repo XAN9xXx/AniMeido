@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.UI.Xaml.Shapes;
 using System.Collections.ObjectModel;
 using Windows.UI;
 
@@ -32,6 +33,9 @@ namespace AniMeido.Plugin.Base.Views
         /// </summary>
         public static Microsoft.UI.Xaml.Media.ImageSource GetCoverSource(int animeId, string? coverUrl)
             => new BitmapImage(ImageCacheHelper.GetImageUri(animeId, coverUrl)) { DecodePixelWidth = 128 };
+
+        // 当前选中的导航卡片
+        private Border? _currentTab;
 
         public ManagementPage(TrackingService trackingService, IAnimeDataSource dataSource, SavedTagService savedTagService, LocalSearchService searchService, IPluginNavigator pluginNavigator)
         {
@@ -104,6 +108,16 @@ namespace AniMeido.Plugin.Base.Views
             };
 
             ViewModel.LoadDataCommand.Execute(null);
+
+            // 主题切换时通过统一刷新方法恢复视觉状态
+            this.ActualThemeChanged += (_, _) => RefreshNavigationVisualState();
+        }
+
+        private void OnPageLoaded(object sender, RoutedEventArgs e)
+        {
+            // 初始选中"追番中"
+            _currentTab = WatchingCard;
+            RefreshNavigationVisualState();
         }
 
         private void OnTabClicked(object sender, TappedRoutedEventArgs e)
@@ -121,161 +135,191 @@ namespace AniMeido.Plugin.Base.Views
             BlockedPanel.Visibility = Visibility.Collapsed;
             TagPanel.Visibility = Visibility.Collapsed;
 
-            var transparent = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
-            WatchingCard.Background = transparent;
-            PlanToWatchCard.Background = transparent;
-            NotInterestedCard.Background = transparent;
-            FollowingCard.Background = transparent;
-            CompletedCard.Background = transparent;
-            DroppedCard.Background = transparent;
-            BlockedCard.Background = transparent;
-            TagCard.Background = transparent;
-
-            // 重置所有指示器和文字颜色
-            WatchingIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
-            WatchingIndicator.Visibility = Visibility.Collapsed;
-            PlanToWatchIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
-            PlanToWatchIndicator.Visibility = Visibility.Collapsed;
-            NotInterestedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
-            NotInterestedIndicator.Visibility = Visibility.Collapsed;
-            FollowingIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
-            FollowingIndicator.Visibility = Visibility.Collapsed;
-            CompletedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
-            CompletedIndicator.Visibility = Visibility.Collapsed;
-            DroppedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
-            DroppedIndicator.Visibility = Visibility.Collapsed;
-            BlockedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
-            BlockedIndicator.Visibility = Visibility.Collapsed;
-            TagIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
-            TagIndicator.Visibility = Visibility.Collapsed;
-
-            var defaultBrush = (Microsoft.UI.Xaml.Media.Brush)Resources["TabTextDefaultBrush"];
-            var selectedBrush = (Microsoft.UI.Xaml.Media.Brush)Resources["TabTextSelectedBrush"];
-            WatchingLabel.Foreground = defaultBrush;
-            PlanToWatchLabel.Foreground = defaultBrush;
-            NotInterestedLabel.Foreground = defaultBrush;
-            FollowingLabel.Foreground = defaultBrush;
-            CompletedLabel.Foreground = defaultBrush;
-            DroppedLabel.Foreground = defaultBrush;
-            BlockedLabel.Foreground = defaultBrush;
-            TagLabel.Foreground = defaultBrush;
-
-            // 设置选中项
-            var accentColor = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
-            var selectedBg = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                Windows.UI.Color.FromArgb(20, accentColor.R, accentColor.G, accentColor.B));
-
             if (sender == (object)WatchingCard)
             {
+                _currentTab = WatchingCard;
                 WatchingPanel.Visibility = Visibility.Visible;
-                WatchingIndicator.Visibility = Visibility.Visible;
-                WatchingIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
-                WatchingLabel.Foreground = selectedBrush;
-                WatchingCard.Background = selectedBg;
                 _ = ViewModel.LoadPanelAnimeAsync(AnimeTrackingStatus.Watching);
             }
             else if (sender == (object)PlanToWatchCard)
             {
+                _currentTab = PlanToWatchCard;
                 PlanToWatchPanel.Visibility = Visibility.Visible;
-                PlanToWatchIndicator.Visibility = Visibility.Visible;
-                PlanToWatchIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
-                PlanToWatchLabel.Foreground = selectedBrush;
-                PlanToWatchCard.Background = selectedBg;
                 _ = ViewModel.LoadPanelAnimeAsync(AnimeTrackingStatus.PlanToWatch);
             }
             else if (sender == (object)NotInterestedCard)
             {
+                _currentTab = NotInterestedCard;
                 NotInterestedPanel.Visibility = Visibility.Visible;
-                NotInterestedIndicator.Visibility = Visibility.Visible;
-                NotInterestedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
-                NotInterestedLabel.Foreground = selectedBrush;
-                NotInterestedCard.Background = selectedBg;
                 _ = ViewModel.LoadPanelAnimeAsync(AnimeTrackingStatus.NotInterested);
             }
             else if (sender == (object)FollowingCard)
             {
+                _currentTab = FollowingCard;
                 FollowingPanel.Visibility = Visibility.Visible;
-                FollowingIndicator.Visibility = Visibility.Visible;
-                FollowingIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
-                FollowingLabel.Foreground = selectedBrush;
-                FollowingCard.Background = selectedBg;
                 _ = ViewModel.LoadPanelAnimeAsync(AnimeTrackingStatus.Following);
             }
             else if (sender == (object)CompletedCard)
             {
+                _currentTab = CompletedCard;
                 CompletedPanel.Visibility = Visibility.Visible;
-                CompletedIndicator.Visibility = Visibility.Visible;
-                CompletedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
-                CompletedLabel.Foreground = selectedBrush;
-                CompletedCard.Background = selectedBg;
                 _ = ViewModel.LoadPanelAnimeAsync(AnimeTrackingStatus.Completed);
             }
             else if (sender == (object)DroppedCard)
             {
+                _currentTab = DroppedCard;
                 DroppedPanel.Visibility = Visibility.Visible;
-                DroppedIndicator.Visibility = Visibility.Visible;
-                DroppedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
-                DroppedLabel.Foreground = selectedBrush;
-                DroppedCard.Background = selectedBg;
                 _ = ViewModel.LoadPanelAnimeAsync(AnimeTrackingStatus.Dropped);
             }
             else if (sender == (object)BlockedCard)
             {
+                _currentTab = BlockedCard;
                 BlockedPanel.Visibility = Visibility.Visible;
-                BlockedIndicator.Visibility = Visibility.Visible;
-                BlockedIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
-                BlockedLabel.Foreground = selectedBrush;
-                BlockedCard.Background = selectedBg;
                 _ = ViewModel.LoadPanelAnimeAsync(AnimeTrackingStatus.Blocked);
             }
             else if (sender == (object)TagCard)
             {
+                _currentTab = TagCard;
                 TagPanel.Visibility = Visibility.Visible;
-                TagIndicator.Visibility = Visibility.Visible;
-                TagIndicator.Fill = (Microsoft.UI.Xaml.Media.Brush)Resources["TabIndicatorBrush"];
-                TagLabel.Foreground = selectedBrush;
-                TagCard.Background = selectedBg;
                 ViewModel.LoadTagsCommand.Execute(null);
+            }
+
+            RefreshNavigationVisualState();
+        }
+
+        /// <summary>
+        /// 统一刷新导航视觉状态：先 ClearValue 清除 XAML/代码本地值，再通过 Style 切换。
+        /// Style 内部使用 {ThemeResource}，因此主题切换后自动生效。
+        /// 在 Loaded、OnTabClicked、ActualThemeChanged 后调用。
+        /// </summary>
+        private void RefreshNavigationVisualState()
+        {
+            var defaultCardStyle = (Style)Resources["ManagementNavCardDefaultStyle"];
+            var selectedCardStyle = (Style)Resources["ManagementNavCardSelectedStyle"];
+            var defaultLabelStyle = (Style)Resources["ManagementNavLabelDefaultStyle"];
+            var selectedLabelStyle = (Style)Resources["ManagementNavLabelSelectedStyle"];
+            var defaultIndicatorStyle = (Style)Resources["ManagementNavIndicatorDefaultStyle"];
+            var selectedIndicatorStyle = (Style)Resources["ManagementNavIndicatorSelectedStyle"];
+            var defaultIconStyle = (Style)Resources["ManagementNavIconDefaultStyle"];
+            var selectedIconStyle = (Style)Resources["ManagementNavIconSelectedStyle"];
+
+            // 清除本地值 + 设默认 Style
+            void ResetNav(Border card, TextBlock label, Rectangle indicator, FontIcon icon)
+            {
+                card.ClearValue(Border.BackgroundProperty);
+                card.Style = defaultCardStyle;
+
+                label.ClearValue(TextBlock.ForegroundProperty);
+                label.Style = defaultLabelStyle;
+
+                indicator.ClearValue(Rectangle.FillProperty);
+                indicator.ClearValue(Rectangle.VisibilityProperty);
+                indicator.Style = defaultIndicatorStyle;
+
+                icon.ClearValue(FontIcon.ForegroundProperty);
+                icon.Style = defaultIconStyle;
+            }
+
+            ResetNav(WatchingCard, WatchingLabel, WatchingIndicator, WatchingIcon);
+            ResetNav(PlanToWatchCard, PlanToWatchLabel, PlanToWatchIndicator, PlanToWatchIcon);
+            ResetNav(NotInterestedCard, NotInterestedLabel, NotInterestedIndicator, NotInterestedIcon);
+            ResetNav(FollowingCard, FollowingLabel, FollowingIndicator, FollowingIcon);
+            ResetNav(CompletedCard, CompletedLabel, CompletedIndicator, CompletedIcon);
+            ResetNav(DroppedCard, DroppedLabel, DroppedIndicator, DroppedIcon);
+            ResetNav(BlockedCard, BlockedLabel, BlockedIndicator, BlockedIcon);
+            ResetNav(TagCard, TagLabel, TagIndicator, TagIcon);
+
+            // 设置选中态：先 ClearValue 再设 Style，确保 Style setter 生效
+            if (_currentTab != null)
+            {
+                var label = GetLabelForCard(_currentTab);
+                var indicator = GetIndicatorForCard(_currentTab);
+                var icon = GetIconForCard(_currentTab);
+
+                _currentTab.ClearValue(Border.BackgroundProperty);
+                _currentTab.Style = selectedCardStyle;
+
+                if (label != null)
+                {
+                    label.ClearValue(TextBlock.ForegroundProperty);
+                    label.Style = selectedLabelStyle;
+                }
+
+                if (indicator != null)
+                {
+                    indicator.ClearValue(Rectangle.FillProperty);
+                    indicator.ClearValue(Rectangle.VisibilityProperty);
+                    indicator.Style = selectedIndicatorStyle;
+                }
+
+                if (icon != null)
+                {
+                    icon.ClearValue(FontIcon.ForegroundProperty);
+                    icon.Style = selectedIconStyle;
+                }
             }
         }
 
-        private bool IsCardSelected(Border card)
+        private TextBlock? GetLabelForCard(Border card)
         {
-            return card == WatchingCard && WatchingPanel.Visibility == Visibility.Visible
-                || card == PlanToWatchCard && PlanToWatchPanel.Visibility == Visibility.Visible
-                || card == NotInterestedCard && NotInterestedPanel.Visibility == Visibility.Visible
-                || card == FollowingCard && FollowingPanel.Visibility == Visibility.Visible
-                || card == CompletedCard && CompletedPanel.Visibility == Visibility.Visible
-                || card == DroppedCard && DroppedPanel.Visibility == Visibility.Visible
-                || card == BlockedCard && BlockedPanel.Visibility == Visibility.Visible
-                || card == TagCard && TagPanel.Visibility == Visibility.Visible;
+            if (card == WatchingCard) return WatchingLabel;
+            if (card == PlanToWatchCard) return PlanToWatchLabel;
+            if (card == NotInterestedCard) return NotInterestedLabel;
+            if (card == FollowingCard) return FollowingLabel;
+            if (card == CompletedCard) return CompletedLabel;
+            if (card == DroppedCard) return DroppedLabel;
+            if (card == BlockedCard) return BlockedLabel;
+            if (card == TagCard) return TagLabel;
+            return null;
         }
+
+        private Rectangle? GetIndicatorForCard(Border card)
+        {
+            if (card == WatchingCard) return WatchingIndicator;
+            if (card == PlanToWatchCard) return PlanToWatchIndicator;
+            if (card == NotInterestedCard) return NotInterestedIndicator;
+            if (card == FollowingCard) return FollowingIndicator;
+            if (card == CompletedCard) return CompletedIndicator;
+            if (card == DroppedCard) return DroppedIndicator;
+            if (card == BlockedCard) return BlockedIndicator;
+            if (card == TagCard) return TagIndicator;
+            return null;
+        }
+
+        private FontIcon? GetIconForCard(Border card)
+        {
+            if (card == WatchingCard) return WatchingIcon;
+            if (card == PlanToWatchCard) return PlanToWatchIcon;
+            if (card == NotInterestedCard) return NotInterestedIcon;
+            if (card == FollowingCard) return FollowingIcon;
+            if (card == CompletedCard) return CompletedIcon;
+            if (card == DroppedCard) return DroppedIcon;
+            if (card == BlockedCard) return BlockedIcon;
+            if (card == TagCard) return TagIcon;
+            return null;
+        }
+
+        private bool IsCardSelected(Border card)
+            => card == _currentTab;
 
         private void OnCardPointerEntered(object sender, PointerRoutedEventArgs e)
         {
-            var border = sender as Border;
-            if (border != null)
+            if (sender is Border border && !IsCardSelected(border))
             {
-                var color = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
-                byte alpha = IsCardSelected(border) ? (byte)40 : (byte)25;
-                border.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                    Windows.UI.Color.FromArgb(alpha, color.R, color.G, color.B));
+                // 先清除本地 Background，确保 Style 的默认背景不残留
+                border.ClearValue(Border.BackgroundProperty);
+                // 非选中项 hover 时应用主题背景
+                var hoverBrush = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["AniMeidoNavItemHoverBackgroundBrush"];
+                border.Background = hoverBrush;
             }
         }
 
         private void OnCardPointerExited(object sender, PointerRoutedEventArgs e)
         {
-            var border = sender as Border;
-            if (border != null)
+            if (sender is Border)
             {
-                if (!IsCardSelected(border))
-                    border.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
-                else
-                {
-                    var color = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
-                    border.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                        Windows.UI.Color.FromArgb(20, color.R, color.G, color.B));
-                }
+                // 通过统一刷新恢复正确的选中/非选中背景
+                RefreshNavigationVisualState();
             }
         }
 
@@ -482,14 +526,14 @@ namespace AniMeido.Plugin.Base.Views
 
         private ScrollViewer? GetSelectedTab()
         {
-            if (WatchingIndicator.Visibility == Visibility.Visible) return WatchingPanel;
-            if (PlanToWatchIndicator.Visibility == Visibility.Visible) return PlanToWatchPanel;
-            if (NotInterestedIndicator.Visibility == Visibility.Visible) return NotInterestedPanel;
-            if (FollowingIndicator.Visibility == Visibility.Visible) return FollowingPanel;
-            if (CompletedIndicator.Visibility == Visibility.Visible) return CompletedPanel;
-            if (DroppedIndicator.Visibility == Visibility.Visible) return DroppedPanel;
-            if (BlockedIndicator.Visibility == Visibility.Visible) return BlockedPanel;
-            if (TagIndicator.Visibility == Visibility.Visible) return TagPanel;
+            if (_currentTab == WatchingCard) return WatchingPanel;
+            if (_currentTab == PlanToWatchCard) return PlanToWatchPanel;
+            if (_currentTab == NotInterestedCard) return NotInterestedPanel;
+            if (_currentTab == FollowingCard) return FollowingPanel;
+            if (_currentTab == CompletedCard) return CompletedPanel;
+            if (_currentTab == DroppedCard) return DroppedPanel;
+            if (_currentTab == BlockedCard) return BlockedPanel;
+            if (_currentTab == TagCard) return TagPanel;
             return WatchingPanel;
         }
 
@@ -512,3 +556,5 @@ namespace AniMeido.Plugin.Base.Views
         }
     }
 }
+
+

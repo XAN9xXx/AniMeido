@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="AniMeido.Plugin.Base.Views.TagSearchResultPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -160,7 +160,7 @@
         <Grid Grid.RowSpan="3"
               x:Name="LoadingOverlay"
               Visibility="Collapsed"
-              Background="#B0000000">
+              Background="{ThemeResource AniMeidoOverlayScrimBrush}">
             <StackPanel VerticalAlignment="Center"
                         HorizontalAlignment="Center"
                         Spacing="8">
@@ -186,3 +186,4 @@
                 PointerMoved="OnRootPointerMoved"/>
     </Grid>
 </Page>
+

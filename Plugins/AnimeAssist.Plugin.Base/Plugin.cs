@@ -26,32 +26,32 @@ namespace AniMeido.Plugin.Base
         {
             return new List<PluginNavigationItem>
             {
-                new PluginNavigationItem("正在放送", "\uE713", "AniMeido.Plugin.Base.Views.CurrentSeasonPage")
+                new PluginNavigationItem("正在放送", "\uEC92", "AniMeido.Plugin.Base.Views.CurrentSeasonPage")
                 {
                     PageType = typeof(Views.CurrentSeasonPage)
                 },
-                new PluginNavigationItem("补番计划", "\uE713", "AniMeido.Plugin.Base.Views.PastSeasonPage")
+                new PluginNavigationItem("补番计划", "\uE916", "AniMeido.Plugin.Base.Views.PastSeasonPage")
                 {
                     PageType = typeof(Views.PastSeasonPage)
                 },
-                new PluginNavigationItem("搜索", "\uE71A", "AniMeido.Plugin.Base.Views.GlobalSearchPage")
+                new PluginNavigationItem("搜索", "\uE721", "AniMeido.Plugin.Base.Views.GlobalSearchPage")
                 {
                     PageType = typeof(Views.GlobalSearchPage)
                 },
-                new PluginNavigationItem("关注管理", "\uE72E", "AniMeido.Plugin.Base.Views.ManagementPage")
+                new PluginNavigationItem("关注管理", "\uE734", "AniMeido.Plugin.Base.Views.ManagementPage")
                 {
                     PageType = typeof(Views.ManagementPage)
                 },
-                new PluginNavigationItem("浏览记录", "\uE71A", "AniMeido.Plugin.Base.Views.BrowseHistoryPage")
+                new PluginNavigationItem("浏览记录", "\uE9D2", "AniMeido.Plugin.Base.Views.BrowseHistoryPage")
                 {
                     PageType = typeof(Views.BrowseHistoryPage)
                 },
-                new PluginNavigationItem("拖放标记", "\uE713", "AniMeido.Plugin.Base.Views.DragZoneSettingsPage")
+                new PluginNavigationItem("拖放标记", "\uE777", "AniMeido.Plugin.Base.Views.DragZoneSettingsPage")
                 {
                     PageType = typeof(Views.DragZoneSettingsPage),
                     IsSettingsPage = true
                 },
-                new PluginNavigationItem("数据管理", "\uE8A5", "AniMeido.Plugin.Base.Views.DataManagementSettingsPage")
+                new PluginNavigationItem("数据管理", "\uE74E", "AniMeido.Plugin.Base.Views.DataManagementSettingsPage")
                 {
                     PageType = typeof(Views.DataManagementSettingsPage),
                     IsSettingsPage = true

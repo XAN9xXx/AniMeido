@@ -1,4 +1,4 @@
-<Page
+﻿<Page
     x:Class="AniMeido.Plugin.Base.Views.BrowseHistoryPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -45,7 +45,7 @@
                             Spacing="12">
                     <TextBlock Text="暂无浏览记录"
                                FontSize="18"
-                               Foreground="Gray"
+                               Foreground="{ThemeResource AniMeidoMutedTextBrush}"
                                HorizontalAlignment="Center"/>
                     <TextBlock Text="查看番剧详情后将自动记录"
                                FontSize="13"
@@ -101,3 +101,4 @@
         </ScrollViewer>
     </Grid>
 </Page>
+

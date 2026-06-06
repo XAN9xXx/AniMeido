@@ -139,11 +139,11 @@ namespace AniMeido.Plugin.Base.Views
         private void UpdateStatusHint()
         {
             var status = ViewModel.CurrentStatus;
-            ResetButtonVisuals();
 
             if (status == AnimeTrackingStatus.None)
             {
                 StatusHint.Visibility = Visibility.Collapsed;
+                RefreshTrackingButtonVisuals();
                 return;
             }
 
@@ -161,35 +161,7 @@ namespace AniMeido.Plugin.Base.Views
             };
             StatusHint.Text = $"当前标记：{label}";
 
-            // 高亮选中按钮
-            var accent = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"]);
-            var whiteBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 255, 255));
-
-            switch (status)
-            {
-                case AnimeTrackingStatus.Watching:
-                    SetButtonActive(WatchingBtn, WatchingIcon, WatchingText, accent, whiteBrush);
-                    break;
-                case AnimeTrackingStatus.PlanToWatch:
-                    SetButtonActive(PlanToWatchBtn, PlanToWatchIcon, PlanToWatchText, accent, whiteBrush);
-                    break;
-                case AnimeTrackingStatus.NotInterested:
-                    SetButtonActive(NotInterestedBtn, NotInterestedIcon, NotInterestedText, accent, whiteBrush);
-                    break;
-                case AnimeTrackingStatus.Following:
-                    SetButtonActive(FollowingBtn, FollowingIcon, FollowingText, accent, whiteBrush);
-                    break;
-                case AnimeTrackingStatus.Completed:
-                    SetButtonActive(CompletedBtn, CompletedIcon, CompletedText, accent, whiteBrush);
-                    break;
-                case AnimeTrackingStatus.Dropped:
-                    SetButtonActive(DroppedBtn, DroppedIcon, DroppedText, accent, whiteBrush);
-                    break;
-                case AnimeTrackingStatus.Blocked:
-                    SetButtonActive(BlockedBtn, BlockedIcon, BlockedText, accent, whiteBrush);
-                    break;
-            }
+            RefreshTrackingButtonVisuals();
         }
 
         private void ResetButtonVisuals()
@@ -229,26 +201,87 @@ namespace AniMeido.Plugin.Base.Views
             if (text != null) text.Foreground = fg;
         }
 
+        /// <summary>
+        /// 判断指定按钮是否对应 ViewModel 的当前激活状态。
+        /// </summary>
+        private bool IsTrackingButtonActive(Button btn)
+        {
+            return ViewModel.CurrentStatus switch
+            {
+                AnimeTrackingStatus.Watching => btn == WatchingBtn,
+                AnimeTrackingStatus.PlanToWatch => btn == PlanToWatchBtn,
+                AnimeTrackingStatus.NotInterested => btn == NotInterestedBtn,
+                AnimeTrackingStatus.Following => btn == FollowingBtn,
+                AnimeTrackingStatus.Completed => btn == CompletedBtn,
+                AnimeTrackingStatus.Dropped => btn == DroppedBtn,
+                AnimeTrackingStatus.Blocked => btn == BlockedBtn,
+                _ => false,
+            };
+        }
+
+        /// <summary>
+        /// 根据 ViewModel.CurrentStatus 统一刷新所有追踪按钮的视觉状态。
+        /// 在状态变更、PointerExited 后调用。
+        /// </summary>
+        private void RefreshTrackingButtonVisuals()
+        {
+            // 重置所有按钮为非激活样式
+            ResetButtonVisuals();
+            // 重新高亮当前选中按钮
+            var status = ViewModel.CurrentStatus;
+            if (status == AnimeTrackingStatus.None) return;
+
+            var accent = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"]);
+            var whiteBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 255, 255));
+
+            switch (status)
+            {
+                case AnimeTrackingStatus.Watching:
+                    SetButtonActive(WatchingBtn, WatchingIcon, WatchingText, accent, whiteBrush);
+                    break;
+                case AnimeTrackingStatus.PlanToWatch:
+                    SetButtonActive(PlanToWatchBtn, PlanToWatchIcon, PlanToWatchText, accent, whiteBrush);
+                    break;
+                case AnimeTrackingStatus.NotInterested:
+                    SetButtonActive(NotInterestedBtn, NotInterestedIcon, NotInterestedText, accent, whiteBrush);
+                    break;
+                case AnimeTrackingStatus.Following:
+                    SetButtonActive(FollowingBtn, FollowingIcon, FollowingText, accent, whiteBrush);
+                    break;
+                case AnimeTrackingStatus.Completed:
+                    SetButtonActive(CompletedBtn, CompletedIcon, CompletedText, accent, whiteBrush);
+                    break;
+                case AnimeTrackingStatus.Dropped:
+                    SetButtonActive(DroppedBtn, DroppedIcon, DroppedText, accent, whiteBrush);
+                    break;
+                case AnimeTrackingStatus.Blocked:
+                    SetButtonActive(BlockedBtn, BlockedIcon, BlockedText, accent, whiteBrush);
+                    break;
+            }
+        }
+
         private void OnTrackingBtnEntered(object sender, PointerRoutedEventArgs e)
         {
-            if (sender is Button btn && btn.Background is Microsoft.UI.Xaml.Media.SolidColorBrush brush)
+            if (sender is Button btn)
             {
-                // Only apply hover if not already accent-colored
-                if (brush.Color.A < 200 || brush.Color.R < 100)
-                {
-                    var color = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
-                    btn.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                        Windows.UI.Color.FromArgb(25, color.R, color.G, color.B));
-                }
+                // 如果是当前激活按钮，不覆盖 active 样式
+                if (IsTrackingButtonActive(btn))
+                    return;
+
+                // 非激活按钮应用 hover 样式
+                var accentColor = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+                btn.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                    Windows.UI.Color.FromArgb(25, accentColor.R, accentColor.G, accentColor.B));
             }
         }
 
         private void OnTrackingBtnExited(object sender, PointerRoutedEventArgs e)
         {
-            if (sender is Button btn && btn.Background is Microsoft.UI.Xaml.Media.SolidColorBrush brush)
+            if (sender is Button btn)
             {
-                if (brush.Color.A < 200 || brush.Color.R < 100)
-                    btn.Background = null;
+                // 通过统一刷新恢复正确状态（active 或 inactive）
+                RefreshTrackingButtonVisuals();
             }
         }
 

@@ -36,7 +36,7 @@
                     <!-- 封面重试加载环 -->
                     <Grid x:Name="RetryOverlay"
                           Visibility="Collapsed"
-                          Background="#B0000000">
+                          Background="{ThemeResource AniMeidoFailedOverlayBrush}">
                         <ProgressRing x:Name="RetryRing"
                                       Width="24"
                                       Height="24"
@@ -56,7 +56,7 @@
                         Visibility="Collapsed">
                     <TextBlock x:Name="WeekdayBadgeText"
                                Text=""
-                               Foreground="White"
+                               Foreground="{ThemeResource AniMeidoBadgeTextBrush}"
                                FontSize="12"
                                FontWeight="Bold"/>
                 </Border>
@@ -70,7 +70,7 @@
                         VerticalAlignment="Bottom"
                         Visibility="Collapsed">
                     <TextBlock x:Name="ScoreText"
-                               Foreground="White"
+                               Foreground="{ThemeResource AniMeidoBadgeTextBrush}"
                                FontSize="12"
                                FontWeight="Bold"/>
                 </Border>
@@ -85,9 +85,11 @@
                                Margin="0,0,0,2"/>
                     <TextBlock Text="{Binding AirDate}"
                                FontSize="12"
-                               Foreground="Gray"/>
+                               Foreground="{ThemeResource AniMeidoMutedTextBrush}"/>
                 </StackPanel>
             </Grid>
         </Border>
     </Grid>
 </UserControl>
+
+

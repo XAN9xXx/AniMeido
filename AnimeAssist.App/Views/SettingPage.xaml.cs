@@ -37,6 +37,23 @@ namespace AniMeido.App.Views
 
             // 默认选中 App 设置
             SettingsFrame.Content = _pageFactory.CreatePage(typeof(AppSettingsPage));
+
+            // 主题切换时刷新导航文字颜色
+            this.ActualThemeChanged += (_, _) => RefreshNavColors();
+        }
+
+        private void RefreshNavColors()
+        {
+            var defaultBrush = (Brush)Application.Current.Resources["AniMeidoNavTextDefaultBrush"];
+            var selectedBrush = (Brush)Application.Current.Resources["AniMeidoNavTextSelectedBrush"];
+
+            bool isAppSelected = AppSettingsIndicator.Visibility == Visibility.Visible;
+            AppSettingsLabel.Foreground = isAppSelected ? selectedBrush : defaultBrush;
+
+            foreach (var nav in _pluginNavs)
+            {
+                nav.Label.Foreground = nav.Indicator.Visibility == Visibility.Visible ? selectedBrush : defaultBrush;
+            }
         }
 
         /// <summary>添加插件分组标题。</summary>
@@ -47,7 +64,7 @@ namespace AniMeido.App.Views
                 Text = pluginName,
                 FontSize = 12,
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(153, 233, 233, 233)), // 60% opacity
+                Foreground = (Brush)Application.Current.Resources["AniMeidoSecondaryTextBrush"],
                 Margin = new Thickness(12, 16, 0, 4),
                 VerticalAlignment = VerticalAlignment.Center,
             };
@@ -67,7 +84,7 @@ namespace AniMeido.App.Views
             {
                 Text = entry.Label,
                 FontSize = 14,
-                Foreground = (Brush)Resources["NavTextDefaultBrush"],
+                Foreground = (Brush)Application.Current.Resources["AniMeidoNavTextDefaultBrush"],
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(12, 0, 0, 0)
             };
@@ -100,15 +117,15 @@ namespace AniMeido.App.Views
             AppSettingsCard.Background = new SolidColorBrush(
                 Windows.UI.Color.FromArgb(20, accentColor.R, accentColor.G, accentColor.B));
             AppSettingsIndicator.Visibility = Visibility.Visible;
-            AppSettingsIndicator.Fill = (Brush)Resources["NavIndicatorBrush"];
-            AppSettingsLabel.Foreground = (Brush)Resources["NavTextSelectedBrush"];
+            AppSettingsIndicator.Fill = (Brush)Application.Current.Resources["AniMeidoNavIndicatorBrush"];
+            AppSettingsLabel.Foreground = (Brush)Application.Current.Resources["AniMeidoNavTextSelectedBrush"];
 
             // 取消所有插件项的选中态
             foreach (var nav in _pluginNavs)
             {
                 nav.Indicator.Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
                 nav.Indicator.Visibility = Visibility.Collapsed;
-                nav.Label.Foreground = (Brush)Resources["NavTextDefaultBrush"];
+                nav.Label.Foreground = (Brush)Application.Current.Resources["AniMeidoNavTextDefaultBrush"];
             }
         }
 
@@ -129,7 +146,7 @@ namespace AniMeido.App.Views
                 // 取消 App 设置选中态
                 AppSettingsCard.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
                 AppSettingsIndicator.Visibility = Visibility.Collapsed;
-                AppSettingsLabel.Foreground = (Brush)Resources["NavTextDefaultBrush"];
+                AppSettingsLabel.Foreground = (Brush)Application.Current.Resources["AniMeidoNavTextDefaultBrush"];
 
                 // 高亮当前插件
                 var accentColor = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
@@ -137,15 +154,15 @@ namespace AniMeido.App.Views
                 {
                     if (nav.Border == border)
                     {
-                        nav.Indicator.Fill = (Brush)Resources["NavIndicatorBrush"];
+                        nav.Indicator.Fill = (Brush)Application.Current.Resources["AniMeidoNavIndicatorBrush"];
                         nav.Indicator.Visibility = Visibility.Visible;
-                        nav.Label.Foreground = (Brush)Resources["NavTextSelectedBrush"];
+                        nav.Label.Foreground = (Brush)Application.Current.Resources["AniMeidoNavTextSelectedBrush"];
                     }
                     else
                     {
                         nav.Indicator.Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
                         nav.Indicator.Visibility = Visibility.Collapsed;
-                        nav.Label.Foreground = (Brush)Resources["NavTextDefaultBrush"];
+                        nav.Label.Foreground = (Brush)Application.Current.Resources["AniMeidoNavTextDefaultBrush"];
                     }
                 }
             }

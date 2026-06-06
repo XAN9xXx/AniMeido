@@ -348,7 +348,7 @@
                        Visibility="Collapsed"/>
                 <TextBlock x:Name="LoadingHint"
                            FontSize="14"
-                           Foreground="Gray"
+                           Foreground="{ThemeResource AniMeidoMutedTextBrush}"
                            HorizontalAlignment="Center"
                            TextWrapping="Wrap"
                            MaxWidth="300"

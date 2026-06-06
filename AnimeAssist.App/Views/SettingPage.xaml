@@ -7,15 +7,6 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Page.Resources>
-        <SolidColorBrush x:Key="NavIndicatorBrush"
-                         Color="{ThemeResource SystemAccentColor}"/>
-        <SolidColorBrush x:Key="NavTextSelectedBrush"
-                         Color="{ThemeResource SystemAccentColor}"/>
-        <SolidColorBrush x:Key="NavTextDefaultBrush"
-                         Color="#E9E9E9"/>
-    </Page.Resources>
-
     <Grid Padding="24">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="160"/>
@@ -42,13 +33,13 @@
                     <Rectangle x:Name="AppSettingsIndicator"
                                Width="3"
                                Height="20"
-                               Fill="{ThemeResource NavIndicatorBrush}"
+                               Fill="{ThemeResource AniMeidoNavIndicatorBrush}"
                                VerticalAlignment="Center"/>
                     <TextBlock x:Name="AppSettingsLabel"
                                Grid.Column="1"
                                Text="App 设置"
                                FontSize="14"
-                               Foreground="{ThemeResource NavTextSelectedBrush}"
+                               Foreground="{ThemeResource AniMeidoNavTextSelectedBrush}"
                                VerticalAlignment="Center"
                                Margin="12,0,0,0"/>
                 </Grid>

@@ -8,15 +8,62 @@
     xmlns:vm="using:AniMeido.Plugin.Base.ViewModels"
     xmlns:contracts="using:AniMeido.Contracts.Models"
     xmlns:services="using:AniMeido.Plugin.Base.Services"
-    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+    Loaded="OnPageLoaded">
 
     <Page.Resources>
-        <SolidColorBrush x:Key="TabIndicatorBrush"
-                         Color="{ThemeResource SystemAccentColor}"/>
-        <SolidColorBrush x:Key="TabTextSelectedBrush"
-                         Color="{ThemeResource SystemAccentColor}"/>
-        <SolidColorBrush x:Key="TabTextDefaultBrush"
-                         Color="#E9E9E9"/>
+        <!-- 导航标签 - 默认 -->
+        <Style x:Key="ManagementNavLabelDefaultStyle"
+               TargetType="TextBlock">
+            <Setter Property="Foreground"
+                    Value="{ThemeResource AniMeidoNavTextDefaultBrush}"/>
+        </Style>
+        <!-- 导航标签 - 选中 -->
+        <Style x:Key="ManagementNavLabelSelectedStyle"
+               TargetType="TextBlock">
+            <Setter Property="Foreground"
+                    Value="{ThemeResource AniMeidoNavTextSelectedBrush}"/>
+        </Style>
+        <!-- 导航卡片 - 默认 -->
+        <Style x:Key="ManagementNavCardDefaultStyle"
+               TargetType="Border">
+            <Setter Property="Background"
+                    Value="Transparent"/>
+        </Style>
+        <!-- 导航卡片 - 选中 -->
+        <Style x:Key="ManagementNavCardSelectedStyle"
+               TargetType="Border">
+            <Setter Property="Background"
+                    Value="{ThemeResource AniMeidoNavItemSelectedBackgroundBrush}"/>
+        </Style>
+        <!-- 导航指示器 - 默认 -->
+        <Style x:Key="ManagementNavIndicatorDefaultStyle"
+               TargetType="Rectangle">
+            <Setter Property="Fill"
+                    Value="Transparent"/>
+            <Setter Property="Visibility"
+                    Value="Collapsed"/>
+        </Style>
+        <!-- 导航指示器 - 选中 -->
+        <Style x:Key="ManagementNavIndicatorSelectedStyle"
+               TargetType="Rectangle">
+            <Setter Property="Fill"
+                    Value="{ThemeResource AniMeidoNavIndicatorBrush}"/>
+            <Setter Property="Visibility"
+                    Value="Visible"/>
+        </Style>
+        <!-- 导航图标 - 默认 -->
+        <Style x:Key="ManagementNavIconDefaultStyle"
+               TargetType="FontIcon">
+            <Setter Property="Foreground"
+                    Value="{ThemeResource AniMeidoNavTextDefaultBrush}"/>
+        </Style>
+        <!-- 导航图标 - 选中 -->
+        <Style x:Key="ManagementNavIconSelectedStyle"
+               TargetType="FontIcon">
+            <Setter Property="Foreground"
+                    Value="{ThemeResource AniMeidoNavTextSelectedBrush}"/>
+        </Style>
     </Page.Resources>
 
     <Grid Padding="24">
@@ -68,19 +115,23 @@
                     Tapped="OnTabClicked"
                     PointerEntered="OnCardPointerEntered"
                     PointerExited="OnCardPointerExited">
-                <Grid ColumnDefinitions="3,*">
+                <Grid ColumnDefinitions="3,20,1*"
+                        ColumnSpacing="8">
                     <Rectangle x:Name="WatchingIndicator"
                                Width="3"
                                Height="20"
-                               Fill="{ThemeResource TabIndicatorBrush}"
                                VerticalAlignment="Center"/>
+                    <FontIcon x:Name="WatchingIcon"
+                              Glyph="&#xE768;"
+                              FontSize="16"
+                              Grid.Column="1"
+                              VerticalAlignment="Center"
+                              Style="{StaticResource ManagementNavIconDefaultStyle}"/>
                     <TextBlock x:Name="WatchingLabel"
-                               Grid.Column="1"
+                               Grid.Column="2"
                                Text="追番中"
                                FontSize="14"
-                               Foreground="{ThemeResource TabTextSelectedBrush}"
-                               VerticalAlignment="Center"
-                               Margin="12,0,0,0"/>
+                               VerticalAlignment="Center"/>
                 </Grid>
             </Border>
             <Border x:Name="PlanToWatchCard"
@@ -89,19 +140,23 @@
                     Tapped="OnTabClicked"
                     PointerEntered="OnCardPointerEntered"
                     PointerExited="OnCardPointerExited">
-                <Grid ColumnDefinitions="3,*">
+                <Grid ColumnDefinitions="3,20,1*"
+                        ColumnSpacing="8">
                     <Rectangle x:Name="PlanToWatchIndicator"
                                Width="3"
                                Height="20"
-                               Fill="Transparent"
                                VerticalAlignment="Center"/>
+                    <FontIcon x:Name="PlanToWatchIcon"
+                              Glyph="&#xE916;"
+                              FontSize="16"
+                              Grid.Column="1"
+                              VerticalAlignment="Center"
+                              Style="{StaticResource ManagementNavIconDefaultStyle}"/>
                     <TextBlock x:Name="PlanToWatchLabel"
-                               Grid.Column="1"
+                               Grid.Column="2"
                                Text="补番中"
                                FontSize="14"
-                               Foreground="{ThemeResource TabTextDefaultBrush}"
-                               VerticalAlignment="Center"
-                               Margin="12,0,0,0"/>
+                               VerticalAlignment="Center"/>
                 </Grid>
             </Border>
             <Border x:Name="NotInterestedCard"
@@ -110,19 +165,23 @@
                     Tapped="OnTabClicked"
                     PointerEntered="OnCardPointerEntered"
                     PointerExited="OnCardPointerExited">
-                <Grid ColumnDefinitions="3,*">
+                <Grid ColumnDefinitions="3,20,1*"
+                        ColumnSpacing="8">
                     <Rectangle x:Name="NotInterestedIndicator"
                                Width="3"
                                Height="20"
-                               Fill="Transparent"
                                VerticalAlignment="Center"/>
+                    <FontIcon x:Name="NotInterestedIcon"
+                              Glyph="&#xE711;"
+                              FontSize="16"
+                              Grid.Column="1"
+                              VerticalAlignment="Center"
+                              Style="{StaticResource ManagementNavIconDefaultStyle}"/>
                     <TextBlock x:Name="NotInterestedLabel"
-                               Grid.Column="1"
+                               Grid.Column="2"
                                Text="不感兴趣"
                                FontSize="14"
-                               Foreground="{ThemeResource TabTextDefaultBrush}"
-                               VerticalAlignment="Center"
-                               Margin="12,0,0,0"/>
+                               VerticalAlignment="Center"/>
                 </Grid>
             </Border>
             <Border x:Name="FollowingCard"
@@ -131,19 +190,23 @@
                     Tapped="OnTabClicked"
                     PointerEntered="OnCardPointerEntered"
                     PointerExited="OnCardPointerExited">
-                <Grid ColumnDefinitions="3,*">
+                <Grid ColumnDefinitions="3,20,1*"
+                        ColumnSpacing="8">
                     <Rectangle x:Name="FollowingIndicator"
                                Width="3"
                                Height="20"
-                               Fill="Transparent"
                                VerticalAlignment="Center"/>
+                    <FontIcon x:Name="FollowingIcon"
+                              Glyph="&#xEB51;"
+                              FontSize="16"
+                              Grid.Column="1"
+                              VerticalAlignment="Center"
+                              Style="{StaticResource ManagementNavIconDefaultStyle}"/>
                     <TextBlock x:Name="FollowingLabel"
-                               Grid.Column="1"
+                               Grid.Column="2"
                                Text="关注"
                                FontSize="14"
-                               Foreground="{ThemeResource TabTextDefaultBrush}"
-                               VerticalAlignment="Center"
-                               Margin="12,0,0,0"/>
+                               VerticalAlignment="Center"/>
                 </Grid>
             </Border>
             <Border x:Name="CompletedCard"
@@ -152,19 +215,23 @@
                     Tapped="OnTabClicked"
                     PointerEntered="OnCardPointerEntered"
                     PointerExited="OnCardPointerExited">
-                <Grid ColumnDefinitions="3,*">
+                <Grid ColumnDefinitions="3,20,1*"
+                        ColumnSpacing="8">
                     <Rectangle x:Name="CompletedIndicator"
                                Width="3"
                                Height="20"
-                               Fill="Transparent"
                                VerticalAlignment="Center"/>
+                    <FontIcon x:Name="CompletedIcon"
+                              Glyph="&#xE73E;"
+                              FontSize="16"
+                              Grid.Column="1"
+                              VerticalAlignment="Center"
+                              Style="{StaticResource ManagementNavIconDefaultStyle}"/>
                     <TextBlock x:Name="CompletedLabel"
-                               Grid.Column="1"
+                               Grid.Column="2"
                                Text="已看完"
                                FontSize="14"
-                               Foreground="{ThemeResource TabTextDefaultBrush}"
-                               VerticalAlignment="Center"
-                               Margin="12,0,0,0"/>
+                               VerticalAlignment="Center"/>
                 </Grid>
             </Border>
             <Border x:Name="DroppedCard"
@@ -173,19 +240,23 @@
                     Tapped="OnTabClicked"
                     PointerEntered="OnCardPointerEntered"
                     PointerExited="OnCardPointerExited">
-                <Grid ColumnDefinitions="3,*">
+                <Grid ColumnDefinitions="3,20,1*"
+                        ColumnSpacing="8">
                     <Rectangle x:Name="DroppedIndicator"
                                Width="3"
                                Height="20"
-                               Fill="Transparent"
                                VerticalAlignment="Center"/>
+                    <FontIcon x:Name="DroppedIcon"
+                              Glyph="&#xE74D;"
+                              FontSize="16"
+                              Grid.Column="1"
+                              VerticalAlignment="Center"
+                              Style="{StaticResource ManagementNavIconDefaultStyle}"/>
                     <TextBlock x:Name="DroppedLabel"
-                               Grid.Column="1"
+                               Grid.Column="2"
                                Text="弃番"
                                FontSize="14"
-                               Foreground="{ThemeResource TabTextDefaultBrush}"
-                               VerticalAlignment="Center"
-                               Margin="12,0,0,0"/>
+                               VerticalAlignment="Center"/>
                 </Grid>
             </Border>
             <Border x:Name="BlockedCard"
@@ -194,19 +265,23 @@
                     Tapped="OnTabClicked"
                     PointerEntered="OnCardPointerEntered"
                     PointerExited="OnCardPointerExited">
-                <Grid ColumnDefinitions="3,*">
+                <Grid ColumnDefinitions="3,20,1*"
+                        ColumnSpacing="8">
                     <Rectangle x:Name="BlockedIndicator"
                                Width="3"
                                Height="20"
-                               Fill="Transparent"
                                VerticalAlignment="Center"/>
+                    <FontIcon x:Name="BlockedIcon"
+                              Glyph="&#xE78B;"
+                              FontSize="16"
+                              Grid.Column="1"
+                              VerticalAlignment="Center"
+                              Style="{StaticResource ManagementNavIconDefaultStyle}"/>
                     <TextBlock x:Name="BlockedLabel"
-                               Grid.Column="1"
+                               Grid.Column="2"
                                Text="屏蔽"
                                FontSize="14"
-                               Foreground="{ThemeResource TabTextDefaultBrush}"
-                               VerticalAlignment="Center"
-                               Margin="12,0,0,0"/>
+                               VerticalAlignment="Center"/>
                 </Grid>
             </Border>
             <Border x:Name="TagCard"
@@ -215,19 +290,23 @@
                     Tapped="OnTabClicked"
                     PointerEntered="OnCardPointerEntered"
                     PointerExited="OnCardPointerExited">
-                <Grid ColumnDefinitions="3,*">
+                <Grid ColumnDefinitions="3,20,1*"
+                        ColumnSpacing="8">
                     <Rectangle x:Name="TagIndicator"
                                Width="3"
                                Height="20"
-                               Fill="Transparent"
                                VerticalAlignment="Center"/>
+                    <FontIcon x:Name="TagIcon"
+                              Glyph="&#xE8EC;"
+                              FontSize="16"
+                              Grid.Column="1"
+                              VerticalAlignment="Center"
+                              Style="{StaticResource ManagementNavIconDefaultStyle}"/>
                     <TextBlock x:Name="TagLabel"
-                               Grid.Column="1"
+                               Grid.Column="2"
                                Text="Tag 管理"
                                FontSize="14"
-                               Foreground="{ThemeResource TabTextDefaultBrush}"
-                               VerticalAlignment="Center"
-                               Margin="12,0,0,0"/>
+                               VerticalAlignment="Center"/>
                 </Grid>
             </Border>
         </StackPanel>
@@ -264,7 +343,7 @@
                                 </Border>
                                 <!-- 信息 -->
                                 <StackPanel Grid.Column="1"
-                                        Spacing="4">
+                                            Spacing="4">
                                     <TextBlock Text="{x:Bind Anime.Title}"
                                                FontSize="15"
                                                FontWeight="SemiBold"
@@ -275,7 +354,7 @@
                                             Background="{ThemeResource SystemAccentColor}">
                                         <TextBlock Text="{x:Bind StatusLabel}"
                                                    FontSize="12"
-                                                   Foreground="White"/>
+                                                   Foreground="{ThemeResource AniMeidoBadgeTextBrush}"/>
                                     </Border>
                                     <TextBlock Text="{x:Bind Anime.Description}"
                                                FontSize="12"
@@ -368,7 +447,7 @@
                     </ItemsControl>
                     <TextBlock x:Name="WatchingEmpty"
                                Text="暂无追番标记"
-                               Foreground="Gray"
+                               Foreground="{ThemeResource AniMeidoMutedTextBrush}"
                                Margin="0,12,0,0"/>
                 </StackPanel>
             </ScrollViewer>
@@ -441,7 +520,7 @@
                     </ItemsControl>
                     <TextBlock x:Name="PlanToWatchEmpty"
                                Text="暂无补番标记"
-                               Foreground="Gray"
+                               Foreground="{ThemeResource AniMeidoMutedTextBrush}"
                                Margin="0,12,0,0"/>
                 </StackPanel>
             </ScrollViewer>
@@ -514,7 +593,7 @@
                     </ItemsControl>
                     <TextBlock x:Name="NotInterestedEmpty"
                                Text="暂无不感兴趣标记"
-                               Foreground="Gray"
+                               Foreground="{ThemeResource AniMeidoMutedTextBrush}"
                                Margin="0,12,0,0"/>
                 </StackPanel>
             </ScrollViewer>
@@ -587,7 +666,7 @@
                     </ItemsControl>
                     <TextBlock x:Name="FollowingEmpty"
                                Text="暂无关注标记"
-                               Foreground="Gray"
+                               Foreground="{ThemeResource AniMeidoMutedTextBrush}"
                                Margin="0,12,0,0"/>
                 </StackPanel>
             </ScrollViewer>
@@ -660,7 +739,7 @@
                     </ItemsControl>
                     <TextBlock x:Name="CompletedEmpty"
                                Text="暂无已看完标记"
-                               Foreground="Gray"
+                               Foreground="{ThemeResource AniMeidoMutedTextBrush}"
                                Margin="0,12,0,0"/>
                 </StackPanel>
             </ScrollViewer>
@@ -733,7 +812,7 @@
                     </ItemsControl>
                     <TextBlock x:Name="DroppedEmpty"
                                Text="暂无弃番标记"
-                               Foreground="Gray"
+                               Foreground="{ThemeResource AniMeidoMutedTextBrush}"
                                Margin="0,12,0,0"/>
                 </StackPanel>
             </ScrollViewer>
@@ -806,7 +885,7 @@
                     </ItemsControl>
                     <TextBlock x:Name="BlockedEmpty"
                                Text="暂无屏蔽标记"
-                               Foreground="Gray"
+                               Foreground="{ThemeResource AniMeidoMutedTextBrush}"
                                Margin="0,12,0,0"/>
                 </StackPanel>
             </ScrollViewer>
@@ -899,10 +978,14 @@
                     <!-- 空状态 -->
                     <TextBlock x:Name="TagEmptyText"
                                Text="暂无收藏的 Tag"
-                               Foreground="Gray"
+                               Foreground="{ThemeResource AniMeidoMutedTextBrush}"
                                Margin="0,12,0,0"/>
                 </StackPanel>
             </ScrollViewer>
         </Grid>
     </Grid>
 </Page>
+
+
+
+
