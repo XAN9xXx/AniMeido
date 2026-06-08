@@ -8,15 +8,17 @@
   </Folder>
   <Folder Name="/Plugins/">
     <Project Path="Plugins/AnimeAssist.Plugin.Base/AniMeido.Plugin.Base.csproj" Id="70cbece3-4de2-4b18-b9c6-a07dd5c7a53c">
-      <Platform Solution="Debug|x64" Project="x64" />
+      <Platform Solution="Debug|*" Project="x64" />
     </Project>
-  </Folder>
+    <Project Path="Plugins/AnimeAssist.Plugin.Chat/AniMeido.Plugin.Chat.csproj">
+      <Platform Solution="Debug|x64" Project="x64" />
+    </Project>  </Folder>
   <Folder Name="/Plugins/AnimeAssist.Plugin.Base/" />
   <Project Path="AnimeAssist.App/AniMeido.App.csproj">
-    <Platform Solution="*|x64" Project="x64" />
+    <Platform Project="x64" />
     <Deploy />
   </Project>
   <Project Path="AnimeAssist.Contracts/AniMeido.Contracts.csproj" Id="55ca2f31-e2d9-49ca-aef5-7736972f2eb4">
-    <Platform Solution="Debug|x64" Project="x64" />
+    <Platform Solution="Debug|*" Project="x64" />
   </Project>
 </Solution>

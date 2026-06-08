@@ -11,5 +11,14 @@
         /// 在 MainWindow 创建后由 App 层设置。
         /// </summary>
         public static object? MainWindow { get; set; }
+
+        /// <summary>
+        /// 应用关闭通知。各模块通过此事件在 ServiceProvider 释放前执行清理。
+        /// 由 App 层在 MainWindow.Closed 事件中触发。
+        /// </summary>
+        public static event Action? Closing;
+
+        /// <summary>触发关闭通知。</summary>
+        public static void NotifyClosing() => Closing?.Invoke();
     }
 }

@@ -12,8 +12,9 @@ namespace AniMeido.App
         private readonly NavigationService _navigationService;
         private readonly SplashCoordinator _splash;
         private readonly StartupDialogCoordinator _dialogs;
-        
+
         private NavigationViewItem? _lastSelectedPageItem;
+        private bool _isClosing;
 
 
         public MainWindow(IReadOnlyList<PluginNavigationItem> naviItems, NavigationService navigationService)
@@ -40,6 +41,9 @@ namespace AniMeido.App
 
             // 主题切换时同步标题栏按钮颜色
             App.ThemeService.ThemeChanged += (_, _) => UpdateTitleBarButtons();
+
+            // 主窗口关闭时同步关闭聊天室窗口，避免 ChatWindow 残留
+            Closed += OnMainWindowClosing;
         }
 
         private void UpdateTitleBarButtons()
@@ -136,6 +140,15 @@ namespace AniMeido.App
             UpdateTitleBarButtons();
         }
 
+        //
+        private void OnMainWindowClosing(object sender, WindowEventArgs args)
+        {
+            _isClosing = true;
+
+            // 触发应用关闭通知，由各模块自行清理
+            Contracts.AppServices.NotifyClosing();
+        }
+
         // 
         private void BuildNavigationMenu()
         {
@@ -159,6 +172,10 @@ namespace AniMeido.App
             if (container == null)
                 return;
 
+            // 应用关闭阶段不再处理导航点击
+            if (_isClosing)
+                return;
+
             if (container.Tag is PluginNavigationItem navItem)
             {
                 if (navItem.Kind == PluginNavigationItemKind.Command && navItem.Command != null)
@@ -170,6 +187,7 @@ namespace AniMeido.App
                     // 延迟恢复选中项，应对 NavigationView 内部状态覆盖
                     _ = DispatcherQueue.TryEnqueue(() =>
                     {
+                        if (_isClosing) return;
                         MainNaviView.SelectedItem = _lastSelectedPageItem;
                     });
                     return;

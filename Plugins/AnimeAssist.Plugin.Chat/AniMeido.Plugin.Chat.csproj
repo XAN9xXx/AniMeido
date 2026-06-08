@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <UseWinUI>true</UseWinUI>
+    <Platforms>x64</Platforms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ChatWindow.xaml 作为本地文件加载（XamlReader.Load），排除 XAML 编译 -->
+    <Page Remove="Views\ChatWindow.xaml" />
+    <Content Include="Views\ChatWindow.xaml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
+  </ItemGroup>
+
+  <!-- 构建后将 DLL、PDB、plugin.json 及 Views/*.xaml 复制到 App 输出目录的 Plugins 子目录，
+       使 PluginHost.LoadDynamicPluginsAsync 可在运行时发现此插件。
+       目录名必须等于 DLL 文件名（不含扩展名），以匹配动态加载约定。 -->
+  <Target Name="CopyToPluginOutput" AfterTargets="Build">
+    <Copy SourceFiles="$(TargetDir)$(AssemblyName).dll"
+          DestinationFolder="$(SolutionDir)AnimeAssist.App\bin\$(Platform)\$(Configuration)\$(TargetFramework)\win-x64\Plugins\$(AssemblyName)\"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(TargetDir)$(AssemblyName).pdb"
+          DestinationFolder="$(SolutionDir)AnimeAssist.App\bin\$(Platform)\$(Configuration)\$(TargetFramework)\win-x64\Plugins\$(AssemblyName)\"
+          Condition="'$(Configuration)' == 'Debug' And Exists('$(TargetDir)$(AssemblyName).pdb')"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\plugin.json"
+          DestinationFolder="$(SolutionDir)AnimeAssist.App\bin\$(Platform)\$(Configuration)\$(TargetFramework)\win-x64\Plugins\$(AssemblyName)\"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\Views\ChatWindow.xaml"
+          DestinationFolder="$(SolutionDir)AnimeAssist.App\bin\$(Platform)\$(Configuration)\$(TargetFramework)\win-x64\Plugins\$(AssemblyName)\Views\"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\AnimeAssist.Contracts\AniMeido.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,9 @@
+{
+    "pluginId": "AniMeido.Plugin.Chat",
+    "displayName": "聊天室",
+    "version": "0.1.0",
+    "minAppVersion": "1.1.0",
+    "entryAssembly": "AniMeido.Plugin.Chat.dll",
+    "hash": "",
+    "hashAlgorithm": "SHA256"
+}
