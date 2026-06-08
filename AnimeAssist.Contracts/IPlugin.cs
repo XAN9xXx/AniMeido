@@ -3,18 +3,67 @@
 namespace AniMeido.Contracts
 {
     /// <summary>
-    /// 将插件提供的导航项信息封装为一个记录类型，包含显示名称、图标、页面类型。
+    /// 插件导航项入口类型。Page 用于主窗口 Frame 内页面导航，Command 用于执行插件提供的自定义操作。
+    /// </summary>
+    public enum PluginNavigationItemKind
+    {
+        /// <summary>页面导航入口。点击后导航到主窗口 Frame 内的 Page。</summary>
+        Page,
+
+        /// <summary>命令入口。点击后执行插件提供的命令。</summary>
+        Command,
+    }
+
+    /// <summary>
+    /// 将插件提供的导航项信息封装为一个记录类型，包含显示名称、图标、入口类型及对应的页面目标或命令。
     /// </summary>
     /// <param name="Label">导航栏显示名称。</param>
     /// <param name="Icon">导航栏图标。</param>
-    /// <param name="PageTypeName">页面类型名称（字符串形式，兼容旧版反射导航）。</param>
-    public record PluginNavigationItem(string Label, string Icon, string PageTypeName)
+    /// <param name="PageTypeName">
+    /// 页面类型名称。仅当 <see cref="Kind"/> 为 Page 时有效，Command 类型可为 null。
+    /// </param>
+    public record PluginNavigationItem(string Label, string Icon, string? PageTypeName)
     {
         /// <summary>页面类型。由插件在返回导航项时填充，用于编译期安全的导航。</summary>
         public Type? PageType { get; init; }
 
         /// <summary>是否为插件设置页面。设置页不会显示在主导航中，而是聚合到设置页内。</summary>
         public bool IsSettingsPage { get; init; }
+
+        /// <summary>入口类型。默认为 Page，保持与旧导航项兼容。</summary>
+        public PluginNavigationItemKind Kind { get; init; } = PluginNavigationItemKind.Page;
+
+        /// <summary>
+        /// 命令入口的执行命令。仅当 <see cref="Kind"/> 为 Command 时有效。
+        /// 使用 <c>System.Windows.Input.ICommand</c> 而非具体实现，
+        /// 插件可使用 CommunityToolkit.Mvvm 的 RelayCommand 或 AsyncRelayCommand。
+        /// </summary>
+        public System.Windows.Input.ICommand? Command { get; init; }
+
+        /// <summary>创建 Page 类型导航项。</summary>
+        /// <param name="label">导航栏显示名称。</param>
+        /// <param name="icon">导航栏图标。</param>
+        /// <param name="pageTypeName">页面类型名称。</param>
+        /// <param name="pageType">页面类型。用于编译期安全的导航。</param>
+        /// <param name="isSettingsPage">是否为插件设置页面。</param>
+        public static PluginNavigationItem CreatePage(string label, string icon, string pageTypeName, Type? pageType = null, bool isSettingsPage = false)
+            => new(label, icon, pageTypeName)
+            {
+                Kind = PluginNavigationItemKind.Page,
+                PageType = pageType,
+                IsSettingsPage = isSettingsPage,
+            };
+
+        /// <summary>创建 Command 类型导航项。</summary>
+        /// <param name="label">导航栏显示名称。</param>
+        /// <param name="icon">导航栏图标。</param>
+        /// <param name="command">导航项点击时执行的命令。</param>
+        public static PluginNavigationItem CreateCommand(string label, string icon, System.Windows.Input.ICommand command)
+            => new(label, icon, null)
+            {
+                Kind = PluginNavigationItemKind.Command,
+                Command = command,
+            };
     }
 
     /// <summary>

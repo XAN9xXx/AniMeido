@@ -12,7 +12,8 @@ namespace AniMeido.App
         private readonly NavigationService _navigationService;
         private readonly SplashCoordinator _splash;
         private readonly StartupDialogCoordinator _dialogs;
-
+        
+        private NavigationViewItem? _lastSelectedPageItem;
 
 
         public MainWindow(IReadOnlyList<PluginNavigationItem> naviItems, NavigationService navigationService)
@@ -109,10 +110,13 @@ namespace AniMeido.App
             // 开始导航到首页
             if (MainNaviView.MenuItems.Count > 0 && _naviItems.Count > 0)
             {
-                MainNaviView.SelectedItem = MainNaviView.MenuItems[0];
                 var firstItem = _naviItems[0];
-                if (firstItem.PageType != null)
+                if (firstItem.Kind == PluginNavigationItemKind.Page && firstItem.PageType != null)
+                {
+                    MainNaviView.SelectedItem = MainNaviView.MenuItems[0];
+                    _lastSelectedPageItem = MainNaviView.MenuItems[0] as NavigationViewItem;
                     _navigationService.NavigateTopLevel(firstItem.PageType);
+                }
             }
 
             // 等待首个页面加载完成（超时 10 秒兜底）
@@ -149,14 +153,35 @@ namespace AniMeido.App
             {
                 if (_navigationService.CurrentPageType != typeof(Views.SettingPage))
                     _navigationService.NavigateTopLevel(typeof(Views.SettingPage));
+                _lastSelectedPageItem = container;
                 return;
             }
             if (container == null)
                 return;
 
-            // 主导航项点击使用 NavigateTopLevel，清空返回栈
-            if (container.Tag is PluginNavigationItem navItem && navItem.PageType != null)
-                _navigationService.NavigateTopLevel(navItem.PageType);
+            if (container.Tag is PluginNavigationItem navItem)
+            {
+                if (navItem.Kind == PluginNavigationItemKind.Command && navItem.Command != null)
+                {
+                    // Command 类型入口：执行命令，不改变主窗口导航状态
+                    if (navItem.Command.CanExecute(null))
+                        navItem.Command.Execute(null);
+
+                    // 延迟恢复选中项，应对 NavigationView 内部状态覆盖
+                    _ = DispatcherQueue.TryEnqueue(() =>
+                    {
+                        MainNaviView.SelectedItem = _lastSelectedPageItem;
+                    });
+                    return;
+                }
+
+                // Page 类型入口：原有导航逻辑
+                if (navItem.PageType != null)
+                {
+                    _navigationService.NavigateTopLevel(navItem.PageType);
+                    _lastSelectedPageItem = container;
+                }
+            }
         }
 
 
