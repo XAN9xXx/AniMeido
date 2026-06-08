@@ -9,8 +9,7 @@
     </Grid.RowDefinitions>
 
     <!-- 顶部栏 -->
-    <Grid x:Name="TopBar"
-          Grid.Row="0"
+    <Grid Grid.Row="0"
           Height="48"
           Padding="16,0">
         <Grid.ColumnDefinitions>
@@ -24,17 +23,22 @@
                    VerticalAlignment="Center"
                    FontSize="16"/>
 
-        <TextBlock x:Name="ConnectionStatus"
-                   Grid.Column="1"
-                   Text="未连接"
-                   VerticalAlignment="Center"
-                   HorizontalAlignment="Center"
-                   FontSize="12"/>
-
+        <!-- 透明度 + 置顶控件组 -->
         <StackPanel Grid.Column="2"
                     Orientation="Horizontal"
                     VerticalAlignment="Center"
-                    Spacing="8">
+                    Spacing="12">
+            <TextBlock x:Name="OpacityPercentLabel"
+                       Text="100%"
+                       VerticalAlignment="Center"
+                       FontSize="12"/>
+            <Slider x:Name="OpacitySlider"
+                    Width="80"
+                    Minimum="40"
+                    Maximum="100"
+                    SmallChange="1"
+                    LargeChange="5"
+                    VerticalAlignment="Center"/>
             <TextBlock Text="置顶"
                        VerticalAlignment="Center"/>
             <ToggleSwitch x:Name="AlwaysOnTopToggle"
