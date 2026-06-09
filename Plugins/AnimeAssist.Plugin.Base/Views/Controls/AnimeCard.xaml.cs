@@ -443,6 +443,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
                 SourceCardWidth = ActualWidth,
                 SourceCardHeight = ActualHeight,
                 CoverImageSource = CoverImage.Source,
+                SourceDpiScale = XamlRoot?.RasterizationScale ?? 1.0,
             };
             Services.AnimeCardDragVisualContext.Current = context;
 

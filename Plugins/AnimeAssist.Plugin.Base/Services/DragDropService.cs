@@ -1,4 +1,4 @@
-﻿using AniMeido.Contracts.DragDrop;
+using AniMeido.Contracts.DragDrop;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Views.Controls;
@@ -73,10 +73,10 @@ namespace AniMeido.Plugin.Base.Services
         private string? _standardCurrentZoneId;
 
         // DragGhostCard 视觉层 — 仅用于主窗口内拖拽视觉反馈，不参与数据传递和业务逻辑
-        private Border? _dragVisualElement;
         private AnimeCardDragPayload? _dragVisualPayload;
         private bool _dragVisualPayloadRequested;
         private AnimeCardDragVisualContext? _dragVisualContext;
+        private readonly AnimeCardTopLevelDragGhostService _topLevelGhost = new();
 
         public DragDropService(TrackingService tracking)
         {
@@ -686,13 +686,11 @@ namespace AniMeido.Plugin.Base.Services
 
             var overlayPt = e.GetPosition(_standardOverlay);
 
-            // 首次 DragOver：尝试缓存 payload 用于 DragVisual，同时显示 DragVisual
+            // 首次 DragOver：尝试缓存 payload 用于 DragVisual，同时显示 GhostCard
+            // GhostCard 位置由顶层窗口计时器通过 GetCursorPos 自动更新
             RequestDragVisualPayload(e);
-            if (_dragVisualElement == null)
+            if (!_topLevelGhost.IsRunning)
                 ShowDragVisual();
-
-            // 更新 DragVisual 位置
-            UpdateDragVisualPosition(overlayPt);
 
             // 查找当前 Zone
             string? hitZoneId = null;
@@ -823,23 +821,7 @@ namespace AniMeido.Plugin.Base.Services
         /// </summary>
         public void CancelStandardDrag()
         {
-            HideDragVisual();
-            HideAllZoneHints();
-
-            if (_standardOverlay != null)
-            {
-                CleanupDrag(_standardOverlay);
-                _standardOverlay.Visibility = Visibility.Collapsed;
-            }
-
-            _standardCurrentZoneId = null;
-            _dragVisualPayload = null;
-            _dragVisualPayloadRequested = false;
-            _dragVisualContext = null;
-            AnimeCardDragVisualContext.OnSourceDragOver = null;
-            AnimeCardDragVisualContext.OnSnapshotReady -= OnGhostSnapshotReady;
-            AnimeCardDragVisualContext.Clear();
-            System.Diagnostics.Debug.WriteLine("[DragDropService] CancelStandardDrag - zones hidden, DragGhostCard cleaned");
+            EndStandardDrag();
         }
 
         // ======== DragGhostCard 视觉层 ========
@@ -877,9 +859,19 @@ namespace AniMeido.Plugin.Base.Services
         ///
         /// 不参与：数据传递、DropZone 决策、业务逻辑。
         /// </summary>
+        /// <summary>
+        /// 启动顶层 GhostCard（替代 overlay Border）。
+        /// 创建无边框、置顶、鼠标穿透的小窗口，显示 AnimeCard 的 RenderTargetBitmap 视觉快照。
+        /// 跟随全局鼠标位置，跨越 MainWindow 与 ChatWindow。
+        ///
+        /// 设置光标离开/进入主窗口的回调，用于管理 DropZone 可见性。
+        ///
+        /// 不参与：数据传递、DropZone 决策、业务逻辑。
+        /// DropZone 高亮仍由 overlay 负责。
+        /// </summary>
         private void ShowDragVisual()
         {
-            if (_standardOverlay == null || _dragVisualElement != null)
+            if (_topLevelGhost.IsRunning)
                 return;
 
             // 读取 AnimeCard 在 DragStarting 时设置的视觉定位上下文
@@ -887,87 +879,130 @@ namespace AniMeido.Plugin.Base.Services
 
             var cardWidth = _dragVisualContext?.SourceCardWidth ?? 150;
             var cardHeight = _dragVisualContext?.SourceCardHeight ?? 200;
+            var dpiScale = _dragVisualContext?.SourceDpiScale ?? 1.0;
 
-            // ---- 选择视觉源：snapshot > coverImage > 占位 ----
+            // 选择视觉源：snapshot > coverImage
             var snapshotSource = _dragVisualContext?.GhostSnapshotSource;
             var coverSource = _dragVisualContext?.CoverImageSource;
             var useFallback = snapshotSource == null;
 
-            ImageSource? finalSource = snapshotSource ?? coverSource;
+            var source = snapshotSource ?? coverSource;
+            if (source == null)
+                return;
 
-            UIElement ghostContent;
+            // 拖拽停止时（左键释放/Drop/Cancel）统一清理
+            _topLevelGhost.OnDragStopped = EndStandardDrag;
 
-            if (finalSource != null)
-            {
-                ghostContent = new Image
-                {
-                    Source = finalSource,
-                    Stretch = Stretch.Fill,
-                    Width = cardWidth,
-                    Height = cardHeight,
-                };
-            }
-            else
-            {
-                ghostContent = new TextBlock
-                {
-                    Text = "🎬",
-                    FontSize = 28,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                };
-            }
+            _topLevelGhost.Start(source, cardWidth, cardHeight, dpiScale);
 
-            // ---- GhostCard：仅一个 Image 承载快照，不手工拼 UI ----
-            var ghostCard = new Border
-            {
-                Child = ghostContent,
-                Width = cardWidth,
-                Height = cardHeight,
-                CornerRadius = new CornerRadius(8),
-                Opacity = 0.85,
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Top,
-                IsHitTestVisible = false,
-                Tag = "DragVisual",
-            };
-
-            _standardOverlay.Children.Add(ghostCard);
-            _dragVisualElement = ghostCard;
-
-            // snapshot 未就绪时，订阅 OnSnapshotReady 回调等待就绪后热更新
+            // snapshot 未就绪时，订阅回调等待就绪后热更新
             if (useFallback)
             {
                 AnimeCardDragVisualContext.OnSnapshotReady -= OnGhostSnapshotReady;
                 AnimeCardDragVisualContext.OnSnapshotReady += OnGhostSnapshotReady;
             }
 
-            System.Diagnostics.Debug.WriteLine($"[DragGhostCard] shown (snapshot={snapshotSource != null}, fallback={useFallback})");
+            System.Diagnostics.Debug.WriteLine($"[TopLevelGhost] shown (snapshot={snapshotSource != null}, fallback={useFallback})");
+        }
+
+        private bool _isEndingStandardDrag;
+
+        /// <summary>
+        /// 统一清理入口：停止顶层 Ghost + 清理 DropZone + 重置本次拖拽状态。
+        /// 不清理页面级回调（OnSourceDragOver），确保下一次拖拽能重新初始化。
+        /// </summary>
+        private void EndStandardDrag()
+        {
+            if (_isEndingStandardDrag) return;
+            _isEndingStandardDrag = true;
+            try
+            {
+                // 1. 停止顶层 GhostWindow
+                _topLevelGhost.Stop();
+
+                // 2. 清理 DropZone overlay
+                HideAllZoneHints();
+                if (_standardOverlay != null)
+                {
+                    ClearZonesFrom(_standardOverlay);
+                    _standardOverlay.Visibility = Visibility.Collapsed;
+                }
+
+                // 3. 重置本次拖拽状态（保留页面级注册）
+                _standardCurrentZoneId = null;
+                _dragVisualPayload = null;
+                _dragVisualPayloadRequested = false;
+                _dragVisualContext = null;
+
+                // 4. 清理 per-drag 上下文（不清理 OnSourceDragOver）
+                AnimeCardDragVisualContext.OnSnapshotReady -= OnGhostSnapshotReady;
+                AnimeCardDragVisualContext.ClearCurrentDrag();
+
+                System.Diagnostics.Debug.WriteLine("[DragDropService] EndStandardDrag cleanup completed");
+            }
+            finally
+            {
+                _isEndingStandardDrag = false;
+            }
         }
 
         /// <summary>
-        /// GhostSnapshotSource 就绪回调：将 GhostCard 的 Image.Source 更新为完整视觉快照。
+        /// 应用关闭时的完整清理。
+        /// </summary>
+        public void Shutdown()
+        {
+            EndStandardDrag();
+
+            // 清理页面级回调
+            AnimeCardDragVisualContext.OnSourceDragOver = null;
+            AnimeCardDragVisualContext.ClearAllForShutdown();
+
+            // 销毁 GhostWindow 资源
+            _topLevelGhost.Shutdown();
+
+            _standardPageRoot = null;
+            _standardOverlay = null;
+            _standardExcludeActions = Array.Empty<DragAction>();
+            _pageDragHosts.Clear();
+
+            System.Diagnostics.Debug.WriteLine("[DragDropService] Shutdown complete");
+        }
+
+        /// <summary>
+        /// GhostSnapshotSource 就绪回调：热更新顶层窗口的 ImageSource。
+        /// 使用 UpdateSource 而非重新 Start，避免重建窗口或丢失样式。
         /// </summary>
         private void OnGhostSnapshotReady()
         {
-            // 取消订阅，只执行一次
             AnimeCardDragVisualContext.OnSnapshotReady -= OnGhostSnapshotReady;
 
             var ctx = AnimeCardDragVisualContext.Current;
-            if (ctx?.GhostSnapshotSource == null || _dragVisualElement == null)
+            if (ctx?.GhostSnapshotSource == null)
                 return;
 
-            if (_dragVisualElement.Child is Image img)
-            {
-                img.Source = ctx.GhostSnapshotSource;
-                System.Diagnostics.Debug.WriteLine("[DragGhostCard] updated to snapshot via callback");
-            }
+            var dpiScale = ctx.SourceDpiScale;
+            if (_topLevelGhost.IsRunning)
+                _topLevelGhost.UpdateSource(ctx.GhostSnapshotSource,
+                    ctx.SourceCardWidth, ctx.SourceCardHeight, dpiScale);
+            else
+                _topLevelGhost.Start(ctx.GhostSnapshotSource,
+                    ctx.SourceCardWidth, ctx.SourceCardHeight, dpiScale);
+
+            System.Diagnostics.Debug.WriteLine("[TopLevelGhost] updated to snapshot via callback");
+        }
+
+        /// <summary>
+        /// 隐藏并清理 GhostCard。停止顶层窗口。
+        /// </summary>
+        private void HideDragVisual()
+        {
+            _topLevelGhost.Stop();
         }
 
         /// <summary>
         /// 拖拽源（AnimeCard 自身）上的 DragOver 回调。
         /// 由 AnimeCardDragVisualContext.OnSourceDragOver 触发，
-        /// 确保鼠标仍在拖拽源上方时 GhostCard 就能尽早出现。
+        /// 尽早显示顶层 GhostCard，确保鼠标仍在拖拽源上时 GhostCard 就出现。
         /// </summary>
         private void OnSourceDragOver(DragEventArgs e, UIElement sourceElement)
         {
@@ -982,57 +1017,9 @@ namespace AniMeido.Plugin.Base.Services
                 BuildAndShowZones(_standardOverlay, _standardExcludeActions);
             }
 
-            // 尽早显示 GhostCard
-            if (_dragVisualElement == null)
+            // 尽早显示顶层 GhostCard（位置由计时器自动更新）
+            if (!_topLevelGhost.IsRunning)
                 ShowDragVisual();
-
-            // 更新 GhostCard 位置
-            var overlayPt = e.GetPosition(_standardOverlay);
-            UpdateDragVisualPosition(overlayPt);
-        }
-
-        /// <summary>
-        /// 隐藏并清理 DragVisual。在 DragOver 切换、Drop 完成、取消时调用。
-        /// </summary>
-        private void HideDragVisual()
-        {
-            if (_dragVisualElement == null || _standardOverlay == null)
-                return;
-
-            if (_standardOverlay.Children.Contains(_dragVisualElement))
-                _standardOverlay.Children.Remove(_dragVisualElement);
-
-            _dragVisualElement = null;
-            System.Diagnostics.Debug.WriteLine("[DragGhostCard] DragGhostCard hidden");
-        }
-
-        /// <summary>
-        /// 更新 DragGhostCard 在 overlay 中的位置。
-        /// 每帧 DragOver 调用，仅更新 Canvas 附加属性，不触发布局。
-        ///
-        /// 定位算法（还原自 main 分支旧 GhostCard）：
-        /// 居中于鼠标指针：left = pointer.X - W/2, top = pointer.Y - H/2
-        /// 旧 GhostCard 使用 _dragGhostOffset = (-W/2, -H/2) + Visual.Offset。
-        /// </summary>
-        private void UpdateDragVisualPosition(Point overlayPt)
-        {
-            if (_dragVisualElement == null || _standardOverlay is not FrameworkElement host)
-                return;
-
-            var ghostW = _dragVisualElement.Width;
-            var ghostH = _dragVisualElement.Height;
-            const double margin = 4;
-
-            // 居中于光标（旧 GhostCard 逻辑：_dragGhostOffset = (-75, -100) = -W/2, -H/2）
-            var left = overlayPt.X - ghostW / 2;
-            var top = overlayPt.Y - ghostH / 2;
-
-            // 边界裁剪：接近窗口边缘时限制，正常区域不干扰跟随感
-            left = Math.Max(margin, Math.Min(left, host.ActualWidth - ghostW - margin));
-            top = Math.Max(margin, Math.Min(top, host.ActualHeight - ghostH - margin));
-
-            Canvas.SetLeft(_dragVisualElement, left);
-            Canvas.SetTop(_dragVisualElement, top);
         }
 
         /// <summary>

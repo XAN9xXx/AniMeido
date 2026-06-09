@@ -66,11 +66,31 @@ public sealed class AnimeCardDragVisualContext
     /// </summary>
     public ImageSource? GhostSnapshotSource { get; set; }
 
-    /// <summary>清理当前上下文和所有回调。</summary>
-    public static void Clear()
+    /// <summary>主窗口 HWND，供顶层 GhostCard 检测鼠标是否在窗口内。</summary>
+    public static IntPtr HostWindowHandle { get; set; }
+
+    /// <summary>源 AnimeCard 所在屏幕的 DPI 缩放比，用于顶层窗口物理像素换算。</summary>
+    public double SourceDpiScale { get; init; } = 1.0;
+
+    /// <summary>
+    /// 清理本次拖拽的上下文。不清理页面级回调（OnSourceDragOver）。
+    /// 在 EndStandardDrag 中调用。
+    /// </summary>
+    public static void ClearCurrentDrag()
+    {
+        Current = null;
+        // 注意：不清理 OnSourceDragOver — 它属于页面级注册，跨拖拽有效期
+    }
+
+    /// <summary>
+    /// 应用关闭时完整清理所有静态状态。
+    /// 包括页面级回调、窗口句柄、ImageSource 引用。
+    /// </summary>
+    public static void ClearAllForShutdown()
     {
         Current = null;
         OnSourceDragOver = null;
         OnSnapshotReady = null;
+        HostWindowHandle = IntPtr.Zero;
     }
 }
