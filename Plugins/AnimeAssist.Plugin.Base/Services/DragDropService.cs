@@ -356,6 +356,75 @@ namespace AniMeido.Plugin.Base.Services
                     Tag = config.Id,
                 };
 
+                // 注册标准 DropTarget 事件，支持 AnimeCardDragPayload 接收
+                var actionForZone = config.Action; // 捕获局部变量
+                zone.DragOver += (s, args) =>
+                {
+                    System.Diagnostics.Debug.WriteLine("[InternalDropZone] DragOver triggered");
+                    if (args.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
+                    {
+                        args.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+                        System.Diagnostics.Debug.WriteLine($"[InternalDropZone] payload recognized = true, AcceptedOperation = Copy");
+                        // 高亮反馈
+                        inner.Background = new SolidColorBrush(Color.FromArgb(220, 0x66, 0xAA, 0xFF));
+                        inner.Opacity = 0.9;
+                    }
+                    else
+                    {
+                        args.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
+                        System.Diagnostics.Debug.WriteLine($"[InternalDropZone] payload recognized = false");
+                    }
+                };
+                zone.DragLeave += (s, args) =>
+                {
+                    // 恢复默认外观
+                    inner.Background = new SolidColorBrush(Color.FromArgb(180, 0x44, 0x88, 0xFF));
+                    inner.Opacity = 0.7;
+                };
+                zone.Drop += async (s, args) =>
+                {
+                    System.Diagnostics.Debug.WriteLine("[InternalDropZone] Drop triggered");
+                    if (!args.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
+                        return;
+
+                    string? text;
+                    try
+                    {
+                        text = await args.DataView.GetTextAsync();
+                    }
+                    catch
+                    {
+                        System.Diagnostics.Debug.WriteLine("[InternalDropZone] payload parse fail - GetTextAsync failed");
+                        return;
+                    }
+
+                    if (string.IsNullOrEmpty(text))
+                        return;
+
+                    var payload = AnimeCardDragPayloadSerializer.Deserialize(text);
+                    if (payload == null)
+                    {
+                        System.Diagnostics.Debug.WriteLine("[InternalDropZone] payload parse fail - invalid payload");
+                        return;
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"[InternalDropZone] payload parse success: {payload.AnimeId} - {payload.Title}");
+
+                    if (actionForZone != DragAction.None)
+                    {
+                        var st = DragActionToStatus(actionForZone);
+                        if (st != AnimeTrackingStatus.None)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[InternalDropZone] handled anime card drop: AnimeId={payload.AnimeId}, Action={actionForZone}");
+                            await _tracking.SetStatusAsync(payload.AnimeId, st);
+                        }
+                    }
+
+                    // 恢复默认外观
+                    inner.Background = new SolidColorBrush(Color.FromArgb(180, 0x44, 0x88, 0xFF));
+                    inner.Opacity = 0.7;
+                };
+
                 if (pw > 0 && ph > 0)
                 {
                     zone.Width = pw * config.WidthPercent;
@@ -428,6 +497,8 @@ namespace AniMeido.Plugin.Base.Services
         {
             if (_dragPayload != null)
                 System.Diagnostics.Debug.WriteLine($"[DragPayload] DropZone received AnimeCardDragPayload: {_dragPayload.AnimeId} - {_dragPayload.Title}");
+
+            System.Diagnostics.Debug.WriteLine("[DragDropService] Legacy DragDropService path still active = true");
 
             foreach (var kv in _overlayZones)
             {
