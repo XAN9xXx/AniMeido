@@ -542,7 +542,19 @@ public sealed partial class ChatWindow : Window
     }
 
     // ===== 番剧卡片拖放接收 =====
+    //
+    // == 拖拽系统分层（ChatWindow 视角） ==
+    // - AnimeCardDragPayload 是跨窗口拖拽的数据事实（JSON / StandardDataFormats.Text）
+    // - Root DragOver/Drop：全窗口兜底，防止禁止图标闪现，不执行业务
+    // - InputPanel DragOver/Drop：接收 AnimeCard 拖放，解析 payload → 生成 PendingAnimeCard
+    // - 聊天室拖拽手柄（ShareHandle）：辅助拖拽入口，payload 格式与 AnimeCard 本体一致
+    // - 不做跨窗口自定义 GhostCard，不做右键菜单
+    // - ChatWindow 不直接依赖 BasePlugin，仅通过 Contracts.DragDrop 共享 payload 类型
 
+    /// <summary>
+    /// 全窗口拖放兜底：防止 AnimeCard 拖入 ChatWindow 时显示禁止图标。
+    /// 仅设置 AcceptedOperation=Copy，不执行业务逻辑。
+    /// </summary>
     private void OnRootDragOver(object sender, DragEventArgs e)
     {
         if (_isClosed) return;
@@ -557,12 +569,18 @@ public sealed partial class ChatWindow : Window
         }
     }
 
+    /// <summary>
+    /// 全窗口拖放兜底 Drop：仅防止禁止图标，不处理业务。
+    /// </summary>
     private void OnRootDrop(object sender, DragEventArgs e)
     {
         if (_isClosed) return;
-        // Root 仅负责接受拖放防止禁止图标，不处理业务逻辑
     }
 
+    /// <summary>
+    /// 输入区 DragOver：接受 AnimeCardDragPayload 拖放，显示 Copy 光标。
+    /// 配合 InputPanel 的 AddHandler(handledEventsToo=true) 确保不被子控件拦截。
+    /// </summary>
     private void OnInputDragOver(object sender, DragEventArgs e)
     {
         if (_isClosed) return;
@@ -577,6 +595,11 @@ public sealed partial class ChatWindow : Window
         }
     }
 
+    /// <summary>
+    /// 输入区 Drop：接收 AnimeCard 标准拖放，解析 AnimeCardDragPayload → 显示 PendingAnimeCard。
+    /// 数据来源为 AnimeCard 本体拖拽（OnBodyDragStarting）或 ShareHandle 辅助拖拽，payload 格式一致。
+    /// 解析失败时安全忽略，不中断拖放流程。
+    /// </summary>
     private async void OnInputDrop(object sender, DragEventArgs e)
     {
         if (_isClosed) return;

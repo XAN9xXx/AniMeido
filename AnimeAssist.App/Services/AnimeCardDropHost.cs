@@ -4,11 +4,24 @@ using Microsoft.UI.Xaml.Input;
 namespace AniMeido.App.Services;
 
 /// <summary>
-/// 主窗口级 AnimeCard 标准拖放兜底宿主。
-/// 使用 AddHandler(handledEventsToo=true) 注册 DragOver/Drop，确保事件不被子控件拦截。
-/// 支持注册多个宿主元素（RootGrid / MainNaviView / ContentFrame）。
+/// 主窗口级 AnimeCard 标准拖放兜底宿主 — 拖拽系统 Shell 层组件。
 ///
-/// 刻意不注册 DragLeave：多宿主间切换会触发误清理，标准拖拽状态仅由 Drop 完成或窗口关闭清理。
+/// == 定位 ==
+/// 确保主窗口任何位置（RootGrid / MainNaviView / ContentFrame）都能接受 AnimeCard 标准拖拽，
+/// 避免页面内部未覆盖的区域显示禁止图标。不处理业务逻辑，仅路由到 DragDropService。
+///
+/// == 拖拽系统分层 ==
+/// Shell 层（AnimeCardDropHost） → 页面层（RegisterStandardDragHost / DragDropService） → Zone 层（BuildAndShowZones）
+///
+/// == 设计说明 ==
+/// - 使用 AddHandler(handledEventsToo=true) 注册 DragOver/Drop，确保事件不被子控件拦截。
+/// - 支持注册多个宿主元素（RootGrid / MainNaviView / ContentFrame）。
+/// - 刻意不注册 DragLeave：多宿主间切换会触发误清理，标准拖拽状态仅由 Drop 完成或窗口关闭清理。
+/// - 所有调用最终路由到 DragDropService.HandleStandardDragOver / HandleStandardDropAsync。
+///
+/// == 数据事实 ==
+/// 拖拽数据来源为 AnimeCardDragPayload JSON（StandardDataFormats.Text）。
+/// 不直接处理 payload 解析，由 DragDropService 统一处理。
 /// </summary>
 public sealed class AnimeCardDropHost
 {

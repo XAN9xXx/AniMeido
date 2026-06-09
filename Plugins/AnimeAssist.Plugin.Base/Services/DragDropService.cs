@@ -16,8 +16,34 @@ using System.Numerics;
 namespace AniMeido.Plugin.Base.Services
 {
     /// <summary>
-    /// 拖放标记服务：管理拖放状态、Ghost 卡片、Zone 交互。
-    /// 各页面提供 overlay 容器和 Zone 排除规则，服务负责拖放核心逻辑。
+    /// 拖放标记服务：管理 Zone 构建、标记状态路由、GhostCard 与标准拖拽协调。
+    ///
+    /// == 拖拽系统分层说明 ==
+    ///
+    /// [数据事实]
+    ///   AnimeCardDragPayload — 跨窗口/跨区域的统一拖拽数据格式。
+    ///   所有拖拽事件的数据来源均为 AnimeCardDragPayload JSON（StandardDataFormats.Text）。
+    ///
+    /// [Drag Source]
+    ///   AnimeCard 本体标准拖拽（CanDrag=True, OnBodyDragStarting）— 当前主路径。
+    ///   ShareHandle 辅助拖拽手柄 — 跨窗口拖拽辅助入口，payload 格式与主路径一致。
+    ///
+    /// [主窗口拖拽接收]
+    ///   AnimeCardDropHost (Shell 级 fallback) → DragDropService.HandleStandardDragOver/DropAsync
+    ///   → BuildAndShowZones → zone DragOver/Drop 事件 → TrackingService.SetStatusAsync
+    ///
+    /// [跨窗口拖拽接收 (ChatWindow)]
+    ///   ChatWindow InputPanel AddHandler DragOver/Drop → AnimeCardDragPayloadSerializer.Deserialize
+    ///   → ShowPendingCard → 用户发送 → 文字消息
+    ///
+    /// [旧内部拖拽路径 (Legacy)]
+    ///   HandlePointerPressed/Moved/Released — 基于指针坐标的 GhostCard 拖拽路径。
+    ///   当前 AnimeCard（CanDrag=True）已跳过此路径。该路径仍保留用于：
+    ///   - 未启用标准拖拽的历史页面兼容
+    ///   - GhostCard 视觉残留（后续 Drag Visual 阶段将重建自定义拖拽视觉）
+    ///
+    /// [后续计划]
+    ///   GhostCard / 自定义拖拽视觉 → Drag Visual 阶段，不参与数据传递。
     /// </summary>
     public sealed class DragDropService
     {
@@ -70,9 +96,22 @@ namespace AniMeido.Plugin.Base.Services
             _dragZones = await _tracking.LoadDragZoneConfigAsync();
         }
 
+        // ====================================================================
+        // 旧内部拖拽路径 (Legacy) — 基于指针坐标 + GhostCard
+        //
+        // 当前 AnimeCard（CanDrag=True）已通过 HandlePointerPressed 中的
+        // card.CanDrag 检查跳过此路径。此路径仍保留用于：
+        //   - 未启用标准拖拽的页面兼容
+        //   - GhostCard 视觉代码（后续 Drag Visual 阶段将重建）
+        //
+        // 数据事实来源：AnimeCardDragPayload（而非 GhostCard）
+        // 主路径：标准拖拽（OnBodyDragStarting → HandleStandardDragOver/DropAsync）
+        // ====================================================================
+
         /// <summary>
-        /// 处理指针按下：从 OriginalSource 向上查找 AnimeCard，记录拖放起点。
-        /// 如果 AnimeCard 已启用标准拖拽（CanDrag=true），跳过旧内部拖拽路径。
+        /// [旧内部拖拽路径] 处理指针按下：从 OriginalSource 向上查找 AnimeCard，记录拖放起点。
+        /// 如果 AnimeCard 已启用标准拖拽（CanDrag=true），跳过此路径。
+        /// 注意：标准拖拽启用后，此方法仅用于旧页面兼容，不再作为 AnimeCard 主拖拽路径。
         /// </summary>
         public void HandlePointerPressed(UIElement pageRoot, PointerRoutedEventArgs e)
         {
@@ -98,7 +137,7 @@ namespace AniMeido.Plugin.Base.Services
                     }
 
                     _dragAnime = card.DataContext as Anime;
-                    // 构造统一载荷
+                    // 旧路径仍构造 payload 以保持数据一致性，但不作为标准拖拽的事实来源
                     if (_dragAnime != null)
                     {
                         _dragPayload = new AnimeCardDragPayload
@@ -120,8 +159,10 @@ namespace AniMeido.Plugin.Base.Services
         }
 
         /// <summary>
-        /// 处理指针移动：通过 Composition Offset 更新 Ghost 位置（合成线程，零布局开销）。
+        /// [旧内部拖拽路径] 处理指针移动：通过 Composition Offset 更新 Ghost 位置（合成线程，零布局开销）。
         /// 每次更新前检查左键状态和边界，防止 Ghost 在窗口外残影。
+        /// 注意：此路径仅在旧内部拖拽活动时触发，标准拖拽（CanDrag=true）不经过此方法。
+        /// GhostCard 后续将在 Drag Visual 阶段重建为自定义拖拽视觉。
         /// </summary>
         public bool HandlePointerMoved(UIElement pageRoot, UIElement overlay, PointerRoutedEventArgs e, params DragAction[] excludeActions)
         {
@@ -173,7 +214,7 @@ namespace AniMeido.Plugin.Base.Services
         }
 
         /// <summary>
-        /// 处理指针释放：触发放置或取消。
+        /// [旧内部拖拽路径] 处理指针释放：触发放置或取消。
         /// </summary>
         public void HandlePointerReleased(UIElement overlay, PointerRoutedEventArgs e)
         {
@@ -183,7 +224,7 @@ namespace AniMeido.Plugin.Base.Services
         }
 
         /// <summary>
-        /// 处理指针取消。
+        /// [旧内部拖拽路径] 处理指针取消。
         /// </summary>
         public void HandlePointerCanceled(UIElement overlay)
         {
@@ -372,7 +413,6 @@ namespace AniMeido.Plugin.Base.Services
                 };
 
                 // 注册标准 DropTarget 事件，支持 AnimeCardDragPayload 接收
-                var actionForZone = config.Action; // 捕获局部变量
 #pragma warning disable CA1031 // zone 内异常不应影响拖放流程
                 zone.DragOver += (s, args) =>
                 {
@@ -423,17 +463,9 @@ namespace AniMeido.Plugin.Base.Services
                         return;
                     }
 
-                    System.Diagnostics.Debug.WriteLine($"[InternalDropZone] payload parse success: {payload.AnimeId} - {payload.Title}");
-
-                    if (actionForZone != DragAction.None)
-                    {
-                        var st = DragActionToStatus(actionForZone);
-                        if (st != AnimeTrackingStatus.None)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[InternalDropZone] handled anime card drop: AnimeId={payload.AnimeId}, Action={actionForZone}");
-                            await _tracking.SetStatusAsync(payload.AnimeId, st);
-                        }
-                    }
+                    // 通过共享路由方法处理，与 HandleStandardDropAsync 复用 Zone 命中逻辑
+                    var dropPoint = args.GetPosition(overlay);
+                    await RoutePayloadToZoneAsync(payload, dropPoint);
 
                     // 恢复默认外观
                     inner.Background = new SolidColorBrush(Color.FromArgb(180, 0x44, 0x88, 0xFF));
@@ -507,7 +539,9 @@ namespace AniMeido.Plugin.Base.Services
         }
 
         /// <summary>
-        /// 查找拖放完成时的目标 Zone 并执行标记。
+        /// [旧内部拖拽路径] 查找拖放完成时的目标 Zone 并执行标记。
+        /// 此方法仅由旧内部拖拽路径（HandlePointerReleased → EndDrag）调用。
+        /// 标准拖拽路径使用 HandleStandardDropAsync / RoutePayloadToZoneAsync。
         /// </summary>
         public void ExecuteDrop(Point dropPoint)
         {
@@ -543,39 +577,19 @@ namespace AniMeido.Plugin.Base.Services
         /// <summary>
         /// 供 AnimeCardDropHost 调用的外部 Drop 路由。
         /// 根据坐标判断是否命中有效 Zone，命中则执行业务逻辑。
+        /// 使用 RoutePayloadToZoneAsync 与标准拖拽共享路由逻辑。
         /// </summary>
         /// <param name="dropPoint">相对于 overlay 的坐标。</param>
         /// <param name="payload">反序列化的拖拽载荷。</param>
         /// <returns>是否命中有效 Zone 并执行业务。</returns>
-        public bool HandleExternalDrop(Point dropPoint, AnimeCardDragPayload payload)
+        public async Task<bool> HandleExternalDrop(Point dropPoint, AnimeCardDragPayload payload)
         {
             System.Diagnostics.Debug.WriteLine($"[DragDropService] HandleExternalDrop called: pos=({dropPoint.X:F0},{dropPoint.Y:F0}), payload={payload.AnimeId}");
 
-            foreach (var kv in _overlayZones)
-            {
-                var z = kv.Value.Border;
-                var zx = Canvas.GetLeft(z);
-                var zy = Canvas.GetTop(z);
-                var zr = new Rect(zx, zy, z.ActualWidth, z.ActualHeight);
-                if (zr.Contains(dropPoint))
-                {
-                    var cfg = _dragZones.Find(c => c.Id == kv.Key);
-                    if (cfg != null && cfg.Action != DragAction.None)
-                    {
-                        var st = DragActionToStatus(cfg.Action);
-                        if (st != AnimeTrackingStatus.None)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[DragDropService] HandleExternalDrop routed to target: zone={cfg.Id}, action={cfg.Action}, animeId={payload.AnimeId}");
-                            _ = SetStatusSafelyAsync(payload.AnimeId, st);
-                            return true;
-                        }
-                    }
-                    break;
-                }
-            }
-
-            System.Diagnostics.Debug.WriteLine("[DragDropService] HandleExternalDrop no valid target, ignored");
-            return false;
+            var result = await RoutePayloadToZoneAsync(payload, dropPoint);
+            if (!result)
+                System.Diagnostics.Debug.WriteLine("[DragDropService] HandleExternalDrop no valid target, ignored");
+            return result;
         }
 
         // ======== 标准拖拽（ActiveDropContext） ========
@@ -701,39 +715,51 @@ namespace AniMeido.Plugin.Base.Services
                 }
 
                 var overlayPt = e.GetPosition(_standardOverlay);
-                System.Diagnostics.Debug.WriteLine($"[DragDropService] StandardDrop overlay position = ({overlayPt.X:F0},{overlayPt.Y:F0})");
 
-                foreach (var kv in _overlayZones)
-                {
-                    var z = kv.Value.Border;
-                    var zx = Canvas.GetLeft(z);
-                    var zy = Canvas.GetTop(z);
-                    var zr = new Rect(zx, zy, z.ActualWidth, z.ActualHeight);
-                    if (zr.Contains(overlayPt))
-                    {
-                        var cfg = _dragZones.Find(c => c.Id == kv.Key);
-                        if (cfg != null && cfg.Action != DragAction.None)
-                        {
-                            var st = DragActionToStatus(cfg.Action);
-                            if (st != AnimeTrackingStatus.None)
-                            {
-                                System.Diagnostics.Debug.WriteLine($"[DragDropService] StandardDrop handled zone = {cfg.Id}, action={cfg.Action}, animeId={payload.AnimeId}");
-                                await _tracking.SetStatusAsync(payload.AnimeId, st);
-                                return true;
-                            }
-                        }
-                        break;
-                    }
-                }
-
-                System.Diagnostics.Debug.WriteLine("[DragDropService] StandardDrop no valid zone, ignored");
-                return false;
+                var routed = await RoutePayloadToZoneAsync(payload, overlayPt);
+                if (!routed)
+                    System.Diagnostics.Debug.WriteLine("[DragDropService] StandardDrop no valid zone, ignored");
+                return routed;
             }
             finally
             {
                 CancelStandardDrag();
                 System.Diagnostics.Debug.WriteLine("[DragDropService] StandardDrag cleanup");
             }
+        }
+
+        /// <summary>
+        /// 将 AnimeCardDragPayload 路由到坐标命中的 Zone，并执行标记状态写入。
+        /// 此方法供 HandleStandardDropAsync 和 Zone Drop 事件共享，减少路由逻辑重复。
+        /// </summary>
+        /// <param name="payload">已反序列化的拖拽载荷。</param>
+        /// <param name="overlayPoint">相对于 overlay 的 Drop 坐标。</param>
+        /// <returns>是否命中有效 Zone 并执行标记。</returns>
+        private async Task<bool> RoutePayloadToZoneAsync(AnimeCardDragPayload payload, Point overlayPoint)
+        {
+            foreach (var kv in _overlayZones)
+            {
+                var z = kv.Value.Border;
+                var zx = Canvas.GetLeft(z);
+                var zy = Canvas.GetTop(z);
+                var zr = new Rect(zx, zy, z.ActualWidth, z.ActualHeight);
+                if (zr.Contains(overlayPoint))
+                {
+                    var cfg = _dragZones.Find(c => c.Id == kv.Key);
+                    if (cfg != null && cfg.Action != DragAction.None)
+                    {
+                        var st = DragActionToStatus(cfg.Action);
+                        if (st != AnimeTrackingStatus.None)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[DragPayload] RoutePayloadToZone: zone={cfg.Id}, action={cfg.Action}, animeId={payload.AnimeId}");
+                            await _tracking.SetStatusAsync(payload.AnimeId, st);
+                            return true;
+                        }
+                    }
+                    break;
+                }
+            }
+            return false;
         }
 
         /// <summary>

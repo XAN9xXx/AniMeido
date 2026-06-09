@@ -9,12 +9,17 @@ using Windows.Foundation;
 
 namespace AniMeido.Plugin.Base.Views.Controls
 {
+    /// <summary>
+    /// [旧内部拖拽路径事件参数] 包含拖拽的 Anime 对象、指针位置和统一载荷。
+    /// 此事件类仅由旧 DragTriggered 事件使用，标准拖拽路径不经过此类型。
+    /// Payload 构造逻辑与标准拖拽一致，确保数据格式统一。
+    /// </summary>
     public class AnimeDragEventArgs : EventArgs
     {
         public Anime Anime { get; }
         public Point PointerPosition { get; }
         public UIElement Source { get; }
-        /// <summary>统一拖拽载荷，供跨插件边界使用。</summary>
+        /// <summary>统一拖拽载荷（构造时从 Anime 构建）。</summary>
         public AnimeCardDragPayload? Payload { get; }
 
         public AnimeDragEventArgs(Anime anime, Point pointerPosition, UIElement source)
@@ -37,14 +42,17 @@ namespace AniMeido.Plugin.Base.Views.Controls
                 SeasonMonth = anime.SeasonMonth,
                 Source = "AnimeCard",
             };
-            System.Diagnostics.Debug.WriteLine($"[DragPayload] AnimeCard internal drag payload created: {payload.AnimeId} - {payload.Title}");
             return payload;
         }
     }
 
     public sealed partial class AnimeCard : UserControl
     {
-        /// <summary>当检测到拖动手势（长按+移动阈值）时触发。</summary>
+        /// <summary>
+        /// [旧内部拖拽路径] 当检测到拖动手势（长按+移动阈值）时触发。
+        /// 当前标准拖拽已启用（CanDrag=True），此事件在标准拖拽路径中不触发。
+        /// 保留供旧页面兼容，不作为 AnimeCard 主拖拽入口。
+        /// </summary>
         public event EventHandler<AnimeDragEventArgs>? DragTriggered;
 
         private bool _dragPointerDown;
@@ -381,7 +389,9 @@ namespace AniMeido.Plugin.Base.Views.Controls
         }
 
         /// <summary>
-        /// AnimeCard 本体标准拖拽源。使用 AnimeCardDragPayload 作为统一拖拽事实。
+        /// AnimeCard 本体标准拖拽源 — 当前拖拽系统主路径。
+        /// 使用 AnimeCardDragPayload 作为跨窗口/跨区域的统一拖拽数据事实。
+        /// payload 序列化为 JSON 后通过 StandardDataFormats.Text 传递。
         /// </summary>
         private void OnBodyDragStarting(UIElement sender, DragStartingEventArgs args)
         {
@@ -409,9 +419,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
             args.Data.RequestedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
             args.AllowedOperations = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
 
-            System.Diagnostics.Debug.WriteLine("[AnimeCard] DragStarting AllowedOperations = Copy");
-            System.Diagnostics.Debug.WriteLine("[AnimeCard] payload JSON created");
-            System.Diagnostics.Debug.WriteLine($"[AnimeCard] DataPackage SetText success: animeId={payload.AnimeId}, title={payload.Title}");
+            System.Diagnostics.Debug.WriteLine($"[AnimeCard] DragStarting: AllowedOperations=Copy, payload animeId={payload.AnimeId}, title={payload.Title}");
         }
 
         /// <summary>
@@ -432,8 +440,10 @@ namespace AniMeido.Plugin.Base.Views.Controls
         }
 
         /// <summary>
-        /// 分享拖拽手柄的标准 DataPackage 拖放。使用 JSON 序列化 AnimeCardDragPayload。
-        /// 不修改原有内部 Pointer 拖拽行为。
+        /// 分享拖拽手柄的标准 DataPackage 拖放 — 跨窗口拖拽的辅助入口 / fallback。
+        /// 使用 JSON 序列化 AnimeCardDragPayload，payload 格式与 AnimeCard 本体拖拽（OnBodyDragStarting）完全一致。
+        /// 与本体拖拽并行存在，不冲突，不合并。
+        /// 保留作为 ChatWindow 等跨窗口场景的备用拖拽入口。
         /// </summary>
         private void OnShareDragStarting(UIElement sender, DragStartingEventArgs args)
         {

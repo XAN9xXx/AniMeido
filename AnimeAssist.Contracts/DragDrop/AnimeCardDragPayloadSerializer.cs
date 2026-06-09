@@ -4,6 +4,9 @@ namespace AniMeido.Contracts.DragDrop;
 
 /// <summary>
 /// AnimeCardDragPayload 的 JSON 序列化与反序列化辅助。
+/// 所有拖拽接收方（DragDropService、ChatWindow InputPanel 等）均使用此工具类，
+/// 不再各自实现 payload 解析逻辑。
+///
 /// 反序列化时校验 kind 和 schemaVersion，失败时返回 null 而非抛出异常。
 /// </summary>
 public static class AnimeCardDragPayloadSerializer
