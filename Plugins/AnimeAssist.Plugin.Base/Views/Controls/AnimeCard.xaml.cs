@@ -105,6 +105,10 @@ namespace AniMeido.Plugin.Base.Views.Controls
             PointerCaptureLost += OnPointerCaptureLost;
             PointerMoved += OnDragPointerMoved;
 
+            // 拖拽启动阶段自兜底：鼠标仍在卡片上方时防止禁止图标
+            AllowDrop = true;
+            AddHandler(UIElement.DragOverEvent, new DragEventHandler(OnSelfDragOver), true);
+
             SizeChanged += OnSizeChanged;
         }
 
@@ -351,13 +355,19 @@ namespace AniMeido.Plugin.Base.Views.Controls
         private void OnPointerCaptureLost(object sender, PointerRoutedEventArgs e)
         {
             _dragPointerDown = false;
-            System.Diagnostics.Debug.WriteLine("[AnimeCard] PointerCaptureLost cleanup triggered");
         }
 
         private void OnDragPointerMoved(object sender, PointerRoutedEventArgs e)
         {
             if (!_dragPointerDown || DataContext is not Anime anime)
                 return;
+
+            // 标准拖拽启用后，旧指针拖拽不应再触发
+            if (CanDrag)
+            {
+                _dragPointerDown = false;
+                return;
+            }
 
             var pt = e.GetCurrentPoint(this).Position;
             var dx = pt.X - _dragStartPoint.X;
@@ -368,6 +378,57 @@ namespace AniMeido.Plugin.Base.Views.Controls
             // 达到阈值，触发拖动手势
             _dragPointerDown = false;
             DragTriggered?.Invoke(this, new AnimeDragEventArgs(anime, e.GetCurrentPoint(this).Position, this));
+        }
+
+        /// <summary>
+        /// AnimeCard 本体标准拖拽源。使用 AnimeCardDragPayload 作为统一拖拽事实。
+        /// </summary>
+        private void OnBodyDragStarting(UIElement sender, DragStartingEventArgs args)
+        {
+            if (DataContext is not Anime anime)
+            {
+                args.Cancel = true;
+                return;
+            }
+
+            System.Diagnostics.Debug.WriteLine("[AnimeCard] standard DragStarting triggered");
+
+            var payload = new AnimeCardDragPayload
+            {
+                AnimeId = anime.ID,
+                Title = anime.Title,
+                CoverImageUrl = anime.CoverURL,
+                Summary = anime.Description,
+                SeasonYear = anime.SeasonYear,
+                SeasonMonth = anime.SeasonMonth,
+                Source = "AnimeCardBody",
+            };
+
+            var json = AnimeCardDragPayloadSerializer.Serialize(payload);
+            args.Data.SetText(json);
+            args.Data.RequestedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            args.AllowedOperations = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+
+            System.Diagnostics.Debug.WriteLine("[AnimeCard] DragStarting AllowedOperations = Copy");
+            System.Diagnostics.Debug.WriteLine("[AnimeCard] payload JSON created");
+            System.Diagnostics.Debug.WriteLine($"[AnimeCard] DataPackage SetText success: animeId={payload.AnimeId}, title={payload.Title}");
+        }
+
+        /// <summary>
+        /// 拖拽启动阶段自兜底：鼠标仍在 AnimeCard 上方时，
+        /// Page/Shell DropHost 可能尚未接管第一帧 DragOver。
+        /// 仅设置 AcceptedOperation = Copy，不执行业务。
+        /// </summary>
+        private void OnSelfDragOver(object sender, DragEventArgs e)
+        {
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
+            {
+                e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+                e.Handled = true;
+                e.DragUIOverride.IsCaptionVisible = false;
+                e.DragUIOverride.IsGlyphVisible = false;
+                e.DragUIOverride.IsContentVisible = false;
+            }
         }
 
         /// <summary>

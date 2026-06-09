@@ -63,7 +63,6 @@ public sealed partial class ChatWindow : Window
     private readonly ChatWindowSettings _settings = new();
     private readonly ChatViewModel _viewModel = new();
     private bool _settingsPanelVisible;
-    private Grid? _currentRoomItem;
     private bool _isClosed;
 
     /// <summary>默认窗口宽度。</summary>
@@ -80,27 +79,6 @@ public sealed partial class ChatWindow : Window
 
         // 窗口关闭时清理，防止关闭后事件回调访问已释放 UI
         Closed += OnWindowClosed;
-
-        // 窗口根容器拖放 fallback：防止拖入非输入区时显示禁止图标
-        _ = InitializeDragFallbackAsync();
-    }
-
-    private async Task InitializeDragFallbackAsync()
-    {
-        // 等待 XAML 加载完成
-        await Task.CompletedTask;
-        DispatcherQueue.TryEnqueue(() =>
-        {
-            if (_isClosed) return;
-            // 在 Content 上注册 fallback，此时 Content 已设置
-            if (Content is UIElement rootElement)
-            {
-                rootElement.AllowDrop = true;
-                rootElement.DragOver += OnRootDragOver;
-                rootElement.Drop += OnRootDrop;
-                System.Diagnostics.Debug.WriteLine("[ChatWindow] Root DragOver fallback registered");
-            }
-        });
     }
 
     private void OnWindowClosed(object sender, WindowEventArgs args)
@@ -127,8 +105,10 @@ public sealed partial class ChatWindow : Window
             _pendingCardCancel.Click -= OnPendingCardCancel;
         if (_pendingCardPreview?.Parent is Border inputPanel)
         {
-            inputPanel.DragOver -= OnInputDragOver;
-            inputPanel.Drop -= OnInputDrop;
+            inputPanel.RemoveHandler(UIElement.DragOverEvent,
+                new DragEventHandler(OnInputDragOver));
+            inputPanel.RemoveHandler(UIElement.DropEvent,
+                new DragEventHandler(OnInputDrop));
         }
 
         _pendingPayload = null;
@@ -138,8 +118,10 @@ public sealed partial class ChatWindow : Window
         // 移除 root fallback
         if (Content is UIElement rootElement)
         {
-            rootElement.DragOver -= OnRootDragOver;
-            rootElement.Drop -= OnRootDrop;
+            rootElement.RemoveHandler(UIElement.DragOverEvent,
+                new DragEventHandler(OnRootDragOver));
+            rootElement.RemoveHandler(UIElement.DropEvent,
+                new DragEventHandler(OnRootDrop));
         }
     }
 
@@ -201,12 +183,24 @@ public sealed partial class ChatWindow : Window
         if (_pendingCardCancel != null)
             _pendingCardCancel.Click += OnPendingCardCancel;
 
-        // 输入区拖放接收
+        // 输入区拖放接收（使用 AddHandler 确保不被子控件拦截）
         if (root.FindName("InputPanel") is Border inputPanel)
         {
             inputPanel.AllowDrop = true;
-            inputPanel.DragOver += OnInputDragOver;
-            inputPanel.Drop += OnInputDrop;
+            inputPanel.AddHandler(UIElement.DragOverEvent,
+                new DragEventHandler(OnInputDragOver), true);
+            inputPanel.AddHandler(UIElement.DropEvent,
+                new DragEventHandler(OnInputDrop), true);
+        }
+
+        // Root 拖放兜底（确保整个窗口区域接受 AnimeCard 拖拽，不显示禁止图标）
+        if (root is UIElement rootForDrop)
+        {
+            rootForDrop.AllowDrop = true;
+            rootForDrop.AddHandler(UIElement.DragOverEvent,
+                new DragEventHandler(OnRootDragOver), true);
+            rootForDrop.AddHandler(UIElement.DropEvent,
+                new DragEventHandler(OnRootDrop), true);
         }
 
         // 应用主题背景色
@@ -552,14 +546,14 @@ public sealed partial class ChatWindow : Window
     private void OnRootDragOver(object sender, DragEventArgs e)
     {
         if (_isClosed) return;
-        System.Diagnostics.Debug.WriteLine("[ChatWindow] Root DragOver fallback triggered");
 
         if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
         {
-            System.Diagnostics.Debug.WriteLine("[ChatWindow] Root recognized AnimeCard payload = true");
             e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            e.Handled = true;
             e.DragUIOverride.IsCaptionVisible = false;
             e.DragUIOverride.IsGlyphVisible = false;
+            e.DragUIOverride.IsContentVisible = false;
         }
     }
 
@@ -567,20 +561,19 @@ public sealed partial class ChatWindow : Window
     {
         if (_isClosed) return;
         // Root 仅负责接受拖放防止禁止图标，不处理业务逻辑
-        System.Diagnostics.Debug.WriteLine("[ChatWindow] Root Drop ignored (non-input area)");
     }
 
     private void OnInputDragOver(object sender, DragEventArgs e)
     {
         if (_isClosed) return;
 
-        System.Diagnostics.Debug.WriteLine("[ChatWindow] InputPanel DragOver triggered");
         if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
         {
             e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-            e.DragUIOverride.Caption = "拖到这里分享番剧";
-            e.DragUIOverride.IsCaptionVisible = true;
+            e.Handled = true;
+            e.DragUIOverride.IsCaptionVisible = false;
             e.DragUIOverride.IsGlyphVisible = false;
+            e.DragUIOverride.IsContentVisible = false;
         }
     }
 
@@ -588,11 +581,10 @@ public sealed partial class ChatWindow : Window
     {
         if (_isClosed) return;
 
-        System.Diagnostics.Debug.WriteLine("[ChatWindow] InputPanel Drop triggered");
-
         if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
             return;
 
+#pragma warning disable CA1031 // 拖放读取失败时安全忽略
         string? text;
         try
         {
@@ -600,9 +592,9 @@ public sealed partial class ChatWindow : Window
         }
         catch
         {
-            System.Diagnostics.Debug.WriteLine("[ChatWindow] Failed to read drop text");
             return;
         }
+#pragma warning restore CA1031
 
         if (string.IsNullOrEmpty(text))
             return;

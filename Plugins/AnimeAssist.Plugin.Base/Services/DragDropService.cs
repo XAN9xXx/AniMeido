@@ -21,6 +21,9 @@ namespace AniMeido.Plugin.Base.Services
     /// </summary>
     public sealed class DragDropService
     {
+        // 高频拖拽日志开关——Debug 模式下关闭以避免卡顿
+        private const bool VerboseDragLog = false;
+
         private readonly TrackingService _tracking;
 
         // 拖放状态
@@ -36,6 +39,12 @@ namespace AniMeido.Plugin.Base.Services
         // Zone 状态
         private List<DragZoneConfig> _dragZones = DragZoneConfig.GetDefaults();
         private readonly Dictionary<string, DragDropZoneInfo> _overlayZones = new();
+
+        // 标准拖拽（ActiveDropContext）状态
+        private UIElement? _standardPageRoot;
+        private Panel? _standardOverlay;
+        private DragAction[] _standardExcludeActions = Array.Empty<DragAction>();
+        private string? _standardCurrentZoneId;
 
         public DragDropService(TrackingService tracking)
         {
@@ -63,6 +72,7 @@ namespace AniMeido.Plugin.Base.Services
 
         /// <summary>
         /// 处理指针按下：从 OriginalSource 向上查找 AnimeCard，记录拖放起点。
+        /// 如果 AnimeCard 已启用标准拖拽（CanDrag=true），跳过旧内部拖拽路径。
         /// </summary>
         public void HandlePointerPressed(UIElement pageRoot, PointerRoutedEventArgs e)
         {
@@ -78,6 +88,15 @@ namespace AniMeido.Plugin.Base.Services
             {
                 if (element is AnimeCard card)
                 {
+                    // 标准拖拽源启用时，旧内部拖拽路径不启动
+                    if (card.CanDrag)
+                    {
+                        System.Diagnostics.Debug.WriteLine("[DragDropService] AnimeCard has CanDrag=true, skipping legacy drag path");
+                        _dragPointerDown = false;
+                        _dragAnime = null;
+                        return;
+                    }
+
                     _dragAnime = card.DataContext as Anime;
                     // 构造统一载荷
                     if (_dragAnime != null)
@@ -113,11 +132,9 @@ namespace AniMeido.Plugin.Base.Services
                 // 检查左键是否仍按下（处理鼠标在窗口外释放的场景）
                 var pointerProps = e.GetCurrentPoint(overlay).Properties;
                 bool isLeftPressed = pointerProps.IsLeftButtonPressed;
-                System.Diagnostics.Debug.WriteLine($"[DragDrop] PointerMoved: left button pressed = {isLeftPressed}, position = ({pt.X:F0},{pt.Y:F0})");
 
                 if (!isLeftPressed)
                 {
-                    System.Diagnostics.Debug.WriteLine("[DragDrop] PointerMoved: left button released, cancel drag");
                     CancelDrag(overlay, "left button released outside window");
                     return false;
                 }
@@ -134,8 +151,6 @@ namespace AniMeido.Plugin.Base.Services
 
                 if (outsideHost)
                 {
-                    var hostSize = overlay is FrameworkElement feHost ? $"{feHost.ActualWidth:F0}x{feHost.ActualHeight:F0}" : "?";
-                    System.Diagnostics.Debug.WriteLine($"[DragDrop] PointerMoved: outside drag host, cancel drag (pt={pt.X:F0},{pt.Y:F0}, host={hostSize})");
                     CancelDrag(overlay, "pointer outside drag host");
                     return false;
                 }
@@ -358,9 +373,9 @@ namespace AniMeido.Plugin.Base.Services
 
                 // 注册标准 DropTarget 事件，支持 AnimeCardDragPayload 接收
                 var actionForZone = config.Action; // 捕获局部变量
+#pragma warning disable CA1031 // zone 内异常不应影响拖放流程
                 zone.DragOver += (s, args) =>
                 {
-                    System.Diagnostics.Debug.WriteLine("[InternalDropZone] DragOver triggered");
                     if (args.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
                     {
                         args.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
@@ -424,6 +439,7 @@ namespace AniMeido.Plugin.Base.Services
                     inner.Background = new SolidColorBrush(Color.FromArgb(180, 0x44, 0x88, 0xFF));
                     inner.Opacity = 0.7;
                 };
+#pragma warning restore CA1031
 
                 if (pw > 0 && ph > 0)
                 {
@@ -562,7 +578,243 @@ namespace AniMeido.Plugin.Base.Services
             return false;
         }
 
-        // ======== 视觉树辅助 ========
+        // ======== 标准拖拽（ActiveDropContext） ========
+
+        /// <summary>
+        /// 设置当前页面的标准拖放上下文。页面在 Loaded 时调用。
+        /// </summary>
+        public void SetActiveDropContext(UIElement pageRoot, Panel overlay, params DragAction[] excludeActions)
+        {
+            _standardPageRoot = pageRoot;
+            _standardOverlay = overlay;
+            _standardExcludeActions = excludeActions ?? Array.Empty<DragAction>();
+            System.Diagnostics.Debug.WriteLine($"[DragDropService] ActiveDropContext set: page={pageRoot.GetType().Name}, overlay={overlay.Name}");
+        }
+
+        /// <summary>
+        /// 清理当前页面的标准拖放上下文。页面在 Unloaded 时调用。
+        /// </summary>
+        public void ClearActiveDropContext(UIElement pageRoot)
+        {
+            if (!ReferenceEquals(_standardPageRoot, pageRoot))
+                return;
+
+            CancelStandardDrag();
+            _standardPageRoot = null;
+            _standardOverlay = null;
+            _standardExcludeActions = Array.Empty<DragAction>();
+            System.Diagnostics.Debug.WriteLine("[DragDropService] ActiveDropContext cleared");
+        }
+
+        /// <summary>
+        /// 处理标准拖拽的 DragOver。由 AnimeCardDropHost 或页面调用。
+        /// 根据坐标构建/显示 DropZone 并管理高亮。
+        /// </summary>
+        /// <param name="e">DragEventArgs，用于 GetPosition 获取 overlay 坐标。</param>
+        /// <param name="coordinateSource">用于 GetPosition 的参照元素，通常为 overlay 自身。</param>
+        public void HandleStandardDragOver(DragEventArgs e, UIElement? _)
+        {
+            // 确保 DropZone 已构建
+            if (_standardOverlay != null && _overlayZones.Count == 0)
+            {
+                _standardOverlay.Visibility = Visibility.Visible;
+                _standardOverlay.UpdateLayout();
+                BuildAndShowZones(_standardOverlay, _standardExcludeActions);
+            }
+
+            if (_standardOverlay == null || _overlayZones.Count == 0)
+                return;
+
+            var overlayPt = e.GetPosition(_standardOverlay);
+
+            // 查找当前 Zone
+            string? hitZoneId = null;
+            foreach (var kv in _overlayZones)
+            {
+                var z = kv.Value.Border;
+                var zx = Canvas.GetLeft(z);
+                var zy = Canvas.GetTop(z);
+                var zr = new Rect(zx, zy, z.ActualWidth, z.ActualHeight);
+                if (zr.Contains(overlayPt))
+                {
+                    hitZoneId = kv.Key;
+                    break;
+                }
+            }
+
+            // 高亮管理（仅在切换时更新，不触发日志风暴）
+            if (hitZoneId != _standardCurrentZoneId)
+            {
+                // 清除旧高亮
+                if (_standardCurrentZoneId != null && _overlayZones.TryGetValue(_standardCurrentZoneId, out var oldZone))
+                {
+                    oldZone.Inner.Background = new SolidColorBrush(Color.FromArgb(180, 0x44, 0x88, 0xFF));
+                    oldZone.Inner.Opacity = 0.7;
+                }
+
+                // 设置新高亮
+                if (hitZoneId != null && _overlayZones.TryGetValue(hitZoneId, out var newZone))
+                {
+                    newZone.Inner.Background = new SolidColorBrush(Color.FromArgb(220, 0x66, 0xAA, 0xFF));
+                    newZone.Inner.Opacity = 0.9;
+                }
+
+                _standardCurrentZoneId = hitZoneId;
+            }
+        }
+
+        /// <summary>
+        /// 处理标准拖拽的 Drop。读取 payload 并路由到有效 Zone。
+        /// </summary>
+        public async Task<bool> HandleStandardDropAsync(DragEventArgs e, UIElement? _)
+        {
+            System.Diagnostics.Debug.WriteLine("[DragDropService] StandardDrop called");
+
+            try
+            {
+                if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
+                {
+                    System.Diagnostics.Debug.WriteLine("[DragDropService] StandardDrop no text data");
+                    return false;
+                }
+
+                var text = await e.DataView.GetTextAsync();
+                if (string.IsNullOrEmpty(text))
+                {
+                    System.Diagnostics.Debug.WriteLine("[DragDropService] StandardDrop empty text");
+                    return false;
+                }
+
+                var payload = AnimeCardDragPayloadSerializer.Deserialize(text);
+                if (payload == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[DragDropService] StandardDrop payload parse fail");
+                    return false;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[DragDropService] StandardDrop payload parse success: animeId={payload.AnimeId}");
+
+                if (_standardOverlay == null || _overlayZones.Count == 0)
+                {
+                    System.Diagnostics.Debug.WriteLine("[DragDropService] StandardDrop no active drop context");
+                    return false;
+                }
+
+                var overlayPt = e.GetPosition(_standardOverlay);
+                System.Diagnostics.Debug.WriteLine($"[DragDropService] StandardDrop overlay position = ({overlayPt.X:F0},{overlayPt.Y:F0})");
+
+                foreach (var kv in _overlayZones)
+                {
+                    var z = kv.Value.Border;
+                    var zx = Canvas.GetLeft(z);
+                    var zy = Canvas.GetTop(z);
+                    var zr = new Rect(zx, zy, z.ActualWidth, z.ActualHeight);
+                    if (zr.Contains(overlayPt))
+                    {
+                        var cfg = _dragZones.Find(c => c.Id == kv.Key);
+                        if (cfg != null && cfg.Action != DragAction.None)
+                        {
+                            var st = DragActionToStatus(cfg.Action);
+                            if (st != AnimeTrackingStatus.None)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[DragDropService] StandardDrop handled zone = {cfg.Id}, action={cfg.Action}, animeId={payload.AnimeId}");
+                                await _tracking.SetStatusAsync(payload.AnimeId, st);
+                                return true;
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                System.Diagnostics.Debug.WriteLine("[DragDropService] StandardDrop no valid zone, ignored");
+                return false;
+            }
+            finally
+            {
+                CancelStandardDrag();
+                System.Diagnostics.Debug.WriteLine("[DragDropService] StandardDrag cleanup");
+            }
+        }
+
+        /// <summary>
+        /// 取消标准拖拽并清理 DropZone 覆盖层和高亮。
+        /// </summary>
+        public void CancelStandardDrag()
+        {
+            if (_standardOverlay != null)
+            {
+                CleanupDrag(_standardOverlay);
+                _standardOverlay.Visibility = Visibility.Collapsed;
+            }
+
+            _standardCurrentZoneId = null;
+            System.Diagnostics.Debug.WriteLine("[DragDropService] CancelStandardDrag - zones hidden");
+        }
+
+        // ======== 页面级标准拖拽宿主注册 ========
+
+        private readonly List<UIElement> _pageDragHosts = new();
+
+        /// <summary>
+        /// 在 BasePlugin 页面根元素上注册标准拖拽宿主。
+        /// 使用 AddHandler(handledEventsToo=true) 确保不被子控件拦截。
+        /// 页面在 Loaded 时调用。
+        /// </summary>
+        public void RegisterStandardDragHost(UIElement host)
+        {
+            if (host == null || _pageDragHosts.Contains(host))
+                return;
+
+            host.AllowDrop = true;
+
+            host.AddHandler(UIElement.DragOverEvent,
+                new DragEventHandler(OnPageDragOver), true);
+            host.AddHandler(UIElement.DropEvent,
+                new DragEventHandler(OnPageDrop), true);
+
+            _pageDragHosts.Add(host);
+            System.Diagnostics.Debug.WriteLine($"[DragDropService] Page standard drag host registered = {host.GetType().Name}");
+        }
+
+        /// <summary>
+        /// 注销页面级标准拖拽宿主。页面在 Unloaded 时调用。
+        /// </summary>
+        public void UnregisterStandardDragHost(UIElement host)
+        {
+            if (host == null || !_pageDragHosts.Contains(host))
+                return;
+
+            host.RemoveHandler(UIElement.DragOverEvent,
+                new DragEventHandler(OnPageDragOver));
+            host.RemoveHandler(UIElement.DropEvent,
+                new DragEventHandler(OnPageDrop));
+
+            _pageDragHosts.Remove(host);
+            System.Diagnostics.Debug.WriteLine($"[DragDropService] Page standard drag host unregistered = {host.GetType().Name}");
+        }
+
+        private void OnPageDragOver(object sender, DragEventArgs e)
+        {
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
+            {
+                // 只更新高亮，不修改 AcceptedOperation
+                HandleStandardDragOver(e, _standardOverlay ?? sender as UIElement);
+
+                // 强制设置 AcceptedOperation = Copy，确保不被任何路径修改
+                e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+                e.Handled = true;
+                e.DragUIOverride.IsCaptionVisible = false;
+                e.DragUIOverride.IsGlyphVisible = false;
+                e.DragUIOverride.IsContentVisible = false;
+            }
+        }
+
+        private async void OnPageDrop(object sender, DragEventArgs e)
+        {
+            System.Diagnostics.Debug.WriteLine($"[DragDropService] Page standard drag host Drop triggered, sender = {sender?.GetType().Name}");
+
+            await HandleStandardDropAsync(e, _standardOverlay ?? sender as UIElement);
+        }
 
         private static List<T> FindAllElements<T>(DependencyObject parent) where T : DependencyObject
         {

@@ -34,6 +34,7 @@ internal static class ChatWindowInteropService
         var clampedPercent = Math.Clamp(opacityPercent, 40, 100);
         byte alpha = (byte)(clampedPercent * 255 / 100);
 
+#pragma warning disable CA1031 // 窗口句柄已销毁时安全忽略
         try
         {
             int exStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
@@ -45,7 +46,7 @@ internal static class ChatWindowInteropService
         }
         catch
         {
-            // 窗口句柄已销毁时安全忽略，不抛出异常
         }
+#pragma warning restore CA1031
     }
 }

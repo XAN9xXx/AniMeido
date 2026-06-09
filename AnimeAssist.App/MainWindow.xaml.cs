@@ -46,24 +46,28 @@ namespace AniMeido.App
             // 主窗口关闭时同步关闭聊天室窗口，避免 ChatWindow 残留
             Closed += OnMainWindowClosing;
 
-            // 主窗口关闭时注销 DropHost
-            Closed += (_, _) => _dropHost.Unregister(MainNaviView);
+            // 主窗口关闭时注销全部 DropHost
+            Closed += (_, _) => _dropHost.UnregisterAll();
 
-            // 导航控件加载完成后注册 AnimeCard 拖放兜底
-            MainNaviView.Loaded += (_, _) =>
+            // 布局完成后注册 AnimeCard 拖放兜底到多个宿主元素
+            // 使用 AddHandler(handledEventsToo=true) 确保不被子控件拦截 DragOver
+            ContentFrame.Loaded += (_, _) =>
             {
+                // 注册三层宿主：RootGrid（全窗口）→ MainNaviView（导航区）→ ContentFrame（页面区）
+                _dropHost.Register(RootGrid);
                 _dropHost.Register(MainNaviView);
+                _dropHost.Register(ContentFrame);
 
-                // 连接 DragDropService 路由回调（App 层持有服务引用）
+                // 连接 DragDropService 标准拖放处理器
                 var ddService = App.Services?.GetService(typeof(AniMeido.Plugin.Base.Services.DragDropService))
                     as AniMeido.Plugin.Base.Services.DragDropService;
                 if (ddService != null)
                 {
-                    _dropHost.SetDropRouter((point, payload) =>
-                    {
-                        return ddService.HandleExternalDrop(point, payload);
-                    });
-                    System.Diagnostics.Debug.WriteLine("[MainWindow] DropHost connected to DragDropService router");
+                    _dropHost.SetHandlers(
+                        dragOver: (e) => ddService.HandleStandardDragOver(e, RootGrid),
+                        dropAsync: async (e) => await ddService.HandleStandardDropAsync(e, RootGrid)
+                    );
+                    System.Diagnostics.Debug.WriteLine("[MainWindow] DropHost connected to DragDropService standard handlers");
                 }
             };
         }
@@ -171,7 +175,7 @@ namespace AniMeido.App
             Contracts.AppServices.NotifyClosing();
         }
 
-        // 
+        //
         private void BuildNavigationMenu()
         {
             NavigationMenuBuilder.Build(MainNaviView, _naviItems);

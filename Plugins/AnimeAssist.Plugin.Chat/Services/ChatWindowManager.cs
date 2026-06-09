@@ -29,6 +29,7 @@ public sealed class ChatWindowManager
         if (_chatWindow != null)
         {
             // 窗口已存在，尝试激活
+#pragma warning disable CA1031 // 窗口可能已销毁，catch 后重新创建
             try
             {
                 _chatWindow.Activate();
@@ -39,6 +40,7 @@ public sealed class ChatWindowManager
                 _chatWindow = null;
                 CreateAndShowWindow();
             }
+#pragma warning restore CA1031
             return;
         }
 

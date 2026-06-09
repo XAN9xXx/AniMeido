@@ -13,7 +13,8 @@
         <MicaBackdrop/>
     </Window.SystemBackdrop>
 
-    <Grid Background="{ThemeResource LayerFillColorDefault}">
+    <Grid x:Name="RootGrid"
+          Background="{ThemeResource LayerFillColorDefault}">
         <NavigationView x:Name="MainNaviView"
                         IsSettingsVisible="False"
                         PaneDisplayMode="Left"

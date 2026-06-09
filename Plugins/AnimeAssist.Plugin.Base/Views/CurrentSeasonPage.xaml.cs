@@ -83,6 +83,20 @@ namespace AniMeido.Plugin.Base.Views
             rootGrid.AddHandler(UIElement.PointerCaptureLostEvent,
                 new PointerEventHandler(OnRootPointerCaptureLost), true);
 
+            // 注册标准拖放上下文（ActiveDropContext）
+            _dragDrop.SetActiveDropContext(rootGrid, DragOverlay, DragAction.PlanToWatch);
+            rootGrid.Unloaded += (_, _) =>
+            {
+                _dragDrop.ClearActiveDropContext(rootGrid);
+            };
+
+            // 注册页面根元素为标准拖拽宿主
+            _dragDrop.RegisterStandardDragHost(rootGrid);
+            rootGrid.Unloaded += (_, _) =>
+            {
+                _dragDrop.UnregisterStandardDragHost(rootGrid);
+            };
+
             // 等待开屏淡出完成后，自动跳转到今日星期分组
             // 开屏淡出在 FirstPageLoaded 信号 + 最低 2 秒显示 + 淡出动画后完成
             _ = WaitForSplashAndAutoScrollAsync();

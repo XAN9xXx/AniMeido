@@ -1,132 +1,97 @@
-using AniMeido.Contracts.DragDrop;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
-using Windows.Foundation;
 
 namespace AniMeido.App.Services;
 
 /// <summary>
 /// 主窗口级 AnimeCard 标准拖放兜底宿主。
-/// 在主窗口根容器上注册 DragOver/Drop fallback。
+/// 使用 AddHandler(handledEventsToo=true) 注册 DragOver/Drop，确保事件不被子控件拦截。
+/// 支持注册多个宿主元素（RootGrid / MainNaviView / ContentFrame）。
 ///
-/// 职责：
-/// - DragOver: 识别 AnimeCardDragPayload → AcceptedOperation = Copy（防止禁止图标）
-/// - Drop: 如果内部 DropZone 已处理则跳过；否则忽略（不执行业务）
-///
-/// 可选路由回调：当需要从根级路由 payload 到内部 DropZone 时（如 StandardDataPackage 路径），
-/// 通过 <see cref="SetDropRouter"/> 注册回调函数。
+/// 刻意不注册 DragLeave：多宿主间切换会触发误清理，标准拖拽状态仅由 Drop 完成或窗口关闭清理。
 /// </summary>
 public sealed class AnimeCardDropHost
 {
-    private bool _isRegistered;
-    private Func<Point, AnimeCardDragPayload, bool>? _dropRouter;
+    private readonly List<UIElement> _registeredElements = new();
+    private Action<DragEventArgs>? _onDragOver;
+    private Func<DragEventArgs, Task>? _onDropAsync;
 
     /// <summary>
-    /// 设置外部 Drop 路由回调。由 Shell 在初始化时提供，用于将 payload 路由到正确的 DropZone。
-    /// 回调签名为 (dropPoint, payload) → bool（true=已处理）。
+    /// 设置 DragOver/Drop 处理委托。由 Shell 在初始化时提供。
     /// </summary>
-    public void SetDropRouter(Func<Point, AnimeCardDragPayload, bool>? router)
+    public void SetHandlers(Action<DragEventArgs>? dragOver, Func<DragEventArgs, Task>? dropAsync)
     {
-        _dropRouter = router;
-        System.Diagnostics.Debug.WriteLine("[AnimeCardDropHost] Drop router " + (router != null ? "set" : "cleared"));
+        _onDragOver = dragOver;
+        _onDropAsync = dropAsync;
     }
 
     /// <summary>
-    /// 在主窗口根 UIElement 上注册 DragOver/Drop fallback。
+    /// 在指定 UIElement 上注册 DragOver/Drop fallback。
+    /// 使用 AddHandler 确保 handledEventsToo=true，不被子控件拦截。
     /// </summary>
-    public void Register(UIElement rootElement)
+    public void Register(UIElement element)
     {
-        if (_isRegistered || rootElement == null)
+        if (element == null || _registeredElements.Contains(element))
             return;
 
-        rootElement.AllowDrop = true;
-        rootElement.DragOver += OnRootDragOver;
-        rootElement.Drop += OnRootDrop;
+        element.AllowDrop = true;
 
-        _isRegistered = true;
-        System.Diagnostics.Debug.WriteLine("[AnimeCardDropHost] MainWindow AnimeCardDropHost DragOver/Drop registered");
+        element.AddHandler(UIElement.DragOverEvent,
+            new DragEventHandler(OnRootDragOver), true);
+        element.AddHandler(UIElement.DropEvent,
+            new DragEventHandler(OnRootDrop), true);
+
+        _registeredElements.Add(element);
+        System.Diagnostics.Debug.WriteLine($"[AnimeCardDropHost] Registered element = {element.GetType().Name}, AddHandler registered, handledEventsToo = true");
     }
 
     /// <summary>
-    /// 注销根元素事件。
+    /// 从指定 UIElement 注销事件并清理。
     /// </summary>
-    public void Unregister(UIElement rootElement)
+    public void Unregister(UIElement element)
     {
-        if (!_isRegistered || rootElement == null)
+        if (element == null || !_registeredElements.Contains(element))
             return;
 
-        rootElement.DragOver -= OnRootDragOver;
-        rootElement.Drop -= OnRootDrop;
+        element.RemoveHandler(UIElement.DragOverEvent,
+            new DragEventHandler(OnRootDragOver));
+        element.RemoveHandler(UIElement.DropEvent,
+            new DragEventHandler(OnRootDrop));
 
-        _isRegistered = false;
-        System.Diagnostics.Debug.WriteLine("[AnimeCardDropHost] Unregistered");
+        _registeredElements.Remove(element);
+        System.Diagnostics.Debug.WriteLine($"[AnimeCardDropHost] Unregistered from {element.GetType().Name}");
+    }
+
+    /// <summary>注销所有宿主元素。</summary>
+    public void UnregisterAll()
+    {
+        foreach (var el in _registeredElements.ToList())
+            Unregister(el);
     }
 
     private void OnRootDragOver(object sender, DragEventArgs e)
     {
-        System.Diagnostics.Debug.WriteLine("[MainWindow] AnimeCardDropHost DragOver triggered");
-
         if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
         {
-            System.Diagnostics.Debug.WriteLine("[MainWindow] AnimeCard payload recognized = true");
+            // 先让内部处理器更新高亮
+            _onDragOver?.Invoke(e);
+
+            // 无论如何，最终强制 AcceptedOperation = Copy，防止内部逻辑误设 None
             e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-            System.Diagnostics.Debug.WriteLine("[MainWindow] DropHost AcceptedOperation = Copy");
+            e.Handled = true;
             e.DragUIOverride.IsCaptionVisible = false;
             e.DragUIOverride.IsGlyphVisible = false;
-        }
-        else
-        {
-            System.Diagnostics.Debug.WriteLine("[MainWindow] AnimeCard payload recognized = false");
-            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
+            e.DragUIOverride.IsContentVisible = false;
         }
     }
 
     private async void OnRootDrop(object sender, DragEventArgs e)
     {
-        System.Diagnostics.Debug.WriteLine("[MainWindow] DropHost Drop triggered");
+        System.Diagnostics.Debug.WriteLine($"[AnimeCardDropHost] Drop triggered, sender = {sender?.GetType().Name}");
 
-        if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
+        if (_onDropAsync != null)
         {
-            System.Diagnostics.Debug.WriteLine("[MainWindow] DropHost no valid target, ignored - no text data");
-            return;
+            await _onDropAsync(e);
         }
-
-        string? text;
-        try
-        {
-            text = await e.DataView.GetTextAsync();
-        }
-        catch
-        {
-            System.Diagnostics.Debug.WriteLine("[MainWindow] DropHost no valid target, ignored - read failed");
-            return;
-        }
-
-        if (string.IsNullOrEmpty(text))
-        {
-            System.Diagnostics.Debug.WriteLine("[MainWindow] DropHost no valid target, ignored - empty text");
-            return;
-        }
-
-        var payload = AnimeCardDragPayloadSerializer.Deserialize(text);
-        if (payload == null)
-        {
-            System.Diagnostics.Debug.WriteLine("[MainWindow] DropHost no valid target, ignored - invalid payload");
-            return;
-        }
-
-        // 如果有路由回调，尝试路由到内部 DropZone
-        if (_dropRouter != null)
-        {
-            var dropPoint = e.GetPosition(sender as UIElement);
-            var handled = _dropRouter(dropPoint, payload);
-            if (handled)
-            {
-                System.Diagnostics.Debug.WriteLine($"[MainWindow] DropHost routed to target: AnimeId={payload.AnimeId}");
-                return;
-            }
-        }
-
-        System.Diagnostics.Debug.WriteLine("[MainWindow] DropHost no valid target, ignored - root fallback");
     }
 }
