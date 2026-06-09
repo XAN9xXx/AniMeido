@@ -12,6 +12,7 @@ namespace AniMeido.App
         private readonly NavigationService _navigationService;
         private readonly SplashCoordinator _splash;
         private readonly StartupDialogCoordinator _dialogs;
+        private readonly AnimeCardDropHost _dropHost = new();
 
         private NavigationViewItem? _lastSelectedPageItem;
         private bool _isClosing;
@@ -44,6 +45,27 @@ namespace AniMeido.App
 
             // 主窗口关闭时同步关闭聊天室窗口，避免 ChatWindow 残留
             Closed += OnMainWindowClosing;
+
+            // 主窗口关闭时注销 DropHost
+            Closed += (_, _) => _dropHost.Unregister(MainNaviView);
+
+            // 导航控件加载完成后注册 AnimeCard 拖放兜底
+            MainNaviView.Loaded += (_, _) =>
+            {
+                _dropHost.Register(MainNaviView);
+
+                // 连接 DragDropService 路由回调（App 层持有服务引用）
+                var ddService = App.Services?.GetService(typeof(AniMeido.Plugin.Base.Services.DragDropService))
+                    as AniMeido.Plugin.Base.Services.DragDropService;
+                if (ddService != null)
+                {
+                    _dropHost.SetDropRouter((point, payload) =>
+                    {
+                        return ddService.HandleExternalDrop(point, payload);
+                    });
+                    System.Diagnostics.Debug.WriteLine("[MainWindow] DropHost connected to DragDropService router");
+                }
+            };
         }
 
         private void UpdateTitleBarButtons()

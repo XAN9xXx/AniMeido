@@ -524,6 +524,44 @@ namespace AniMeido.Plugin.Base.Services
             }
         }
 
+        /// <summary>
+        /// 供 AnimeCardDropHost 调用的外部 Drop 路由。
+        /// 根据坐标判断是否命中有效 Zone，命中则执行业务逻辑。
+        /// </summary>
+        /// <param name="dropPoint">相对于 overlay 的坐标。</param>
+        /// <param name="payload">反序列化的拖拽载荷。</param>
+        /// <returns>是否命中有效 Zone 并执行业务。</returns>
+        public bool HandleExternalDrop(Point dropPoint, AnimeCardDragPayload payload)
+        {
+            System.Diagnostics.Debug.WriteLine($"[DragDropService] HandleExternalDrop called: pos=({dropPoint.X:F0},{dropPoint.Y:F0}), payload={payload.AnimeId}");
+
+            foreach (var kv in _overlayZones)
+            {
+                var z = kv.Value.Border;
+                var zx = Canvas.GetLeft(z);
+                var zy = Canvas.GetTop(z);
+                var zr = new Rect(zx, zy, z.ActualWidth, z.ActualHeight);
+                if (zr.Contains(dropPoint))
+                {
+                    var cfg = _dragZones.Find(c => c.Id == kv.Key);
+                    if (cfg != null && cfg.Action != DragAction.None)
+                    {
+                        var st = DragActionToStatus(cfg.Action);
+                        if (st != AnimeTrackingStatus.None)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[DragDropService] HandleExternalDrop routed to target: zone={cfg.Id}, action={cfg.Action}, animeId={payload.AnimeId}");
+                            _ = SetStatusSafelyAsync(payload.AnimeId, st);
+                            return true;
+                        }
+                    }
+                    break;
+                }
+            }
+
+            System.Diagnostics.Debug.WriteLine("[DragDropService] HandleExternalDrop no valid target, ignored");
+            return false;
+        }
+
         // ======== 视觉树辅助 ========
 
         private static List<T> FindAllElements<T>(DependencyObject parent) where T : DependencyObject
