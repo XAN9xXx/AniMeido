@@ -31,9 +31,9 @@ public sealed class ChatViewModel
     private void LoadFakeData()
     {
         // 预设房间
-        var room1 = new ChatRoom { RoomId = 1, Name = "综合讨论", Description = "大家在聊什么呢" };
-        var room2 = new ChatRoom { RoomId = 2, Name = "番剧推荐", Description = "推荐好看的番" };
-        var room3 = new ChatRoom { RoomId = 3, Name = "技术讨论", Description = "技术相关的话题" };
+        var room1 = new ChatRoom { RoomId = 1, Name = "茶水间", Description = "大家随意聊～" };
+        var room2 = new ChatRoom { RoomId = 2, Name = "番剧部屋", Description = "新番推荐 & 感想" };
+        var room3 = new ChatRoom { RoomId = 3, Name = "技术角", Description = "程序 & 折腾话题" };
 
         Rooms.Add(room1);
         Rooms.Add(room2);

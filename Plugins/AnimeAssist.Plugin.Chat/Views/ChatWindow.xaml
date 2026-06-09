@@ -9,53 +9,88 @@
         <RowDefinition Height="*"/>
     </Grid.RowDefinitions>
 
-    <!-- ===== TopBar ===== -->
-    <Grid x:Name="TopBar"
-          Grid.Row="0"
-          Height="48"
-          Padding="12,0">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="Auto"/>
-        </Grid.ColumnDefinitions>
+    <!-- ===== TopBar：小房间标题栏 ===== -->
+    <Border x:Name="TopBar"
+            Grid.Row="0"
+            Height="52"
+            Padding="16,0"
+            CornerRadius="0">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
 
-        <TextBlock x:Name="CurrentRoomLabel"
-                   Grid.Column="0"
-                   Text="综合讨论"
-                   VerticalAlignment="Center"
-                   FontSize="16"/>
+            <StackPanel Grid.Column="0"
+                        Orientation="Horizontal"
+                        VerticalAlignment="Center"
+                        Spacing="10">
+                <TextBlock Text="✦"
+                           VerticalAlignment="Center"
+                           FontSize="20"/>
+                <TextBlock x:Name="CurrentRoomLabel"
+                           Text="综合讨论"
+                           VerticalAlignment="Center"
+                           FontSize="18"/>
+            </StackPanel>
 
-        <TextBlock x:Name="ConnectionStatusLabel"
-                   Grid.Column="1"
-                   Text="未连接"
-                   VerticalAlignment="Center"
-                   HorizontalAlignment="Center"
-                   FontSize="12"/>
+            <StackPanel Grid.Column="1"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="6">
+                <TextBlock x:Name="ConnectionStatusDot"
+                           Text="●"
+                           FontSize="8"
+                           VerticalAlignment="Center"/>
+                <TextBlock x:Name="ConnectionStatusLabel"
+                           Text="未连接"
+                           FontSize="12"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
 
-        <Button x:Name="SettingsButton"
-                Grid.Column="2"
-                Content="设置"
-                VerticalAlignment="Center"
-                FontSize="12"/>
-    </Grid>
+            <StackPanel Grid.Column="2"
+                        Orientation="Horizontal"
+                        VerticalAlignment="Center"
+                        Spacing="10">
+                <TextBlock Text="访客"
+                           VerticalAlignment="Center"
+                           FontSize="13"/>
+                <Button x:Name="SettingsButton"
+                        Content="⚙"
+                        FontSize="15"
+                        Width="30"
+                        Height="30"
+                        Padding="0"
+                        CornerRadius="6"/>
+            </StackPanel>
+        </Grid>
+    </Border>
 
-    <!-- ===== 主体区域（房间列表 + 聊天区域） ===== -->
+    <!-- ===== 主体区域 ===== -->
     <Grid x:Name="MainArea"
           Grid.Row="1">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="200"/>
+            <ColumnDefinition Width="220"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <!-- ===== RoomListPanel ===== -->
+        <!-- ===== RoomListPanel：房间卡片列表 ===== -->
         <ScrollViewer x:Name="RoomListPanel"
                       Grid.Column="0"
-                      VerticalScrollBarVisibility="Auto">
-            <StackPanel x:Name="RoomListContent"/>
+                      VerticalScrollBarVisibility="Auto"
+                      Padding="8,8,0,8">
+            <StackPanel x:Name="RoomListContent"
+                        Spacing="6"/>
         </ScrollViewer>
 
-        <!-- ===== 聊天区域（消息 + 输入） ===== -->
+        <!-- 分隔装饰 -->
+        <Rectangle Grid.Column="0"
+                   Width="1"
+                   HorizontalAlignment="Right"/>
+
+        <!-- ===== 聊天区域 ===== -->
         <Grid Grid.Column="1">
             <Grid.RowDefinitions>
                 <RowDefinition Height="*"/>
@@ -65,80 +100,128 @@
             <!-- ===== MessagePanel ===== -->
             <ScrollViewer x:Name="MessagePanel"
                           Grid.Row="0"
-                          VerticalScrollBarVisibility="Auto">
+                          VerticalScrollBarVisibility="Auto"
+                          Padding="0,8,0,0">
                 <StackPanel x:Name="MessageListContent"/>
             </ScrollViewer>
 
-            <!-- ===== InputPanel ===== -->
-            <Grid x:Name="InputPanel"
-                  Grid.Row="1"
-                  Height="48"
-                  Padding="12,8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+            <!-- ===== InputPanel：便签式输入栏 ===== -->
+            <Border x:Name="InputPanel"
+                    Grid.Row="1"
+                    Padding="12,10"
+                    CornerRadius="0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
-                <TextBox x:Name="MessageInput"
-                         Grid.Column="0"
-                         PlaceholderText="输入消息..."
-                         VerticalAlignment="Center"/>
+                    <StackPanel Grid.Column="0"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center"
+                                Spacing="6">
+                        <Button x:Name="ImageButton"
+                                Content="🖼"
+                                FontSize="14"
+                                Width="30"
+                                Height="30"
+                                Padding="0"
+                                CornerRadius="6"/>
+                        <Button x:Name="FileButton"
+                                Content="📎"
+                                FontSize="14"
+                                Width="30"
+                                Height="30"
+                                Padding="0"
+                                CornerRadius="6"/>
+                    </StackPanel>
 
-                <Button x:Name="SendButton"
-                        Grid.Column="1"
-                        Content="发送"
-                        Margin="8,0,0,0"
-                        VerticalAlignment="Center"/>
-            </Grid>
+                    <TextBox x:Name="MessageInput"
+                             Grid.Column="1"
+                             PlaceholderText="输入消息..."
+                             Margin="8,0"
+                             VerticalAlignment="Center"
+                             CornerRadius="8"
+                             Padding="10,6"/>
+
+                    <Button x:Name="SendButton"
+                            Grid.Column="2"
+                            Content="➤"
+                            FontSize="16"
+                            Width="36"
+                            Height="36"
+                            Padding="0"
+                            CornerRadius="8"
+                            VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
         </Grid>
     </Grid>
 
-    <!-- ===== FloatingSettingsPanel（覆盖层，初始隐藏） ===== -->
-    <Grid x:Name="FloatingSettingsPanel"
-          Grid.RowSpan="2"
-          HorizontalAlignment="Right"
-          VerticalAlignment="Top"
-          Margin="0,48,0,0"
-          Padding="16"
-          Width="220"
-          Visibility="Collapsed">
-        <StackPanel Spacing="12">
-            <TextBlock Text="窗口设置"
-                       FontSize="14"/>
-            <!-- 透明度 -->
+    <!-- ===== FloatingSettingsPanel：浮层卡片 ===== -->
+    <Border x:Name="FloatingSettingsPanel"
+            Grid.RowSpan="2"
+            HorizontalAlignment="Right"
+            VerticalAlignment="Top"
+            Margin="0,56,12,0"
+            Padding="16"
+            Width="220"
+            CornerRadius="14"
+            Visibility="Collapsed">
+        <StackPanel Spacing="14">
             <StackPanel Orientation="Horizontal"
-                        Spacing="8">
-                <TextBlock x:Name="OpacityPercentLabel"
-                           Text="100%"
-                           VerticalAlignment="Center"
-                           Width="36"/>
+                        Spacing="6">
+                <TextBlock Text="⚙"
+                           FontSize="16"
+                           VerticalAlignment="Center"/>
+                <TextBlock Text="窗口设置"
+                           FontSize="15"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <Rectangle Height="1"
+                       Opacity="0.3"/>
+
+            <StackPanel Spacing="6">
+                <StackPanel Orientation="Horizontal"
+                            Spacing="4">
+                    <TextBlock Text="背景透明度"
+                               VerticalAlignment="Center"
+                               FontSize="13"/>
+                    <TextBlock x:Name="OpacityPercentLabel"
+                               Text="100%"
+                               VerticalAlignment="Center"
+                               FontSize="12"/>
+                </StackPanel>
                 <Slider x:Name="OpacitySlider"
-                        Width="120"
                         Minimum="40"
                         Maximum="100"
                         SmallChange="1"
                         LargeChange="5"
                         VerticalAlignment="Center"/>
             </StackPanel>
-            <!-- 置顶 -->
+
             <StackPanel Orientation="Horizontal"
                         Spacing="8">
-                <TextBlock Text="置顶"
-                           VerticalAlignment="Center"/>
+                <TextBlock Text="📌 置顶显示"
+                           VerticalAlignment="Center"
+                           FontSize="13"/>
                 <ToggleSwitch x:Name="AlwaysOnTopToggle"
                               OffContent=""
                               OnContent=""/>
             </StackPanel>
-            <!-- 鼠标穿透（占位，暂不实现） -->
+
             <StackPanel Orientation="Horizontal"
                         Spacing="8">
-                <TextBlock Text="鼠标穿透"
-                           VerticalAlignment="Center"/>
+                <TextBlock Text="🖱 鼠标穿透"
+                           VerticalAlignment="Center"
+                           FontSize="13"/>
                 <ToggleSwitch x:Name="ClickThroughToggle"
                               IsEnabled="False"
                               OffContent=""
                               OnContent=""/>
             </StackPanel>
         </StackPanel>
-    </Grid>
+    </Border>
 </Grid>
