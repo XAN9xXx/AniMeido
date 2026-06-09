@@ -1,4 +1,5 @@
-﻿using AniMeido.Contracts.Models;
+﻿using AniMeido.Contracts.DragDrop;
+using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Views.Controls;
 using Microsoft.UI.Composition;
@@ -24,6 +25,7 @@ namespace AniMeido.Plugin.Base.Services
 
         // 拖放状态
         private Anime? _dragAnime;
+        private AnimeCardDragPayload? _dragPayload;
         private bool _dragPointerDown;
         private Point _dragPointerDownPos;
         private Point _dragGhostOffset;
@@ -46,6 +48,9 @@ namespace AniMeido.Plugin.Base.Services
         /// <summary>当前拖动的番剧。</summary>
         public Anime? DragAnime => _dragAnime;
 
+        /// <summary>当前拖动的统一载荷。</summary>
+        public AnimeCardDragPayload? DragPayload => _dragPayload;
+
         // Ghost 和 Zone 的 UI 元素引用（供页面清理用）
         public Border? DragGhost => _dragGhost;
         public IReadOnlyCollection<DragDropZoneInfo> ActiveZones => _overlayZones.Values;
@@ -66,6 +71,7 @@ namespace AniMeido.Plugin.Base.Services
             _dragPointerDownPos = e.GetCurrentPoint(pageRoot).Position;
 
             _dragAnime = null;
+            _dragPayload = null;
             // 从原始事件源向上遍历视觉树，查找 AnimeCard（O(depth)而非 O(cards×depth)）
             var element = e.OriginalSource as DependencyObject;
             while (element != null)
@@ -73,6 +79,21 @@ namespace AniMeido.Plugin.Base.Services
                 if (element is AnimeCard card)
                 {
                     _dragAnime = card.DataContext as Anime;
+                    // 构造统一载荷
+                    if (_dragAnime != null)
+                    {
+                        _dragPayload = new AnimeCardDragPayload
+                        {
+                            AnimeId = _dragAnime.ID,
+                            Title = _dragAnime.Title,
+                            CoverImageUrl = _dragAnime.CoverURL,
+                            Summary = _dragAnime.Description,
+                            SeasonYear = _dragAnime.SeasonYear,
+                            SeasonMonth = _dragAnime.SeasonMonth,
+                            Source = "DragDropService",
+                        };
+                        System.Diagnostics.Debug.WriteLine($"[DragPayload] DragDropService received AnimeCardDragPayload: {_dragPayload.AnimeId} - {_dragPayload.Title}");
+                    }
                     break;
                 }
                 element = VisualTreeHelper.GetParent(element);
@@ -81,12 +102,44 @@ namespace AniMeido.Plugin.Base.Services
 
         /// <summary>
         /// 处理指针移动：通过 Composition Offset 更新 Ghost 位置（合成线程，零布局开销）。
+        /// 每次更新前检查左键状态和边界，防止 Ghost 在窗口外残影。
         /// </summary>
         public bool HandlePointerMoved(UIElement pageRoot, UIElement overlay, PointerRoutedEventArgs e, params DragAction[] excludeActions)
         {
             if (_isDragging && _ghostVisual != null)
             {
                 var pt = e.GetCurrentPoint(overlay).Position;
+
+                // 检查左键是否仍按下（处理鼠标在窗口外释放的场景）
+                var pointerProps = e.GetCurrentPoint(overlay).Properties;
+                bool isLeftPressed = pointerProps.IsLeftButtonPressed;
+                System.Diagnostics.Debug.WriteLine($"[DragDrop] PointerMoved: left button pressed = {isLeftPressed}, position = ({pt.X:F0},{pt.Y:F0})");
+
+                if (!isLeftPressed)
+                {
+                    System.Diagnostics.Debug.WriteLine("[DragDrop] PointerMoved: left button released, cancel drag");
+                    CancelDrag(overlay, "left button released outside window");
+                    return false;
+                }
+
+                // 检查指针是否超出拖拽宿主边界
+                double tolerance = 8;
+                bool outsideHost = false;
+                if (overlay is FrameworkElement host)
+                {
+                    outsideHost = pt.X < -tolerance || pt.Y < -tolerance
+                        || pt.X > host.ActualWidth + tolerance
+                        || pt.Y > host.ActualHeight + tolerance;
+                }
+
+                if (outsideHost)
+                {
+                    var hostSize = overlay is FrameworkElement feHost ? $"{feHost.ActualWidth:F0}x{feHost.ActualHeight:F0}" : "?";
+                    System.Diagnostics.Debug.WriteLine($"[DragDrop] PointerMoved: outside drag host, cancel drag (pt={pt.X:F0},{pt.Y:F0}, host={hostSize})");
+                    CancelDrag(overlay, "pointer outside drag host");
+                    return false;
+                }
+
                 _ghostVisual.Offset = new Vector3(
                     (float)(pt.X + _dragGhostOffset.X),
                     (float)(pt.Y + _dragGhostOffset.Y),
@@ -121,7 +174,7 @@ namespace AniMeido.Plugin.Base.Services
         {
             _dragPointerDown = false;
             if (!_isDragging) return;
-            CancelDrag(overlay);
+            CancelDrag(overlay, "PointerCanceled event");
         }
 
         private async Task BeginDragAsync(UIElement overlay, params DragAction[] excludeActions)
@@ -200,7 +253,14 @@ namespace AniMeido.Plugin.Base.Services
             CleanupDrag(overlay);
         }
 
-        private void CancelDrag(UIElement overlay) => CleanupDrag(overlay);
+        private void CancelDrag(UIElement overlay) => CancelDrag(overlay, null);
+
+        private void CancelDrag(UIElement overlay, string? reason)
+        {
+            if (!string.IsNullOrEmpty(reason))
+                System.Diagnostics.Debug.WriteLine($"[DragDropService] CancelDrag called, reason = {reason}");
+            CleanupDrag(overlay);
+        }
 
         /// <summary>
         /// 传入 overlay 以便从视觉树中移除 Ghost 和 Zone。
@@ -213,6 +273,7 @@ namespace AniMeido.Plugin.Base.Services
                 // 移除 ghost
                 if (_dragGhost != null && panel.Children.Contains(_dragGhost))
                 {
+                    System.Diagnostics.Debug.WriteLine("[DragDropService] ClearDragVisual called");
                     panel.Children.Remove(_dragGhost);
                 }
                 // 移除 zone
@@ -223,8 +284,22 @@ namespace AniMeido.Plugin.Base.Services
                 }
             }
 
+            ResetState();
+        }
+
+        /// <summary>
+        /// 强制重置拖拽状态，不依赖 overlay 引用。用于指针捕获丢失、窗口失活等场景。
+        /// </summary>
+        public void ResetState()
+        {
+            if (_isDragging || _dragAnime != null || _dragPayload != null)
+            {
+                System.Diagnostics.Debug.WriteLine("[DragDropService] ResetState called - state cleared");
+            }
+
             _isDragging = false;
             _dragAnime = null;
+            _dragPayload = null;
             _dragGhost = null;
             _ghostVisual = null;
             _overlayZones.Clear();
@@ -351,6 +426,9 @@ namespace AniMeido.Plugin.Base.Services
         /// </summary>
         public void ExecuteDrop(Point dropPoint)
         {
+            if (_dragPayload != null)
+                System.Diagnostics.Debug.WriteLine($"[DragPayload] DropZone received AnimeCardDragPayload: {_dragPayload.AnimeId} - {_dragPayload.Title}");
+
             foreach (var kv in _overlayZones)
             {
                 var z = kv.Value.Border;
@@ -365,7 +443,10 @@ namespace AniMeido.Plugin.Base.Services
                     {
                         var st = DragActionToStatus(cfg.Action);
                         if (st != AnimeTrackingStatus.None)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[DragPayload] DropZone handled internal anime card drag: AnimeId={_dragAnime.ID}, Action={cfg.Action}");
                             _ = SetStatusSafelyAsync(_dragAnime.ID, st);
+                        }
                     }
                     break;
                 }

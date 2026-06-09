@@ -1,4 +1,5 @@
-﻿using AniMeido.Plugin.Chat.Models;
+﻿using AniMeido.Contracts.DragDrop;
+using AniMeido.Plugin.Chat.Models;
 using AniMeido.Plugin.Chat.Services;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
@@ -53,11 +54,17 @@ public sealed partial class ChatWindow : Window
     private Button? _fileButton;
     private Button? _settingsButton;
     private Border? _floatingSettingsPanel;
+    private Border? _pendingCardPreview;
+    private TextBlock? _pendingCardTitle;
+    private TextBlock? _pendingCardSummary;
+    private Button? _pendingCardCancel;
+    private AnimeCardDragPayload? _pendingPayload;
     private IntPtr _windowHandle;
     private readonly ChatWindowSettings _settings = new();
     private readonly ChatViewModel _viewModel = new();
     private bool _settingsPanelVisible;
     private Grid? _currentRoomItem;
+    private bool _isClosed;
 
     /// <summary>默认窗口宽度。</summary>
     private const int DefaultWidth = 1000;
@@ -70,6 +77,70 @@ public sealed partial class ChatWindow : Window
         LoadXamlLayout();
         InitializeWindow();
         InitializeViewModel();
+
+        // 窗口关闭时清理，防止关闭后事件回调访问已释放 UI
+        Closed += OnWindowClosed;
+
+        // 窗口根容器拖放 fallback：防止拖入非输入区时显示禁止图标
+        _ = InitializeDragFallbackAsync();
+    }
+
+    private async Task InitializeDragFallbackAsync()
+    {
+        // 等待 XAML 加载完成
+        await Task.CompletedTask;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_isClosed) return;
+            // 在 Content 上注册 fallback，此时 Content 已设置
+            if (Content is UIElement rootElement)
+            {
+                rootElement.AllowDrop = true;
+                rootElement.DragOver += OnRootDragOver;
+                rootElement.Drop += OnRootDrop;
+                System.Diagnostics.Debug.WriteLine("[ChatWindow] Root DragOver fallback registered");
+            }
+        });
+    }
+
+    private void OnWindowClosed(object sender, WindowEventArgs args)
+    {
+        _isClosed = true;
+        System.Diagnostics.Debug.WriteLine("[ChatWindow] Window closed, _isClosed set to true");
+
+        // 取消所有事件订阅，避免关闭后回调
+        if (_sendButton != null)
+            _sendButton.Click -= OnSendClick;
+        if (_imageButton != null)
+            _imageButton.Click -= OnImageButtonClick;
+        if (_fileButton != null)
+            _fileButton.Click -= OnFileButtonClick;
+        if (_messageInput != null)
+            _messageInput.KeyDown -= OnMessageInputKeyDown;
+        if (_settingsButton != null)
+            _settingsButton.Click -= OnSettingsClick;
+        if (_opacitySlider != null)
+            _opacitySlider.ValueChanged -= OnOpacityValueChanged;
+        if (_alwaysOnTopToggle != null)
+            _alwaysOnTopToggle.Toggled -= OnAlwaysOnTopToggled;
+        if (_pendingCardCancel != null)
+            _pendingCardCancel.Click -= OnPendingCardCancel;
+        if (_pendingCardPreview?.Parent is Border inputPanel)
+        {
+            inputPanel.DragOver -= OnInputDragOver;
+            inputPanel.Drop -= OnInputDrop;
+        }
+
+        _pendingPayload = null;
+        _appWindow = null;
+        _windowHandle = IntPtr.Zero;
+
+        // 移除 root fallback
+        if (Content is UIElement rootElement)
+        {
+            rootElement.DragOver -= OnRootDragOver;
+            rootElement.Drop -= OnRootDrop;
+        }
     }
 
     /// <summary>
@@ -96,6 +167,10 @@ public sealed partial class ChatWindow : Window
         _fileButton = root.FindName("FileButton") as Button;
         _settingsButton = root.FindName("SettingsButton") as Button;
         _floatingSettingsPanel = root.FindName("FloatingSettingsPanel") as Border;
+        _pendingCardPreview = root.FindName("PendingCardPreview") as Border;
+        _pendingCardTitle = root.FindName("PendingCardTitle") as TextBlock;
+        _pendingCardSummary = root.FindName("PendingCardSummary") as TextBlock;
+        _pendingCardCancel = root.FindName("PendingCardCancel") as Button;
         _opacityPercentLabel = root.FindName("OpacityPercentLabel") as TextBlock;
         _opacitySlider = root.FindName("OpacitySlider") as Slider;
         _alwaysOnTopToggle = root.FindName("AlwaysOnTopToggle") as ToggleSwitch;
@@ -122,6 +197,17 @@ public sealed partial class ChatWindow : Window
 
         if (_alwaysOnTopToggle != null)
             _alwaysOnTopToggle.Toggled += OnAlwaysOnTopToggled;
+
+        if (_pendingCardCancel != null)
+            _pendingCardCancel.Click += OnPendingCardCancel;
+
+        // 输入区拖放接收
+        if (root.FindName("InputPanel") is Border inputPanel)
+        {
+            inputPanel.AllowDrop = true;
+            inputPanel.DragOver += OnInputDragOver;
+            inputPanel.Drop += OnInputDrop;
+        }
 
         // 应用主题背景色
         if (root is Panel rootPanel)
@@ -363,10 +449,15 @@ public sealed partial class ChatWindow : Window
 
     // ===== 发送逻辑（本地假发送） =====
 
-    private void OnSendClick(object sender, RoutedEventArgs e) => SendMessage();
+    private void OnSendClick(object sender, RoutedEventArgs e)
+    {
+        if (_isClosed) return;
+        SendMessage();
+    }
 
     private void OnMessageInputKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (_isClosed) return;
         if (e.Key == Windows.System.VirtualKey.Enter)
         {
             SendMessage();
@@ -378,7 +469,22 @@ public sealed partial class ChatWindow : Window
     {
         if (_messageInput == null) return;
 
+        // 如果有待发送的番剧卡片，先发送卡片消息，再发送文字
+        if (_pendingPayload != null)
+        {
+            SendCardMessage();
+            // 如果还有文字，继续发送
+        }
+
         var text = _messageInput.Text;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            // 只有卡片没有文字时，发送后清空卡片即可
+            if (_pendingPayload == null)
+                _messageInput.Text = string.Empty;
+            return;
+        }
+
         var msg = _viewModel.FakeSend(text);
         if (msg == null) return;
 
@@ -390,11 +496,13 @@ public sealed partial class ChatWindow : Window
 
     private void OnImageButtonClick(object sender, RoutedEventArgs e)
     {
+        if (_isClosed) return;
         // 图片功能待后续实现
     }
 
     private void OnFileButtonClick(object sender, RoutedEventArgs e)
     {
+        if (_isClosed) return;
         // 文件功能待后续实现
     }
 
@@ -402,6 +510,7 @@ public sealed partial class ChatWindow : Window
 
     private void OnSettingsClick(object sender, RoutedEventArgs e)
     {
+        if (_isClosed) return;
         _settingsPanelVisible = !_settingsPanelVisible;
         if (_floatingSettingsPanel != null)
             _floatingSettingsPanel.Visibility = _settingsPanelVisible
@@ -413,6 +522,7 @@ public sealed partial class ChatWindow : Window
 
     private void OnOpacityValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
+        if (_isClosed) return;
         var percent = (int)e.NewValue;
         _settings.WindowOpacityPercent = percent;
 
@@ -430,9 +540,119 @@ public sealed partial class ChatWindow : Window
 
     private void OnAlwaysOnTopToggled(object sender, RoutedEventArgs e)
     {
+        if (_isClosed) return;
         if (_appWindow?.Presenter is OverlappedPresenter presenter)
         {
             presenter.IsAlwaysOnTop = _alwaysOnTopToggle?.IsOn ?? false;
         }
+    }
+
+    // ===== 番剧卡片拖放接收 =====
+
+    private void OnRootDragOver(object sender, DragEventArgs e)
+    {
+        if (_isClosed) return;
+        System.Diagnostics.Debug.WriteLine("[ChatWindow] Root DragOver fallback triggered");
+
+        if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
+        {
+            System.Diagnostics.Debug.WriteLine("[ChatWindow] Root recognized AnimeCard payload = true");
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            e.DragUIOverride.IsCaptionVisible = false;
+            e.DragUIOverride.IsGlyphVisible = false;
+        }
+    }
+
+    private void OnRootDrop(object sender, DragEventArgs e)
+    {
+        if (_isClosed) return;
+        // Root 仅负责接受拖放防止禁止图标，不处理业务逻辑
+        System.Diagnostics.Debug.WriteLine("[ChatWindow] Root Drop ignored (non-input area)");
+    }
+
+    private void OnInputDragOver(object sender, DragEventArgs e)
+    {
+        if (_isClosed) return;
+
+        System.Diagnostics.Debug.WriteLine("[ChatWindow] InputPanel DragOver triggered");
+        if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            e.DragUIOverride.Caption = "拖到这里分享番剧";
+            e.DragUIOverride.IsCaptionVisible = true;
+            e.DragUIOverride.IsGlyphVisible = false;
+        }
+    }
+
+    private async void OnInputDrop(object sender, DragEventArgs e)
+    {
+        if (_isClosed) return;
+
+        System.Diagnostics.Debug.WriteLine("[ChatWindow] InputPanel Drop triggered");
+
+        if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
+            return;
+
+        string? text;
+        try
+        {
+            text = await e.DataView.GetTextAsync();
+        }
+        catch
+        {
+            System.Diagnostics.Debug.WriteLine("[ChatWindow] Failed to read drop text");
+            return;
+        }
+
+        if (string.IsNullOrEmpty(text))
+            return;
+
+        var payload = AnimeCardDragPayloadSerializer.Deserialize(text);
+        if (payload == null)
+        {
+            System.Diagnostics.Debug.WriteLine("[ChatWindow] AnimeCard payload parse fail");
+            return;
+        }
+
+        System.Diagnostics.Debug.WriteLine($"[ChatWindow] AnimeCard payload parse success: {payload.AnimeId} - {payload.Title}");
+        ShowPendingCard(payload);
+    }
+
+    private void ShowPendingCard(AnimeCardDragPayload payload)
+    {
+        _pendingPayload = payload;
+
+        if (_pendingCardTitle != null)
+            _pendingCardTitle.Text = payload.Title;
+
+        if (_pendingCardSummary != null)
+            _pendingCardSummary.Text = !string.IsNullOrEmpty(payload.Summary)
+                ? (payload.Summary.Length > 60 ? payload.Summary[..60] + "…" : payload.Summary)
+                : $"第 {payload.SeasonYear} 年第 {payload.SeasonMonth} 季度";
+
+        if (_pendingCardPreview != null)
+            _pendingCardPreview.Visibility = Visibility.Visible;
+    }
+
+    private void OnPendingCardCancel(object sender, RoutedEventArgs e)
+    {
+        if (_isClosed) return;
+        _pendingPayload = null;
+        if (_pendingCardPreview != null)
+            _pendingCardPreview.Visibility = Visibility.Collapsed;
+    }
+
+    private void SendCardMessage()
+    {
+        if (_pendingPayload == null) return;
+
+        var text = $"📺 分享番剧：{_pendingPayload.Title}";
+        var msg = _viewModel.FakeSend(text);
+        if (msg != null)
+            AddMessageBubble(msg);
+
+        _pendingPayload = null;
+        if (_pendingCardPreview != null)
+            _pendingCardPreview.Visibility = Visibility.Collapsed;
     }
 }

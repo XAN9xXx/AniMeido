@@ -44,6 +44,25 @@
                                       VerticalAlignment="Center"
                                       Foreground="{ThemeResource SystemAccentColor}"/>
                     </Grid>
+
+                    <!-- 分享拖拽手柄：跨窗口拖放入口，不干扰原有内部拖拽 -->
+                    <Border x:Name="ShareHandle"
+                            Width="24"
+                            Height="24"
+                            CornerRadius="4"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Margin="0,4,4,0"
+                            Background="{ThemeResource SystemChromeMediumHighColor}"
+                            CanDrag="True"
+                            DragStarting="OnShareDragStarting"
+                            ToolTipService.ToolTip="拖到聊天室分享">
+                        <TextBlock Text="↗"
+                                   FontSize="12"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"/>
+                    </Border>
                 </Grid>
 
                 <!-- 星期放送角标（补番页使用，默认隐藏） -->

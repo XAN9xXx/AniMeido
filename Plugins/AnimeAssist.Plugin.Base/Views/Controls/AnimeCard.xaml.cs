@@ -1,4 +1,5 @@
-﻿using AniMeido.Contracts.Models;
+﻿using AniMeido.Contracts.DragDrop;
+using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -13,12 +14,31 @@ namespace AniMeido.Plugin.Base.Views.Controls
         public Anime Anime { get; }
         public Point PointerPosition { get; }
         public UIElement Source { get; }
+        /// <summary>统一拖拽载荷，供跨插件边界使用。</summary>
+        public AnimeCardDragPayload? Payload { get; }
 
         public AnimeDragEventArgs(Anime anime, Point pointerPosition, UIElement source)
         {
             Anime = anime;
             PointerPosition = pointerPosition;
             Source = source;
+            Payload = BuildPayload(anime);
+        }
+
+        private static AnimeCardDragPayload BuildPayload(Anime anime)
+        {
+            var payload = new AnimeCardDragPayload
+            {
+                AnimeId = anime.ID,
+                Title = anime.Title,
+                CoverImageUrl = anime.CoverURL,
+                Summary = anime.Description,
+                SeasonYear = anime.SeasonYear,
+                SeasonMonth = anime.SeasonMonth,
+                Source = "AnimeCard",
+            };
+            System.Diagnostics.Debug.WriteLine($"[DragPayload] AnimeCard internal drag payload created: {payload.AnimeId} - {payload.Title}");
+            return payload;
         }
     }
 
@@ -82,6 +102,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
             PointerPressed += OnPointerPressed;
             PointerReleased += OnPointerReleased;
             PointerCanceled += OnPointerCanceled;
+            PointerCaptureLost += OnPointerCaptureLost;
             PointerMoved += OnDragPointerMoved;
 
             SizeChanged += OnSizeChanged;
@@ -327,6 +348,12 @@ namespace AniMeido.Plugin.Base.Views.Controls
             _dragPointerDown = false;
         }
 
+        private void OnPointerCaptureLost(object sender, PointerRoutedEventArgs e)
+        {
+            _dragPointerDown = false;
+            System.Diagnostics.Debug.WriteLine("[AnimeCard] PointerCaptureLost cleanup triggered");
+        }
+
         private void OnDragPointerMoved(object sender, PointerRoutedEventArgs e)
         {
             if (!_dragPointerDown || DataContext is not Anime anime)
@@ -341,6 +368,38 @@ namespace AniMeido.Plugin.Base.Views.Controls
             // 达到阈值，触发拖动手势
             _dragPointerDown = false;
             DragTriggered?.Invoke(this, new AnimeDragEventArgs(anime, e.GetCurrentPoint(this).Position, this));
+        }
+
+        /// <summary>
+        /// 分享拖拽手柄的标准 DataPackage 拖放。使用 JSON 序列化 AnimeCardDragPayload。
+        /// 不修改原有内部 Pointer 拖拽行为。
+        /// </summary>
+        private void OnShareDragStarting(UIElement sender, DragStartingEventArgs args)
+        {
+            if (DataContext is not Anime anime)
+            {
+                args.Cancel = true;
+                return;
+            }
+
+            System.Diagnostics.Debug.WriteLine("[ShareDrag] Share drag handle DragStarting triggered");
+
+            var payload = new AnimeCardDragPayload
+            {
+                AnimeId = anime.ID,
+                Title = anime.Title,
+                CoverImageUrl = anime.CoverURL,
+                Summary = anime.Description,
+                SeasonYear = anime.SeasonYear,
+                SeasonMonth = anime.SeasonMonth,
+                Source = "ShareHandle",
+            };
+
+            var json = AnimeCardDragPayloadSerializer.Serialize(payload);
+            args.Data.SetText(json);
+            args.Data.RequestedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+
+            System.Diagnostics.Debug.WriteLine($"[ShareDrag] Share drag handle SetText payload success: {payload.AnimeId} - {payload.Title}");
         }
     }
 }

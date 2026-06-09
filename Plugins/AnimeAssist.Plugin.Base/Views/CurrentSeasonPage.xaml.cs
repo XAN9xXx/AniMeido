@@ -80,6 +80,8 @@ namespace AniMeido.Plugin.Base.Views
                 new PointerEventHandler(OnRootPointerReleased), true);
             rootGrid.AddHandler(UIElement.PointerCanceledEvent,
                 new PointerEventHandler(OnRootPointerCanceled), true);
+            rootGrid.AddHandler(UIElement.PointerCaptureLostEvent,
+                new PointerEventHandler(OnRootPointerCaptureLost), true);
 
             // 等待开屏淡出完成后，自动跳转到今日星期分组
             // 开屏淡出在 FirstPageLoaded 信号 + 最低 2 秒显示 + 淡出动画后完成
@@ -292,6 +294,14 @@ namespace AniMeido.Plugin.Base.Views
         private void OnRootPointerCanceled(object sender, PointerRoutedEventArgs e)
         {
             _dragDrop.HandlePointerCanceled(DragOverlay);
+            CleanupOverlayAfterDrag();
+        }
+
+        private void OnRootPointerCaptureLost(object sender, PointerRoutedEventArgs e)
+        {
+            System.Diagnostics.Debug.WriteLine("[CurrentSeasonPage] PointerCaptureLost cleanup triggered");
+            _dragDrop.HandlePointerCanceled(DragOverlay);
+            _dragDrop.ResetState();
             CleanupOverlayAfterDrag();
         }
 

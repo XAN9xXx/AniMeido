@@ -54,12 +54,17 @@ public sealed class ChatWindowManager
         _isShuttingDown = true;
 
         if (_chatWindow == null)
+        {
+            System.Diagnostics.Debug.WriteLine("[ChatWindowManager] CloseIfOpen: no window to close");
             return;
+        }
 
+        System.Diagnostics.Debug.WriteLine("[ChatWindowManager] CloseIfOpen: closing chat window");
         // 取消订阅再关闭，避免 Closed 事件中重新创建或遗留引用
         _chatWindow.Closed -= OnChatWindowClosed;
         _chatWindow.Close();
         _chatWindow = null;
+        System.Diagnostics.Debug.WriteLine("[ChatWindowManager] CloseIfOpen: window closed and reference cleared");
     }
 
     private void OnAppClosing()
