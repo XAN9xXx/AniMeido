@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Foundation;
 
 namespace AniMeido.Plugin.Base.Views.Controls
@@ -59,6 +60,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
         private Point _dragStartPoint;
         private int _coverLoadVersion;      // 封面加载版本号，防止旧异步任务更新新卡片
         private int _currentAnimeId;        // 当前显示番剧 ID，用于 DataContextChanged 快速判断
+        private bool _snapshotCaptured;     // 防止重复触发 RenderTargetBitmap 截图
         public static readonly DependencyProperty ShowWeekdayBadgeProperty =
             DependencyProperty.Register(nameof(ShowWeekdayBadge), typeof(bool), typeof(AnimeCard),
                 new PropertyMetadata(false, OnShowWeekdayBadgeChanged));
@@ -334,11 +336,20 @@ namespace AniMeido.Plugin.Base.Views.Controls
 
             visual.StartAnimation("Scale.X", scaleX);
             visual.StartAnimation("Scale.Y", scaleY);
+
+            // 预捕获：鼠标按下时即启动 RenderTargetBitmap 截图，为 GhostCard 准备视觉快照
+            // 这样在拖拽真正开始时，snapshot 可能已经就绪
+            if (!_snapshotCaptured)
+            {
+                _snapshotCaptured = true;
+                _ = CaptureGhostSnapshotAsync();
+            }
         }
 
         private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
         {
             _dragPointerDown = false;
+            _snapshotCaptured = false;
 
             var visual = ElementCompositionPreview.GetElementVisual(this);
             var compositor = visual.Compositor;
@@ -358,11 +369,13 @@ namespace AniMeido.Plugin.Base.Views.Controls
         private void OnPointerCanceled(object sender, PointerRoutedEventArgs e)
         {
             _dragPointerDown = false;
+            _snapshotCaptured = false;
         }
 
         private void OnPointerCaptureLost(object sender, PointerRoutedEventArgs e)
         {
             _dragPointerDown = false;
+            _snapshotCaptured = false;
         }
 
         private void OnDragPointerMoved(object sender, PointerRoutedEventArgs e)
@@ -392,6 +405,8 @@ namespace AniMeido.Plugin.Base.Views.Controls
         /// AnimeCard 本体标准拖拽源 — 当前拖拽系统主路径。
         /// 使用 AnimeCardDragPayload 作为跨窗口/跨区域的统一拖拽数据事实。
         /// payload 序列化为 JSON 后通过 StandardDataFormats.Text 传递。
+        /// 同时设置 DragGhostCard 视觉定位上下文，使 GhostCard 跟随鼠标时
+        /// 保持与原始按下位置一致的偏移。
         /// </summary>
         private void OnBodyDragStarting(UIElement sender, DragStartingEventArgs args)
         {
@@ -419,13 +434,65 @@ namespace AniMeido.Plugin.Base.Views.Controls
             args.Data.RequestedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
             args.AllowedOperations = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
 
+            // 记录 GhostCard 视觉定位上下文（不阻塞拖拽）
+            var pointerPos = args.GetPosition(this);
+            var context = new Services.AnimeCardDragVisualContext
+            {
+                PointerOffsetX = pointerPos.X,
+                PointerOffsetY = pointerPos.Y,
+                SourceCardWidth = ActualWidth,
+                SourceCardHeight = ActualHeight,
+                CoverImageSource = CoverImage.Source,
+            };
+            Services.AnimeCardDragVisualContext.Current = context;
+
             System.Diagnostics.Debug.WriteLine($"[AnimeCard] DragStarting: AllowedOperations=Copy, payload animeId={payload.AnimeId}, title={payload.Title}");
+        }
+
+        /// <summary>
+        /// 使用 RenderTargetBitmap 截取当前 AnimeCard 控件的完整视觉快照。
+        /// 快照存入 AnimeCardDragVisualContext.GhostSnapshotSource，
+        /// 完成后触发 OnSnapshotReady 回调供 DragDropService 热更新 GhostCard。
+        ///
+        /// 在 PointerPressed 中预执行，不阻塞拖拽。
+        /// 捕获前检查 ActualWidth/Height > 0，避免捕获未 Layout 的元素。
+        /// </summary>
+        private async Task CaptureGhostSnapshotAsync()
+        {
+            if (ActualWidth <= 0 || ActualHeight <= 0)
+            {
+                System.Diagnostics.Debug.WriteLine("[AnimeCard] GhostSnapshot skipped: card not laid out");
+                return;
+            }
+
+            System.Diagnostics.Debug.WriteLine("[AnimeCard] GhostSnapshot capture started");
+            try
+            {
+                var rtb = new RenderTargetBitmap();
+                await rtb.RenderAsync(this, (int)ActualWidth, (int)ActualHeight);
+
+                var context = Services.AnimeCardDragVisualContext.Current;
+                if (context != null)
+                {
+                    context.GhostSnapshotSource = rtb;
+                    System.Diagnostics.Debug.WriteLine($"[AnimeCard] GhostSnapshot captured: {ActualWidth}x{ActualHeight}");
+                }
+
+                // 通知 DragDropService snapshot 已就绪
+                Services.AnimeCardDragVisualContext.OnSnapshotReady?.Invoke();
+            }
+#pragma warning disable CA1031 // 截图失败不影响拖拽
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AnimeCard] GhostSnapshot capture failed: {ex.Message}");
+            }
+#pragma warning restore CA1031
         }
 
         /// <summary>
         /// 拖拽启动阶段自兜底：鼠标仍在 AnimeCard 上方时，
         /// Page/Shell DropHost 可能尚未接管第一帧 DragOver。
-        /// 仅设置 AcceptedOperation = Copy，不执行业务。
+        /// 设置 AcceptedOperation = Copy，并尽早触发 GhostCard 显示。
         /// </summary>
         private void OnSelfDragOver(object sender, DragEventArgs e)
         {
@@ -436,6 +503,9 @@ namespace AniMeido.Plugin.Base.Views.Controls
                 e.DragUIOverride.IsCaptionVisible = false;
                 e.DragUIOverride.IsGlyphVisible = false;
                 e.DragUIOverride.IsContentVisible = false;
+
+                // 尽早显示 GhostCard：通知 DragDropService 在拖拽源上触发视觉更新
+                Services.AnimeCardDragVisualContext.OnSourceDragOver?.Invoke(e, this);
             }
         }
 

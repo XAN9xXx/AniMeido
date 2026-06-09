@@ -72,6 +72,12 @@ namespace AniMeido.Plugin.Base.Services
         private DragAction[] _standardExcludeActions = Array.Empty<DragAction>();
         private string? _standardCurrentZoneId;
 
+        // DragGhostCard 视觉层 — 仅用于主窗口内拖拽视觉反馈，不参与数据传递和业务逻辑
+        private Border? _dragVisualElement;
+        private AnimeCardDragPayload? _dragVisualPayload;
+        private bool _dragVisualPayloadRequested;
+        private AnimeCardDragVisualContext? _dragVisualContext;
+
         public DragDropService(TrackingService tracking)
         {
             _tracking = tracking;
@@ -385,6 +391,7 @@ namespace AniMeido.Plugin.Base.Services
                 if (config.Action == DragAction.None || excludeSet.Contains(config.Action))
                     continue;
 
+                // 主标签：动作名称（追番、补番等）
                 var label = new TextBlock
                 {
                     Text = GetActionLabel(config.Action),
@@ -393,13 +400,29 @@ namespace AniMeido.Plugin.Base.Services
                     Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
                 };
 
+                // 提示文字：拖放时才显示（如"释放以标记为追番"）
+                var hint = new TextBlock
+                {
+                    Text = GetActionHint(config.Action),
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(Color.FromArgb(200, 220, 210, 240)),
+                    Visibility = Visibility.Collapsed,
+                    Margin = new Thickness(0, 4, 0, 0),
+                };
+
+                var innerStack = new StackPanel
+                {
+                    Spacing = 0,
+                    Children = { label, hint },
+                };
+
                 var inner = new Border
                 {
-                    Child = label,
-                    CornerRadius = new CornerRadius(8),
-                    Padding = new Thickness(16, 12, 16, 12),
-                    Background = new SolidColorBrush(Color.FromArgb(180, 0x44, 0x88, 0xFF)),
-                    Opacity = 0.7,
+                    Child = innerStack,
+                    CornerRadius = new CornerRadius(10),
+                    Padding = new Thickness(18, 14, 18, 14),
+                    Background = new SolidColorBrush(Color.FromArgb(160, 0x44, 0x88, 0xFF)),
+                    Opacity = 0.75,
                 };
 
                 var zone = new Border
@@ -419,22 +442,22 @@ namespace AniMeido.Plugin.Base.Services
                     if (args.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
                     {
                         args.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-                        System.Diagnostics.Debug.WriteLine($"[InternalDropZone] payload recognized = true, AcceptedOperation = Copy");
-                        // 高亮反馈
-                        inner.Background = new SolidColorBrush(Color.FromArgb(220, 0x66, 0xAA, 0xFF));
-                        inner.Opacity = 0.9;
+                        // 高亮反馈 — DragDropService.HandleStandardDragOver 也会管理高亮
+                        inner.Background = new SolidColorBrush(Color.FromArgb(240, 0x77, 0xBB, 0xFF));
+                        inner.Opacity = 1.0;
+                        hint.Visibility = Visibility.Visible;
                     }
                     else
                     {
                         args.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
-                        System.Diagnostics.Debug.WriteLine($"[InternalDropZone] payload recognized = false");
                     }
                 };
                 zone.DragLeave += (s, args) =>
                 {
                     // 恢复默认外观
-                    inner.Background = new SolidColorBrush(Color.FromArgb(180, 0x44, 0x88, 0xFF));
-                    inner.Opacity = 0.7;
+                    inner.Background = new SolidColorBrush(Color.FromArgb(160, 0x44, 0x88, 0xFF));
+                    inner.Opacity = 0.75;
+                    hint.Visibility = Visibility.Collapsed;
                 };
                 zone.Drop += async (s, args) =>
                 {
@@ -468,8 +491,9 @@ namespace AniMeido.Plugin.Base.Services
                     await RoutePayloadToZoneAsync(payload, dropPoint);
 
                     // 恢复默认外观
-                    inner.Background = new SolidColorBrush(Color.FromArgb(180, 0x44, 0x88, 0xFF));
-                    inner.Opacity = 0.7;
+                    inner.Background = new SolidColorBrush(Color.FromArgb(160, 0x44, 0x88, 0xFF));
+                    inner.Opacity = 0.75;
+                    hint.Visibility = Visibility.Collapsed;
                 };
 #pragma warning restore CA1031
 
@@ -483,7 +507,7 @@ namespace AniMeido.Plugin.Base.Services
                 }
 
                 if (overlay is Canvas canvas) canvas.Children.Add(zone);
-                _overlayZones[config.Id] = new DragDropZoneInfo(zone, inner, label);
+                _overlayZones[config.Id] = new DragDropZoneInfo(zone, inner, label, hint);
             }
         }
 
@@ -524,6 +548,22 @@ namespace AniMeido.Plugin.Base.Services
             DragAction.Dropped => "已弃番",
             DragAction.Blocked => "屏蔽",
             _ => "禁用"
+        };
+
+        /// <summary>
+        /// 获取拖放提示文字（用于 DropZone 悬停时的第二行提示）。
+        /// 纯视觉提示，不参与业务逻辑。
+        /// </summary>
+        public static string GetActionHint(DragAction action) => action switch
+        {
+            DragAction.Watching => "释放以标记为追番",
+            DragAction.PlanToWatch => "释放以标记为补番",
+            DragAction.NotInterested => "释放以设为不感兴趣",
+            DragAction.Following => "释放以加入关注",
+            DragAction.Completed => "释放以标记为已看完",
+            DragAction.Dropped => "释放以标记为已弃番",
+            DragAction.Blocked => "释放以加入屏蔽",
+            _ => "释放至此区域"
         };
 
         /// <summary>
@@ -602,6 +642,10 @@ namespace AniMeido.Plugin.Base.Services
             _standardPageRoot = pageRoot;
             _standardOverlay = overlay;
             _standardExcludeActions = excludeActions ?? Array.Empty<DragAction>();
+
+            // 订阅拖拽源上的 DragOver 回调，尽早显示 GhostCard
+            AnimeCardDragVisualContext.OnSourceDragOver = OnSourceDragOver;
+
             System.Diagnostics.Debug.WriteLine($"[DragDropService] ActiveDropContext set: page={pageRoot.GetType().Name}, overlay={overlay.Name}");
         }
 
@@ -614,6 +658,7 @@ namespace AniMeido.Plugin.Base.Services
                 return;
 
             CancelStandardDrag();
+            AnimeCardDragVisualContext.OnSourceDragOver = null;
             _standardPageRoot = null;
             _standardOverlay = null;
             _standardExcludeActions = Array.Empty<DragAction>();
@@ -622,7 +667,7 @@ namespace AniMeido.Plugin.Base.Services
 
         /// <summary>
         /// 处理标准拖拽的 DragOver。由 AnimeCardDropHost 或页面调用。
-        /// 根据坐标构建/显示 DropZone 并管理高亮。
+        /// 根据坐标构建/显示 DropZone、管理高亮、更新 DragVisual 位置和 Zone 提示文字。
         /// </summary>
         /// <param name="e">DragEventArgs，用于 GetPosition 获取 overlay 坐标。</param>
         /// <param name="coordinateSource">用于 GetPosition 的参照元素，通常为 overlay 自身。</param>
@@ -641,6 +686,14 @@ namespace AniMeido.Plugin.Base.Services
 
             var overlayPt = e.GetPosition(_standardOverlay);
 
+            // 首次 DragOver：尝试缓存 payload 用于 DragVisual，同时显示 DragVisual
+            RequestDragVisualPayload(e);
+            if (_dragVisualElement == null)
+                ShowDragVisual();
+
+            // 更新 DragVisual 位置
+            UpdateDragVisualPosition(overlayPt);
+
             // 查找当前 Zone
             string? hitZoneId = null;
             foreach (var kv in _overlayZones)
@@ -656,21 +709,24 @@ namespace AniMeido.Plugin.Base.Services
                 }
             }
 
-            // 高亮管理（仅在切换时更新，不触发日志风暴）
+            // 高亮 + 提示文字管理（仅在切换时更新，不触发日志风暴）
             if (hitZoneId != _standardCurrentZoneId)
             {
                 // 清除旧高亮
                 if (_standardCurrentZoneId != null && _overlayZones.TryGetValue(_standardCurrentZoneId, out var oldZone))
                 {
-                    oldZone.Inner.Background = new SolidColorBrush(Color.FromArgb(180, 0x44, 0x88, 0xFF));
-                    oldZone.Inner.Opacity = 0.7;
+                    oldZone.Inner.Background = new SolidColorBrush(Color.FromArgb(160, 0x44, 0x88, 0xFF));
+                    oldZone.Inner.Opacity = 0.75;
+                    oldZone.HintText.Visibility = Visibility.Collapsed;
                 }
 
                 // 设置新高亮
                 if (hitZoneId != null && _overlayZones.TryGetValue(hitZoneId, out var newZone))
                 {
-                    newZone.Inner.Background = new SolidColorBrush(Color.FromArgb(220, 0x66, 0xAA, 0xFF));
-                    newZone.Inner.Opacity = 0.9;
+                    // 使用更亮的强调色表示活跃目标
+                    newZone.Inner.Background = new SolidColorBrush(Color.FromArgb(240, 0x77, 0xBB, 0xFF));
+                    newZone.Inner.Opacity = 1.0;
+                    newZone.HintText.Visibility = Visibility.Visible;
                 }
 
                 _standardCurrentZoneId = hitZoneId;
@@ -763,10 +819,13 @@ namespace AniMeido.Plugin.Base.Services
         }
 
         /// <summary>
-        /// 取消标准拖拽并清理 DropZone 覆盖层和高亮。
+        /// 取消标准拖拽并清理 DropZone 覆盖层、高亮、提示文字和 DragVisual。
         /// </summary>
         public void CancelStandardDrag()
         {
+            HideDragVisual();
+            HideAllZoneHints();
+
             if (_standardOverlay != null)
             {
                 CleanupDrag(_standardOverlay);
@@ -774,7 +833,260 @@ namespace AniMeido.Plugin.Base.Services
             }
 
             _standardCurrentZoneId = null;
-            System.Diagnostics.Debug.WriteLine("[DragDropService] CancelStandardDrag - zones hidden");
+            _dragVisualPayload = null;
+            _dragVisualPayloadRequested = false;
+            _dragVisualContext = null;
+            AnimeCardDragVisualContext.OnSourceDragOver = null;
+            AnimeCardDragVisualContext.OnSnapshotReady -= OnGhostSnapshotReady;
+            AnimeCardDragVisualContext.Clear();
+            System.Diagnostics.Debug.WriteLine("[DragDropService] CancelStandardDrag - zones hidden, DragGhostCard cleaned");
+        }
+
+        // ======== DragGhostCard 视觉层 ========
+        //
+        // DragGhostCard 是主窗口内拖拽时的轻量半透明缩略预览，仅用于视觉目的：
+        // - 不参与数据传递（payload 是事实来源）
+        // - 不决定 DropZone（DropHost / Zone 负责行为）
+        // - 不执行业务逻辑
+        // - 在标准拖拽的 DragOver 阶段显示，Drop/Cancel 时清理
+        //
+        // DragGhostCard 视觉组成：
+        // - 上部：封面占位区（纯色 + 🎬 图标）
+        // - 下部：标题 + 提示文字
+        // - 整体：圆角卡片、半透明（0.85）、细边框、不参与命中测试
+        //
+        // 它不是聊天室消息卡片样式，不占满宽度。
+        // 它不是旧 GhostCard（_dragGhost）的恢复，而是独立的视觉层组件。
+        // 后续跨窗口自定义 GhostCard 将在此基础上扩展。
+
+        /// <summary>
+        /// 在 overlay 中创建并显示 DragGhostCard。
+        /// 仅在首次 DragOver 时调用一次。
+        ///
+        /// == snapshot-based GhostCard ==
+        /// GhostCard 显示源 AnimeCard 的 RenderTargetBitmap 视觉快照，
+        /// 不是手工拼接的 Border/Image/占位图。
+        /// 这是"原卡片残影"效果：用户看到的 GhostCard 就是正在拖动的 AnimeCard 本身。
+        ///
+        /// 优先级：
+        /// 1. GhostSnapshotSource — AnimeCard 完整视觉快照
+        /// 2. CoverImageSource — 封面当前已加载的 ImageSource
+        /// 3. 占位图标 — 末位 fallback
+        ///
+        /// 如果使用 fallback，通过 OnSnapshotReady 回调等待 snapshot 就绪后热更新。
+        ///
+        /// 不参与：数据传递、DropZone 决策、业务逻辑。
+        /// </summary>
+        private void ShowDragVisual()
+        {
+            if (_standardOverlay == null || _dragVisualElement != null)
+                return;
+
+            // 读取 AnimeCard 在 DragStarting 时设置的视觉定位上下文
+            _dragVisualContext = AnimeCardDragVisualContext.Current;
+
+            var cardWidth = _dragVisualContext?.SourceCardWidth ?? 150;
+            var cardHeight = _dragVisualContext?.SourceCardHeight ?? 200;
+
+            // ---- 选择视觉源：snapshot > coverImage > 占位 ----
+            var snapshotSource = _dragVisualContext?.GhostSnapshotSource;
+            var coverSource = _dragVisualContext?.CoverImageSource;
+            var useFallback = snapshotSource == null;
+
+            ImageSource? finalSource = snapshotSource ?? coverSource;
+
+            UIElement ghostContent;
+
+            if (finalSource != null)
+            {
+                ghostContent = new Image
+                {
+                    Source = finalSource,
+                    Stretch = Stretch.Fill,
+                    Width = cardWidth,
+                    Height = cardHeight,
+                };
+            }
+            else
+            {
+                ghostContent = new TextBlock
+                {
+                    Text = "🎬",
+                    FontSize = 28,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+            }
+
+            // ---- GhostCard：仅一个 Image 承载快照，不手工拼 UI ----
+            var ghostCard = new Border
+            {
+                Child = ghostContent,
+                Width = cardWidth,
+                Height = cardHeight,
+                CornerRadius = new CornerRadius(8),
+                Opacity = 0.85,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                IsHitTestVisible = false,
+                Tag = "DragVisual",
+            };
+
+            _standardOverlay.Children.Add(ghostCard);
+            _dragVisualElement = ghostCard;
+
+            // snapshot 未就绪时，订阅 OnSnapshotReady 回调等待就绪后热更新
+            if (useFallback)
+            {
+                AnimeCardDragVisualContext.OnSnapshotReady -= OnGhostSnapshotReady;
+                AnimeCardDragVisualContext.OnSnapshotReady += OnGhostSnapshotReady;
+            }
+
+            System.Diagnostics.Debug.WriteLine($"[DragGhostCard] shown (snapshot={snapshotSource != null}, fallback={useFallback})");
+        }
+
+        /// <summary>
+        /// GhostSnapshotSource 就绪回调：将 GhostCard 的 Image.Source 更新为完整视觉快照。
+        /// </summary>
+        private void OnGhostSnapshotReady()
+        {
+            // 取消订阅，只执行一次
+            AnimeCardDragVisualContext.OnSnapshotReady -= OnGhostSnapshotReady;
+
+            var ctx = AnimeCardDragVisualContext.Current;
+            if (ctx?.GhostSnapshotSource == null || _dragVisualElement == null)
+                return;
+
+            if (_dragVisualElement.Child is Image img)
+            {
+                img.Source = ctx.GhostSnapshotSource;
+                System.Diagnostics.Debug.WriteLine("[DragGhostCard] updated to snapshot via callback");
+            }
+        }
+
+        /// <summary>
+        /// 拖拽源（AnimeCard 自身）上的 DragOver 回调。
+        /// 由 AnimeCardDragVisualContext.OnSourceDragOver 触发，
+        /// 确保鼠标仍在拖拽源上方时 GhostCard 就能尽早出现。
+        /// </summary>
+        private void OnSourceDragOver(DragEventArgs e, UIElement sourceElement)
+        {
+            if (_standardOverlay == null)
+                return;
+
+            // 确保 overlay 可见并已构建 Zone
+            if (_overlayZones.Count == 0)
+            {
+                _standardOverlay.Visibility = Visibility.Visible;
+                _standardOverlay.UpdateLayout();
+                BuildAndShowZones(_standardOverlay, _standardExcludeActions);
+            }
+
+            // 尽早显示 GhostCard
+            if (_dragVisualElement == null)
+                ShowDragVisual();
+
+            // 更新 GhostCard 位置
+            var overlayPt = e.GetPosition(_standardOverlay);
+            UpdateDragVisualPosition(overlayPt);
+        }
+
+        /// <summary>
+        /// 隐藏并清理 DragVisual。在 DragOver 切换、Drop 完成、取消时调用。
+        /// </summary>
+        private void HideDragVisual()
+        {
+            if (_dragVisualElement == null || _standardOverlay == null)
+                return;
+
+            if (_standardOverlay.Children.Contains(_dragVisualElement))
+                _standardOverlay.Children.Remove(_dragVisualElement);
+
+            _dragVisualElement = null;
+            System.Diagnostics.Debug.WriteLine("[DragGhostCard] DragGhostCard hidden");
+        }
+
+        /// <summary>
+        /// 更新 DragGhostCard 在 overlay 中的位置。
+        /// 每帧 DragOver 调用，仅更新 Canvas 附加属性，不触发布局。
+        ///
+        /// 定位算法（还原自 main 分支旧 GhostCard）：
+        /// 居中于鼠标指针：left = pointer.X - W/2, top = pointer.Y - H/2
+        /// 旧 GhostCard 使用 _dragGhostOffset = (-W/2, -H/2) + Visual.Offset。
+        /// </summary>
+        private void UpdateDragVisualPosition(Point overlayPt)
+        {
+            if (_dragVisualElement == null || _standardOverlay is not FrameworkElement host)
+                return;
+
+            var ghostW = _dragVisualElement.Width;
+            var ghostH = _dragVisualElement.Height;
+            const double margin = 4;
+
+            // 居中于光标（旧 GhostCard 逻辑：_dragGhostOffset = (-75, -100) = -W/2, -H/2）
+            var left = overlayPt.X - ghostW / 2;
+            var top = overlayPt.Y - ghostH / 2;
+
+            // 边界裁剪：接近窗口边缘时限制，正常区域不干扰跟随感
+            left = Math.Max(margin, Math.Min(left, host.ActualWidth - ghostW - margin));
+            top = Math.Max(margin, Math.Min(top, host.ActualHeight - ghostH - margin));
+
+            Canvas.SetLeft(_dragVisualElement, left);
+            Canvas.SetTop(_dragVisualElement, top);
+        }
+
+        /// <summary>
+        /// 尝试从 DragEventArgs 中解析 payload 并缓存供 DragVisual 使用。
+        /// 仅在首次 DragOver 时执行一次，后续 DragOver 不再重复解析。
+        /// </summary>
+        private void RequestDragVisualPayload(DragEventArgs e)
+        {
+            if (_dragVisualPayloadRequested || _dragVisualPayload != null)
+                return;
+            _dragVisualPayloadRequested = true;
+
+            _ = TryLoadDragVisualPayloadAsync(e);
+        }
+
+#pragma warning disable CA1031 // 拖放载荷解析失败不影响拖放流程
+        private async Task TryLoadDragVisualPayloadAsync(DragEventArgs e)
+        {
+            try
+            {
+                if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
+                    return;
+
+                var text = await e.DataView.GetTextAsync();
+                if (string.IsNullOrEmpty(text))
+                    return;
+
+                var payload = AnimeCardDragPayloadSerializer.Deserialize(text);
+                if (payload == null)
+                    return;
+
+                _dragVisualPayload = payload;
+
+                // payload 已就绪，更新 DragGhostCard 封面图片
+                // 旧 GhostCard 无标题文字，仅封面 Image；当前视觉树：Border → Image
+                // payload 主要用于位置上下文，封面已在 ShowDragVisual 中加载
+                // 此处仅保留以备后续需要更新封面时使用
+            }
+            catch
+            {
+                // 解析失败不影响拖放流程
+            }
+        }
+#pragma warning restore CA1031
+
+        /// <summary>
+        /// 隐藏所有 Zone 的提示文字。在取消拖拽或切换 Zone 时调用。
+        /// </summary>
+        private void HideAllZoneHints()
+        {
+            foreach (var kv in _overlayZones)
+            {
+                kv.Value.HintText.Visibility = Visibility.Collapsed;
+            }
         }
 
         // ======== 页面级标准拖拽宿主注册 ========
@@ -881,9 +1193,11 @@ namespace AniMeido.Plugin.Base.Services
 
     /// <summary>
     /// 拖放 Zone 的 UI 元素记录。
+    /// HintText 用于拖放悬停时的第二行提示文字（如"释放以标记为追番"）。
     /// </summary>
     public record DragDropZoneInfo(
         Border Border,
         Border Inner,
-        TextBlock Label);
+        TextBlock Label,
+        TextBlock HintText);
 }
