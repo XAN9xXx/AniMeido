@@ -1,10 +1,8 @@
 ﻿using AniMeido.App.Services;
 using AniMeido.Contracts;
-using AniMeido.Plugin.Base.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Extensions.DependencyInjection;
-using WinRT.Interop;
 
 namespace AniMeido.App
 {
@@ -23,9 +21,6 @@ namespace AniMeido.App
         public MainWindow(IReadOnlyList<PluginNavigationItem> naviItems, NavigationService navigationService)
         {
             InitializeComponent();
-
-            // 保存主窗口 HWND 供顶层 GhostCard 检测鼠标边界
-            AnimeCardDragVisualContext.HostWindowHandle = WindowNative.GetWindowHandle(this);
 
             _navigationService = navigationService;
             _navigationService.Initialize(ContentFrame);
@@ -175,11 +170,6 @@ namespace AniMeido.App
         private void OnMainWindowClosing(object sender, WindowEventArgs args)
         {
             _isClosing = true;
-
-            // 关闭顶层 GhostWindow（拖拽中关闭窗口时确保清理）
-            var ddService = App.Services?.GetService(typeof(AniMeido.Plugin.Base.Services.DragDropService))
-                as AniMeido.Plugin.Base.Services.DragDropService;
-            ddService?.Shutdown();
 
             // 触发应用关闭通知，由各模块自行清理
             Contracts.AppServices.NotifyClosing();

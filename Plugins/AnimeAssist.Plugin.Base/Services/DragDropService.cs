@@ -16,9 +16,9 @@ using System.Numerics;
 namespace AniMeido.Plugin.Base.Services
 {
     /// <summary>
-    /// 拖放标记服务：管理 Zone 构建、标记状态路由、GhostCard 与标准拖拽协调。
+    /// 拖放标记服务：管理 Zone 构建、标记状态路由、标准拖放协调与旧内部拖拽路径兼容。
     ///
-    /// == 拖拽系统分层说明 ==
+    /// == 拖拽系统说明 ==
     ///
     /// [数据事实]
     ///   AnimeCardDragPayload — 跨窗口/跨区域的统一拖拽数据格式。
@@ -37,13 +37,8 @@ namespace AniMeido.Plugin.Base.Services
     ///   → ShowPendingCard → 用户发送 → 文字消息
     ///
     /// [旧内部拖拽路径 (Legacy)]
-    ///   HandlePointerPressed/Moved/Released — 基于指针坐标的 GhostCard 拖拽路径。
-    ///   当前 AnimeCard（CanDrag=True）已跳过此路径。该路径仍保留用于：
-    ///   - 未启用标准拖拽的历史页面兼容
-    ///   - GhostCard 视觉残留（后续 Drag Visual 阶段将重建自定义拖拽视觉）
-    ///
-    /// [后续计划]
-    ///   GhostCard / 自定义拖拽视觉 → Drag Visual 阶段，不参与数据传递。
+    ///   HandlePointerPressed/Moved/Released — 基于指针坐标的内部拖拽路径。
+    ///   当前 AnimeCard（CanDrag=True）已跳过此路径。保留供未启用标准拖拽的页面兼容。
     /// </summary>
     public sealed class DragDropService
     {
@@ -72,11 +67,7 @@ namespace AniMeido.Plugin.Base.Services
         private DragAction[] _standardExcludeActions = Array.Empty<DragAction>();
         private string? _standardCurrentZoneId;
 
-        // DragGhostCard 视觉层 — 仅用于主窗口内拖拽视觉反馈，不参与数据传递和业务逻辑
-        private AnimeCardDragPayload? _dragVisualPayload;
-        private bool _dragVisualPayloadRequested;
-        private AnimeCardDragVisualContext? _dragVisualContext;
-        private readonly AnimeCardTopLevelDragGhostService _topLevelGhost = new();
+
 
         public DragDropService(TrackingService tracking)
         {
@@ -643,9 +634,6 @@ namespace AniMeido.Plugin.Base.Services
             _standardOverlay = overlay;
             _standardExcludeActions = excludeActions ?? Array.Empty<DragAction>();
 
-            // 订阅拖拽源上的 DragOver 回调，尽早显示 GhostCard
-            AnimeCardDragVisualContext.OnSourceDragOver = OnSourceDragOver;
-
             System.Diagnostics.Debug.WriteLine($"[DragDropService] ActiveDropContext set: page={pageRoot.GetType().Name}, overlay={overlay.Name}");
         }
 
@@ -658,7 +646,6 @@ namespace AniMeido.Plugin.Base.Services
                 return;
 
             CancelStandardDrag();
-            AnimeCardDragVisualContext.OnSourceDragOver = null;
             _standardPageRoot = null;
             _standardOverlay = null;
             _standardExcludeActions = Array.Empty<DragAction>();
@@ -685,12 +672,6 @@ namespace AniMeido.Plugin.Base.Services
                 return;
 
             var overlayPt = e.GetPosition(_standardOverlay);
-
-            // 首次 DragOver：尝试缓存 payload 用于 DragVisual，同时显示 GhostCard
-            // GhostCard 位置由顶层窗口计时器通过 GetCursorPos 自动更新
-            RequestDragVisualPayload(e);
-            if (!_topLevelGhost.IsRunning)
-                ShowDragVisual();
 
             // 查找当前 Zone
             string? hitZoneId = null;
@@ -817,253 +798,21 @@ namespace AniMeido.Plugin.Base.Services
         }
 
         /// <summary>
-        /// 取消标准拖拽并清理 DropZone 覆盖层、高亮、提示文字和 DragVisual。
+        /// 取消标准拖拽并清理 DropZone 覆盖层、高亮、提示文字和拖拽状态。
         /// </summary>
         public void CancelStandardDrag()
         {
-            EndStandardDrag();
-        }
+            HideAllZoneHints();
 
-        // ======== DragGhostCard 视觉层 ========
-        //
-        // DragGhostCard 是主窗口内拖拽时的轻量半透明缩略预览，仅用于视觉目的：
-        // - 不参与数据传递（payload 是事实来源）
-        // - 不决定 DropZone（DropHost / Zone 负责行为）
-        // - 不执行业务逻辑
-        // - 在标准拖拽的 DragOver 阶段显示，Drop/Cancel 时清理
-        //
-        // DragGhostCard 视觉组成：
-        // - 上部：封面占位区（纯色 + 🎬 图标）
-        // - 下部：标题 + 提示文字
-        // - 整体：圆角卡片、半透明（0.85）、细边框、不参与命中测试
-        //
-        // 它不是聊天室消息卡片样式，不占满宽度。
-        // 它不是旧 GhostCard（_dragGhost）的恢复，而是独立的视觉层组件。
-        // 后续跨窗口自定义 GhostCard 将在此基础上扩展。
-
-        /// <summary>
-        /// 在 overlay 中创建并显示 DragGhostCard。
-        /// 仅在首次 DragOver 时调用一次。
-        ///
-        /// == snapshot-based GhostCard ==
-        /// GhostCard 显示源 AnimeCard 的 RenderTargetBitmap 视觉快照，
-        /// 不是手工拼接的 Border/Image/占位图。
-        /// 这是"原卡片残影"效果：用户看到的 GhostCard 就是正在拖动的 AnimeCard 本身。
-        ///
-        /// 优先级：
-        /// 1. GhostSnapshotSource — AnimeCard 完整视觉快照
-        /// 2. CoverImageSource — 封面当前已加载的 ImageSource
-        /// 3. 占位图标 — 末位 fallback
-        ///
-        /// 如果使用 fallback，通过 OnSnapshotReady 回调等待 snapshot 就绪后热更新。
-        ///
-        /// 不参与：数据传递、DropZone 决策、业务逻辑。
-        /// </summary>
-        /// <summary>
-        /// 启动顶层 GhostCard（替代 overlay Border）。
-        /// 创建无边框、置顶、鼠标穿透的小窗口，显示 AnimeCard 的 RenderTargetBitmap 视觉快照。
-        /// 跟随全局鼠标位置，跨越 MainWindow 与 ChatWindow。
-        ///
-        /// 设置光标离开/进入主窗口的回调，用于管理 DropZone 可见性。
-        ///
-        /// 不参与：数据传递、DropZone 决策、业务逻辑。
-        /// DropZone 高亮仍由 overlay 负责。
-        /// </summary>
-        private void ShowDragVisual()
-        {
-            if (_topLevelGhost.IsRunning)
-                return;
-
-            // 读取 AnimeCard 在 DragStarting 时设置的视觉定位上下文
-            _dragVisualContext = AnimeCardDragVisualContext.Current;
-
-            var cardWidth = _dragVisualContext?.SourceCardWidth ?? 150;
-            var cardHeight = _dragVisualContext?.SourceCardHeight ?? 200;
-            var dpiScale = _dragVisualContext?.SourceDpiScale ?? 1.0;
-
-            // 选择视觉源：snapshot > coverImage
-            var snapshotSource = _dragVisualContext?.GhostSnapshotSource;
-            var coverSource = _dragVisualContext?.CoverImageSource;
-            var useFallback = snapshotSource == null;
-
-            var source = snapshotSource ?? coverSource;
-            if (source == null)
-                return;
-
-            // 拖拽停止时（左键释放/Drop/Cancel）统一清理
-            _topLevelGhost.OnDragStopped = EndStandardDrag;
-
-            _topLevelGhost.Start(source, cardWidth, cardHeight, dpiScale);
-
-            // snapshot 未就绪时，订阅回调等待就绪后热更新
-            if (useFallback)
+            if (_standardOverlay != null)
             {
-                AnimeCardDragVisualContext.OnSnapshotReady -= OnGhostSnapshotReady;
-                AnimeCardDragVisualContext.OnSnapshotReady += OnGhostSnapshotReady;
+                ClearZonesFrom(_standardOverlay);
+                _standardOverlay.Visibility = Visibility.Collapsed;
             }
 
-            System.Diagnostics.Debug.WriteLine($"[TopLevelGhost] shown (snapshot={snapshotSource != null}, fallback={useFallback})");
+            _standardCurrentZoneId = null;
+            System.Diagnostics.Debug.WriteLine("[DragDropService] CancelStandardDrag - zones hidden, state cleared");
         }
-
-        private bool _isEndingStandardDrag;
-
-        /// <summary>
-        /// 统一清理入口：停止顶层 Ghost + 清理 DropZone + 重置本次拖拽状态。
-        /// 不清理页面级回调（OnSourceDragOver），确保下一次拖拽能重新初始化。
-        /// </summary>
-        private void EndStandardDrag()
-        {
-            if (_isEndingStandardDrag) return;
-            _isEndingStandardDrag = true;
-            try
-            {
-                // 1. 停止顶层 GhostWindow
-                _topLevelGhost.Stop();
-
-                // 2. 清理 DropZone overlay
-                HideAllZoneHints();
-                if (_standardOverlay != null)
-                {
-                    ClearZonesFrom(_standardOverlay);
-                    _standardOverlay.Visibility = Visibility.Collapsed;
-                }
-
-                // 3. 重置本次拖拽状态（保留页面级注册）
-                _standardCurrentZoneId = null;
-                _dragVisualPayload = null;
-                _dragVisualPayloadRequested = false;
-                _dragVisualContext = null;
-
-                // 4. 清理 per-drag 上下文（不清理 OnSourceDragOver）
-                AnimeCardDragVisualContext.OnSnapshotReady -= OnGhostSnapshotReady;
-                AnimeCardDragVisualContext.ClearCurrentDrag();
-
-                System.Diagnostics.Debug.WriteLine("[DragDropService] EndStandardDrag cleanup completed");
-            }
-            finally
-            {
-                _isEndingStandardDrag = false;
-            }
-        }
-
-        /// <summary>
-        /// 应用关闭时的完整清理。
-        /// </summary>
-        public void Shutdown()
-        {
-            EndStandardDrag();
-
-            // 清理页面级回调
-            AnimeCardDragVisualContext.OnSourceDragOver = null;
-            AnimeCardDragVisualContext.ClearAllForShutdown();
-
-            // 销毁 GhostWindow 资源
-            _topLevelGhost.Shutdown();
-
-            _standardPageRoot = null;
-            _standardOverlay = null;
-            _standardExcludeActions = Array.Empty<DragAction>();
-            _pageDragHosts.Clear();
-
-            System.Diagnostics.Debug.WriteLine("[DragDropService] Shutdown complete");
-        }
-
-        /// <summary>
-        /// GhostSnapshotSource 就绪回调：热更新顶层窗口的 ImageSource。
-        /// 使用 UpdateSource 而非重新 Start，避免重建窗口或丢失样式。
-        /// </summary>
-        private void OnGhostSnapshotReady()
-        {
-            AnimeCardDragVisualContext.OnSnapshotReady -= OnGhostSnapshotReady;
-
-            var ctx = AnimeCardDragVisualContext.Current;
-            if (ctx?.GhostSnapshotSource == null)
-                return;
-
-            var dpiScale = ctx.SourceDpiScale;
-            if (_topLevelGhost.IsRunning)
-                _topLevelGhost.UpdateSource(ctx.GhostSnapshotSource,
-                    ctx.SourceCardWidth, ctx.SourceCardHeight, dpiScale);
-            else
-                _topLevelGhost.Start(ctx.GhostSnapshotSource,
-                    ctx.SourceCardWidth, ctx.SourceCardHeight, dpiScale);
-
-            System.Diagnostics.Debug.WriteLine("[TopLevelGhost] updated to snapshot via callback");
-        }
-
-        /// <summary>
-        /// 隐藏并清理 GhostCard。停止顶层窗口。
-        /// </summary>
-        private void HideDragVisual()
-        {
-            _topLevelGhost.Stop();
-        }
-
-        /// <summary>
-        /// 拖拽源（AnimeCard 自身）上的 DragOver 回调。
-        /// 由 AnimeCardDragVisualContext.OnSourceDragOver 触发，
-        /// 尽早显示顶层 GhostCard，确保鼠标仍在拖拽源上时 GhostCard 就出现。
-        /// </summary>
-        private void OnSourceDragOver(DragEventArgs e, UIElement sourceElement)
-        {
-            if (_standardOverlay == null)
-                return;
-
-            // 确保 overlay 可见并已构建 Zone
-            if (_overlayZones.Count == 0)
-            {
-                _standardOverlay.Visibility = Visibility.Visible;
-                _standardOverlay.UpdateLayout();
-                BuildAndShowZones(_standardOverlay, _standardExcludeActions);
-            }
-
-            // 尽早显示顶层 GhostCard（位置由计时器自动更新）
-            if (!_topLevelGhost.IsRunning)
-                ShowDragVisual();
-        }
-
-        /// <summary>
-        /// 尝试从 DragEventArgs 中解析 payload 并缓存供 DragVisual 使用。
-        /// 仅在首次 DragOver 时执行一次，后续 DragOver 不再重复解析。
-        /// </summary>
-        private void RequestDragVisualPayload(DragEventArgs e)
-        {
-            if (_dragVisualPayloadRequested || _dragVisualPayload != null)
-                return;
-            _dragVisualPayloadRequested = true;
-
-            _ = TryLoadDragVisualPayloadAsync(e);
-        }
-
-#pragma warning disable CA1031 // 拖放载荷解析失败不影响拖放流程
-        private async Task TryLoadDragVisualPayloadAsync(DragEventArgs e)
-        {
-            try
-            {
-                if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
-                    return;
-
-                var text = await e.DataView.GetTextAsync();
-                if (string.IsNullOrEmpty(text))
-                    return;
-
-                var payload = AnimeCardDragPayloadSerializer.Deserialize(text);
-                if (payload == null)
-                    return;
-
-                _dragVisualPayload = payload;
-
-                // payload 已就绪，更新 DragGhostCard 封面图片
-                // 旧 GhostCard 无标题文字，仅封面 Image；当前视觉树：Border → Image
-                // payload 主要用于位置上下文，封面已在 ShowDragVisual 中加载
-                // 此处仅保留以备后续需要更新封面时使用
-            }
-            catch
-            {
-                // 解析失败不影响拖放流程
-            }
-        }
-#pragma warning restore CA1031
 
         /// <summary>
         /// 隐藏所有 Zone 的提示文字。在取消拖拽或切换 Zone 时调用。

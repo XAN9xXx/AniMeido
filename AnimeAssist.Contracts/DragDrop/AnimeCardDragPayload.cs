@@ -24,7 +24,7 @@ namespace AniMeido.Contracts.DragDrop;
 /// Shell 层: AnimeCardDropHost（主窗口兜底接收）
 /// 页面层: DragDropService（Zone 构建、路由、标记状态写入）
 /// 跨窗口: ChatWindow InputPanel（接收 → PendingAnimeCard → 发送）
-/// 后续: GhostCard / 自定义拖拽视觉 → Drag Visual 阶段，不参与数据传递
+/// GhostCard / 自定义拖拽视觉属于纯视觉层，不参与数据传递
 /// </summary>
 public sealed class AnimeCardDragPayload
 {
