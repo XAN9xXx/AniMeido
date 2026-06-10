@@ -72,6 +72,15 @@ namespace AniMeido.Plugin.Base.Services
         public DragDropService(TrackingService tracking)
         {
             _tracking = tracking;
+
+            // 订阅跨窗口拖拽完成通知（如 ChatWindow 成功接收 AnimeCard 后清理 DropZone）
+            AniMeido.Contracts.AppServices.DragDropCompleted += OnExternalDragDropCompleted;
+        }
+
+        /// <summary>外部拖拽完成时清理当前 DropZone overlay。</summary>
+        private void OnExternalDragDropCompleted()
+        {
+            CancelStandardDrag();
         }
 
         /// <summary>是否正在拖放中。</summary>

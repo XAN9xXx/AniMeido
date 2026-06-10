@@ -631,6 +631,9 @@ public sealed partial class ChatWindow : Window
 
         System.Diagnostics.Debug.WriteLine($"[ChatWindow] AnimeCard payload parse success: {payload.AnimeId} - {payload.Title}");
         ShowPendingCard(payload);
+
+        // 通知主窗口清理 DropZone overlay（跨插件边界，通过 Contracts 层解耦）
+        AniMeido.Contracts.AppServices.NotifyDragDropCompleted();
     }
 
     private void ShowPendingCard(AnimeCardDragPayload payload)

@@ -18,6 +18,15 @@
         /// </summary>
         public static event Action? Closing;
 
+        /// <summary>
+        /// 外部拖拽完成通知（跨插件边界，如 ChatWindow 成功接收 AnimeCard）。
+        /// 主窗口 DragDropService 订阅此事件以清理 DropZone overlay。
+        /// </summary>
+        public static event Action? DragDropCompleted;
+
+        /// <summary>触发外部拖拽完成通知。</summary>
+        public static void NotifyDragDropCompleted() => DragDropCompleted?.Invoke();
+
         /// <summary>触发关闭通知。</summary>
         public static void NotifyClosing() => Closing?.Invoke();
     }
