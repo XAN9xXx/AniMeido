@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
+
 using System.Collections.ObjectModel;
 
 namespace AniMeido.Plugin.Base.Views
@@ -16,10 +17,10 @@ namespace AniMeido.Plugin.Base.Views
         public CurrentSeasonViewModel ViewModel { get; }
 
         static bool _hasAutoScrolledOnce = false;
-        private bool _loadedHandlerAttached;
         private readonly List<Anime> _allAnime = new();
         private HashSet<int> _blockedIds = new();
         private DragDropService _dragDrop;
+        private bool _dropHostRegistered;
         private TrackingService _tracking;
         private readonly IPluginNavigator _pluginNavigator;
 
@@ -70,36 +71,37 @@ namespace AniMeido.Plugin.Base.Views
 
         private void OnPageLoaded(object sender, RoutedEventArgs e)
         {
-            if (_loadedHandlerAttached) return;
-            _loadedHandlerAttached = true;
+            if (sender is not Grid rootGrid)
+                return;
 
-            var rootGrid = (Grid)sender;
-            rootGrid.AddHandler(UIElement.PointerPressedEvent,
-                new PointerEventHandler(OnCapturedPointerPressed), true);
-            rootGrid.AddHandler(UIElement.PointerReleasedEvent,
-                new PointerEventHandler(OnRootPointerReleased), true);
-            rootGrid.AddHandler(UIElement.PointerCanceledEvent,
-                new PointerEventHandler(OnRootPointerCanceled), true);
-            rootGrid.AddHandler(UIElement.PointerCaptureLostEvent,
-                new PointerEventHandler(OnRootPointerCaptureLost), true);
+            EnsureDropHostRegistered(rootGrid);
 
-            // 注册标准拖放上下文（ActiveDropContext）
-            _dragDrop.SetActiveDropContext(rootGrid, DragOverlay, DragAction.PlanToWatch);
-            rootGrid.Unloaded += (_, _) =>
-            {
-                _dragDrop.ClearActiveDropContext(rootGrid);
-            };
-
-            // 注册页面根元素为标准拖拽宿主
-            _dragDrop.RegisterStandardDragHost(rootGrid);
-            rootGrid.Unloaded += (_, _) =>
-            {
-                _dragDrop.UnregisterStandardDragHost(rootGrid);
-            };
+            // 确保 Unloaded 只注册一次
+            rootGrid.Unloaded -= OnRootGridUnloaded;
+            rootGrid.Unloaded += OnRootGridUnloaded;
 
             // 等待开屏淡出完成后，自动跳转到今日星期分组
-            // 开屏淡出在 FirstPageLoaded 信号 + 最低 2 秒显示 + 淡出动画后完成
             _ = WaitForSplashAndAutoScrollAsync();
+        }
+
+        private void EnsureDropHostRegistered(Grid rootGrid)
+        {
+            if (_dropHostRegistered)
+                return;
+            _dropHostRegistered = true;
+
+            _dragDrop.SetActiveDropContext(rootGrid, DragOverlay, DragAction.PlanToWatch);
+            _dragDrop.RegisterStandardDragHost(rootGrid);
+        }
+
+        private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Grid rootGrid)
+                return;
+
+            _dragDrop.ClearActiveDropContext(rootGrid);
+            _dragDrop.UnregisterStandardDragHost(rootGrid);
+            _dropHostRegistered = false;
         }
 
         private async Task WaitForSplashAndAutoScrollAsync()
@@ -228,10 +230,9 @@ namespace AniMeido.Plugin.Base.Views
             }
         }
 
-        private void OnWeekdayItemClick(object sender, ItemClickEventArgs e)
+        private void OnAnimeCardClicked(object? sender, Views.Controls.AnimeCardClickedEventArgs e)
         {
-            if (e.ClickedItem is Anime anime)
-                _pluginNavigator.Navigate(typeof(AnimeDetailPage), anime.ID);
+            _pluginNavigator.Navigate(typeof(AnimeDetailPage), e.Anime.ID);
         }
 
         private static void PlayBringIntoViewEffect(UIElement element)
@@ -288,49 +289,6 @@ namespace AniMeido.Plugin.Base.Views
         }
 
         // ======== 自定义拖放 ========
-
-        private void OnCapturedPointerPressed(object sender, PointerRoutedEventArgs e)
-        {
-            _dragDrop.HandlePointerPressed(this, e);
-        }
-
-        private void OnRootPointerMoved(object sender, PointerRoutedEventArgs e)
-        {
-            _dragDrop.HandlePointerMoved(this, DragOverlay, e, DragAction.PlanToWatch);
-        }
-
-        private void OnRootPointerReleased(object sender, PointerRoutedEventArgs e)
-        {
-            _dragDrop.HandlePointerReleased(DragOverlay, e);
-            CleanupOverlayAfterDrag();
-        }
-
-        private void OnRootPointerCanceled(object sender, PointerRoutedEventArgs e)
-        {
-            _dragDrop.HandlePointerCanceled(DragOverlay);
-            CleanupOverlayAfterDrag();
-        }
-
-        private void OnRootPointerCaptureLost(object sender, PointerRoutedEventArgs e)
-        {
-            System.Diagnostics.Debug.WriteLine("[CurrentSeasonPage] PointerCaptureLost cleanup triggered");
-            _dragDrop.HandlePointerCanceled(DragOverlay);
-            _dragDrop.ResetState();
-            CleanupOverlayAfterDrag();
-        }
-
-        private void CleanupOverlayAfterDrag()
-        {
-            if (!_dragDrop.IsDragging)
-            {
-                // 移除 Ghost 和 Zones
-                if (_dragDrop.DragGhost != null)
-                    DragOverlay.Children.Remove(_dragDrop.DragGhost);
-                foreach (var zone in _dragDrop.ActiveZones)
-                    DragOverlay.Children.Remove(zone.Border);
-                DragOverlay.Visibility = Visibility.Collapsed;
-            }
-        }
 
         // ======== 即时过滤 ========
 

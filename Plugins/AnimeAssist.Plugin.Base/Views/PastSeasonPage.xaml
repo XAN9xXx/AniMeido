@@ -11,8 +11,7 @@
     xmlns:contracts="using:AniMeido.Contracts.Models">
 
     <Grid AllowDrop="True"
-          Loaded="OnPageLoaded"
-          PointerMoved="OnRootPointerMoved">
+          Loaded="OnPageLoaded">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -113,8 +112,6 @@
                 <!-- 番剧网格 -->
                 <GridView x:Name="AnimeGridView"
                           ItemsSource="{x:Bind ViewModel.AnimeList, Mode=OneWay}"
-                          IsItemClickEnabled="True"
-                          ItemClick="OnItemClick"
                           SelectionMode="None">
                     <GridView.ItemContainerStyle>
                         <Style TargetType="GridViewItem">
@@ -124,24 +121,12 @@
                                     Value="False"/>
                             <Setter Property="Margin"
                                     Value="0,0,4,8"/>
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="GridViewItem">
-                                        <ContentPresenter
-                                            Content="{TemplateBinding Content}"
-                                            ContentTemplate="{TemplateBinding ContentTemplate}"
-                                            ContentTransitions="{TemplateBinding ContentTransitions}"
-                                            HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                            VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
-                                            Margin="0"/>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
                         </Style>
                     </GridView.ItemContainerStyle>
                     <GridView.ItemTemplate>
                         <DataTemplate x:DataType="contracts:Anime">
-                            <controls:AnimeCard ShowWeekdayBadge="True"/>
+                            <controls:AnimeCard ShowWeekdayBadge="True"
+                                                CardClicked="OnAnimeCardClicked"/>
                         </DataTemplate>
                     </GridView.ItemTemplate>
                 </GridView>
@@ -184,8 +169,7 @@
                 Grid.RowSpan="2"
                 Visibility="Collapsed"
                 Background="Transparent"
-                AllowDrop="True"
-                PointerMoved="OnRootPointerMoved"/>
+                AllowDrop="True"/>
     </Grid>
 </Page>
 

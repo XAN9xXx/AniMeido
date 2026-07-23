@@ -25,10 +25,9 @@ namespace AniMeido.Plugin.Base.Views
             return Task.CompletedTask;
         }
 
-        private void OnItemClick(object sender, ItemClickEventArgs e)
+        private void OnAnimeCardClicked(object? sender, Views.Controls.AnimeCardClickedEventArgs e)
         {
-            if (e.ClickedItem is Anime anime)
-                _pluginNavigator.Navigate(typeof(AnimeDetailPage), anime.ID);
+            _pluginNavigator.Navigate(typeof(AnimeDetailPage), e.Anime.ID);
         }
 
         private async void OnClearClick(object sender, RoutedEventArgs e)

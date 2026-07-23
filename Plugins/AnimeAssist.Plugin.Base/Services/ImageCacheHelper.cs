@@ -25,6 +25,9 @@ namespace AniMeido.Plugin.Base.Services
         /// <summary>占位图 URI</summary>
         public static readonly Uri PlaceholderUri;
 
+        /// <summary>占位图本地文件路径（非打包分发可用）。</summary>
+        public static readonly string PlaceholderPath;
+
         /// <summary>允许下载图片的可信 Host 列表。</summary>
         private static readonly HashSet<string> AllowedImageHosts = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -42,6 +45,7 @@ namespace AniMeido.Plugin.Base.Services
             Directory.CreateDirectory(CacheDir);
 
             var placeholderPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Placeholder_cover.png");
+            PlaceholderPath = placeholderPath;
             PlaceholderUri = new Uri(placeholderPath);
 
             // 启动时预热缓存列表

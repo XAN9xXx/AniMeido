@@ -9,54 +9,25 @@ using Windows.Foundation;
 
 namespace AniMeido.Plugin.Base.Views.Controls
 {
-    /// <summary>
-    /// [旧内部拖拽路径事件参数] 包含拖拽的 Anime 对象、指针位置和统一载荷。
-    /// 此事件类仅由旧 DragTriggered 事件使用，标准拖拽路径不经过此类型。
-    /// Payload 构造逻辑与标准拖拽一致，确保数据格式统一。
-    /// </summary>
-    public class AnimeDragEventArgs : EventArgs
+    /// <summary>单击 AnimeCard 时的事件参数。</summary>
+    public sealed class AnimeCardClickedEventArgs : EventArgs
     {
         public Anime Anime { get; }
-        public Point PointerPosition { get; }
-        public UIElement Source { get; }
-        /// <summary>统一拖拽载荷（构造时从 Anime 构建）。</summary>
-        public AnimeCardDragPayload? Payload { get; }
-
-        public AnimeDragEventArgs(Anime anime, Point pointerPosition, UIElement source)
-        {
-            Anime = anime;
-            PointerPosition = pointerPosition;
-            Source = source;
-            Payload = BuildPayload(anime);
-        }
-
-        private static AnimeCardDragPayload BuildPayload(Anime anime)
-        {
-            var payload = new AnimeCardDragPayload
-            {
-                AnimeId = anime.ID,
-                Title = anime.Title,
-                CoverImageUrl = anime.CoverURL,
-                Summary = anime.Description,
-                SeasonYear = anime.SeasonYear,
-                SeasonMonth = anime.SeasonMonth,
-                Source = "AnimeCard",
-            };
-            return payload;
-        }
+        public AnimeCardClickedEventArgs(Anime anime) => Anime = anime;
     }
 
     public sealed partial class AnimeCard : UserControl
     {
-        /// <summary>
-        /// [旧内部拖拽路径] 当检测到拖动手势（长按+移动阈值）时触发。
-        /// 当前标准拖拽已启用（CanDrag=True），此事件在标准拖拽路径中不触发。
-        /// 保留供旧页面兼容，不作为 AnimeCard 主拖拽入口。
-        /// </summary>
-        public event EventHandler<AnimeDragEventArgs>? DragTriggered;
+        /// <summary>单击 AnimeCard 时触发（非拖拽）。由页面订阅。</summary>
+        public event EventHandler<AnimeCardClickedEventArgs>? CardClicked;
 
-        private bool _dragPointerDown;
-        private Point _dragStartPoint;
+        // click-vs-drag 输入状态
+        private bool _pointerDown;
+        private bool _clickCandidate;
+        private bool _standardDragStarted;
+        private Point _pointerDownPoint;
+        private const double ClickMoveThreshold = 8.0;
+
         private int _coverLoadVersion;      // 封面加载版本号，防止旧异步任务更新新卡片
         private int _currentAnimeId;        // 当前显示番剧 ID，用于 DataContextChanged 快速判断
         public static readonly DependencyProperty ShowWeekdayBadgeProperty =
@@ -318,8 +289,10 @@ namespace AniMeido.Plugin.Base.Views.Controls
 
         private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
         {
-            _dragPointerDown = true;
-            _dragStartPoint = e.GetCurrentPoint(this).Position;
+            _pointerDown = true;
+            _clickCandidate = true;
+            _standardDragStarted = false;
+            _pointerDownPoint = e.GetCurrentPoint(this).Position;
 
             var visual = ElementCompositionPreview.GetElementVisual(this);
             var compositor = visual.Compositor;
@@ -338,7 +311,18 @@ namespace AniMeido.Plugin.Base.Views.Controls
 
         private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
         {
-            _dragPointerDown = false;
+            // 检测本次是否为单击——先捕获 DataContext，再判断状态
+            Anime? clickAnime = DataContext as Anime;
+            bool shouldClick = _clickCandidate && !_standardDragStarted && clickAnime != null;
+
+            // 重置状态
+            _pointerDown = false;
+            _clickCandidate = false;
+            _standardDragStarted = false;
+
+            // 触发单击事件
+            if (shouldClick)
+                CardClicked?.Invoke(this, new AnimeCardClickedEventArgs(clickAnime!));
 
             var visual = ElementCompositionPreview.GetElementVisual(this);
             var compositor = visual.Compositor;
@@ -357,35 +341,36 @@ namespace AniMeido.Plugin.Base.Views.Controls
 
         private void OnPointerCanceled(object sender, PointerRoutedEventArgs e)
         {
-            _dragPointerDown = false;
+            _pointerDown = false;
+            _clickCandidate = false;
+            _standardDragStarted = false;
         }
 
         private void OnPointerCaptureLost(object sender, PointerRoutedEventArgs e)
         {
-            _dragPointerDown = false;
+            _pointerDown = false;
+            _clickCandidate = false;
+            _standardDragStarted = false;
         }
 
         private void OnDragPointerMoved(object sender, PointerRoutedEventArgs e)
         {
-            if (!_dragPointerDown || DataContext is not Anime anime)
+            if (!_pointerDown)
                 return;
-
-            // 标准拖拽启用后，旧指针拖拽不应再触发
-            if (CanDrag)
-            {
-                _dragPointerDown = false;
-                return;
-            }
 
             var pt = e.GetCurrentPoint(this).Position;
-            var dx = pt.X - _dragStartPoint.X;
-            var dy = pt.Y - _dragStartPoint.Y;
-            if (Math.Abs(dx) < 8 && Math.Abs(dy) < 8)
+            var moved = Math.Abs(pt.X - _pointerDownPoint.X) >= ClickMoveThreshold
+                     || Math.Abs(pt.Y - _pointerDownPoint.Y) >= ClickMoveThreshold;
+
+            if (moved)
+                _clickCandidate = false;
+
+            // CanDrag=True：标准拖拽由 WinUI 管理，不干预，不设置 _pointerDown = false
+            // CanDrag=False 路径已删除（所有 AnimeCard 已启用标准拖拽）
+            if (CanDrag)
                 return;
 
-            // 达到阈值，触发拖动手势
-            _dragPointerDown = false;
-            DragTriggered?.Invoke(this, new AnimeDragEventArgs(anime, e.GetCurrentPoint(this).Position, this));
+            // 不再支持 legacy pointer drag，但保留 _clickCandidate 已由 moved 更新
         }
 
         /// <summary>
@@ -395,6 +380,10 @@ namespace AniMeido.Plugin.Base.Views.Controls
         /// </summary>
         private void OnBodyDragStarting(UIElement sender, DragStartingEventArgs args)
         {
+            // 一进入 DragStarting 就标记，确保 PointerReleased 不会误判
+            _standardDragStarted = true;
+            _clickCandidate = false;
+
             if (DataContext is not Anime anime)
             {
                 args.Cancel = true;
@@ -420,6 +409,9 @@ namespace AniMeido.Plugin.Base.Views.Controls
             args.AllowedOperations = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
 
             System.Diagnostics.Debug.WriteLine($"[AnimeCard] DragStarting: AllowedOperations=Copy, payload animeId={payload.AnimeId}, title={payload.Title}");
+
+            // 尝试设置圆形封面 DragToken 视觉，失败时静默 fallback 到系统默认视觉
+            AnimeCardDragTokenVisualFactory.TryApplyDragToken(args, anime);
         }
 
         /// <summary>
@@ -435,42 +427,10 @@ namespace AniMeido.Plugin.Base.Views.Controls
                 e.Handled = true;
                 e.DragUIOverride.IsCaptionVisible = false;
                 e.DragUIOverride.IsGlyphVisible = false;
-                e.DragUIOverride.IsContentVisible = false;
+                e.DragUIOverride.IsContentVisible = true;
             }
         }
 
-        /// <summary>
-        /// 分享拖拽手柄的标准 DataPackage 拖放 — 跨窗口拖拽的辅助入口 / fallback。
-        /// 使用 JSON 序列化 AnimeCardDragPayload，payload 格式与 AnimeCard 本体拖拽（OnBodyDragStarting）完全一致。
-        /// 与本体拖拽并行存在，不冲突，不合并。
-        /// 保留作为 ChatWindow 等跨窗口场景的备用拖拽入口。
-        /// </summary>
-        private void OnShareDragStarting(UIElement sender, DragStartingEventArgs args)
-        {
-            if (DataContext is not Anime anime)
-            {
-                args.Cancel = true;
-                return;
-            }
 
-            System.Diagnostics.Debug.WriteLine("[ShareDrag] Share drag handle DragStarting triggered");
-
-            var payload = new AnimeCardDragPayload
-            {
-                AnimeId = anime.ID,
-                Title = anime.Title,
-                CoverImageUrl = anime.CoverURL,
-                Summary = anime.Description,
-                SeasonYear = anime.SeasonYear,
-                SeasonMonth = anime.SeasonMonth,
-                Source = "ShareHandle",
-            };
-
-            var json = AnimeCardDragPayloadSerializer.Serialize(payload);
-            args.Data.SetText(json);
-            args.Data.RequestedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-
-            System.Diagnostics.Debug.WriteLine($"[ShareDrag] Share drag handle SetText payload success: {payload.AnimeId} - {payload.Title}");
-        }
     }
 }

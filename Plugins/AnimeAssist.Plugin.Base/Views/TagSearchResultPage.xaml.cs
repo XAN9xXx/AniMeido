@@ -59,23 +59,38 @@ namespace AniMeido.Plugin.Base.Views
             _pluginNavigator = pluginNavigator;
         }
 
-        private bool _loadedHandlerAttached;
+        private bool _dropHostRegistered;
 
         private void OnPageLoaded(object sender, RoutedEventArgs e)
         {
-            if (_loadedHandlerAttached) return;
-            _loadedHandlerAttached = true;
+            EnsureDropHostRegistered(RootGrid);
 
-            // 用 AddHandler 确保即使子元素处理了事件也能收到指针按下
-            RootGrid.AddHandler(UIElement.PointerPressedEvent,
-                new PointerEventHandler(OnRootPointerPressed), true);
-            RootGrid.AddHandler(UIElement.PointerReleasedEvent,
-                new PointerEventHandler(OnRootPointerReleased), true);
-            RootGrid.AddHandler(UIElement.PointerCanceledEvent,
-                new PointerEventHandler(OnRootPointerCanceled), true);
+            // 确保 Unloaded 只注册一次
+            RootGrid.Unloaded -= OnRootGridUnloaded;
+            RootGrid.Unloaded += OnRootGridUnloaded;
 
             // 提前加载屏蔽列表，确保后续数据加载能正确过滤
             _ = LoadBlockedIdsAsync();
+        }
+
+        private void EnsureDropHostRegistered(Grid rootGrid)
+        {
+            if (_dropHostRegistered)
+                return;
+            _dropHostRegistered = true;
+
+            _dragDrop.SetActiveDropContext(rootGrid, DragOverlay, DragAction.PlanToWatch);
+            _dragDrop.RegisterStandardDragHost(rootGrid);
+        }
+
+        private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Grid rootGrid)
+                return;
+
+            _dragDrop.ClearActiveDropContext(rootGrid);
+            _dragDrop.UnregisterStandardDragHost(rootGrid);
+            _dropHostRegistered = false;
         }
 
         private async Task LoadBlockedIdsAsync()
@@ -366,47 +381,12 @@ namespace AniMeido.Plugin.Base.Views
                 ShowPage(newOffset);
         }
 
-        private void OnResultItemClick(object sender, ItemClickEventArgs e)
+        private void OnAnimeCardClicked(object? sender, Views.Controls.AnimeCardClickedEventArgs e)
         {
-            if (e.ClickedItem is Anime anime)
-                _pluginNavigator.Navigate(typeof(AnimeDetailPage), anime.ID);
+            _pluginNavigator.Navigate(typeof(AnimeDetailPage), e.Anime.ID);
         }
 
-        // ======== 拖放标记 ========
 
-        private void OnRootPointerMoved(object sender, PointerRoutedEventArgs e)
-        {
-            _dragDrop.HandlePointerMoved(this, DragOverlay, e, DragAction.Watching, DragAction.PlanToWatch);
-        }
-
-        private void OnRootPointerReleased(object sender, PointerRoutedEventArgs e)
-        {
-            _dragDrop.HandlePointerReleased(DragOverlay, e);
-            CleanupOverlayAfterDrag();
-        }
-
-        private void OnRootPointerCanceled(object sender, PointerRoutedEventArgs e)
-        {
-            _dragDrop.HandlePointerCanceled(DragOverlay);
-            CleanupOverlayAfterDrag();
-        }
-
-        private void OnRootPointerPressed(object sender, PointerRoutedEventArgs e)
-        {
-            _dragDrop.HandlePointerPressed(this, e);
-        }
-
-        private void CleanupOverlayAfterDrag()
-        {
-            if (!_dragDrop.IsDragging)
-            {
-                if (_dragDrop.DragGhost != null)
-                    DragOverlay.Children.Remove(_dragDrop.DragGhost);
-                foreach (var zone in _dragDrop.ActiveZones)
-                    DragOverlay.Children.Remove(zone.Border);
-                DragOverlay.Visibility = Visibility.Collapsed;
-            }
-        }
 
         private static List<T> FindAllElements<T>(DependencyObject parent) where T : DependencyObject
         {

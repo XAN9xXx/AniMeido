@@ -64,8 +64,6 @@
 
                 <!-- 番剧列表 -->
                 <GridView ItemsSource="{x:Bind ViewModel.HistoryList, Mode=OneWay}"
-                          IsItemClickEnabled="True"
-                          ItemClick="OnItemClick"
                           SelectionMode="None">
                     <GridView.ItemContainerStyle>
                         <Style TargetType="GridViewItem">
@@ -75,24 +73,11 @@
                                     Value="False"/>
                             <Setter Property="Margin"
                                     Value="0,0,4,8"/>
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="GridViewItem">
-                                        <ContentPresenter
-                                            Content="{TemplateBinding Content}"
-                                            ContentTemplate="{TemplateBinding ContentTemplate}"
-                                            ContentTransitions="{TemplateBinding ContentTransitions}"
-                                            HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                            VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
-                                            Margin="0"/>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
                         </Style>
                     </GridView.ItemContainerStyle>
                     <GridView.ItemTemplate>
                         <DataTemplate x:DataType="contracts:Anime">
-                            <controls:AnimeCard/>
+                            <controls:AnimeCard CardClicked="OnAnimeCardClicked"/>
                         </DataTemplate>
                     </GridView.ItemTemplate>
                 </GridView>

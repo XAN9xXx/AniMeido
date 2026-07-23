@@ -1,8 +1,10 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.Views
@@ -12,12 +14,16 @@ namespace AniMeido.Plugin.Base.Views
         private readonly IAnimeDataSource _dataSource;
         private readonly TrackingService _tracking;
         private readonly IPluginNavigator _pluginNavigator;
+        private readonly DragDropService _dragDrop;
         private CancellationTokenSource? _loadCts;
 
-        public PersonSearchResultPage(IAnimeDataSource dataSource, TrackingService tracking, IPluginNavigator pluginNavigator)
+        private bool _dropHostRegistered;
+
+        public PersonSearchResultPage(IAnimeDataSource dataSource, TrackingService tracking, DragDropService dragDropService, IPluginNavigator pluginNavigator)
         {
             _dataSource = dataSource;
             _tracking = tracking;
+            _dragDrop = dragDropService;
             _pluginNavigator = pluginNavigator;
             InitializeComponent();
         }
@@ -120,10 +126,44 @@ namespace AniMeido.Plugin.Base.Views
             }
         }
 
-        private void OnResultItemClick(object sender, ItemClickEventArgs e)
+        // ======== 拖放 ========
+
+        private void OnPageLoaded(object sender, RoutedEventArgs e)
         {
-            if (e.ClickedItem is Anime anime)
-                _pluginNavigator.Navigate(typeof(AnimeDetailPage), anime.ID);
+            if (sender is not Grid rootGrid)
+                return;
+
+            EnsureDropHostRegistered(rootGrid);
+
+            rootGrid.Unloaded -= OnRootGridUnloaded;
+            rootGrid.Unloaded += OnRootGridUnloaded;
+        }
+
+        private void EnsureDropHostRegistered(Grid rootGrid)
+        {
+            if (_dropHostRegistered)
+                return;
+            _dropHostRegistered = true;
+
+            _dragDrop.SetActiveDropContext(rootGrid, DragOverlay, DragAction.PlanToWatch);
+            _dragDrop.RegisterStandardDragHost(rootGrid);
+        }
+
+        private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Grid rootGrid)
+                return;
+
+            _dragDrop.ClearActiveDropContext(rootGrid);
+            _dragDrop.UnregisterStandardDragHost(rootGrid);
+            _dropHostRegistered = false;
+        }
+
+
+
+        private void OnAnimeCardClicked(object? sender, Views.Controls.AnimeCardClickedEventArgs e)
+        {
+            _pluginNavigator.Navigate(typeof(AnimeDetailPage), e.Anime.ID);
         }
     }
 }

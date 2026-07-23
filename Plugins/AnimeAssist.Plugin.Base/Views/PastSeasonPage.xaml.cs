@@ -279,10 +279,9 @@ namespace AniMeido.Plugin.Base.Views
             await LoadSeasonAsync(year, season);
         }
 
-        private void OnItemClick(object sender, ItemClickEventArgs e)
+        private void OnAnimeCardClicked(object? sender, Views.Controls.AnimeCardClickedEventArgs e)
         {
-            if (e.ClickedItem is Anime anime)
-                _pluginNavigator.Navigate(typeof(AnimeDetailPage), anime.ID);
+            _pluginNavigator.Navigate(typeof(AnimeDetailPage), e.Anime.ID);
         }
 
         private async Task LoadDragConfigAndBlockedAsync()
@@ -310,54 +309,40 @@ namespace AniMeido.Plugin.Base.Views
 
         // ======== 自定义拖放 ========
 
-        private bool _loadedHandlerAttached;
+        private bool _dropHostRegistered;
 
         private void OnPageLoaded(object sender, RoutedEventArgs e)
         {
-            if (_loadedHandlerAttached) return;
-            _loadedHandlerAttached = true;
+            if (sender is not Grid rootGrid)
+                return;
 
-            var rootGrid = (Grid)sender;
-            rootGrid.AddHandler(UIElement.PointerPressedEvent,
-                new PointerEventHandler(OnCapturedPointerPressed), true);
-            rootGrid.AddHandler(UIElement.PointerReleasedEvent,
-                new PointerEventHandler(OnRootPointerReleased), true);
-            rootGrid.AddHandler(UIElement.PointerCanceledEvent,
-                new PointerEventHandler(OnRootPointerCanceled), true);
-        }
-        private void OnCapturedPointerPressed(object sender, PointerRoutedEventArgs e)
-        {
-            _dragDrop.HandlePointerPressed(this, e);
+            EnsureDropHostRegistered(rootGrid);
+
+            // 确保 Unloaded 只注册一次
+            rootGrid.Unloaded -= OnRootGridUnloaded;
+            rootGrid.Unloaded += OnRootGridUnloaded;
         }
 
-        private void OnRootPointerMoved(object sender, PointerRoutedEventArgs e)
+        private void EnsureDropHostRegistered(Grid rootGrid)
         {
-            _dragDrop.HandlePointerMoved(this, DragOverlay, e, DragAction.Watching);
+            if (_dropHostRegistered)
+                return;
+            _dropHostRegistered = true;
+
+            _dragDrop.SetActiveDropContext(rootGrid, DragOverlay, DragAction.PlanToWatch);
+            _dragDrop.RegisterStandardDragHost(rootGrid);
         }
 
-        private void OnRootPointerReleased(object sender, PointerRoutedEventArgs e)
+        private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
         {
-            _dragDrop.HandlePointerReleased(DragOverlay, e);
-            CleanupOverlayAfterDrag();
+            if (sender is not Grid rootGrid)
+                return;
+
+            _dragDrop.ClearActiveDropContext(rootGrid);
+            _dragDrop.UnregisterStandardDragHost(rootGrid);
+            _dropHostRegistered = false;
         }
 
-        private void OnRootPointerCanceled(object sender, PointerRoutedEventArgs e)
-        {
-            _dragDrop.HandlePointerCanceled(DragOverlay);
-            CleanupOverlayAfterDrag();
-        }
-
-        private void CleanupOverlayAfterDrag()
-        {
-            if (!_dragDrop.IsDragging)
-            {
-                if (_dragDrop.DragGhost != null)
-                    DragOverlay.Children.Remove(_dragDrop.DragGhost);
-                foreach (var zone in _dragDrop.ActiveZones)
-                    DragOverlay.Children.Remove(zone.Border);
-                DragOverlay.Visibility = Visibility.Collapsed;
-            }
-        }
 
         private static T? FindChild<T>(DependencyObject parent) where T : DependencyObject
         {

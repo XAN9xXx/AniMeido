@@ -8,8 +8,7 @@
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
     <Grid x:Name="RootGrid"
-          Loaded="OnPageLoaded"
-          PointerMoved="OnRootPointerMoved">
+          Loaded="OnPageLoaded">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -91,8 +90,6 @@
                       Margin="24,12,24,0">
             <GridView x:Name="ResultGrid"
                       SelectionMode="None"
-                      IsItemClickEnabled="True"
-                      ItemClick="OnResultItemClick"
                       ScrollViewer.VerticalScrollBarVisibility="Hidden"
                       ScrollViewer.HorizontalScrollMode="Disabled"
                       Padding="0,0,0,8">
@@ -110,24 +107,11 @@
                                 Value="False"/>
                         <Setter Property="Margin"
                                 Value="0,0,4,8"/>
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="GridViewItem">
-                                    <ContentPresenter
-                                        Content="{TemplateBinding Content}"
-                                        ContentTemplate="{TemplateBinding ContentTemplate}"
-                                        ContentTransitions="{TemplateBinding ContentTransitions}"
-                                        HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                        VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
-                                        Margin="0"/>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
                     </Style>
                 </GridView.ItemContainerStyle>
                 <GridView.ItemTemplate>
                     <DataTemplate>
-                        <controls:AnimeCard/>
+                        <controls:AnimeCard CardClicked="OnAnimeCardClicked"/>
                     </DataTemplate>
                 </GridView.ItemTemplate>
             </GridView>
@@ -182,8 +166,7 @@
                 x:Name="DragOverlay"
                 Visibility="Collapsed"
                 Background="Transparent"
-                AllowDrop="True"
-                PointerMoved="OnRootPointerMoved"/>
+                AllowDrop="True"/>
     </Grid>
 </Page>
 

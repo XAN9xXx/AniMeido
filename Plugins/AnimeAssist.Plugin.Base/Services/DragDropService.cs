@@ -1,22 +1,19 @@
 using AniMeido.Contracts.DragDrop;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
-using AniMeido.Plugin.Base.Views.Controls;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Input;
 using Windows.Foundation;
 using Windows.UI;
-using Microsoft.UI.Xaml.Media.Imaging;
 using System.Numerics;
 
 namespace AniMeido.Plugin.Base.Services
 {
     /// <summary>
-    /// 拖放标记服务：管理 Zone 构建、标记状态路由、标准拖放协调与旧内部拖拽路径兼容。
+    /// 拖放标记服务：管理 Zone 构建、标记状态路由与标准拖放协调。
     ///
     /// == 拖拽系统说明 ==
     ///
@@ -25,8 +22,7 @@ namespace AniMeido.Plugin.Base.Services
     ///   所有拖拽事件的数据来源均为 AnimeCardDragPayload JSON（StandardDataFormats.Text）。
     ///
     /// [Drag Source]
-    ///   AnimeCard 本体标准拖拽（CanDrag=True, OnBodyDragStarting）— 当前主路径。
-    ///   ShareHandle 辅助拖拽手柄 — 跨窗口拖拽辅助入口，payload 格式与主路径一致。
+    ///   AnimeCard 本体标准拖拽（CanDrag=True, OnBodyDragStarting）— 唯一入口。
     ///
     /// [主窗口拖拽接收]
     ///   AnimeCardDropHost (Shell 级 fallback) → DragDropService.HandleStandardDragOver/DropAsync
@@ -36,9 +32,9 @@ namespace AniMeido.Plugin.Base.Services
     ///   ChatWindow InputPanel AddHandler DragOver/Drop → AnimeCardDragPayloadSerializer.Deserialize
     ///   → ShowPendingCard → 用户发送 → 文字消息
     ///
-    /// [旧内部拖拽路径 (Legacy)]
-    ///   HandlePointerPressed/Moved/Released — 基于指针坐标的内部拖拽路径。
-    ///   当前 AnimeCard（CanDrag=True）已跳过此路径。保留供未启用标准拖拽的页面兼容。
+    /// [旧内部拖拽路径]
+    ///   基于 Pointer 坐标与 GhostCard 的旧内部拖拽路径已删除。
+    ///   所有 AnimeCard 使用标准拖拽：CanDrag + DragStarting + RegisterStandardDragHost。
     /// </summary>
     public sealed class DragDropService
     {
@@ -47,19 +43,9 @@ namespace AniMeido.Plugin.Base.Services
 
         private readonly TrackingService _tracking;
 
-        // 拖放状态
-        private Anime? _dragAnime;
-        private AnimeCardDragPayload? _dragPayload;
-        private bool _dragPointerDown;
-        private Point _dragPointerDownPos;
-        private Point _dragGhostOffset;
-        private Border? _dragGhost;
-        private Visual? _ghostVisual;  // Composition Visual for ghost positioning
-        private bool _isDragging;
-
         // Zone 状态
         private List<DragZoneConfig> _dragZones = DragZoneConfig.GetDefaults();
-        private readonly Dictionary<string, DragDropZoneInfo> _overlayZones = new();
+        private readonly Dictionary<string, ZoneVisual> _overlayZones = new();
 
         // 标准拖拽（ActiveDropContext）状态
         private UIElement? _standardPageRoot;
@@ -83,289 +69,10 @@ namespace AniMeido.Plugin.Base.Services
             CancelStandardDrag();
         }
 
-        /// <summary>是否正在拖放中。</summary>
-        public bool IsDragging => _isDragging;
-
-        /// <summary>当前拖动的番剧。</summary>
-        public Anime? DragAnime => _dragAnime;
-
-        /// <summary>当前拖动的统一载荷。</summary>
-        public AnimeCardDragPayload? DragPayload => _dragPayload;
-
-        // Ghost 和 Zone 的 UI 元素引用（供页面清理用）
-        public Border? DragGhost => _dragGhost;
-        public IReadOnlyCollection<DragDropZoneInfo> ActiveZones => _overlayZones.Values;
-
         /// <summary>重新加载拖放配置。</summary>
         public async Task ReloadConfigAsync()
         {
             _dragZones = await _tracking.LoadDragZoneConfigAsync();
-        }
-
-        // ====================================================================
-        // 旧内部拖拽路径 (Legacy) — 基于指针坐标 + GhostCard
-        //
-        // 当前 AnimeCard（CanDrag=True）已通过 HandlePointerPressed 中的
-        // card.CanDrag 检查跳过此路径。此路径仍保留用于：
-        //   - 未启用标准拖拽的页面兼容
-        //   - GhostCard 视觉代码（后续 Drag Visual 阶段将重建）
-        //
-        // 数据事实来源：AnimeCardDragPayload（而非 GhostCard）
-        // 主路径：标准拖拽（OnBodyDragStarting → HandleStandardDragOver/DropAsync）
-        // ====================================================================
-
-        /// <summary>
-        /// [旧内部拖拽路径] 处理指针按下：从 OriginalSource 向上查找 AnimeCard，记录拖放起点。
-        /// 如果 AnimeCard 已启用标准拖拽（CanDrag=true），跳过此路径。
-        /// 注意：标准拖拽启用后，此方法仅用于旧页面兼容，不再作为 AnimeCard 主拖拽路径。
-        /// </summary>
-        public void HandlePointerPressed(UIElement pageRoot, PointerRoutedEventArgs e)
-        {
-            if (_isDragging) return;
-            _dragPointerDown = true;
-            _dragPointerDownPos = e.GetCurrentPoint(pageRoot).Position;
-
-            _dragAnime = null;
-            _dragPayload = null;
-            // 从原始事件源向上遍历视觉树，查找 AnimeCard（O(depth)而非 O(cards×depth)）
-            var element = e.OriginalSource as DependencyObject;
-            while (element != null)
-            {
-                if (element is AnimeCard card)
-                {
-                    // 标准拖拽源启用时，旧内部拖拽路径不启动
-                    if (card.CanDrag)
-                    {
-                        System.Diagnostics.Debug.WriteLine("[DragDropService] AnimeCard has CanDrag=true, skipping legacy drag path");
-                        _dragPointerDown = false;
-                        _dragAnime = null;
-                        return;
-                    }
-
-                    _dragAnime = card.DataContext as Anime;
-                    // 旧路径仍构造 payload 以保持数据一致性，但不作为标准拖拽的事实来源
-                    if (_dragAnime != null)
-                    {
-                        _dragPayload = new AnimeCardDragPayload
-                        {
-                            AnimeId = _dragAnime.ID,
-                            Title = _dragAnime.Title,
-                            CoverImageUrl = _dragAnime.CoverURL,
-                            Summary = _dragAnime.Description,
-                            SeasonYear = _dragAnime.SeasonYear,
-                            SeasonMonth = _dragAnime.SeasonMonth,
-                            Source = "DragDropService",
-                        };
-                        System.Diagnostics.Debug.WriteLine($"[DragPayload] DragDropService received AnimeCardDragPayload: {_dragPayload.AnimeId} - {_dragPayload.Title}");
-                    }
-                    break;
-                }
-                element = VisualTreeHelper.GetParent(element);
-            }
-        }
-
-        /// <summary>
-        /// [旧内部拖拽路径] 处理指针移动：通过 Composition Offset 更新 Ghost 位置（合成线程，零布局开销）。
-        /// 每次更新前检查左键状态和边界，防止 Ghost 在窗口外残影。
-        /// 注意：此路径仅在旧内部拖拽活动时触发，标准拖拽（CanDrag=true）不经过此方法。
-        /// GhostCard 后续将在 Drag Visual 阶段重建为自定义拖拽视觉。
-        /// </summary>
-        public bool HandlePointerMoved(UIElement pageRoot, UIElement overlay, PointerRoutedEventArgs e, params DragAction[] excludeActions)
-        {
-            if (_isDragging && _ghostVisual != null)
-            {
-                var pt = e.GetCurrentPoint(overlay).Position;
-
-                // 检查左键是否仍按下（处理鼠标在窗口外释放的场景）
-                var pointerProps = e.GetCurrentPoint(overlay).Properties;
-                bool isLeftPressed = pointerProps.IsLeftButtonPressed;
-
-                if (!isLeftPressed)
-                {
-                    CancelDrag(overlay, "left button released outside window");
-                    return false;
-                }
-
-                // 检查指针是否超出拖拽宿主边界
-                double tolerance = 8;
-                bool outsideHost = false;
-                if (overlay is FrameworkElement host)
-                {
-                    outsideHost = pt.X < -tolerance || pt.Y < -tolerance
-                        || pt.X > host.ActualWidth + tolerance
-                        || pt.Y > host.ActualHeight + tolerance;
-                }
-
-                if (outsideHost)
-                {
-                    CancelDrag(overlay, "pointer outside drag host");
-                    return false;
-                }
-
-                _ghostVisual.Offset = new Vector3(
-                    (float)(pt.X + _dragGhostOffset.X),
-                    (float)(pt.Y + _dragGhostOffset.Y),
-                    0);
-                return true;
-            }
-
-            if (!_dragPointerDown || _dragAnime == null) return false;
-            var cp = e.GetCurrentPoint(pageRoot).Position;
-            if (Math.Abs(cp.X - _dragPointerDownPos.X) < 8 &&
-                Math.Abs(cp.Y - _dragPointerDownPos.Y) < 8) return false;
-
-            _dragPointerDown = false;
-            _ = BeginDragAsync(overlay, excludeActions);
-            return true;
-        }
-
-        /// <summary>
-        /// [旧内部拖拽路径] 处理指针释放：触发放置或取消。
-        /// </summary>
-        public void HandlePointerReleased(UIElement overlay, PointerRoutedEventArgs e)
-        {
-            _dragPointerDown = false;
-            if (!_isDragging) return;
-            EndDrag(overlay, e.GetCurrentPoint(overlay).Position);
-        }
-
-        /// <summary>
-        /// [旧内部拖拽路径] 处理指针取消。
-        /// </summary>
-        public void HandlePointerCanceled(UIElement overlay)
-        {
-            _dragPointerDown = false;
-            if (!_isDragging) return;
-            CancelDrag(overlay, "PointerCanceled event");
-        }
-
-        private async Task BeginDragAsync(UIElement overlay, params DragAction[] excludeActions)
-        {
-            if (_isDragging) return;
-            _isDragging = true;
-
-            try
-            {
-                overlay.Visibility = Visibility.Visible;
-                overlay.UpdateLayout(); // 确保 overlay 布局完成，否则 ActualWidth/Height 为 0 → Zone 挤在左上角
-                BuildAndShowZones(overlay, excludeActions);
-
-                var anime = _dragAnime!;
-
-                // 创建轻量 Ghost：仅 Border + Image（去掉不可读的 TextBlock 降低合成负担）
-                var coverImage = new Image
-                {
-                    Stretch = Stretch.UniformToFill,
-                    Height = 200,
-                    Width = 150,
-                    VerticalAlignment = VerticalAlignment.Top,
-                    HorizontalAlignment = HorizontalAlignment.Left,
-                };
-                if (!string.IsNullOrEmpty(anime.CoverURL))
-                {
-                    var bmp = new BitmapImage();
-                    bmp.DecodePixelWidth = 300; // 指定解码尺寸，避免全分辨率解码
-                    bmp.UriSource = ImageCacheHelper.GetImageUri(anime.ID, anime.CoverURL);
-                    coverImage.Source = bmp;
-                }
-                var clipRect = new RectangleGeometry();
-                clipRect.Rect = new Rect(0, 0, 150, 200);
-                coverImage.Clip = clipRect;
-
-                var ghost = new Border
-                {
-                    Width = 150,
-                    Height = 200,
-                    CornerRadius = new CornerRadius(8),
-                    Background = new SolidColorBrush(Color.FromArgb(200, 30, 30, 30)),
-                    Opacity = 0.85,
-                    HorizontalAlignment = HorizontalAlignment.Left,
-                    VerticalAlignment = VerticalAlignment.Top,
-                    IsHitTestVisible = false,
-                    Child = coverImage,
-                };
-
-                _dragGhostOffset = new Point(-75, -100);
-                var initialX = (float)(_dragPointerDownPos.X + _dragGhostOffset.X);
-                var initialY = (float)(_dragPointerDownPos.Y + _dragGhostOffset.Y);
-
-                if (overlay is Panel overlayPanel)
-                {
-                    overlayPanel.Children.Add(ghost);
-                }
-                _dragGhost = ghost;
-
-                // 用 Composition Offset 替代 Margin 定位——合成线程执行，不触发 UI 线程布局
-                _ghostVisual = ElementCompositionPreview.GetElementVisual(ghost);
-                _ghostVisual.Offset = new Vector3(initialX, initialY, 0);
-            }
-#pragma warning disable CA1031 // 拖放初始化失败应清理 UI 而非崩溃
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[DragDrop] BeginDragAsync failed: {ex.Message}");
-                _isDragging = false;
-                CleanupDrag(overlay);
-            }
-#pragma warning restore CA1031
-        }
-
-        private void EndDrag(UIElement overlay, Point dropPoint)
-        {
-            ExecuteDrop(dropPoint);
-            CleanupDrag(overlay);
-        }
-
-        private void CancelDrag(UIElement overlay) => CancelDrag(overlay, null);
-
-        private void CancelDrag(UIElement overlay, string? reason)
-        {
-            if (!string.IsNullOrEmpty(reason))
-                System.Diagnostics.Debug.WriteLine($"[DragDropService] CancelDrag called, reason = {reason}");
-            CleanupDrag(overlay);
-        }
-
-        /// <summary>
-        /// 传入 overlay 以便从视觉树中移除 Ghost 和 Zone。
-        /// 如果 overlay 不可用，UI 元素可能残留。
-        /// </summary>
-        public void CleanupDrag(UIElement? overlay = null)
-        {
-            if (overlay is Panel panel)
-            {
-                // 移除 ghost
-                if (_dragGhost != null && panel.Children.Contains(_dragGhost))
-                {
-                    System.Diagnostics.Debug.WriteLine("[DragDropService] ClearDragVisual called");
-                    panel.Children.Remove(_dragGhost);
-                }
-                // 移除 zone
-                foreach (var kv in _overlayZones)
-                {
-                    if (panel.Children.Contains(kv.Value.Border))
-                        panel.Children.Remove(kv.Value.Border);
-                }
-            }
-
-            ResetState();
-        }
-
-        /// <summary>
-        /// 强制重置拖拽状态，不依赖 overlay 引用。用于指针捕获丢失、窗口失活等场景。
-        /// </summary>
-        public void ResetState()
-        {
-            if (_isDragging || _dragAnime != null || _dragPayload != null)
-            {
-                System.Diagnostics.Debug.WriteLine("[DragDropService] ResetState called - state cleared");
-            }
-
-            _isDragging = false;
-            _dragAnime = null;
-            _dragPayload = null;
-            _dragGhost = null;
-            _ghostVisual = null;
-            _overlayZones.Clear();
-            _dragPointerDown = false;
         }
 
         /// <summary>
@@ -378,7 +85,7 @@ namespace AniMeido.Plugin.Base.Services
             // 清除旧的 Zone（从 overlay 移除）
             foreach (var kv in _overlayZones)
             {
-                if (overlay is Panel p) p.Children.Remove(kv.Value.Border);
+                if (overlay is Panel p) p.Children.Remove(kv.Value.Root);
             }
             _overlayZones.Clear();
 
@@ -442,10 +149,6 @@ namespace AniMeido.Plugin.Base.Services
                     if (args.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
                     {
                         args.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-                        // 高亮反馈 — DragDropService.HandleStandardDragOver 也会管理高亮
-                        inner.Background = new SolidColorBrush(Color.FromArgb(240, 0x77, 0xBB, 0xFF));
-                        inner.Opacity = 1.0;
-                        hint.Visibility = Visibility.Visible;
                     }
                     else
                     {
@@ -454,10 +157,7 @@ namespace AniMeido.Plugin.Base.Services
                 };
                 zone.DragLeave += (s, args) =>
                 {
-                    // 恢复默认外观
-                    inner.Background = new SolidColorBrush(Color.FromArgb(160, 0x44, 0x88, 0xFF));
-                    inner.Opacity = 0.75;
-                    hint.Visibility = Visibility.Collapsed;
+                    // hover 视觉由 HandleStandardDragOver 统一管理
                 };
                 zone.Drop += async (s, args) =>
                 {
@@ -490,10 +190,7 @@ namespace AniMeido.Plugin.Base.Services
                     var dropPoint = args.GetPosition(overlay);
                     await RoutePayloadToZoneAsync(payload, dropPoint);
 
-                    // 恢复默认外观
-                    inner.Background = new SolidColorBrush(Color.FromArgb(160, 0x44, 0x88, 0xFF));
-                    inner.Opacity = 0.75;
-                    hint.Visibility = Visibility.Collapsed;
+                    // 视觉由 CancelStandardDrag 统一清理
                 };
 #pragma warning restore CA1031
 
@@ -501,13 +198,12 @@ namespace AniMeido.Plugin.Base.Services
                 {
                     zone.Width = pw * config.WidthPercent;
                     zone.Height = ph * config.HeightPercent;
-                    // Canvas 用附加属性定位，不触发 measure/arrange，避免拖放时布局干扰
                     Canvas.SetLeft(zone, pw * config.XPercent);
                     Canvas.SetTop(zone, ph * config.YPercent);
-                }
 
-                if (overlay is Canvas canvas) canvas.Children.Add(zone);
-                _overlayZones[config.Id] = new DragDropZoneInfo(zone, inner, label, hint);
+                    if (overlay is Canvas canvas) canvas.Children.Add(zone);
+                    _overlayZones[config.Id] = new ZoneVisual(zone, inner, hint);
+                }
             }
         }
 
@@ -518,7 +214,7 @@ namespace AniMeido.Plugin.Base.Services
         {
             foreach (var kv in _overlayZones)
             {
-                if (overlay is Panel p) p.Children.Remove(kv.Value.Border);
+                if (overlay is Panel p) p.Children.Remove(kv.Value.Root);
             }
             _overlayZones.Clear();
         }
@@ -575,42 +271,6 @@ namespace AniMeido.Plugin.Base.Services
             if (sender is Border zone && zone.Tag is string id)
             {
                 // Zone 的可视反馈由页面自己的事件来处理
-            }
-        }
-
-        /// <summary>
-        /// [旧内部拖拽路径] 查找拖放完成时的目标 Zone 并执行标记。
-        /// 此方法仅由旧内部拖拽路径（HandlePointerReleased → EndDrag）调用。
-        /// 标准拖拽路径使用 HandleStandardDropAsync / RoutePayloadToZoneAsync。
-        /// </summary>
-        public void ExecuteDrop(Point dropPoint)
-        {
-            if (_dragPayload != null)
-                System.Diagnostics.Debug.WriteLine($"[DragPayload] DropZone received AnimeCardDragPayload: {_dragPayload.AnimeId} - {_dragPayload.Title}");
-
-            System.Diagnostics.Debug.WriteLine("[DragDropService] Legacy DragDropService path still active = true");
-
-            foreach (var kv in _overlayZones)
-            {
-                var z = kv.Value.Border;
-                // Zone 使用 Canvas.SetLeft/Top 定位，命中判断必须读取 Canvas 属性而非 Margin
-                var zx = Canvas.GetLeft(z);
-                var zy = Canvas.GetTop(z);
-                var zr = new Rect(zx, zy, z.ActualWidth, z.ActualHeight);
-                if (zr.Contains(dropPoint))
-                {
-                    var cfg = _dragZones.Find(c => c.Id == kv.Key);
-                    if (cfg != null && cfg.Action != DragAction.None && _dragAnime != null)
-                    {
-                        var st = DragActionToStatus(cfg.Action);
-                        if (st != AnimeTrackingStatus.None)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[DragPayload] DropZone handled internal anime card drag: AnimeId={_dragAnime.ID}, Action={cfg.Action}");
-                            _ = SetStatusSafelyAsync(_dragAnime.ID, st);
-                        }
-                    }
-                    break;
-                }
             }
         }
 
@@ -686,7 +346,7 @@ namespace AniMeido.Plugin.Base.Services
             string? hitZoneId = null;
             foreach (var kv in _overlayZones)
             {
-                var z = kv.Value.Border;
+                var z = kv.Value.Root;
                 var zx = Canvas.GetLeft(z);
                 var zy = Canvas.GetTop(z);
                 var zr = new Rect(zx, zy, z.ActualWidth, z.ActualHeight);
@@ -697,27 +357,43 @@ namespace AniMeido.Plugin.Base.Services
                 }
             }
 
-            // 高亮 + 提示文字管理（仅在切换时更新，不触发日志风暴）
-            if (hitZoneId != _standardCurrentZoneId)
+            // 始终确保标准圆形 DragUI 显示（不隐藏）
+            e.DragUIOverride.IsContentVisible = true;
+            e.DragUIOverride.IsCaptionVisible = false;
+            e.DragUIOverride.IsGlyphVisible = false;
+
+            if (hitZoneId != null)
             {
-                // 清除旧高亮
-                if (_standardCurrentZoneId != null && _overlayZones.TryGetValue(_standardCurrentZoneId, out var oldZone))
+                // 高亮 + 展开尾条（仅在 zone 切换时）
+                if (hitZoneId != _standardCurrentZoneId)
                 {
-                    oldZone.Inner.Background = new SolidColorBrush(Color.FromArgb(160, 0x44, 0x88, 0xFF));
-                    oldZone.Inner.Opacity = 0.75;
-                    oldZone.HintText.Visibility = Visibility.Collapsed;
+                    if (_standardCurrentZoneId != null && _overlayZones.TryGetValue(_standardCurrentZoneId, out var oldZone))
+                        UnhighlightZone(oldZone);
+
+                    if (_overlayZones.TryGetValue(hitZoneId, out var newZone))
+                    {
+                        HighlightZone(newZone);
+                    }
+
+                    ShowTailPreview(hitZoneId, overlayPt);
+                    _standardCurrentZoneId = hitZoneId;
+                }
+                else
+                {
+                    // 每次 DragOver 都更新位置（RenderTransform，不触发布局）
+                    UpdateTailPreviewPosition(overlayPt);
+                }
+            }
+            else
+            {
+                if (_standardCurrentZoneId != null
+                    && _overlayZones.TryGetValue(_standardCurrentZoneId, out var oldZone))
+                {
+                    UnhighlightZone(oldZone);
                 }
 
-                // 设置新高亮
-                if (hitZoneId != null && _overlayZones.TryGetValue(hitZoneId, out var newZone))
-                {
-                    // 使用更亮的强调色表示活跃目标
-                    newZone.Inner.Background = new SolidColorBrush(Color.FromArgb(240, 0x77, 0xBB, 0xFF));
-                    newZone.Inner.Opacity = 1.0;
-                    newZone.HintText.Visibility = Visibility.Visible;
-                }
-
-                _standardCurrentZoneId = hitZoneId;
+                HideTailPreview();
+                _standardCurrentZoneId = null;
             }
         }
 
@@ -783,7 +459,7 @@ namespace AniMeido.Plugin.Base.Services
         {
             foreach (var kv in _overlayZones)
             {
-                var z = kv.Value.Border;
+                var z = kv.Value.Root;
                 var zx = Canvas.GetLeft(z);
                 var zy = Canvas.GetTop(z);
                 var zr = new Rect(zx, zy, z.ActualWidth, z.ActualHeight);
@@ -806,12 +482,258 @@ namespace AniMeido.Plugin.Base.Services
             return false;
         }
 
+        // ======== DropZone 高亮 + 展开态 DragToken ========
+
+        /// <summary>高亮 DropZone（不改变尺寸）。</summary>
+        private static void HighlightZone(ZoneVisual zone)
+        {
+            zone.Inner.Background = new SolidColorBrush(Color.FromArgb(240, 0x77, 0xBB, 0xFF));
+            zone.Inner.Opacity = 1.0;
+            zone.HintText.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>恢复 DropZone 普通外观。</summary>
+        private static void UnhighlightZone(ZoneVisual zone)
+        {
+            zone.Inner.Background = new SolidColorBrush(Color.FromArgb(160, 0x44, 0x88, 0xFF));
+            zone.Inner.Opacity = 0.75;
+            zone.HintText.Visibility = Visibility.Collapsed;
+        }
+
+        // 展开尾条（进入 DropZone 时从标准圆形 DragToken 后方伸出）
+        private FrameworkElement? _dragTokenTailPreview;
+        private string? _dragTokenTailZoneId;
+        private bool _dragTokenTailExpanded;
+        private Border? _dragTokenTailPill;
+        private TextBlock? _dragTokenTailHintLabel;
+
+        // Composition visuals（替代 XAML CompositeTransform + Storyboard）
+        private Visual? _dragTokenTailRootVisual;   // Offset 跟随光标
+        private Visual? _dragTokenTailPillVisual;   // Scale.X + Opacity 展开
+        private Visual? _dragTokenTailHintVisual;   // Opacity 展开
+
+        // 固定尺寸
+        private const double TailExpandedWidth = 230;
+        private const double TailHeight = 52;
+        private const double DragTokenRadius = 36;
+        private const double TailStartOverlap = 4;
+        private const double TailVerticalOffset = 26;
+
+        /// <summary>创建尾条 UI（仅首次调用时执行）。</summary>
+        private void EnsureTailPreviewCreated(Canvas canvas, string hintText)
+        {
+            if (_dragTokenTailPreview != null)
+                return;
+
+            _dragTokenTailHintLabel = new TextBlock
+            {
+                Text = hintText,
+                FontSize = 15,
+                Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(76, 0, 18, 0),
+                IsHitTestVisible = false,
+                Opacity = 0,
+            };
+
+            _dragTokenTailPill = new Border
+            {
+                Child = _dragTokenTailHintLabel,
+                Width = TailExpandedWidth,
+                Height = TailHeight,
+                CornerRadius = new CornerRadius(TailHeight / 2),
+                Background = new SolidColorBrush(Color.FromArgb(210, 0x22, 0x66, 0xDD)),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false,
+                Opacity = 0,
+            };
+
+            var root = new Grid
+            {
+                Width = TailExpandedWidth,
+                Height = TailHeight,
+                IsHitTestVisible = false,
+                Children = { _dragTokenTailPill },
+            };
+
+            Canvas.SetLeft(root, 0);
+            Canvas.SetTop(root, 0);
+            Canvas.SetZIndex(root, 9999);
+            canvas.Children.Add(root);
+            _dragTokenTailPreview = root;
+
+            // 获取 Composition visuals
+            _dragTokenTailRootVisual = ElementCompositionPreview.GetElementVisual(root);
+            _dragTokenTailRootVisual.Offset = Vector3.Zero;
+
+            _dragTokenTailPillVisual = ElementCompositionPreview.GetElementVisual(_dragTokenTailPill);
+            _dragTokenTailPillVisual.CenterPoint = new Vector3(0f, (float)TailHeight / 2f, 0f);
+            _dragTokenTailPillVisual.Scale = new Vector3(0f, 1f, 1f);
+            _dragTokenTailPillVisual.Opacity = 0f;
+
+            _dragTokenTailHintVisual = ElementCompositionPreview.GetElementVisual(_dragTokenTailHintLabel);
+            _dragTokenTailHintVisual.Opacity = 0f;
+
+            _dragTokenTailExpanded = false;
+        }
+
+        /// <summary>使用 Composition Visual.Offset 立即更新尾条位置。</summary>
+        private void UpdateTailPreviewPosition(Point overlayPointerPos)
+        {
+            if (_dragTokenTailRootVisual == null)
+                return;
+
+            _dragTokenTailRootVisual.Offset = new Vector3(
+                (float)(overlayPointerPos.X - DragTokenRadius + TailStartOverlap),
+                (float)(overlayPointerPos.Y - TailVerticalOffset),
+                0f);
+        }
+
+        /// <summary>播放 Composition 展开动画（替代 XAML Storyboard）。</summary>
+        private void PlayTailExpandCompositionAnimation()
+        {
+            if (_dragTokenTailPillVisual == null || _dragTokenTailHintVisual == null)
+                return;
+
+            var compositor = _dragTokenTailPillVisual.Compositor;
+
+            // 重置到初始状态
+            _dragTokenTailPillVisual.Scale = new Vector3(0f, 1f, 1f);
+            _dragTokenTailPillVisual.Opacity = 0f;
+            _dragTokenTailHintVisual.Opacity = 0f;
+
+            var easing = compositor.CreateCubicBezierEasingFunction(
+                new Vector2(0.2f, 0.0f),
+                new Vector2(0.0f, 1.0f));
+
+            // Scale.X: 0 → 1 (110ms)
+            var scaleAnim = compositor.CreateScalarKeyFrameAnimation();
+            scaleAnim.InsertKeyFrame(0f, 0f);
+            scaleAnim.InsertKeyFrame(1f, 1f, easing);
+            scaleAnim.Duration = TimeSpan.FromMilliseconds(110);
+
+            // pill Opacity: 0 → 1 (70ms)
+            var pillOpacity = compositor.CreateScalarKeyFrameAnimation();
+            pillOpacity.InsertKeyFrame(0f, 0f);
+            pillOpacity.InsertKeyFrame(1f, 1f);
+            pillOpacity.Duration = TimeSpan.FromMilliseconds(70);
+
+            // hint Opacity: 0 → 1 (110ms)
+            var hintOpacity = compositor.CreateScalarKeyFrameAnimation();
+            hintOpacity.InsertKeyFrame(0f, 0f);
+            hintOpacity.InsertKeyFrame(1f, 1f);
+            hintOpacity.Duration = TimeSpan.FromMilliseconds(110);
+
+            _dragTokenTailPillVisual.StartAnimation("Scale.X", scaleAnim);
+            _dragTokenTailPillVisual.StartAnimation("Opacity", pillOpacity);
+            _dragTokenTailHintVisual.StartAnimation("Opacity", hintOpacity);
+        }
+
+        /// <summary>显示并展开尾条（或 zone 切换时重置并重播动画）。</summary>
+        private void ShowTailPreview(string zoneId, Point overlayPointerPos)
+        {
+            if (_standardOverlay is not Canvas canvas)
+                return;
+
+            var cfg = _dragZones.Find(c => c.Id == zoneId);
+            var hintText = cfg != null ? GetActionHint(cfg.Action) : "释放以标记";
+
+            // 创建 UI（首次）
+            EnsureTailPreviewCreated(canvas, hintText);
+
+            // === zone 切换时更新文案 + 重置 Composition 状态 ===
+            if (_dragTokenTailZoneId != zoneId)
+            {
+                if (_dragTokenTailHintLabel != null)
+                    _dragTokenTailHintLabel.Text = hintText;
+
+                if (_dragTokenTailPillVisual != null)
+                {
+                    _dragTokenTailPillVisual.StopAnimation("Scale.X");
+                    _dragTokenTailPillVisual.StopAnimation("Opacity");
+                    _dragTokenTailPillVisual.Scale = new Vector3(0f, 1f, 1f);
+                    _dragTokenTailPillVisual.Opacity = 0f;
+                }
+
+                if (_dragTokenTailHintVisual != null)
+                {
+                    _dragTokenTailHintVisual.StopAnimation("Opacity");
+                    _dragTokenTailHintVisual.Opacity = 0f;
+                }
+
+                _dragTokenTailExpanded = false;
+            }
+
+            if (_dragTokenTailPreview != null)
+                _dragTokenTailPreview.Visibility = Visibility.Visible;
+
+            // === 立即更新位置 ===
+            UpdateTailPreviewPosition(overlayPointerPos);
+
+            _dragTokenTailZoneId = zoneId;
+
+            // === 播放 Composition 展开动画 ===
+            if (!_dragTokenTailExpanded)
+            {
+                _dragTokenTailExpanded = true;
+                PlayTailExpandCompositionAnimation();
+            }
+        }
+
+        /// <summary>隐藏横条尾条。</summary>
+        private void HideTailPreview()
+        {
+            if (_dragTokenTailPreview != null)
+                _dragTokenTailPreview.Visibility = Visibility.Collapsed;
+
+            if (_dragTokenTailPillVisual != null)
+            {
+                _dragTokenTailPillVisual.StopAnimation("Scale.X");
+                _dragTokenTailPillVisual.StopAnimation("Opacity");
+                _dragTokenTailPillVisual.Scale = new Vector3(0f, 1f, 1f);
+                _dragTokenTailPillVisual.Opacity = 0f;
+            }
+
+            if (_dragTokenTailHintVisual != null)
+            {
+                _dragTokenTailHintVisual.StopAnimation("Opacity");
+                _dragTokenTailHintVisual.Opacity = 0f;
+            }
+
+            if (_dragTokenTailPill != null)
+                _dragTokenTailPill.Opacity = 0;
+            if (_dragTokenTailHintLabel != null)
+                _dragTokenTailHintLabel.Opacity = 0;
+
+            _dragTokenTailZoneId = null;
+            _dragTokenTailExpanded = false;
+        }
+
+        /// <summary>移除横条尾条并从 overlay 删除。</summary>
+        private void RemoveTailPreview()
+        {
+            if (_dragTokenTailPreview != null && _standardOverlay is Panel panel)
+                panel.Children.Remove(_dragTokenTailPreview);
+
+            _dragTokenTailPreview = null;
+            _dragTokenTailPill = null;
+            _dragTokenTailHintLabel = null;
+            _dragTokenTailRootVisual = null;
+            _dragTokenTailPillVisual = null;
+            _dragTokenTailHintVisual = null;
+            _dragTokenTailZoneId = null;
+            _dragTokenTailExpanded = false;
+        }
+
         /// <summary>
         /// 取消标准拖拽并清理 DropZone 覆盖层、高亮、提示文字和拖拽状态。
         /// </summary>
         public void CancelStandardDrag()
         {
             HideAllZoneHints();
+            RemoveTailPreview();
 
             if (_standardOverlay != null)
             {
@@ -880,15 +802,12 @@ namespace AniMeido.Plugin.Base.Services
         {
             if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
             {
-                // 只更新高亮，不修改 AcceptedOperation
                 HandleStandardDragOver(e, _standardOverlay ?? sender as UIElement);
 
-                // 强制设置 AcceptedOperation = Copy，确保不被任何路径修改
                 e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
                 e.Handled = true;
                 e.DragUIOverride.IsCaptionVisible = false;
                 e.DragUIOverride.IsGlyphVisible = false;
-                e.DragUIOverride.IsContentVisible = false;
             }
         }
 
@@ -937,12 +856,10 @@ namespace AniMeido.Plugin.Base.Services
     }
 
     /// <summary>
-    /// 拖放 Zone 的 UI 元素记录。
-    /// HintText 用于拖放悬停时的第二行提示文字（如"释放以标记为追番"）。
+    /// Zone 的 UI 元素记录。
     /// </summary>
-    public record DragDropZoneInfo(
-        Border Border,
+    internal sealed record ZoneVisual(
+        Border Root,
         Border Inner,
-        TextBlock Label,
         TextBlock HintText);
 }

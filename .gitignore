@@ -14,6 +14,10 @@ docs/
 docs-lib/
 AniMeidoInstaller/
 Installer/
+.claude/
+CLAUDE.md
+.agents/
+AGENTS.md
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
