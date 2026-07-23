@@ -46,8 +46,6 @@
                                       VerticalAlignment="Center"
                                       Foreground="{ThemeResource SystemAccentColor}"/>
                     </Grid>
-
-                    <!-- ShareHandle 已删除：AnimeCard 本体标准拖拽已覆盖跨窗口场景 -->
                 </Grid>
 
                 <!-- 星期放送角标（补番页使用，默认隐藏） -->

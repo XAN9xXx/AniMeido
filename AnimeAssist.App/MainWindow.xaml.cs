@@ -43,7 +43,7 @@ namespace AniMeido.App
             // 主题切换时同步标题栏按钮颜色
             App.ThemeService.ThemeChanged += (_, _) => UpdateTitleBarButtons();
 
-            // 主窗口关闭时同步关闭聊天室窗口，避免 ChatWindow 残留
+            // 主窗口关闭时停止排队中的导航状态恢复
             Closed += OnMainWindowClosing;
 
             // 主窗口关闭时注销全部 DropHost
@@ -170,9 +170,6 @@ namespace AniMeido.App
         private void OnMainWindowClosing(object sender, WindowEventArgs args)
         {
             _isClosing = true;
-
-            // 触发应用关闭通知，由各模块自行清理
-            Contracts.AppServices.NotifyClosing();
         }
 
         //
