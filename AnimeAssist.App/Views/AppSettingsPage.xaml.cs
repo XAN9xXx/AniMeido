@@ -4,17 +4,23 @@ using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using AniMeido.App.Services;
 using System.Text.Json;
+using Windows.Storage.Pickers;
 
 namespace AniMeido.App.Views
 {
     public sealed partial class AppSettingsPage : Page
     {
         private readonly UpdateService _updateService;
+        private readonly PluginPackageManager _pluginPackageManager;
 
-        public AppSettingsPage(UpdateService updateService)
+        public AppSettingsPage(
+            UpdateService updateService,
+            PluginPackageManager pluginPackageManager)
         {
             _updateService = updateService;
+            _pluginPackageManager = pluginPackageManager;
             InitializeComponent();
+            Loaded += OnPageLoaded;
 
             var current = App.ThemeService.GetCurrentTheme();
             ThemeCombo.SelectedIndex = current switch
@@ -51,6 +57,152 @@ namespace AniMeido.App.Views
                 var latestVer = App.LatestVersion != null ? $"v{App.LatestVersion}" : "--";
                 VersionInfoText.Text = $"当前版本：{curVer} | 最新版本：{latestVer}";
             }
+        }
+
+        private async void OnPageLoaded(object sender, RoutedEventArgs e)
+        {
+            Loaded -= OnPageLoaded;
+            try
+            {
+                await RefreshInstalledPluginsAsync();
+            }
+            catch (PluginOperationException ex)
+            {
+                await ShowPluginMessageAsync("无法读取插件状态", ex.Message);
+            }
+        }
+
+        private async Task RefreshInstalledPluginsAsync()
+        {
+            var plugins = await _pluginPackageManager.GetInstalledPluginsAsync();
+            InstalledPluginList.ItemsSource = plugins;
+            NoInstalledPluginsText.Visibility = plugins.Count == 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            PluginRestartInfoBar.IsOpen = _pluginPackageManager.RestartRequired;
+        }
+
+        private async void OnInstallPluginClick(object sender, RoutedEventArgs e)
+        {
+            var picker = new FileOpenPicker();
+            picker.FileTypeFilter.Add(".animeido-plugin");
+
+            if (App.MainWindow is not Window window)
+            {
+                await ShowPluginMessageAsync("安装插件", "主窗口尚未就绪。");
+                return;
+            }
+
+            var windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, windowHandle);
+            var file = await picker.PickSingleFileAsync();
+            if (file is null)
+            {
+                return;
+            }
+
+            InstallPluginButton.IsEnabled = false;
+            try
+            {
+                var result = await _pluginPackageManager.InstallPackageAsync(file.Path);
+                var action = result.IsUpgrade ? "升级" : "安装";
+                await RefreshInstalledPluginsAsync();
+                await ShowPluginMessageAsync(
+                    $"{action}完成",
+                    $"{result.DisplayName} {result.Version} 已准备完成，重启 AniMeido 后生效。");
+            }
+            catch (PluginOperationException ex)
+            {
+                await ShowPluginMessageAsync("无法安装插件", ex.Message);
+            }
+            finally
+            {
+                InstallPluginButton.IsEnabled = true;
+            }
+        }
+
+        private async void OnEnablePluginClick(object sender, RoutedEventArgs e)
+            => await RunPluginActionAsync(
+                sender,
+                (pluginId) => _pluginPackageManager.SetEnabledAsync(pluginId, true),
+                "插件将在重启后启用。");
+
+        private async void OnDisablePluginClick(object sender, RoutedEventArgs e)
+            => await RunPluginActionAsync(
+                sender,
+                (pluginId) => _pluginPackageManager.SetEnabledAsync(pluginId, false),
+                "插件将在重启后禁用。");
+
+        private async void OnRollbackPluginClick(object sender, RoutedEventArgs e)
+            => await RunPluginActionAsync(
+                sender,
+                (pluginId) => _pluginPackageManager.RollbackAsync(pluginId),
+                "插件将在重启后切换到上一版本。");
+
+        private async void OnUninstallPluginClick(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button { Tag: string pluginId })
+            {
+                return;
+            }
+
+            var confirmation = new ContentDialog
+            {
+                Title = "卸载插件",
+                Content = "插件文件将在重启 AniMeido 时删除。插件自行保存的用户数据不会自动删除。",
+                PrimaryButtonText = "卸载",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = XamlRoot,
+            };
+            if (await confirmation.ShowAsync() != ContentDialogResult.Primary)
+            {
+                return;
+            }
+
+            await RunPluginActionAsync(
+                sender,
+                (id) => _pluginPackageManager.RequestUninstallAsync(id),
+                "插件将在重启后卸载。");
+        }
+
+        private async Task RunPluginActionAsync(
+            object sender,
+            Func<string, Task> action,
+            string successMessage)
+        {
+            if (sender is not Button { Tag: string pluginId } button)
+            {
+                return;
+            }
+
+            button.IsEnabled = false;
+            try
+            {
+                await action(pluginId);
+                await RefreshInstalledPluginsAsync();
+                await ShowPluginMessageAsync("插件管理", successMessage);
+            }
+            catch (PluginOperationException ex)
+            {
+                await ShowPluginMessageAsync("插件操作失败", ex.Message);
+            }
+            finally
+            {
+                button.IsEnabled = true;
+            }
+        }
+
+        private async Task ShowPluginMessageAsync(string title, string message)
+        {
+            var dialog = new ContentDialog
+            {
+                Title = title,
+                Content = message,
+                CloseButtonText = "确定",
+                XamlRoot = XamlRoot,
+            };
+            await dialog.ShowAsync();
         }
 
         private void OnThemeSelectionChanged(object sender, SelectionChangedEventArgs e)

@@ -51,9 +51,12 @@ namespace AniMeido.App
             var services = new ServiceCollection()
                 .AddAppServices();
 
+            var pluginPackageManager = PluginPackageManager.CreateDefault();
+            services.AddSingleton(pluginPackageManager);
+
             // 插件加载（在 ServiceProvider 构建前，因为 PluginHost 需要向 services 注册插件服务）
             var (navItems, plugins) = await PluginStartup.LoadPluginsAsync(
-                services, AppContext.BaseDirectory);
+                services, pluginPackageManager);
             App.Plugins = plugins;
 
             // 构建 DI 容器并初始化数据库

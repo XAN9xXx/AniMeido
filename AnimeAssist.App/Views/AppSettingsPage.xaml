@@ -38,16 +38,111 @@
                 </Grid>
             </Border>
 
-            <!-- 插件列表 -->
+            <!-- 可安装插件管理 -->
+            <Grid Margin="0,12,0,0"
+                  ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="插件管理"
+                               FontWeight="Bold"/>
+                    <TextBlock Text="插件拥有与 AniMeido 相同的本机权限，请仅安装你信任的 .animeido-plugin 包"
+                               FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+                <Button x:Name="InstallPluginButton"
+                        Grid.Column="1"
+                        Content="安装插件包"
+                        Click="OnInstallPluginClick"/>
+            </Grid>
+
+            <InfoBar x:Name="PluginRestartInfoBar"
+                     IsOpen="False"
+                     IsClosable="False"
+                     Severity="Informational"
+                     Title="需要重启 AniMeido"
+                     Message="插件变更将在下次启动时生效。"/>
+
+            <TextBlock x:Name="NoInstalledPluginsText"
+                       Text="尚未安装可选插件。"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+            <ItemsControl x:Name="InstalledPluginList">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                                CornerRadius="8"
+                                Padding="16"
+                                Margin="0,0,0,8">
+                            <Grid RowSpacing="10">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding DisplayName}"
+                                                   FontSize="16"
+                                                   FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding PluginId}"
+                                                   FontSize="12"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        <TextBlock Text="{Binding SourceText}"
+                                                   FontSize="12"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        <TextBlock Text="{Binding LastError}"
+                                                   TextWrapping="Wrap"
+                                                   FontSize="12"
+                                                   Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1"
+                                                HorizontalAlignment="Right">
+                                        <TextBlock Text="{Binding CurrentVersion}"
+                                                   HorizontalAlignment="Right"/>
+                                        <TextBlock Text="{Binding StatusText}"
+                                                   FontSize="12"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   HorizontalAlignment="Right"/>
+                                    </StackPanel>
+                                </Grid>
+                                <StackPanel Grid.Row="1"
+                                            Orientation="Horizontal"
+                                            Spacing="8">
+                                    <Button Content="启用"
+                                            Tag="{Binding PluginId}"
+                                            IsEnabled="{Binding CanEnable}"
+                                            Click="OnEnablePluginClick"/>
+                                    <Button Content="禁用"
+                                            Tag="{Binding PluginId}"
+                                            IsEnabled="{Binding CanDisable}"
+                                            Click="OnDisablePluginClick"/>
+                                    <Button Content="回滚版本"
+                                            Tag="{Binding PluginId}"
+                                            IsEnabled="{Binding CanRollback}"
+                                            Click="OnRollbackPluginClick"/>
+                                    <Button Content="卸载"
+                                            Tag="{Binding PluginId}"
+                                            IsEnabled="{Binding CanUninstall}"
+                                            Click="OnUninstallPluginClick"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- 当前进程已加载插件 -->
             <StackPanel Orientation="Horizontal"
                         Spacing="8"
                         Margin="0,12,0,0">
-                <TextBlock Text="已加载插件"
+                <TextBlock Text="本次启动已加载插件"
                            FontWeight="Bold"
-                           VerticalAlignment="Center"/>
-                <TextBlock Text="持续开发中，敬请期待"
-                           FontSize="12"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            VerticalAlignment="Center"/>
             </StackPanel>
 

@@ -27,5 +27,14 @@ namespace AniMeido.Tests
             Assert.True(set.TryAdd("Plugin.A"));
             Assert.False(set.TryAdd("plugin.a"));
         }
+
+        [Fact]
+        public void PluginIdDeduplication_RemovedId_CanBeAddedAgain()
+        {
+            var set = new PluginIdTracker();
+            Assert.True(set.TryAdd("plugin.a"));
+            Assert.True(set.Remove("plugin.a"));
+            Assert.True(set.TryAdd("plugin.a"));
+        }
     }
 }

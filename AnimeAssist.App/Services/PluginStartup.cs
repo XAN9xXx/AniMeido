@@ -13,7 +13,8 @@ internal static class PluginStartup
 {
     /// <summary>加载所有插件并返回导航项列表和插件列表。</summary>
     public static async Task<(List<PluginNavigationItem> NavItems, IReadOnlyList<IPlugin> Plugins)> LoadPluginsAsync(
-        IServiceCollection services, string baseDirectory)
+        IServiceCollection services,
+        PluginPackageManager packageManager)
     {
         // 使用 Serilog 静态 Log 构建 logger，避免为获取 ILogger 而构建临时 ServiceProvider
         using var loggerFactory = LoggerFactory.Create(builder =>
@@ -26,7 +27,20 @@ internal static class PluginStartup
 
         var navItems = new List<PluginNavigationItem>();
         navItems.AddRange(await host.LoadBuiltInPluginAsync(new Plugin.Base.BasePlugin()));
-        navItems.AddRange(await host.LoadDynamicPluginsAsync(baseDirectory));
+        try
+        {
+            var pluginDirectories = await packageManager.PrepareForStartupAsync();
+            navItems.AddRange(await host.LoadPluginDirectoriesAsync(pluginDirectories));
+            await packageManager.RecordLoadFailuresAsync(host.GetLoadFailures());
+        }
+#pragma warning disable CA1031 // Optional plugin state must not prevent base application startup.
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Plugin registry could not be prepared. Optional plugins were skipped.");
+        }
+#pragma warning restore CA1031
 
         return (navItems, host.GetPlugins());
     }
