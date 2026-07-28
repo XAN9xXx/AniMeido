@@ -55,6 +55,19 @@
                                FontWeight="Bold"
                                TextWrapping="Wrap"/>
 
+                    <Button x:Name="OnlinePlayButton"
+                            Click="OnOnlinePlayClick"
+                            IsEnabled="{Binding HasData}"
+                            Visibility="Collapsed"
+                            HorizontalAlignment="Left"
+                            Padding="16,8">
+                        <StackPanel Orientation="Horizontal"
+                                    Spacing="6">
+                            <FontIcon Glyph="&#xE768;"/>
+                            <TextBlock Text="在线播放"/>
+                        </StackPanel>
+                    </Button>
+
                     <!-- 制作/原作 -->
                     <TextBlock x:Name="DetailStudio"
                                FontSize="14"

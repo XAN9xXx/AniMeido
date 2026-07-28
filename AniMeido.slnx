@@ -13,6 +13,9 @@
     <Project Path="Plugins/AnimeAssist.Plugin.Chat/AniMeido.Plugin.Chat.csproj">
       <Platform Solution="Debug|*" Project="x64" />
     </Project>
+    <Project Path="Plugins/AnimeAssist.Plugin.Player/AniMeido.Plugin.Player.csproj">
+      <Platform Solution="Debug|*" Project="x64" />
+    </Project>
   </Folder>
   <Folder Name="/Plugins/AnimeAssist.Plugin.Base/" />
   <Project Path="AnimeAssist.App/AniMeido.App.csproj">

@@ -1,0 +1,76 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>AniMeido.Plugin.Player</RootNamespace>
+    <AssemblyName>AniMeido.Plugin.Player</AssemblyName>
+    <Title>在线播放器</Title>
+    <Version>0.2.2</Version>
+    <PluginMinAppVersion>1.2.0</PluginMinAppVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWinUI>true</UseWinUI>
+    <Platforms>x64</Platforms>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <PluginPackageStage>$(BaseIntermediateOutputPath)plugin-package</PluginPackageStage>
+    <PluginPackageOutput>$(MSBuildProjectDirectory)\..\..\artifacts\plugins\$(AssemblyName)-$(Version).animeido-plugin</PluginPackageOutput>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AngleSharp" Version="1.5.2" />
+    <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
+    <PackageReference Include="Jint" Version="4.13.0" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\AnimeAssist.Contracts\AniMeido.Contracts.csproj"
+                      Private="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <LibMpvNative Include="runtimes\win-x64\native\*.dll" />
+    <ThirdPartyNotice Include="THIRD-PARTY-NOTICES.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>AniMeido.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <Target Name="PackPlugin" DependsOnTargets="Build">
+    <ItemGroup>
+      <PluginManagedDependency Include="$(TargetDir)Jint*.dll" />
+      <PluginManagedDependency Include="$(TargetDir)Esprima*.dll" />
+      <PluginManagedDependency Include="$(TargetDir)Acornima*.dll" />
+      <PluginManagedDependency Include="$(TargetDir)AngleSharp*.dll" />
+      <PluginManagedDependency Include="$(TargetDir)HtmlAgilityPack*.dll" />
+    </ItemGroup>
+    <RemoveDir Directories="$(PluginPackageStage)" />
+    <MakeDir Directories="$(PluginPackageStage)" />
+    <Copy SourceFiles="$(TargetPath)"
+          DestinationFolder="$(PluginPackageStage)" />
+    <Copy SourceFiles="@(PluginManagedDependency)"
+          DestinationFolder="$(PluginPackageStage)"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(LibMpvNative)"
+          DestinationFolder="$(PluginPackageStage)"
+          Condition="'@(LibMpvNative)' != ''" />
+    <Error Condition="!Exists('$(TargetDir)Jint.dll')"
+           Text="PlayerPlugin 打包缺少 Jint.dll。" />
+    <Error Condition="!Exists('$(TargetDir)AngleSharp.dll')"
+           Text="PlayerPlugin 打包缺少 AngleSharp.dll。" />
+    <Error Condition="!Exists('$(TargetDir)HtmlAgilityPack.dll')"
+           Text="PlayerPlugin 打包缺少 HtmlAgilityPack.dll。" />
+    <Error Condition="'@(LibMpvNative)' == ''"
+           Text="PlayerPlugin 打包缺少 libmpv。请先运行 Tools\prepare-libmpv.ps1。" />
+    <Delete Files="$(PluginPackageOutput)" />
+    <Exec Command="pwsh -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\Tools\pack-plugin.ps1&quot; -PluginDir &quot;$(PluginPackageStage)&quot; -PluginId &quot;$(AssemblyName)&quot; -DisplayName &quot;$(Title)&quot; -Version &quot;$(Version)&quot; -MinAppVersion &quot;$(PluginMinAppVersion)&quot; -EntryAssembly &quot;$(AssemblyName).dll&quot; -OutputPath &quot;$(PluginPackageOutput)&quot;" />
+    <Message Importance="high"
+             Text="Player plugin package: $(PluginPackageOutput)" />
+  </Target>
+
+</Project>

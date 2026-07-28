@@ -1,5 +1,6 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using AniMeido.Contracts.Playback;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
 using CommunityToolkit.Mvvm.Input;
@@ -20,18 +21,29 @@ namespace AniMeido.Plugin.Base.Views
         private readonly BrowseHistoryService _browseHistory;
         private readonly IAnimeDataSource _dataSource;
         private readonly IPluginNavigator _pluginNavigator;
+        private readonly IAnimePlaybackLauncher? _playbackLauncher;
         private int _currentAnimeId;
         private readonly HashSet<string> _savedTagNames = new();
 
-        public AnimeDetailPage(IAnimeDataSource dataSource, TrackingService trackingService, SavedTagService savedTagService, BrowseHistoryService browseHistory, IPluginNavigator pluginNavigator)
+        public AnimeDetailPage(
+            IAnimeDataSource dataSource,
+            TrackingService trackingService,
+            SavedTagService savedTagService,
+            BrowseHistoryService browseHistory,
+            IPluginNavigator pluginNavigator,
+            IEnumerable<IAnimePlaybackLauncher> playbackLaunchers)
         {
             _dataSource = dataSource;
             _browseHistory = browseHistory;
             _pluginNavigator = pluginNavigator;
             _savedTagService = savedTagService;
+            _playbackLauncher = playbackLaunchers.FirstOrDefault();
             ViewModel = new AnimeDetailViewModel(dataSource, trackingService);
             DataContext = ViewModel;
             InitializeComponent();
+            OnlinePlayButton.Visibility = _playbackLauncher is null
+                ? Visibility.Collapsed
+                : Visibility.Visible;
 
             ViewModel.PropertyChanged += (s, e) =>
             {
@@ -81,6 +93,32 @@ namespace AniMeido.Plugin.Base.Views
                     (float)e.NewSize.Width / 2,
                     (float)e.NewSize.Height / 2, 0);
             };
+        }
+
+        private async void OnOnlinePlayClick(object sender, RoutedEventArgs e)
+        {
+            if (_playbackLauncher is null
+                || _currentAnimeId <= 0
+                || ViewModel.AnimeDetail is not { } anime)
+            {
+                return;
+            }
+
+            try
+            {
+                await _playbackLauncher.LaunchAsync(
+                    new AnimePlaybackContext(
+                        _currentAnimeId,
+                        anime.Title,
+                        anime.AlternateTitles));
+            }
+#pragma warning disable CA1031 // Optional playback must not break the detail page.
+            catch (Exception ex)
+            {
+                ErrorInfoBar.Message = $"无法打开在线播放器：{ex.Message}";
+                ErrorInfoBar.IsOpen = true;
+            }
+#pragma warning restore CA1031
         }
 
         public Task OnNavigatedToAsync(object? parameter)

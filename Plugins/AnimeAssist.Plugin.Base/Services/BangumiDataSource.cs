@@ -164,7 +164,10 @@ namespace AniMeido.Plugin.Base.Services
                 item.Summary ?? FallbackDescription,
                 year,
                 seasonMonth,
-                item.AirWeekday
+                item.AirWeekday,
+                AlternateTitles: GetAlternateTitles(
+                    item.NameCn,
+                    item.Name)
                 )
             { Score = item.Rating?.Score };
         }
@@ -220,6 +223,22 @@ namespace AniMeido.Plugin.Base.Services
              : !string.IsNullOrWhiteSpace(name) ? name
              : FallbackTitle;
 
+        private static IReadOnlyList<string> GetAlternateTitles(
+            string? nameCn,
+            string? name)
+        {
+            var primary = ResolveTitle(nameCn, name);
+            return new[] { nameCn, name }
+                .Where(title => !string.IsNullOrWhiteSpace(title))
+                .Select(title => title!.Trim())
+                .Where(title => !string.Equals(
+                    title,
+                    primary,
+                    StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
         // 判断条目的放送日期是否属于指定的年份和季度
         private static bool BelongsToSeason(CalendarItem item, int year, Season season)
         {
@@ -256,7 +275,10 @@ namespace AniMeido.Plugin.Base.Services
                 ResolveImageUrl(item.Images?.Large) ?? FallbackImageUrl,
                 item.Summary ?? FallbackDescription,
                 resolvedYear,
-                resolvedSeasonMonth
+                resolvedSeasonMonth,
+                AlternateTitles: GetAlternateTitles(
+                    item.NameCn,
+                    item.Name)
                 )
             { Score = item.Rating?.Score };
         }

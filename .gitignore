@@ -378,3 +378,6 @@ imagecache/
 *.lscache
 *.csproj.user
 *.csproj.lscache
+
+# PlayerPlugin native runtime is reproducibly downloaded for local/release builds.
+/Plugins/AnimeAssist.Plugin.Player/runtimes/win-x64/native/*.dll
