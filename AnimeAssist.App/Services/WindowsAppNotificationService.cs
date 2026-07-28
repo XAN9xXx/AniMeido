@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
 using Microsoft.UI.Dispatching;
+using System.Runtime.InteropServices;
 using Windows.Data.Xml.Dom;
 using Windows.UI.Notifications;
 
@@ -107,7 +108,7 @@ public sealed class WindowsAppNotificationService :
         return Task.CompletedTask;
     }
 
-    public Task CancelAsync(
+    public async Task CancelAsync(
         string group,
         string tag,
         CancellationToken cancellationToken = default)
@@ -116,28 +117,24 @@ public sealed class WindowsAppNotificationService :
         cancellationToken.ThrowIfCancellationRequested();
         if (!IsSupported)
         {
-            return Task.CompletedTask;
+            return;
         }
 
-        var notifier = ToastNotificationManager.CreateToastNotifier();
-        foreach (var scheduled in notifier.GetScheduledToastNotifications()
-            .Where(item =>
-                string.Equals(
-                    item.Group,
-                    group,
-                    StringComparison.Ordinal)
-                && string.Equals(
-                    item.Tag,
-                    tag,
-                    StringComparison.Ordinal))
-            .ToList())
+        try
         {
-            notifier.RemoveFromSchedule(scheduled);
+            RemoveScheduledNotifications(group, tag);
+            await AppNotificationManager.Default
+                .RemoveByTagAndGroupAsync(tag, group)
+                .AsTask(cancellationToken);
         }
-
-        return AppNotificationManager.Default.RemoveByTagAndGroupAsync(
-            tag,
-            group).AsTask(cancellationToken);
+        catch (Exception ex) when (IsNotificationInfrastructureError(ex))
+        {
+            _logger.LogWarning(
+                ex,
+                "Unable to cancel Windows notification {Group}/{Tag}.",
+                group,
+                tag);
+        }
     }
 
     public async Task CancelGroupAsync(
@@ -151,20 +148,45 @@ public sealed class WindowsAppNotificationService :
             return;
         }
 
+        try
+        {
+            RemoveScheduledNotifications(group, tag: null);
+            await AppNotificationManager.Default
+                .RemoveByGroupAsync(group)
+                .AsTask(cancellationToken);
+        }
+        catch (Exception ex) when (IsNotificationInfrastructureError(ex))
+        {
+            _logger.LogWarning(
+                ex,
+                "Unable to cancel Windows notification group {Group}.",
+                group);
+        }
+    }
+
+    internal static bool IsNotificationInfrastructureError(Exception exception)
+        => exception is COMException or InvalidOperationException;
+
+    private static void RemoveScheduledNotifications(
+        string group,
+        string? tag)
+    {
         var notifier = ToastNotificationManager.CreateToastNotifier();
         foreach (var scheduled in notifier.GetScheduledToastNotifications()
-            .Where(item => string.Equals(
-                item.Group,
-                group,
-                StringComparison.Ordinal))
+            .Where(item =>
+                string.Equals(
+                    item.Group,
+                    group,
+                    StringComparison.Ordinal)
+                && (tag is null
+                    || string.Equals(
+                        item.Tag,
+                        tag,
+                        StringComparison.Ordinal)))
             .ToList())
         {
             notifier.RemoveFromSchedule(scheduled);
         }
-
-        await AppNotificationManager.Default
-            .RemoveByGroupAsync(group)
-            .AsTask(cancellationToken);
     }
 
     public IDisposable RegisterActivationHandler(
