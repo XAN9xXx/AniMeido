@@ -27,7 +27,9 @@ public partial class App : Application
         }
 
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
-        _catalog = new PluginRuntimeCatalog(_dispatcherQueue);
+        _catalog = new PluginRuntimeCatalog(
+            _dispatcherQueue,
+            new PlaybackProgressEventQueue());
         _ = ConnectAsync(pipeName, _catalog);
     }
 

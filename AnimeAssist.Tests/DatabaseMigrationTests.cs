@@ -23,7 +23,7 @@ namespace AniMeido.Tests
             var cmd = conn.CreateCommand();
             cmd.CommandText = "PRAGMA user_version";
             var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            Assert.Equal(3, version);
+            Assert.Equal(4, version);
 
             // 检查所有表是否存在
             cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name";
@@ -37,6 +37,12 @@ namespace AniMeido.Tests
             Assert.Contains("config", tables);
             Assert.Contains("saved_tags", tables);
             Assert.Contains("browse_history", tables);
+            Assert.Contains("anime_plans", tables);
+            Assert.Contains("plan_reminders", tables);
+            Assert.Contains("anime_progress", tables);
+            Assert.Contains("episode_progress", tables);
+            Assert.Contains("watch_sessions", tables);
+            Assert.Contains("smart_lists", tables);
         }
 
         [Fact]
@@ -163,7 +169,7 @@ namespace AniMeido.Tests
             await verifyConn.OpenAsync();
             var versionCmd = verifyConn.CreateCommand();
             versionCmd.CommandText = "PRAGMA user_version";
-            Assert.Equal(3, Convert.ToInt32(await versionCmd.ExecuteScalarAsync()));
+            Assert.Equal(4, Convert.ToInt32(await versionCmd.ExecuteScalarAsync()));
 
             // 验证 Distinct TagName 被保留（"原创"只出现一次）
             var tagCmd = verifyConn.CreateCommand();
@@ -190,7 +196,7 @@ namespace AniMeido.Tests
             var cmd = conn.CreateCommand();
             cmd.CommandText = "PRAGMA user_version";
             var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            Assert.Equal(3, version);
+            Assert.Equal(4, version);
         }
     }
 }

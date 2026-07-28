@@ -1,3 +1,4 @@
+using AniMeido.Contracts.Playback;
 using AniMeido.PluginProtocol;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
@@ -10,11 +11,14 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
     private readonly PluginPackageManager _packageManager;
     private readonly PluginContributionRegistry _contributions;
     private readonly HostedAnimePlaybackLauncher _playbackLauncher;
+    private readonly IAnimePlaybackProgressSink _playbackProgressSink;
     private readonly ILogger<PluginHostSupervisor> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private Process? _process;
     private JsonPipeRpcClient? _rpc;
     private NamedPipeServerStream? _pipe;
+    private CancellationTokenSource? _progressPumpCancellation;
+    private Task? _progressPumpTask;
     private bool _intentionalStop;
     private bool _automaticRestartUsed;
     private bool _disposed;
@@ -23,11 +27,13 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         PluginPackageManager packageManager,
         PluginContributionRegistry contributions,
         HostedAnimePlaybackLauncher playbackLauncher,
+        IAnimePlaybackProgressSink playbackProgressSink,
         ILogger<PluginHostSupervisor> logger)
     {
         _packageManager = packageManager;
         _contributions = contributions;
         _playbackLauncher = playbackLauncher;
+        _playbackProgressSink = playbackProgressSink;
         _logger = logger;
         _contributions.CommandInvoker = InvokeCommandAsync;
         _playbackLauncher.Attach(this);
@@ -209,6 +215,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         SetStatus(snapshot.Failures.Count == 0
             ? "运行中"
             : $"运行中，{snapshot.Failures.Count} 个插件加载失败");
+        StartProgressPump();
     }
 
     private async Task StopCoreAsync(CancellationToken cancellationToken)
@@ -216,6 +223,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         _intentionalStop = true;
         try
         {
+            await StopProgressPumpAsync();
             if (_rpc is not null)
             {
                 try
@@ -313,6 +321,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
 
     private void CleanupConnection()
     {
+        _progressPumpCancellation?.Cancel();
         if (_process is not null)
         {
             _process.Exited -= OnProcessExited;
@@ -327,6 +336,106 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         _rpc = null;
         _pipe?.Dispose();
         _pipe = null;
+    }
+
+    private void StartProgressPump()
+    {
+        _progressPumpCancellation?.Cancel();
+        _progressPumpCancellation?.Dispose();
+        _progressPumpCancellation = new CancellationTokenSource();
+        _progressPumpTask = PumpPlaybackProgressAsync(
+            _progressPumpCancellation.Token);
+    }
+
+    private async Task StopProgressPumpAsync()
+    {
+        var cancellation = _progressPumpCancellation;
+        var task = _progressPumpTask;
+        _progressPumpCancellation = null;
+        _progressPumpTask = null;
+        if (cancellation is null)
+        {
+            return;
+        }
+
+        cancellation.Cancel();
+        try
+        {
+            if (task is not null)
+            {
+                await task;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            cancellation.Dispose();
+        }
+    }
+
+    private async Task PumpPlaybackProgressAsync(
+        CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var rpc = _rpc;
+            if (rpc is null)
+            {
+                return;
+            }
+
+            try
+            {
+                var events = await rpc.InvokeAsync<
+                    HostedPlaybackProgressEvent[]>(
+                    PluginHostRpcTargetNames.GetPlaybackProgressEventsAsync,
+                    [],
+                    cancellationToken);
+                long acknowledgedSequence = 0;
+                foreach (var item in events.OrderBy(item => item.Sequence))
+                {
+                    await _playbackProgressSink.RecordAsync(
+                        new AnimePlaybackProgress(
+                            item.EventId,
+                            item.AnimeId,
+                            item.EpisodeNumber,
+                            item.PositionSeconds,
+                            item.DurationSeconds,
+                            item.ReachedNaturalEnd,
+                            item.ObservedAt),
+                        cancellationToken);
+                    acknowledgedSequence = item.Sequence;
+                }
+
+                if (acknowledgedSequence > 0)
+                {
+                    await rpc.InvokeAsync(
+                        PluginHostRpcTargetNames
+                            .AcknowledgePlaybackProgressEventsAsync,
+                        [acknowledgedSequence],
+                        cancellationToken);
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex) when (
+                ex is IOException
+                or ObjectDisposedException
+                or JsonPipeRpcException)
+            {
+                _logger.LogDebug(
+                    ex,
+                    "PluginHost playback progress channel ended.");
+                return;
+            }
+        }
     }
 
     private static string ResolveHostPath()
@@ -368,5 +477,9 @@ internal static class PluginHostRpcTargetNames
     public const string InvokeCommandAsync = "InvokeCommandAsync";
     public const string LaunchAnimePlaybackAsync = "LaunchAnimePlaybackAsync";
     public const string GetRuntimeStateAsync = "GetRuntimeStateAsync";
+    public const string GetPlaybackProgressEventsAsync =
+        "GetPlaybackProgressEventsAsync";
+    public const string AcknowledgePlaybackProgressEventsAsync =
+        "AcknowledgePlaybackProgressEventsAsync";
     public const string ShutdownAsync = "ShutdownAsync";
 }

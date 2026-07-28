@@ -12,6 +12,7 @@ namespace AniMeido.PluginHost;
 internal sealed class PluginRuntimeCatalog : IAsyncDisposable
 {
     private readonly DispatcherQueue _dispatcherQueue;
+    private readonly PlaybackProgressEventQueue _playbackProgress;
     private readonly Dictionary<string, HostedPluginDescriptor> _descriptors =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ActivePlugin> _activePlugins =
@@ -20,8 +21,19 @@ internal sealed class PluginRuntimeCatalog : IAsyncDisposable
     private int _activeInvocationCount;
     private bool _disposed;
 
-    public PluginRuntimeCatalog(DispatcherQueue dispatcherQueue)
-        => _dispatcherQueue = dispatcherQueue;
+    public PluginRuntimeCatalog(
+        DispatcherQueue dispatcherQueue,
+        PlaybackProgressEventQueue playbackProgress)
+    {
+        _dispatcherQueue = dispatcherQueue;
+        _playbackProgress = playbackProgress;
+    }
+
+    public HostedPlaybackProgressEvent[] GetPlaybackProgressEvents()
+        => _playbackProgress.GetPendingEvents();
+
+    public void AcknowledgePlaybackProgressEvents(long sequence)
+        => _playbackProgress.Acknowledge(sequence);
 
     public async Task<PluginHostSnapshot> InitializeAsync(
         IReadOnlyList<HostedPluginDescriptor> plugins)
@@ -191,6 +203,8 @@ internal sealed class PluginRuntimeCatalog : IAsyncDisposable
 
             ValidateIdentity(descriptor.Manifest, plugin);
             var services = new ServiceCollection();
+            services.AddSingleton<IAnimePlaybackProgressReporter>(
+                _playbackProgress);
             await RunOnUiAsync(() => plugin.InitializeAsync(services));
             var provider = services.BuildServiceProvider();
             var active = new ActivePlugin(plugin, provider, loadContext);

@@ -2,6 +2,7 @@
 using AniMeido.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Serilog;
@@ -11,9 +12,12 @@ namespace AniMeido.App
 
     public partial class App : Application
     {
-        private Window? _window;
+        private MainWindow? _window;
         private bool _isRecoverableErrorShown;
+        private bool _shutdownStarted;
+        private bool _shutdownCompleted;
         private ServiceProvider? _serviceProvider;
+        private AppWindow? _mainAppWindow;
 
         public App()
         {
@@ -62,6 +66,9 @@ namespace AniMeido.App
             var provider = services.BuildServiceProvider();
             _serviceProvider = provider;
             Services = provider;
+            await provider
+                .GetRequiredService<WindowsAppNotificationService>()
+                .InitializeAsync();
             await DatabaseStartup.InitializeAsync(provider);
 
             // 创建主窗口
@@ -76,23 +83,21 @@ namespace AniMeido.App
 
             var pluginHostSupervisor =
                 provider.GetRequiredService<PluginHostSupervisor>();
+            var windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(
+                _window);
+            var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(
+                windowHandle);
+            _mainAppWindow = AppWindow.GetFromWindowId(windowId);
+            _mainAppWindow.Closing += OnMainAppWindowClosing;
             _window.Closed += (_, _) =>
             {
-                var serviceProvider = _serviceProvider;
-                _serviceProvider = null;
-                Task.Run(async () =>
+                if (_mainAppWindow is not null)
                 {
-                    if (serviceProvider is not null)
-                    {
-                        await serviceProvider.DisposeAsync();
-                    }
-                })
-                    .GetAwaiter()
-                    .GetResult();
-                Services = null;
+                    _mainAppWindow.Closing -= OnMainAppWindowClosing;
+                    _mainAppWindow = null;
+                }
                 MainWindow = null;
                 Contracts.AppServices.MainWindow = null;
-                Log.CloseAndFlush();
             };
             _window.Activate();
 
@@ -101,6 +106,47 @@ namespace AniMeido.App
 
             _ = StartPluginHostSafelyAsync(pluginHostSupervisor);
             _ = UpdateStartupTask.CheckForUpdateSilentlyAsync(provider, _window);
+        }
+
+        private async void OnMainAppWindowClosing(
+            AppWindow sender,
+            AppWindowClosingEventArgs args)
+        {
+            if (_shutdownCompleted)
+            {
+                return;
+            }
+
+            args.Cancel = true;
+            if (_shutdownStarted)
+            {
+                return;
+            }
+
+            _shutdownStarted = true;
+            _window?.BeginShutdown();
+            try
+            {
+                var provider = _serviceProvider;
+                _serviceProvider = null;
+                if (provider is not null)
+                {
+                    await provider.DisposeAsync();
+                }
+            }
+#pragma warning disable CA1031 // Shutdown cleanup failure must not trap the window open.
+            catch (Exception ex)
+            {
+                Log.Error(ex, "应用关闭清理失败");
+            }
+#pragma warning restore CA1031
+            finally
+            {
+                Services = null;
+                _shutdownCompleted = true;
+                Log.CloseAndFlush();
+                _window?.Close();
+            }
         }
 
         private static async Task StartPluginHostSafelyAsync(

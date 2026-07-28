@@ -79,7 +79,11 @@ namespace AniMeido.Tests
                 new TrackingService(importDbFactory),
                 new SavedTagService(importDbFactory),
                 importDbFactory);
-            var (trackingCount, configCount, tagCount) = await importSvc.ImportAsync(json);
+            var (
+                trackingCount,
+                configCount,
+                tagCount,
+                _) = await importSvc.ImportAsync(json);
 
             Assert.Equal(2, trackingCount);
             Assert.Equal(4, configCount); // 导出时包含默认的4个拖放配置
@@ -116,6 +120,49 @@ namespace AniMeido.Tests
         }
 
         [Fact]
+        public async Task Export_And_Import_RestoresActionCenterData()
+        {
+            await RunProductionMigrationAsync();
+            var actionCenter = new ActionCenterService(DbFactory);
+            await actionCenter.UpsertPlanAsync(
+                42,
+                "测试番剧",
+                AniMeido.Plugin.Base.Models.AnimePlanPriority.High,
+                new DateOnly(2026, 8, 1),
+                0);
+            await actionCenter.RecordAsync(
+                new AniMeido.Contracts.Playback.AnimePlaybackProgress(
+                    "export-progress",
+                    42,
+                    3,
+                    570,
+                    600,
+                    false,
+                    DateTimeOffset.UtcNow));
+            var json = await CreateService().ExportAsync();
+
+            var importPaths = new MockAppDataPaths();
+            var importFactory = new SqliteConnectionFactory(importPaths);
+            var database = new AniMeido.App.Services.DatabaseService(
+                importFactory,
+                importPaths);
+            await database.InitializeAsync();
+            var importService = new ExportService(
+                new TrackingService(importFactory),
+                new SavedTagService(importFactory),
+                importFactory);
+            await importService.ImportAsync(json);
+
+            var imported = new ActionCenterService(importFactory);
+            var plan = await imported.GetPlanAsync(42);
+            var progress = await imported.GetProgressAsync();
+            Assert.NotNull(plan);
+            Assert.Equal("测试番剧", plan!.TitleSnapshot);
+            Assert.Equal(3, progress[42].CurrentEpisode);
+            CleanupDbFile(importPaths.DatabasePath);
+        }
+
+        [Fact]
         public async Task Import_InvalidJson_ThrowsJsonException()
         {
             await RunProductionMigrationAsync();
@@ -132,7 +179,11 @@ namespace AniMeido.Tests
             var svc = CreateService();
             var json = await svc.ExportAsync();
 
-            var (trackingCount, configCount, tagCount) = await svc.ImportAsync(json);
+            var (
+                trackingCount,
+                configCount,
+                tagCount,
+                _) = await svc.ImportAsync(json);
             Assert.Equal(0, trackingCount);
         }
 

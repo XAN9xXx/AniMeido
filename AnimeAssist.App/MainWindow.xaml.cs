@@ -139,6 +139,8 @@ namespace AniMeido.App
         private async void OnMainNaviViewLoaded(object sender, RoutedEventArgs e)
         {
             await _splash.WaitForImageAsync();
+            if (_isClosing)
+                return;
 
             var splashStart = DateTime.UtcNow;
 
@@ -157,19 +159,37 @@ namespace AniMeido.App
 
             // 等待首个页面加载完成（超时 10 秒兜底）
             await Task.WhenAny(_navigationService.FirstNavigationCompleted.Task, Task.Delay(10000));
+            if (_isClosing)
+                return;
 
             // 确保最低显示时间
             var elapsed = (DateTime.UtcNow - splashStart).TotalMilliseconds;
             if (elapsed < 2000)
                 await Task.Delay((int)(2000 - elapsed));
+            if (_isClosing)
+                return;
 
             // 开屏淡出
             await _splash.FadeOutAsync();
+            if (_isClosing)
+                return;
 
             // 弹窗在开屏结束后显示
             await _dialogs.ShowPrivacyDialogAsync();
+            if (_isClosing)
+                return;
             await _dialogs.ShowAnnouncementDialogAsync();
+            if (_isClosing)
+                return;
             UpdateTitleBarButtons();
+        }
+
+        internal void BeginShutdown()
+        {
+            _isClosing = true;
+            MainNaviView.Loaded -= OnMainNaviViewLoaded;
+            MainNaviView.ItemInvoked -= OnNaviItemInvoked;
+            _navigationService.Navigated -= OnNavigationServiceNavigated;
         }
 
         //

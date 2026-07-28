@@ -48,6 +48,21 @@ internal sealed record PlayerEpisodeGroup(
     internal static string GetRouteKey(SourceEpisodeEntry entry)
         => $"{entry.Episode.SourceId}\u001f{entry.Episode.Route ?? string.Empty}";
 
+    internal bool TryGetEpisodeNumber(out int episodeNumber)
+    {
+        episodeNumber = 0;
+        if (!Key.StartsWith("episode:", StringComparison.Ordinal)
+            || SortOrder < 1
+            || SortOrder > int.MaxValue
+            || SortOrder % 1 != 0)
+        {
+            return false;
+        }
+
+        episodeNumber = (int)SortOrder;
+        return true;
+    }
+
     private static EpisodeIdentity CreateIdentity(SourceEpisodeEntry entry)
     {
         var title = entry.Episode.Title.Trim();

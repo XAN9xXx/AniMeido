@@ -6,8 +6,8 @@
     <RootNamespace>AniMeido.Plugin.Player</RootNamespace>
     <AssemblyName>AniMeido.Plugin.Player</AssemblyName>
     <Title>在线播放器</Title>
-    <Version>0.3.1</Version>
-    <PluginMinAppVersion>1.3.0</PluginMinAppVersion>
+    <Version>0.4.0</Version>
+    <PluginMinAppVersion>1.4.0</PluginMinAppVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWinUI>true</UseWinUI>

@@ -271,14 +271,22 @@ namespace AniMeido.Plugin.Base.Views
                 // 导入前使用 SQLite 在线备份确保一致性
                 await _backupService.BackupAsync();
 
-                var (trackingCount, configCount, tagCount) = await _exportService.ImportAsync(json);
+                var (
+                    trackingCount,
+                    configCount,
+                    tagCount,
+                    actionCenterCount) =
+                    await _exportService.ImportAsync(json);
 
                 var doneDialog = new ContentDialog
                 {
                     Title = "导入完成",
                     Content = $"成功导入 {trackingCount} 条追番记录"
                              + (configCount > 0 ? $"、{configCount} 项拖放配置" : "")
-                             + (tagCount > 0 ? $"、{tagCount} 个标签绑定" : ""),
+                             + (tagCount > 0 ? $"、{tagCount} 个标签绑定" : "")
+                             + (actionCenterCount > 0
+                                ? $"、{actionCenterCount} 条行动中心数据"
+                                : ""),
                     CloseButtonText = "确定",
                     XamlRoot = this.XamlRoot
                 };

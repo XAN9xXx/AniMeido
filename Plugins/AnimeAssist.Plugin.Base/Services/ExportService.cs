@@ -1,12 +1,13 @@
 ﻿using AniMeido.Contracts.Models;
 using System.Text.Json;
 using AniMeido.Plugin.Base.Models;
+using System.Globalization;
 
 namespace AniMeido.Plugin.Base.Services
 {
     /// <summary>
-    /// 追番数据 JSON 导出/导入服务。
-    /// 导出内容：用户标记的番剧状态和拖放配置。
+    /// 个人数据 JSON 导出/导入服务。
+    /// 导出内容：追番状态、拖放配置、标签及行动中心数据。
     /// 不包含：缓存数据（可重新拉取）。
     /// </summary>
     public class ExportService
@@ -24,7 +25,43 @@ namespace AniMeido.Plugin.Base.Services
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         };
 
-        public const int SchemaVersion = 2;
+        public const int SchemaVersion = 3;
+        private static readonly IReadOnlyDictionary<string, string[]> P4TableColumns =
+            new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["anime_plans"] =
+                [
+                    "AnimeId", "TitleSnapshot", "Priority", "TargetStartDate",
+                    "SortOrder", "CreatedAt", "UpdatedAt", "StartedAt",
+                    "ArchivedAt",
+                ],
+                ["plan_reminders"] =
+                [
+                    "ReminderId", "AnimeId", "Kind", "RelativeDays",
+                    "TimeOfDay", "AbsoluteAt", "ScheduledFor", "State",
+                    "CatchUpSentAt", "HandledAt",
+                ],
+                ["anime_progress"] =
+                [
+                    "AnimeId", "CurrentEpisode", "PositionSeconds",
+                    "DurationSeconds", "LastWatchedAt",
+                ],
+                ["episode_progress"] =
+                [
+                    "AnimeId", "EpisodeNumber", "PositionSeconds",
+                    "DurationSeconds", "IsCompleted", "LastWatchedAt",
+                ],
+                ["watch_sessions"] =
+                [
+                    "EventId", "AnimeId", "EpisodeNumber", "PositionSeconds",
+                    "DurationSeconds", "IsCompleted", "ObservedAt",
+                ],
+                ["smart_lists"] =
+                [
+                    "Id", "Name", "SchemaVersion", "RuleJson", "SortJson",
+                    "CreatedAt", "UpdatedAt",
+                ],
+            };
 
 
 
@@ -49,6 +86,7 @@ namespace AniMeido.Plugin.Base.Services
             var tracking = await _tracking.GetAllTrackingAsync();
             var config = await _tracking.LoadDragZoneConfigAsync();
             var savedTags = await _savedTagService.GetAllSavedTagsAsync();
+            var p4Tables = await ExportP4TablesAsync();
 
             var export = new ExportData
             {
@@ -63,6 +101,7 @@ namespace AniMeido.Plugin.Base.Services
                 }).ToList(),
                 DragZones = config,
                 SavedTags = savedTags.Select(name => new SavedTagEntry { TagName = name }).ToList(),
+                P4Tables = p4Tables,
             };
 
             return JsonSerializer.Serialize(export, JsonOptions);
@@ -73,9 +112,15 @@ namespace AniMeido.Plugin.Base.Services
         /// 从 JSON 字符串导入追番数据。
         /// 使用单连接+单事务，失败时自动回滚，避免半导入状态。
         /// </summary>
-        /// <returns>(导入的追番数, 导入的配置项数, 导入的标签收藏数)</returns>
+        /// <returns>
+        /// (导入的追番数, 配置项数, 标签收藏数, 行动中心记录数)
+        /// </returns>
         /// <exception cref="InvalidDataException">当 SchemaVersion 不兼容或数据校验不通过时抛出。</exception>
-        public async Task<(int trackingCount, int configCount, int tagCount)> ImportAsync(string json)
+        public async Task<(
+            int trackingCount,
+            int configCount,
+            int tagCount,
+            int actionCenterCount)> ImportAsync(string json)
         {
             var export = ParseAndValidate(json);
 
@@ -142,8 +187,21 @@ namespace AniMeido.Plugin.Base.Services
                     }
                 }
 
+                var actionCenterCount = 0;
+                if (export.P4Tables is not null)
+                {
+                    actionCenterCount = await ImportP4TablesAsync(
+                        connection,
+                        transaction,
+                        export.P4Tables);
+                }
+
                 transaction.Commit();
-                return (trackingCount, configCount, tagCount);
+                return (
+                    trackingCount,
+                    configCount,
+                    tagCount,
+                    actionCenterCount);
             }
             catch
             {
@@ -178,6 +236,7 @@ namespace AniMeido.Plugin.Base.Services
         private const int MaxDragZones = 20;
         private const int MaxTagLength = 100;
         private const int MaxTrackingRecords = 10000;
+        private const int MaxP4Records = 100000;
         private const int MaxJsonDepth = 32;
 
         /// <summary>反序列化并校验导入数据的 SchemaVersion 和基本结构。</summary>
@@ -214,7 +273,100 @@ namespace AniMeido.Plugin.Base.Services
                 throw new InvalidDataException(
                     $"追番记录数量 {export.Tracking.Count} 超过上限 {MaxTrackingRecords}。");
 
+            var p4RecordCount =
+                export.P4Tables?.Values.Sum(rows => rows.Count) ?? 0;
+            if (p4RecordCount > MaxP4Records)
+                throw new InvalidDataException(
+                    $"行动中心记录数量 {p4RecordCount} 超过上限 {MaxP4Records}。");
+
             return export;
+        }
+
+        private async Task<Dictionary<string, List<Dictionary<string, string?>>>>
+            ExportP4TablesAsync()
+        {
+            using var connection = await _dbFactory.OpenAsync();
+            var result = new Dictionary<
+                string,
+                List<Dictionary<string, string?>>>(StringComparer.Ordinal);
+            foreach (var table in P4TableColumns)
+            {
+                using var command = connection.CreateCommand();
+                command.CommandText =
+                    $"SELECT {string.Join(", ", table.Value)} FROM {table.Key}";
+                var rows = new List<Dictionary<string, string?>>();
+                using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var row = new Dictionary<string, string?>(
+                        StringComparer.Ordinal);
+                    for (var index = 0; index < table.Value.Length; index++)
+                    {
+                        row[table.Value[index]] = reader.IsDBNull(index)
+                            ? null
+                            : Convert.ToString(
+                                reader.GetValue(index),
+                                CultureInfo.InvariantCulture);
+                    }
+
+                    rows.Add(row);
+                }
+
+                result[table.Key] = rows;
+            }
+
+            return result;
+        }
+
+        private static async Task<int> ImportP4TablesAsync(
+            Microsoft.Data.Sqlite.SqliteConnection connection,
+            Microsoft.Data.Sqlite.SqliteTransaction transaction,
+            IReadOnlyDictionary<
+                string,
+                List<Dictionary<string, string?>>> tables)
+        {
+            var importedCount = 0;
+            foreach (var table in P4TableColumns)
+            {
+                if (!tables.TryGetValue(table.Key, out var rows)
+                    || rows.Count == 0)
+                {
+                    continue;
+                }
+
+                var parameterNames = table.Value
+                    .Select((_, index) => $"@value{index}")
+                    .ToArray();
+                using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = $"""
+                    INSERT OR REPLACE INTO {table.Key}
+                        ({string.Join(", ", table.Value)})
+                    VALUES
+                        ({string.Join(", ", parameterNames)})
+                    """;
+                foreach (var parameterName in parameterNames)
+                {
+                    command.Parameters.Add(
+                        new Microsoft.Data.Sqlite.SqliteParameter(
+                            parameterName,
+                            DBNull.Value));
+                }
+
+                foreach (var row in rows)
+                {
+                    for (var index = 0; index < table.Value.Length; index++)
+                    {
+                        row.TryGetValue(table.Value[index], out var value);
+                        command.Parameters[index].Value =
+                            value ?? (object)DBNull.Value;
+                    }
+
+                    importedCount += await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            return importedCount;
         }
 
         private static bool IsValidTrackingStatus(AnimeTrackingStatus status)
@@ -261,6 +413,11 @@ namespace AniMeido.Plugin.Base.Services
         public List<TrackingEntry> Tracking { get; set; } = new();
         public List<DragZoneConfig>? DragZones { get; set; }
         public List<SavedTagEntry>? SavedTags { get; set; }
+        public Dictionary<string, List<Dictionary<string, string?>>>? P4Tables
+        {
+            get;
+            set;
+        }
     }
 
     public class TrackingEntry

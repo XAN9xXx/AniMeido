@@ -25,6 +25,7 @@ internal sealed class PlayerWindowManager : IAnimePlaybackLauncher, IDisposable
     private readonly WebMediaResolver _webResolver;
     private readonly PlaybackDiagnosticRecorder _diagnostics;
     private readonly PlayerExperienceSettingsStore _experienceSettings;
+    private readonly IAnimePlaybackProgressReporter _playbackProgressReporter;
     private PlayerWindow? _playerWindow;
     private bool _disposed;
 
@@ -44,7 +45,8 @@ internal sealed class PlayerWindowManager : IAnimePlaybackLauncher, IDisposable
         PlayerRuntimeSettingsStore runtimeSettings,
         WebMediaResolver webResolver,
         PlaybackDiagnosticRecorder diagnostics,
-        PlayerExperienceSettingsStore experienceSettings)
+        PlayerExperienceSettingsStore experienceSettings,
+        IAnimePlaybackProgressReporter playbackProgressReporter)
     {
         _sourceCatalog = sourceCatalog;
         _sourcePackageInstaller = sourcePackageInstaller;
@@ -54,6 +56,7 @@ internal sealed class PlayerWindowManager : IAnimePlaybackLauncher, IDisposable
         _webResolver = webResolver;
         _diagnostics = diagnostics;
         _experienceSettings = experienceSettings;
+        _playbackProgressReporter = playbackProgressReporter;
     }
 
     public async Task LaunchAsync(
@@ -86,7 +89,8 @@ internal sealed class PlayerWindowManager : IAnimePlaybackLauncher, IDisposable
             _runtimeSettings,
             _webResolver,
             _diagnostics,
-            _experienceSettings);
+            _experienceSettings,
+            _playbackProgressReporter);
         _playerWindow.Closed += OnPlayerWindowClosed;
         _playerWindow.Activate();
     }

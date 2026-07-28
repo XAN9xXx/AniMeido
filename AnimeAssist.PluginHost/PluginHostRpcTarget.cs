@@ -28,6 +28,11 @@ public sealed class PluginHostRpcTarget
                 LaunchAnimePlaybackAsync(
                     ReadArgument<AnimePlaybackRequest>(request, 0))),
             nameof(GetRuntimeStateAsync) => BoxAsync(GetRuntimeStateAsync()),
+            nameof(GetPlaybackProgressEventsAsync) => BoxAsync(
+                GetPlaybackProgressEventsAsync()),
+            nameof(AcknowledgePlaybackProgressEventsAsync) => BoxAsync(
+                AcknowledgePlaybackProgressEventsAsync(
+                    ReadArgument<long>(request, 0))),
             nameof(ShutdownAsync) => BoxAsync(ShutdownAsync()),
             _ => throw new InvalidOperationException(
                 $"未知 PluginHost RPC 方法：{request.Method}"),
@@ -82,6 +87,15 @@ public sealed class PluginHostRpcTarget
 
     public Task<PluginHostRuntimeState> GetRuntimeStateAsync()
         => Task.FromResult(_catalog.GetRuntimeState());
+
+    public Task<HostedPlaybackProgressEvent[]> GetPlaybackProgressEventsAsync()
+        => Task.FromResult(_catalog.GetPlaybackProgressEvents());
+
+    public Task AcknowledgePlaybackProgressEventsAsync(long sequence)
+    {
+        _catalog.AcknowledgePlaybackProgressEvents(sequence);
+        return Task.CompletedTask;
+    }
 
     public Task ShutdownAsync()
     {

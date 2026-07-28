@@ -1,6 +1,7 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
+using AniMeido.Contracts.Playback;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AniMeido.Plugin.Base
@@ -14,7 +15,7 @@ namespace AniMeido.Plugin.Base
 
         public string DisplayName => "基础插件";
 
-        public string Version => "1.2.0";
+        public string Version => "1.4.0";
 
         public bool IsRequired => true;
 
@@ -26,11 +27,15 @@ namespace AniMeido.Plugin.Base
         {
             return new List<PluginNavigationItem>
             {
-                new PluginNavigationItem("正在放送", "\uEC92", "AniMeido.Plugin.Base.Views.CurrentSeasonPage")
+                new PluginNavigationItem("放送日历", "\uE787", "AniMeido.Plugin.Base.Views.CurrentSeasonPage")
                 {
                     PageType = typeof(Views.CurrentSeasonPage)
                 },
-                new PluginNavigationItem("补番计划", "\uE916", "AniMeido.Plugin.Base.Views.PastSeasonPage")
+                new PluginNavigationItem("今天", "\uEC92", "AniMeido.Plugin.Base.Views.TodayPage")
+                {
+                    PageType = typeof(Views.TodayPage)
+                },
+                new PluginNavigationItem("番剧库", "\uE916", "AniMeido.Plugin.Base.Views.PastSeasonPage")
                 {
                     PageType = typeof(Views.PastSeasonPage)
                 },
@@ -71,6 +76,10 @@ namespace AniMeido.Plugin.Base
             services.AddSingleton<ExportService>();
             services.AddSingleton<SavedTagService>();
             services.AddSingleton<DragDropService>();
+            services.AddSingleton<ActionCenterService>();
+            services.AddSingleton<IAnimePlaybackProgressSink>(provider =>
+                provider.GetRequiredService<ActionCenterService>());
+            services.AddSingleton<PlanReminderCoordinator>();
             services.AddSingleton<LocalSearchService>(sp =>
                 new LocalSearchService(
                     sp.GetRequiredService<TrackingService>(),

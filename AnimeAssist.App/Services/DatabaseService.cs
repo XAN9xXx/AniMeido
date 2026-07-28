@@ -195,6 +195,91 @@ namespace AniMeido.App.Services
                     await cmd.ExecuteNonQueryAsync();
                     version = 3;
                 }
+                if (version < 4)
+                {
+                    cmd.CommandText = """
+                        CREATE TABLE IF NOT EXISTS anime_plans(
+                            AnimeId INTEGER PRIMARY KEY,
+                            TitleSnapshot TEXT NOT NULL,
+                            Priority INTEGER NOT NULL DEFAULT 1,
+                            TargetStartDate TEXT NULL,
+                            SortOrder INTEGER NOT NULL DEFAULT 0,
+                            CreatedAt TEXT NOT NULL,
+                            UpdatedAt TEXT NOT NULL,
+                            StartedAt TEXT NULL,
+                            ArchivedAt TEXT NULL
+                        );
+
+                        CREATE TABLE IF NOT EXISTS plan_reminders(
+                            ReminderId TEXT PRIMARY KEY,
+                            AnimeId INTEGER NOT NULL,
+                            Kind INTEGER NOT NULL,
+                            RelativeDays INTEGER NULL,
+                            TimeOfDay TEXT NULL,
+                            AbsoluteAt TEXT NULL,
+                            ScheduledFor TEXT NOT NULL,
+                            State INTEGER NOT NULL DEFAULT 0,
+                            CatchUpSentAt TEXT NULL,
+                            HandledAt TEXT NULL,
+                            FOREIGN KEY(AnimeId)
+                                REFERENCES anime_plans(AnimeId)
+                                ON DELETE CASCADE
+                        );
+
+                        CREATE INDEX IF NOT EXISTS
+                            IX_plan_reminders_anime_state
+                            ON plan_reminders(AnimeId, State);
+                        CREATE INDEX IF NOT EXISTS
+                            IX_plan_reminders_schedule
+                            ON plan_reminders(State, ScheduledFor);
+
+                        CREATE TABLE IF NOT EXISTS anime_progress(
+                            AnimeId INTEGER PRIMARY KEY,
+                            CurrentEpisode INTEGER NOT NULL,
+                            PositionSeconds REAL NOT NULL,
+                            DurationSeconds REAL NOT NULL,
+                            LastWatchedAt TEXT NOT NULL
+                        );
+
+                        CREATE TABLE IF NOT EXISTS episode_progress(
+                            AnimeId INTEGER NOT NULL,
+                            EpisodeNumber INTEGER NOT NULL,
+                            PositionSeconds REAL NOT NULL,
+                            DurationSeconds REAL NOT NULL,
+                            IsCompleted INTEGER NOT NULL,
+                            LastWatchedAt TEXT NOT NULL,
+                            PRIMARY KEY(AnimeId, EpisodeNumber)
+                        );
+
+                        CREATE TABLE IF NOT EXISTS watch_sessions(
+                            EventId TEXT PRIMARY KEY,
+                            AnimeId INTEGER NOT NULL,
+                            EpisodeNumber INTEGER NOT NULL,
+                            PositionSeconds REAL NOT NULL,
+                            DurationSeconds REAL NOT NULL,
+                            IsCompleted INTEGER NOT NULL,
+                            ObservedAt TEXT NOT NULL
+                        );
+
+                        CREATE INDEX IF NOT EXISTS
+                            IX_watch_sessions_anime_observed
+                            ON watch_sessions(AnimeId, ObservedAt);
+
+                        CREATE TABLE IF NOT EXISTS smart_lists(
+                            Id TEXT PRIMARY KEY,
+                            Name TEXT NOT NULL,
+                            SchemaVersion INTEGER NOT NULL,
+                            RuleJson TEXT NOT NULL,
+                            SortJson TEXT NULL,
+                            CreatedAt TEXT NOT NULL,
+                            UpdatedAt TEXT NOT NULL
+                        );
+
+                        PRAGMA user_version = 4;
+                        """;
+                    await cmd.ExecuteNonQueryAsync();
+                    version = 4;
+                }
                 tx.Commit();
             }
             catch

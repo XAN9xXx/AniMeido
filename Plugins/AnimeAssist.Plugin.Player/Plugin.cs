@@ -9,6 +9,7 @@ using AniMeido.Plugin.Player.Sources.Packages;
 using AniMeido.Plugin.Player.Sources.Subscriptions;
 using AniMeido.Plugin.Player.Sources.Web;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using System.Reflection;
 
 namespace AniMeido.Plugin.Player;
@@ -38,6 +39,9 @@ public sealed class PlayerPlugin : IPlugin
 
     public Task InitializeAsync(IServiceCollection services)
     {
+        services.TryAddSingleton<
+            IAnimePlaybackProgressReporter,
+            NullAnimePlaybackProgressReporter>();
         services.AddSingleton<HttpClient>();
         services.AddSingleton<SourcePackageInstaller>();
         services.AddSingleton<SourceMappingStore>();
@@ -56,4 +60,13 @@ public sealed class PlayerPlugin : IPlugin
     }
 
     public IEnumerable<PluginNavigationItem> GetNavigationItems() => [];
+
+    private sealed class NullAnimePlaybackProgressReporter :
+        IAnimePlaybackProgressReporter
+    {
+        public Task ReportAsync(
+            AnimePlaybackProgress progress,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+    }
 }

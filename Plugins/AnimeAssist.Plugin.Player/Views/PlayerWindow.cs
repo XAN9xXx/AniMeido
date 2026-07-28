@@ -56,6 +56,7 @@ internal sealed class PlayerWindow : Window
     private readonly Grid _selectorBar = new();
     private readonly Grid _footer = new();
     private readonly PlayerExperienceSettingsStore _experienceSettings;
+    private readonly IAnimePlaybackProgressReporter _playbackProgressReporter;
     private readonly DispatcherTimer _playbackTimer = new()
     {
         Interval = TimeSpan.FromMilliseconds(500),
@@ -78,6 +79,9 @@ internal sealed class PlayerWindow : Window
     private bool _reachedEnd;
     private double _playbackSpeed = 1;
     private double? _pendingResumePosition;
+    private double _lastPlaybackPosition;
+    private double _lastPlaybackDuration;
+    private bool _progressReportedForEpisode;
     private DateTimeOffset _resolutionStartedAtUtc;
     private PlaybackViewState _viewState = PlaybackViewState.Idle;
     private PlayerExperienceSettings _experience = new();
@@ -94,7 +98,8 @@ internal sealed class PlayerWindow : Window
         PlayerRuntimeSettingsStore runtimeSettings,
         WebMediaResolver webResolver,
         PlaybackDiagnosticRecorder diagnostics,
-        PlayerExperienceSettingsStore experienceSettings)
+        PlayerExperienceSettingsStore experienceSettings,
+        IAnimePlaybackProgressReporter playbackProgressReporter)
     {
         ArgumentNullException.ThrowIfNull(anime);
         _sourceCatalog = sourceCatalog;
@@ -105,6 +110,7 @@ internal sealed class PlayerWindow : Window
         _webResolver = webResolver;
         _diagnostics = diagnostics;
         _experienceSettings = experienceSettings;
+        _playbackProgressReporter = playbackProgressReporter;
         webResolver.AttachUiThread(
             Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread(),
             WindowNative.GetWindowHandle(this));
@@ -130,6 +136,7 @@ internal sealed class PlayerWindow : Window
 
         CancelPlaybackResolution();
         _session.ChangeAnime(anime);
+        ResetProgressReport();
         await LoadEpisodesAsync(cancellationToken);
     }
 
@@ -413,6 +420,7 @@ internal sealed class PlayerWindow : Window
             if (!_isClosing)
             {
                 _reachedEnd = true;
+                ReportProgressIfEligible(reachedNaturalEnd: true);
                 SetPlaybackState(
                     PlaybackViewState.Ended,
                     "本集播放完毕。可以播放下一集。");
@@ -625,6 +633,7 @@ internal sealed class PlayerWindow : Window
 
         CancelPlaybackResolution();
         _pendingResumePosition = null;
+        ResetProgressReport();
         var routes = group.Routes.ToList();
         if (_experience.PreferredRouteByAnime.TryGetValue(
                 _session.AnimeContext.AnimeId.ToString(),
@@ -1007,6 +1016,8 @@ internal sealed class PlayerWindow : Window
         _updatingControls = true;
         try
         {
+            _lastPlaybackPosition = position;
+            _lastPlaybackDuration = duration;
             _progressSlider.Maximum = Math.Max(1, duration);
             _progressSlider.Value = Math.Clamp(position, 0, Math.Max(1, duration));
             _volumeSlider.Value = Math.Clamp(volume, 0, 100);
@@ -1026,6 +1037,7 @@ internal sealed class PlayerWindow : Window
                 if (reachedEnd && !_reachedEnd)
                 {
                     _reachedEnd = true;
+                    ReportProgressIfEligible(reachedNaturalEnd: true);
                     SetPlaybackState(
                         PlaybackViewState.Ended,
                         "本集播放完毕。可以播放下一集。");
@@ -1044,11 +1056,58 @@ internal sealed class PlayerWindow : Window
                         : PlaybackViewState.Playing,
                     paused ? "已暂停" : GetNowPlayingText());
             }
+
+            if (duration >= 300
+                && position / duration >= 0.9)
+            {
+                ReportProgressIfEligible(reachedNaturalEnd: false);
+            }
         }
         finally
         {
             _updatingControls = false;
         }
+    }
+
+    private void ResetProgressReport()
+    {
+        _lastPlaybackPosition = 0;
+        _lastPlaybackDuration = 0;
+        _progressReportedForEpisode = false;
+    }
+
+    private void ReportProgressIfEligible(bool reachedNaturalEnd)
+    {
+        if (_progressReportedForEpisode
+            || _episodeList.SelectedItem is not PlayerEpisodeGroup group
+            || !group.TryGetEpisodeNumber(out var episodeNumber)
+            || _lastPlaybackDuration < 300)
+        {
+            return;
+        }
+
+        _progressReportedForEpisode = true;
+        _ = ReportProgressAsync(new AnimePlaybackProgress(
+            Guid.NewGuid().ToString("N"),
+            _session.AnimeContext.AnimeId,
+            episodeNumber,
+            _lastPlaybackPosition,
+            _lastPlaybackDuration,
+            reachedNaturalEnd,
+            DateTimeOffset.UtcNow));
+    }
+
+    private async Task ReportProgressAsync(AnimePlaybackProgress progress)
+    {
+        try
+        {
+            await _playbackProgressReporter.ReportAsync(progress);
+        }
+#pragma warning disable CA1031 // Progress reporting must never interrupt playback.
+        catch (Exception)
+        {
+        }
+#pragma warning restore CA1031
     }
 
     private void OnFullScreenClick(object sender, RoutedEventArgs e)

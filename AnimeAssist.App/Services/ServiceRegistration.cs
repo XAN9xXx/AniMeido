@@ -1,5 +1,6 @@
 using AniMeido.Contracts;
 using AniMeido.Contracts.Playback;
+using AniMeido.Contracts.Notifications;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
@@ -33,6 +34,9 @@ internal static class ServiceRegistration
         services.AddSingleton<IAnimePlaybackLauncher>(provider =>
             provider.GetRequiredService<HostedAnimePlaybackLauncher>());
         services.AddSingleton<PluginHostSupervisor>();
+        services.AddSingleton<WindowsAppNotificationService>();
+        services.AddSingleton<IAppNotificationService>(provider =>
+            provider.GetRequiredService<WindowsAppNotificationService>());
         services.AddSingleton<Contracts.IPluginNavigator>(sp => sp.GetRequiredService<NavigationService>());
         services.AddTransient<Views.SettingPage>();
 
