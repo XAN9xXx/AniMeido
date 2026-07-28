@@ -67,6 +67,37 @@ public sealed class ActionCenterServiceTests : DbTestBase
     }
 
     [Fact]
+    public async Task RecordAsync_DelayedSameEpisodeEventDoesNotRegressSnapshot()
+    {
+        await RunProductionMigrationAsync();
+        var service = new ActionCenterService(DbFactory);
+        var observedAt = DateTimeOffset.UtcNow;
+        await service.RecordAsync(new AnimePlaybackProgress(
+            "newer-position",
+            300,
+            4,
+            900,
+            1200,
+            false,
+            observedAt));
+
+        await service.RecordAsync(new AnimePlaybackProgress(
+            "delayed-position",
+            300,
+            4,
+            300,
+            1000,
+            false,
+            observedAt.AddMinutes(-5)));
+
+        var snapshot = (await service.GetProgressAsync())[300];
+        Assert.Equal(4, snapshot.CurrentEpisode);
+        Assert.Equal(900, snapshot.PositionSeconds);
+        Assert.Equal(1200, snapshot.DurationSeconds);
+        Assert.Equal(observedAt, snapshot.LastWatchedAt);
+    }
+
+    [Fact]
     public void SmartListEvaluator_AppliesNestedRulesAndSort()
     {
         var now = DateTimeOffset.UtcNow;

@@ -367,13 +367,23 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
                         excluded.CurrentEpisode),
                     PositionSeconds = CASE
                         WHEN excluded.CurrentEpisode
-                            >= anime_progress.CurrentEpisode
+                            > anime_progress.CurrentEpisode
                         THEN excluded.PositionSeconds
+                        WHEN excluded.CurrentEpisode
+                            = anime_progress.CurrentEpisode
+                        THEN MAX(
+                            anime_progress.PositionSeconds,
+                            excluded.PositionSeconds)
                         ELSE anime_progress.PositionSeconds END,
                     DurationSeconds = CASE
                         WHEN excluded.CurrentEpisode
-                            >= anime_progress.CurrentEpisode
+                            > anime_progress.CurrentEpisode
                         THEN excluded.DurationSeconds
+                        WHEN excluded.CurrentEpisode
+                            = anime_progress.CurrentEpisode
+                        THEN MAX(
+                            anime_progress.DurationSeconds,
+                            excluded.DurationSeconds)
                         ELSE anime_progress.DurationSeconds END,
                     LastWatchedAt = MAX(
                         anime_progress.LastWatchedAt,
