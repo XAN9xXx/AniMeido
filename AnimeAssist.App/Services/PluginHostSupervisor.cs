@@ -1,5 +1,6 @@
 using AniMeido.Contracts.Playback;
 using AniMeido.PluginProtocol;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.IO.Pipes;
@@ -396,16 +397,29 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
                 long acknowledgedSequence = 0;
                 foreach (var item in events.OrderBy(item => item.Sequence))
                 {
-                    await _playbackProgressSink.RecordAsync(
-                        new AnimePlaybackProgress(
+                    try
+                    {
+                        await _playbackProgressSink.RecordAsync(
+                            new AnimePlaybackProgress(
+                                item.EventId,
+                                item.AnimeId,
+                                item.EpisodeNumber,
+                                item.PositionSeconds,
+                                item.DurationSeconds,
+                                item.ReachedNaturalEnd,
+                                item.ObservedAt),
+                            cancellationToken);
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        _logger.LogWarning(
+                            ex,
+                            "Discarding invalid playback progress event "
+                                + "{EventId} at sequence {Sequence}.",
                             item.EventId,
-                            item.AnimeId,
-                            item.EpisodeNumber,
-                            item.PositionSeconds,
-                            item.DurationSeconds,
-                            item.ReachedNaturalEnd,
-                            item.ObservedAt),
-                        cancellationToken);
+                            item.Sequence);
+                    }
+
                     acknowledgedSequence = item.Sequence;
                 }
 
@@ -434,6 +448,18 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
                     ex,
                     "PluginHost playback progress channel ended.");
                 return;
+            }
+            catch (Exception ex) when (
+                ex is SqliteException
+                or InvalidOperationException)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Playback progress persistence failed; "
+                        + "the unacknowledged batch will be retried.");
+                await Task.Delay(
+                    TimeSpan.FromSeconds(2),
+                    cancellationToken);
             }
         }
     }
