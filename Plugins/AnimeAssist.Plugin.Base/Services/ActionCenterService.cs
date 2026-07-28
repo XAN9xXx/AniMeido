@@ -269,13 +269,29 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
             "CatchUpSentAt = @now",
             cancellationToken);
 
-    public Task MarkReminderHandledAsync(
+    public async Task<bool> TryMarkReminderHandledAsync(
         string reminderId,
         CancellationToken cancellationToken = default)
-        => UpdateReminderAsync(
-            reminderId,
-            "State = 1, HandledAt = @now",
-            cancellationToken);
+    {
+        using var connection = await _dbFactory.OpenAsync();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE plan_reminders
+            SET State = @handled, HandledAt = @now
+            WHERE ReminderId = @id AND State = @pending
+            """;
+        command.Parameters.AddWithValue("@id", reminderId);
+        command.Parameters.AddWithValue(
+            "@handled",
+            (int)PlanReminderState.Handled);
+        command.Parameters.AddWithValue(
+            "@pending",
+            (int)PlanReminderState.Pending);
+        command.Parameters.AddWithValue(
+            "@now",
+            DateTimeOffset.UtcNow.ToString("O"));
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
 
     public Task CancelReminderAsync(
         string reminderId,

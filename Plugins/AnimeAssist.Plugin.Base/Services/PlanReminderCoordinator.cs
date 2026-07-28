@@ -236,27 +236,31 @@ public sealed class PlanReminderCoordinator : IDisposable
         switch (activation.Action)
         {
             case "start":
+                if (string.IsNullOrWhiteSpace(reminderId)
+                    || !await _actionCenter.TryMarkReminderHandledAsync(
+                        reminderId,
+                        cancellationToken))
+                {
+                    break;
+                }
+
                 await _actionCenter.StartPlanAsync(
                     animeId,
                     cancellationToken);
                 await _notifications.CancelGroupAsync(
                     GetGroup(animeId),
                     cancellationToken);
-                if (!string.IsNullOrWhiteSpace(reminderId))
-                {
-                    await _actionCenter.MarkReminderHandledAsync(
-                        reminderId,
-                        cancellationToken);
-                }
                 break;
 
             case "snooze":
-                if (!string.IsNullOrWhiteSpace(reminderId))
-                {
-                    await _actionCenter.MarkReminderHandledAsync(
+                if (string.IsNullOrWhiteSpace(reminderId)
+                    || !await _actionCenter.TryMarkReminderHandledAsync(
                         reminderId,
-                        cancellationToken);
+                        cancellationToken))
+                {
+                    break;
                 }
+
                 var plan = await _actionCenter.GetPlanAsync(
                     animeId,
                     cancellationToken);
@@ -272,7 +276,7 @@ public sealed class PlanReminderCoordinator : IDisposable
             default:
                 if (!string.IsNullOrWhiteSpace(reminderId))
                 {
-                    await _actionCenter.MarkReminderHandledAsync(
+                    await _actionCenter.TryMarkReminderHandledAsync(
                         reminderId,
                         cancellationToken);
                 }

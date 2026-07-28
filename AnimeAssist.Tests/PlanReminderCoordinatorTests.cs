@@ -84,6 +84,43 @@ public sealed class PlanReminderCoordinatorTests : DbTestBase
         Assert.Equal(20, navigator.Parameter);
     }
 
+    [Fact]
+    public async Task SnoozeAction_RepeatedActivationCreatesOneReminder()
+    {
+        await RunProductionMigrationAsync();
+        var actionCenter = new ActionCenterService(DbFactory);
+        var notifications = new FakeNotificationService();
+        using var coordinator = new PlanReminderCoordinator(
+            actionCenter,
+            notifications,
+            new FakeNavigator());
+        await actionCenter.UpsertPlanAsync(
+            30,
+            "测试番剧",
+            AnimePlanPriority.Normal,
+            null,
+            0);
+        var plan = await actionCenter.GetPlanAsync(30);
+        var reminder = await coordinator.AddAbsoluteReminderAsync(
+            plan!,
+            DateTimeOffset.Now.AddDays(1));
+        var activation = new AppNotificationActivation(
+            PlanReminderCoordinator.NotificationCategory,
+            "snooze",
+            new Dictionary<string, string>
+            {
+                ["animeId"] = "30",
+                ["reminderId"] = reminder.ReminderId,
+            });
+
+        await notifications.ActivateAsync(activation);
+        await notifications.ActivateAsync(activation);
+
+        var reminders = await actionCenter.GetRemindersAsync(animeId: 30);
+        Assert.Equal(2, reminders.Count);
+        Assert.Equal(2, notifications.Requests.Count);
+    }
+
     private sealed class FakeNotificationService :
         IAppNotificationService
     {
