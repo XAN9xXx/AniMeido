@@ -33,7 +33,8 @@ internal sealed partial class PluginPackageVerifier
                 $"不支持的插件包格式版本：{manifest.FormatVersion}。");
         }
 
-        if (!PluginIdPattern().IsMatch(manifest.PluginId))
+        if (string.IsNullOrWhiteSpace(manifest.PluginId)
+            || !PluginIdPattern().IsMatch(manifest.PluginId))
         {
             throw new PluginOperationException("插件 ID 格式无效。");
         }
@@ -60,7 +61,8 @@ internal sealed partial class PluginPackageVerifier
                 $"插件要求 AniMeido {minimumAppVersion} 或更高版本。");
         }
 
-        if (!IsSafePackagePath(manifest.EntryAssembly)
+        if (string.IsNullOrWhiteSpace(manifest.EntryAssembly)
+            || !IsSafePackagePath(manifest.EntryAssembly)
             || manifest.EntryAssembly.Contains('/'))
         {
             throw new PluginOperationException("插件入口程序集必须是包根目录中的安全文件名。");
@@ -71,7 +73,18 @@ internal sealed partial class PluginPackageVerifier
             throw new PluginOperationException("插件入口程序集必须是 DLL 文件。");
         }
 
-        if (manifest.Files.Count is 0 or > MaximumFileCount)
+        if (manifest.Files is null
+            || manifest.ActivationEvents is null
+            || manifest.Contributions is null
+            || manifest.Contributions.Commands is null
+            || manifest.Contributions.Navigation is null
+            || manifest.Contributions.Capabilities is null)
+        {
+            throw new PluginOperationException("插件清单缺少必需的集合字段。");
+        }
+
+        if (manifest.Files.Count is 0 or > MaximumFileCount
+            || manifest.Files.Any(file => file is null))
         {
             throw new PluginOperationException("插件包文件数量无效。");
         }
@@ -107,6 +120,17 @@ internal sealed partial class PluginPackageVerifier
 
     private static void ValidateContributions(PluginManifest manifest)
     {
+        if (manifest.Contributions.Commands.Any(command => command is null)
+            || manifest.Contributions.Navigation.Any(
+                navigation => navigation is null)
+            || manifest.Contributions.Capabilities.Any(
+                capability => capability is null)
+            || manifest.ActivationEvents.Any(
+                activationEvent => activationEvent is null))
+        {
+            throw new PluginOperationException("插件贡献项不能为 null。");
+        }
+
         var commandIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var command in manifest.Contributions.Commands)
         {

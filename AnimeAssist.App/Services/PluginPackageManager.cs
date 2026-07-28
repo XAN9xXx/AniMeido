@@ -605,6 +605,14 @@ public sealed class PluginPackageManager
             throw new PluginOperationException("插件状态文件版本无效。");
         }
 
+        if (registry.Plugins is null
+            || registry.Plugins.Any(plugin =>
+                plugin is null
+                || string.IsNullOrWhiteSpace(plugin.PluginId)))
+        {
+            throw new PluginOperationException("插件状态文件内容无效。");
+        }
+
         if (registry.Plugins
             .Select(plugin => plugin.PluginId)
             .Distinct(StringComparer.OrdinalIgnoreCase)

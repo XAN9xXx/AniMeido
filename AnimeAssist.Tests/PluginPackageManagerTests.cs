@@ -177,6 +177,33 @@ public sealed class PluginPackageManagerTests : IDisposable
         verifier.ValidateManifest(manifest);
     }
 
+    [Theory]
+    [InlineData("""{"formatVersion":2,"files":null}""")]
+    [InlineData("""{"formatVersion":2,"activationEvents":null}""")]
+    [InlineData("""{"formatVersion":2,"contributes":null}""")]
+    public void ValidateManifest_NullCollections_AreRejectedWithDomainError(
+        string json)
+    {
+        var verifier = new PluginPackageVerifier(new Version(1, 3, 0));
+        var manifest = PluginManifest.Load(json);
+
+        Assert.NotNull(manifest);
+        Assert.Throws<PluginOperationException>(
+            () => verifier.ValidateManifest(manifest!));
+    }
+
+    [Fact]
+    public async Task ReadRegistry_NullPluginCollection_IsRejectedWithDomainError()
+    {
+        Directory.CreateDirectory(_rootDirectory);
+        await File.WriteAllTextAsync(
+            Path.Combine(_rootDirectory, "state.json"),
+            """{"formatVersion":1,"plugins":null}""");
+
+        await Assert.ThrowsAsync<PluginOperationException>(
+            () => _manager.GetInstalledPluginsAsync());
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_rootDirectory))
