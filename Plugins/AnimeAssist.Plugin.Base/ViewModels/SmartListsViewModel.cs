@@ -64,24 +64,62 @@ public partial class SmartListsViewModel : ObservableObject
     [ObservableProperty]
     private string? _errorMessage;
 
+    [ObservableProperty]
+    private bool _isPlaybackAvailable;
+
+    [ObservableProperty]
+    private ObservableCollection<SmartListField> _fields = [];
+
     public SmartListsViewModel(
         ActionCenterService actionCenter,
         TrackingService tracking,
-        IAnimeDataSource dataSource)
+        IAnimeDataSource dataSource,
+        bool isPlaybackAvailable)
     {
         _actionCenter = actionCenter;
         _tracking = tracking;
         _dataSource = dataSource;
+        SetPlaybackAvailability(isPlaybackAvailable);
     }
-
-    public IReadOnlyList<SmartListField> Fields { get; } =
-        Enum.GetValues<SmartListField>();
 
     public IReadOnlyList<SmartListOperator> Operators { get; } =
         Enum.GetValues<SmartListOperator>();
 
     public IReadOnlyList<SmartListGroupMode> GroupModes { get; } =
         Enum.GetValues<SmartListGroupMode>();
+
+    public void SetPlaybackAvailability(bool isAvailable)
+    {
+        IsPlaybackAvailable = isAvailable;
+        Fields = new ObservableCollection<SmartListField>(
+            Enum.GetValues<SmartListField>().Where(field =>
+                isAvailable
+                || !SmartListEvaluator.IsPlaybackField(field)));
+        if (isAvailable)
+        {
+            return;
+        }
+
+        if (SmartListEvaluator.IsPlaybackField(SortField))
+        {
+            SortField = SmartListField.Title;
+        }
+
+        var visibleConditions = Conditions
+            .Where(condition =>
+                !SmartListEvaluator.IsPlaybackField(condition.Field))
+            .ToList();
+        Conditions = new ObservableCollection<SmartConditionEditor>(
+            visibleConditions.Count == 0
+                ? [new SmartConditionEditor()]
+                : visibleConditions);
+        if (SelectedDefinition is not null
+            && SmartListEvaluator.RequiresPlayback(SelectedDefinition))
+        {
+            SelectedDefinition = null;
+            Results.Clear();
+        }
+    }
 
     [RelayCommand]
     public async Task LoadAsync(CancellationToken cancellationToken = default)
@@ -90,8 +128,12 @@ public partial class SmartListsViewModel : ObservableObject
         ErrorMessage = null;
         try
         {
+            var definitions = await _actionCenter.GetSmartListsAsync(
+                cancellationToken);
             Definitions = new ObservableCollection<SmartListDefinition>(
-                await _actionCenter.GetSmartListsAsync(cancellationToken));
+                definitions.Where(definition =>
+                    IsPlaybackAvailable
+                    || !SmartListEvaluator.RequiresPlayback(definition)));
             if (SelectedDefinition is not null)
             {
                 await EvaluateAsync(cancellationToken);
@@ -239,8 +281,10 @@ public partial class SmartListsViewModel : ObservableObject
         var plans = await _actionCenter.GetPlansAsync(
             includeArchived: true,
             cancellationToken);
-        var progress = await _actionCenter.GetProgressAsync(
-            cancellationToken);
+        IReadOnlyDictionary<int, AnimeProgressSnapshot> progress =
+            IsPlaybackAvailable
+                ? await _actionCenter.GetProgressAsync(cancellationToken)
+                : new Dictionary<int, AnimeProgressSnapshot>();
         var planById = plans.ToDictionary(item => item.AnimeId);
         var ids = tracking.Select(item => item.AnimeId)
             .Concat(plans.Select(item => item.AnimeId))

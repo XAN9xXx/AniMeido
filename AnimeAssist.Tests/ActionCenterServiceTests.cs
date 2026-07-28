@@ -111,6 +111,19 @@ public sealed class ActionCenterServiceTests : DbTestBase
         Assert.Equal([2, 1], result.Select(item => item.AnimeId));
     }
 
+    [Theory]
+    [InlineData(SmartListField.CurrentEpisode, true)]
+    [InlineData(SmartListField.HasIncompleteEpisode, true)]
+    [InlineData(SmartListField.LastWatchedAt, true)]
+    [InlineData(SmartListField.TrackingStatus, false)]
+    [InlineData(SmartListField.PlanPriority, false)]
+    public void SmartListEvaluator_ClassifiesPlaybackFields(
+        SmartListField field,
+        bool expected)
+        => Assert.Equal(
+            expected,
+            SmartListEvaluator.IsPlaybackField(field));
+
     private static SmartListCandidate CreateCandidate(
         int animeId,
         string title,

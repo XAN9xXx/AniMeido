@@ -1,4 +1,5 @@
 using AniMeido.Contracts;
+using AniMeido.Contracts.Playback;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
@@ -10,18 +11,23 @@ namespace AniMeido.Plugin.Base.Views;
 public sealed partial class SmartListsPage : Page
 {
     private readonly IPluginNavigator _navigator;
+    private readonly IAnimePlaybackLauncher _playbackLauncher;
+    private bool _isPlaybackAvailabilitySubscribed;
 
     public SmartListsPage(
         ActionCenterService actionCenter,
         TrackingService tracking,
         IAnimeDataSource dataSource,
-        IPluginNavigator navigator)
+        IPluginNavigator navigator,
+        IAnimePlaybackLauncher playbackLauncher)
     {
         _navigator = navigator;
+        _playbackLauncher = playbackLauncher;
         ViewModel = new SmartListsViewModel(
             actionCenter,
             tracking,
-            dataSource);
+            dataSource,
+            playbackLauncher.IsAvailable);
         InitializeComponent();
         ViewModel.PropertyChanged += (_, args) =>
         {
@@ -33,10 +39,47 @@ public sealed partial class SmartListsPage : Page
                     !string.IsNullOrWhiteSpace(ViewModel.ErrorMessage);
             }
         };
-        Loaded += async (_, _) => await ViewModel.LoadAsync();
+        Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
     }
 
     public SmartListsViewModel ViewModel { get; }
+
+    private async void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        if (!_isPlaybackAvailabilitySubscribed)
+        {
+            _playbackLauncher.AvailabilityChanged +=
+                OnPlaybackAvailabilityChanged;
+            _isPlaybackAvailabilitySubscribed = true;
+        }
+
+        ViewModel.SetPlaybackAvailability(
+            _playbackLauncher.IsAvailable);
+        await ViewModel.LoadAsync();
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (!_isPlaybackAvailabilitySubscribed)
+        {
+            return;
+        }
+
+        _playbackLauncher.AvailabilityChanged -=
+            OnPlaybackAvailabilityChanged;
+        _isPlaybackAvailabilitySubscribed = false;
+    }
+
+    private void OnPlaybackAvailabilityChanged(
+        object? sender,
+        EventArgs e)
+        => DispatcherQueue.TryEnqueue(async () =>
+        {
+            ViewModel.SetPlaybackAvailability(
+                _playbackLauncher.IsAvailable);
+            await ViewModel.LoadAsync();
+        });
 
     private void OnNewClick(object sender, RoutedEventArgs e)
     {

@@ -102,7 +102,7 @@
                             <Grid ColumnDefinitions="*,Auto" Padding="8">
                                 <TextBlock Text="{x:Bind Title}"/>
                                 <TextBlock Grid.Column="1"
-                                           Text="{x:Bind CurrentEpisode}"
+                                           Text="{x:Bind PlaybackSummary}"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Grid>
                         </DataTemplate>

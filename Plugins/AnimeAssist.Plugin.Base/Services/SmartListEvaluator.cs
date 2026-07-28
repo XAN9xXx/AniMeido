@@ -8,6 +8,23 @@ public static class SmartListEvaluator
     public const int SchemaVersion = 1;
     public const int MaxNestingDepth = 2;
 
+    public static bool IsPlaybackField(SmartListField field)
+        => field is SmartListField.CurrentEpisode
+            or SmartListField.HasIncompleteEpisode
+            or SmartListField.LastWatchedAt;
+
+    public static bool RequiresPlayback(SmartListDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        return IsPlaybackField(definition.Sort?.Field ?? SmartListField.Title)
+            || RequiresPlayback(definition.Rules);
+    }
+
+    private static bool RequiresPlayback(SmartListRuleGroup group)
+        => group.Conditions.Any(condition =>
+            IsPlaybackField(condition.Field))
+            || group.Groups?.Any(RequiresPlayback) == true;
+
     public static bool Matches(
         SmartListRuleGroup group,
         SmartListCandidate candidate)

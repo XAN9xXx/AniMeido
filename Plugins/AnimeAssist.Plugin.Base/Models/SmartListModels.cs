@@ -81,4 +81,9 @@ public sealed record SmartListCandidate(
     DateOnly? AirDate,
     IReadOnlyList<string> Tags,
     DateTimeOffset? LastWatchedAt,
-    DateTimeOffset? UpdatedAt);
+    DateTimeOffset? UpdatedAt)
+{
+    public string PlaybackSummary => CurrentEpisode > 0
+        ? $"第 {CurrentEpisode} 集"
+        : string.Empty;
+}

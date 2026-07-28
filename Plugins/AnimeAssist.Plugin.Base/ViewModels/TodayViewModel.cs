@@ -53,6 +53,9 @@ public partial class TodayViewModel : ObservableObject
     private bool _isLoading;
 
     [ObservableProperty]
+    private bool _isPlaybackAvailable;
+
+    [ObservableProperty]
     private string? _errorMessage;
 
     [ObservableProperty]
@@ -123,46 +126,18 @@ public partial class TodayViewModel : ObservableObject
                         reminderCountByAnime.GetValueOrDefault(
                             plan.AnimeId)))));
 
-            var progress = await _actionCenter.GetProgressAsync(
-                cancellationToken);
-            var seasonalById = seasonal.ToDictionary(item => item.ID);
-            var watchingIds = statusById
-                .Where(pair => pair.Value == AnimeTrackingStatus.Watching)
-                .Select(pair => pair.Key)
-                .ToList();
-            var watchingAnime = await ResolveAnimeAsync(
-                watchingIds,
-                seasonalById,
-                cancellationToken);
-            ContinueWatching = new ObservableCollection<TodayAnimeEntry>(
-                watchingAnime.Select(anime =>
-                {
-                    progress.TryGetValue(anime.ID, out var snapshot);
-                    return new TodayAnimeEntry(
-                        anime,
-                        snapshot is null
-                            ? "尚未记录观看进度"
-                            : $"看到第 {snapshot.CurrentEpisode} 集 · "
-                                + $"{snapshot.LastWatchedAt.LocalDateTime:g}");
-                })
-                .OrderByDescending(item =>
-                    progress.GetValueOrDefault(item.Anime.ID)?.LastWatchedAt));
-            var recentAnime = await ResolveAnimeAsync(
-                progress.Keys.ToList(),
-                seasonalById,
-                cancellationToken);
-            RecentActivity = new ObservableCollection<TodayAnimeEntry>(
-                progress.Values
-                    .OrderByDescending(item => item.LastWatchedAt)
-                    .Take(8)
-                    .Join(
-                        recentAnime,
-                        item => item.AnimeId,
-                        anime => anime.ID,
-                        (item, anime) => new TodayAnimeEntry(
-                            anime,
-                            $"第 {item.CurrentEpisode} 集 · "
-                                + $"{item.LastWatchedAt.LocalDateTime:g}")));
+            if (IsPlaybackAvailable)
+            {
+                await LoadPlaybackActivityAsync(
+                    statusById,
+                    seasonal,
+                    cancellationToken);
+            }
+            else
+            {
+                ContinueWatching.Clear();
+                RecentActivity.Clear();
+            }
 
             try
             {
@@ -191,6 +166,53 @@ public partial class TodayViewModel : ObservableObject
         {
             IsLoading = false;
         }
+    }
+
+    private async Task LoadPlaybackActivityAsync(
+        IReadOnlyDictionary<int, AnimeTrackingStatus> statusById,
+        IReadOnlyList<Anime> seasonal,
+        CancellationToken cancellationToken)
+    {
+        var progress = await _actionCenter.GetProgressAsync(
+            cancellationToken);
+        var seasonalById = seasonal.ToDictionary(item => item.ID);
+        var watchingIds = statusById
+            .Where(pair => pair.Value == AnimeTrackingStatus.Watching)
+            .Select(pair => pair.Key)
+            .ToList();
+        var watchingAnime = await ResolveAnimeAsync(
+            watchingIds,
+            seasonalById,
+            cancellationToken);
+        ContinueWatching = new ObservableCollection<TodayAnimeEntry>(
+            watchingAnime.Select(anime =>
+            {
+                progress.TryGetValue(anime.ID, out var snapshot);
+                return new TodayAnimeEntry(
+                    anime,
+                    snapshot is null
+                        ? "尚未记录观看进度"
+                        : $"看到第 {snapshot.CurrentEpisode} 集 · "
+                            + $"{snapshot.LastWatchedAt.LocalDateTime:g}");
+            })
+            .OrderByDescending(item =>
+                progress.GetValueOrDefault(item.Anime.ID)?.LastWatchedAt));
+        var recentAnime = await ResolveAnimeAsync(
+            progress.Keys.ToList(),
+            seasonalById,
+            cancellationToken);
+        RecentActivity = new ObservableCollection<TodayAnimeEntry>(
+            progress.Values
+                .OrderByDescending(item => item.LastWatchedAt)
+                .Take(8)
+                .Join(
+                    recentAnime,
+                    item => item.AnimeId,
+                    anime => anime.ID,
+                    (item, anime) => new TodayAnimeEntry(
+                        anime,
+                        $"第 {item.CurrentEpisode} 集 · "
+                            + $"{item.LastWatchedAt.LocalDateTime:g}")));
     }
 
     private async Task EnsureLegacyPlansAsync(

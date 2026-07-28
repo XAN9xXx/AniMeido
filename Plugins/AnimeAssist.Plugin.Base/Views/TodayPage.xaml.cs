@@ -1,5 +1,6 @@
 using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using AniMeido.Contracts.Playback;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
@@ -13,17 +14,21 @@ public sealed partial class TodayPage : Page, INavigationAware
     private readonly ActionCenterService _actionCenter;
     private readonly PlanReminderCoordinator _reminders;
     private readonly IPluginNavigator _navigator;
+    private readonly IAnimePlaybackLauncher _playbackLauncher;
+    private bool _isPlaybackAvailabilitySubscribed;
 
     public TodayPage(
         IAnimeDataSource dataSource,
         TrackingService tracking,
         ActionCenterService actionCenter,
         PlanReminderCoordinator reminders,
-        IPluginNavigator navigator)
+        IPluginNavigator navigator,
+        IAnimePlaybackLauncher playbackLauncher)
     {
         _actionCenter = actionCenter;
         _reminders = reminders;
         _navigator = navigator;
+        _playbackLauncher = playbackLauncher;
         ViewModel = new TodayViewModel(
             dataSource,
             tracking,
@@ -35,6 +40,9 @@ public sealed partial class TodayPage : Page, INavigationAware
         };
         NotificationSettingsButton.Click += OnNotificationSettingsClick;
         InitializeComponent();
+        ViewModel.IsPlaybackAvailable = playbackLauncher.IsAvailable;
+        Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
         ViewModel.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName == nameof(TodayViewModel.ErrorMessage))
@@ -57,6 +65,40 @@ public sealed partial class TodayPage : Page, INavigationAware
     public TodayViewModel ViewModel { get; }
 
     public Button NotificationSettingsButton { get; }
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        if (_isPlaybackAvailabilitySubscribed)
+        {
+            return;
+        }
+
+        _playbackLauncher.AvailabilityChanged +=
+            OnPlaybackAvailabilityChanged;
+        _isPlaybackAvailabilitySubscribed = true;
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (!_isPlaybackAvailabilitySubscribed)
+        {
+            return;
+        }
+
+        _playbackLauncher.AvailabilityChanged -=
+            OnPlaybackAvailabilityChanged;
+        _isPlaybackAvailabilitySubscribed = false;
+    }
+
+    private void OnPlaybackAvailabilityChanged(
+        object? sender,
+        EventArgs e)
+        => DispatcherQueue.TryEnqueue(async () =>
+        {
+            ViewModel.IsPlaybackAvailable =
+                _playbackLauncher.IsAvailable;
+            await ViewModel.LoadAsync();
+        });
 
     public async Task OnNavigatedToAsync(object? parameter)
     {
