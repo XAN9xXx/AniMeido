@@ -1,4 +1,5 @@
 using AniMeido.Contracts;
+using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -27,6 +28,8 @@ public partial class SmartListsViewModel : ObservableObject
     private readonly ActionCenterService _actionCenter;
     private readonly TrackingService _tracking;
     private readonly IAnimeDataSource _dataSource;
+    private CancellationTokenSource? _evaluationCancellation;
+    private int _evaluationVersion;
 
     [ObservableProperty]
     private ObservableCollection<SmartListDefinition> _definitions = [];
@@ -216,6 +219,14 @@ public partial class SmartListsViewModel : ObservableObject
     public async Task EvaluateAsync(
         CancellationToken cancellationToken = default)
     {
+        _evaluationCancellation?.Cancel();
+        _evaluationCancellation?.Dispose();
+        var evaluationCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+        _evaluationCancellation = evaluationCancellation;
+        var evaluationVersion = ++_evaluationVersion;
+        var evaluationToken = evaluationCancellation.Token;
         var definition = SelectedDefinition ?? new SmartListDefinition(
             "preview",
             Name,
@@ -224,7 +235,24 @@ public partial class SmartListsViewModel : ObservableObject
             new SmartListSort(SortField, SortDescending),
             DateTimeOffset.UtcNow,
             DateTimeOffset.UtcNow);
-        var candidates = await BuildCandidatesAsync(cancellationToken);
+        IReadOnlyList<SmartListCandidate> candidates;
+        try
+        {
+            candidates = await BuildCandidatesAsync(evaluationToken);
+        }
+        catch (OperationCanceledException) when (
+            !cancellationToken.IsCancellationRequested
+            && evaluationVersion != _evaluationVersion)
+        {
+            return;
+        }
+
+        evaluationToken.ThrowIfCancellationRequested();
+        if (evaluationVersion != _evaluationVersion)
+        {
+            return;
+        }
+
         Results = new ObservableCollection<SmartListCandidate>(
             SmartListEvaluator.Apply(definition, candidates));
     }
@@ -253,7 +281,26 @@ public partial class SmartListsViewModel : ObservableObject
             editors.Count == 0
                 ? [new SmartConditionEditor()]
                 : editors);
-        _ = EvaluateAsync();
+        _ = EvaluateSelectedDefinitionAsync();
+    }
+
+    private async Task EvaluateSelectedDefinitionAsync()
+    {
+        try
+        {
+            await EvaluateAsync();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex) when (
+            ex is BangumiApiException
+            or HttpRequestException
+            or InvalidOperationException
+            or System.Text.Json.JsonException)
+        {
+            ErrorMessage = $"智能列表计算失败：{ex.Message}";
+        }
     }
 
     private SmartListRuleGroup BuildRules()
