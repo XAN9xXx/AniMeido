@@ -12,6 +12,7 @@ namespace AniMeido.Plugin.Base.Views
 {
     public sealed partial class PastSeasonPage : Page
     {
+        private const int EarliestSupportedYear = 1900;
         private readonly PastSeasonViewModel _viewModel;
         public PastSeasonViewModel ViewModel => _viewModel;
         private readonly List<Anime> _allAnime = new();
@@ -128,7 +129,7 @@ namespace AniMeido.Plugin.Base.Views
         private void InitializeComboBoxes()
         {
             int currentYear = DateTime.Now.Year;
-            for (int y = 2000; y <= currentYear; y++)
+            for (int y = EarliestSupportedYear; y <= currentYear; y++)
                 YearComboBox.Items.Add(y);
 
             // 计算上一个季度及对应的年份
