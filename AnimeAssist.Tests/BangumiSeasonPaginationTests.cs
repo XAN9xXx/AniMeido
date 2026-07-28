@@ -44,6 +44,39 @@ public sealed class BangumiSeasonPaginationTests : DbTestBase
             await ReadCachedCountAsync("season:v2:2025:Spring"));
     }
 
+    [Fact]
+    public async Task GetAnimeBySeasonAsync_InvalidCurrentCache_IsReplaced()
+    {
+        await CreateBaseTablesAsync();
+        var cache = new CacheService(DbFactory);
+        await cache.SetCacheAsync(
+            "season:v2:2025:Spring",
+            "{invalid-json",
+            TimeSpan.FromHours(1));
+        var handler = new SeasonApiHandler(total: 3);
+        using var client = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://api.example.test"),
+        };
+        var dataSource = new BangumiDataSource(
+            NullLogger<BangumiDataSource>.Instance,
+            new BangumiApiClient(
+                new StubHttpClientFactory(client),
+                NullLogger<BangumiApiClient>.Instance),
+            cache);
+
+        var result = await dataSource.GetAnimeBySeasonAsync(
+            2025,
+            Season.Spring,
+            CancellationToken.None);
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal([0], handler.RequestedOffsets);
+        Assert.Equal(
+            3,
+            await ReadCachedCountAsync("season:v2:2025:Spring"));
+    }
+
     private async Task SeedLegacyTruncatedCacheAsync()
     {
         using var connection = new SqliteConnection(ConnectionString);

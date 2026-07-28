@@ -303,11 +303,12 @@ namespace AniMeido.Plugin.Base.Services
             // 缓存版本属于查询语义的一部分。v1 的往季结果最多只有 40 条，
             // 使用新键可避免修复后继续命中已截断的旧缓存。
             var cacheKey = $"season:v{SeasonCacheVersion}:{year}:{season}";
-            var cached = await _cacheService.GetCacheAsync(cacheKey);
-            if (cached != null)
+            var cachedResult = await ReadSeasonCacheAsync(
+                cacheKey,
+                allowExpired: false);
+            if (cachedResult is not null)
             {
-                var result = JsonSerializer.Deserialize<List<Anime>>(cached, JsonOptions);
-                if (result != null) return result;
+                return cachedResult;
             }
 
             try
@@ -342,18 +343,48 @@ namespace AniMeido.Plugin.Base.Services
             {
                 // 网络失败时尝试返回过期缓存降级
                 _logger.LogWarning("Network request failed for season {Year}/{Season}: {Msg}", year, season, ex.Message);
-                var stale = await _cacheService.GetCacheAllowExpiredAsync(cacheKey);
+                var staleResult = await ReadSeasonCacheAsync(
+                    cacheKey,
+                    allowExpired: true);
 #pragma warning restore CA1031
-                if (stale != null)
+                if (staleResult is not null)
                 {
-                    var staleResult = JsonSerializer.Deserialize<List<Anime>>(stale, JsonOptions);
-                    if (staleResult != null)
-                    {
-                        _logger.LogInformation("Returning stale cache for season {Year}/{Season}", year, season);
-                        return staleResult;
-                    }
+                    _logger.LogInformation(
+                        "Returning stale cache for season {Year}/{Season}",
+                        year,
+                        season);
+                    return staleResult;
                 }
                 throw;
+            }
+        }
+
+        private async Task<List<Anime>?> ReadSeasonCacheAsync(
+            string cacheKey,
+            bool allowExpired)
+        {
+            var cached = allowExpired
+                ? await _cacheService.GetCacheAllowExpiredAsync(cacheKey)
+                : await _cacheService.GetCacheAsync(cacheKey);
+            if (cached is null)
+            {
+                return null;
+            }
+
+            try
+            {
+                return JsonSerializer.Deserialize<List<Anime>>(
+                    cached,
+                    JsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Removing invalid season cache {CacheKey}.",
+                    cacheKey);
+                await _cacheService.RemoveCacheAsync(cacheKey);
+                return null;
             }
         }
 
