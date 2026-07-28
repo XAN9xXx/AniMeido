@@ -1,4 +1,5 @@
 using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 
 namespace AniMeido.Tests
@@ -13,7 +14,7 @@ namespace AniMeido.Tests
         [Fact]
         public async Task SetAndGetStatus_ReturnsCorrectStatus()
         {
-            await CreateBaseTablesAsync();
+            await RunProductionMigrationAsync();
             var svc = CreateService();
 
             await svc.SetStatusAsync(1, AnimeTrackingStatus.Watching);
@@ -25,7 +26,7 @@ namespace AniMeido.Tests
         [Fact]
         public async Task GetStatus_NotSet_ReturnsNull()
         {
-            await CreateBaseTablesAsync();
+            await RunProductionMigrationAsync();
             var svc = CreateService();
 
             var status = await svc.GetStatusAsync(999);
@@ -35,7 +36,7 @@ namespace AniMeido.Tests
         [Fact]
         public async Task SetStatus_OverwritesPreviousStatus()
         {
-            await CreateBaseTablesAsync();
+            await RunProductionMigrationAsync();
             var svc = CreateService();
 
             await svc.SetStatusAsync(1, AnimeTrackingStatus.Watching);
@@ -48,7 +49,7 @@ namespace AniMeido.Tests
         [Fact]
         public async Task RemoveStatus_ClearsStatus()
         {
-            await CreateBaseTablesAsync();
+            await RunProductionMigrationAsync();
             var svc = CreateService();
 
             await svc.SetStatusAsync(1, AnimeTrackingStatus.Watching);
@@ -61,7 +62,7 @@ namespace AniMeido.Tests
         [Fact]
         public async Task GetAnimeIdsByStatus_ReturnsOnlyMatchingIds()
         {
-            await CreateBaseTablesAsync();
+            await RunProductionMigrationAsync();
             var svc = CreateService();
 
             await svc.SetStatusAsync(1, AnimeTrackingStatus.Watching);
@@ -81,7 +82,7 @@ namespace AniMeido.Tests
         [Fact]
         public async Task GetAllTrackingAsync_ReturnsAllEntries()
         {
-            await CreateBaseTablesAsync();
+            await RunProductionMigrationAsync();
             var svc = CreateService();
 
             await svc.SetStatusAsync(1, AnimeTrackingStatus.Watching);
@@ -96,7 +97,7 @@ namespace AniMeido.Tests
         [Fact]
         public async Task RemoveStatus_NonExistent_DoesNotThrow()
         {
-            await CreateBaseTablesAsync();
+            await RunProductionMigrationAsync();
             var svc = CreateService();
 
             await svc.RemoveStatusAsync(999);
@@ -106,7 +107,7 @@ namespace AniMeido.Tests
         [Fact]
         public async Task SetStatus_MultipleTimes_DoesNotCorrupt()
         {
-            await CreateBaseTablesAsync();
+            await RunProductionMigrationAsync();
             var svc = CreateService();
 
             for (int i = 0; i < 10; i++)
@@ -122,7 +123,7 @@ namespace AniMeido.Tests
         [Fact]
         public async Task AllEightStatuses_AreStoredAndRetrieved()
         {
-            await CreateBaseTablesAsync();
+            await RunProductionMigrationAsync();
             var svc = CreateService();
 
             var allStatuses = Enum.GetValues<AnimeTrackingStatus>()
@@ -140,6 +141,68 @@ namespace AniMeido.Tests
                 var result = await svc.GetStatusAsync(id++);
                 Assert.Equal(status, result);
             }
+        }
+
+        [Fact]
+        public async Task ChangingAwayFromPlanToWatch_ArchivesPlanAndCancelsReminders()
+        {
+            await RunProductionMigrationAsync();
+            var tracking = CreateService();
+            var actionCenter = new ActionCenterService(DbFactory);
+            await actionCenter.UpsertPlanAsync(
+                42,
+                "Test anime",
+                AnimePlanPriority.Normal,
+                null,
+                0);
+            await actionCenter.AddReminderAsync(new PlanReminder(
+                "reminder-42",
+                42,
+                PlanReminderKind.Absolute,
+                null,
+                null,
+                DateTimeOffset.Now.AddDays(1),
+                DateTimeOffset.Now.AddDays(1),
+                PlanReminderState.Pending,
+                null,
+                null));
+
+            await tracking.SetStatusAsync(
+                42,
+                AnimeTrackingStatus.Completed);
+
+            var plan = await actionCenter.GetPlanAsync(42);
+            var reminders = await actionCenter.GetRemindersAsync(
+                animeId: 42);
+            Assert.NotNull(plan?.ArchivedAt);
+            Assert.Equal(
+                PlanReminderState.Cancelled,
+                Assert.Single(reminders).State);
+        }
+
+        [Fact]
+        public async Task SettingPlanToWatch_ReactivatesExistingArchivedPlan()
+        {
+            await RunProductionMigrationAsync();
+            var tracking = CreateService();
+            var actionCenter = new ActionCenterService(DbFactory);
+            await actionCenter.UpsertPlanAsync(
+                43,
+                "Test anime",
+                AnimePlanPriority.Normal,
+                null,
+                0);
+            await tracking.SetStatusAsync(
+                43,
+                AnimeTrackingStatus.Completed);
+
+            await tracking.SetStatusAsync(
+                43,
+                AnimeTrackingStatus.PlanToWatch);
+
+            var plan = await actionCenter.GetPlanAsync(43);
+            Assert.Null(plan?.ArchivedAt);
+            Assert.Null(plan?.StartedAt);
         }
     }
 }

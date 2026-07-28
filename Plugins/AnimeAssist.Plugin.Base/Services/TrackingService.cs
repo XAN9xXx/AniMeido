@@ -22,17 +22,29 @@ namespace AniMeido.Plugin.Base.Services
         public async Task SetStatusAsync(int animeId, AnimeTrackingStatus status)
         {
             using var connection = await _dbFactory.OpenAsync();
-
-            var command = connection.CreateCommand();
+            using var transaction = connection.BeginTransaction();
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
             command.CommandText = """
-                INSERT OR REPLACE INTO tracking (AnimeId, Status, UpdatedAt)
+                INSERT INTO tracking (AnimeId, Status, UpdatedAt)
                 VALUES (@animeId, @status, @updatedAt)
+                ON CONFLICT(AnimeId) DO UPDATE SET
+                    Status = excluded.Status,
+                    UpdatedAt = excluded.UpdatedAt
                 """;
             command.Parameters.AddWithValue("@animeId", animeId);
             command.Parameters.AddWithValue("@status", (int)status);
-            command.Parameters.AddWithValue("@updatedAt", DateTime.UtcNow.ToString("O"));
+            var updatedAt = DateTime.UtcNow.ToString("O");
+            command.Parameters.AddWithValue("@updatedAt", updatedAt);
 
             await command.ExecuteNonQueryAsync();
+            await SynchronizePlanAsync(
+                connection,
+                transaction,
+                animeId,
+                status,
+                updatedAt);
+            transaction.Commit();
         }
 
         /// <summary>
@@ -41,17 +53,28 @@ namespace AniMeido.Plugin.Base.Services
         public async Task SetStatusWithTimestampAsync(int animeId, AnimeTrackingStatus status, string updatedAt)
         {
             using var connection = await _dbFactory.OpenAsync();
-
-            var command = connection.CreateCommand();
+            using var transaction = connection.BeginTransaction();
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
             command.CommandText = """
-                INSERT OR REPLACE INTO tracking (AnimeId, Status, UpdatedAt)
+                INSERT INTO tracking (AnimeId, Status, UpdatedAt)
                 VALUES (@animeId, @status, @updatedAt)
+                ON CONFLICT(AnimeId) DO UPDATE SET
+                    Status = excluded.Status,
+                    UpdatedAt = excluded.UpdatedAt
                 """;
             command.Parameters.AddWithValue("@animeId", animeId);
             command.Parameters.AddWithValue("@status", (int)status);
             command.Parameters.AddWithValue("@updatedAt", updatedAt);
 
             await command.ExecuteNonQueryAsync();
+            await SynchronizePlanAsync(
+                connection,
+                transaction,
+                animeId,
+                status,
+                updatedAt);
+            transaction.Commit();
         }
 
         public async Task<AnimeTrackingStatus?> GetStatusAsync(int animeId)
@@ -88,12 +111,19 @@ namespace AniMeido.Plugin.Base.Services
         public async Task RemoveStatusAsync(int animeId)
         {
             using var connection = await _dbFactory.OpenAsync();
-
-            var command = connection.CreateCommand();
+            using var transaction = connection.BeginTransaction();
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
             command.CommandText = "DELETE FROM tracking WHERE AnimeId = @animeId";
             command.Parameters.AddWithValue("@animeId", animeId);
 
             await command.ExecuteNonQueryAsync();
+            await ArchivePlanAsync(
+                connection,
+                transaction,
+                animeId,
+                DateTime.UtcNow.ToString("O"));
+            transaction.Commit();
         }
 
         /// <summary>
@@ -151,6 +181,74 @@ namespace AniMeido.Plugin.Base.Services
             }
 
             return DragZoneConfig.GetDefaults();
+        }
+
+        private static async Task SynchronizePlanAsync(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            int animeId,
+            AnimeTrackingStatus status,
+            string updatedAt)
+        {
+            if (status == AnimeTrackingStatus.PlanToWatch)
+            {
+                using var plan = connection.CreateCommand();
+                plan.Transaction = transaction;
+                plan.CommandText = """
+                    UPDATE anime_plans
+                    SET ArchivedAt = NULL,
+                        StartedAt = NULL,
+                        UpdatedAt = @updatedAt
+                    WHERE AnimeId = @animeId
+                    """;
+                plan.Parameters.AddWithValue("@animeId", animeId);
+                plan.Parameters.AddWithValue("@updatedAt", updatedAt);
+                await plan.ExecuteNonQueryAsync();
+                return;
+            }
+
+            await ArchivePlanAsync(
+                connection,
+                transaction,
+                animeId,
+                updatedAt);
+        }
+
+        private static async Task ArchivePlanAsync(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            int animeId,
+            string updatedAt)
+        {
+            using (var plan = connection.CreateCommand())
+            {
+                plan.Transaction = transaction;
+                plan.CommandText = """
+                    UPDATE anime_plans
+                    SET ArchivedAt = COALESCE(ArchivedAt, @updatedAt),
+                        UpdatedAt = @updatedAt
+                    WHERE AnimeId = @animeId
+                    """;
+                plan.Parameters.AddWithValue("@animeId", animeId);
+                plan.Parameters.AddWithValue("@updatedAt", updatedAt);
+                await plan.ExecuteNonQueryAsync();
+            }
+
+            using var reminders = connection.CreateCommand();
+            reminders.Transaction = transaction;
+            reminders.CommandText = """
+                UPDATE plan_reminders
+                SET State = @cancelled
+                WHERE AnimeId = @animeId AND State = @pending
+                """;
+            reminders.Parameters.AddWithValue("@animeId", animeId);
+            reminders.Parameters.AddWithValue(
+                "@cancelled",
+                (int)PlanReminderState.Cancelled);
+            reminders.Parameters.AddWithValue(
+                "@pending",
+                (int)PlanReminderState.Pending);
+            await reminders.ExecuteNonQueryAsync();
         }
 
     }
