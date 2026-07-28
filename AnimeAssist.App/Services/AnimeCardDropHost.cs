@@ -72,7 +72,6 @@ public sealed class AnimeCardDropHost
             new DragEventHandler(OnRootDrop));
 
         _registeredElements.Remove(element);
-        System.Diagnostics.Debug.WriteLine($"[AnimeCardDropHost] Unregistered from {element.GetType().Name}");
     }
 
     /// <summary>注销所有宿主元素。</summary>
