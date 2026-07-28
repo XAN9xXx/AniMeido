@@ -71,8 +71,13 @@ namespace AniMeido.Plugin.Base.Views
         {
             try
             {
-                var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
-                _blockedIds = blocked.ToHashSet();
+                _blockedIds = await _tracking.GetBlockedAnimeIdsAsync();
+                if (ResultGrid.ItemsSource is IEnumerable<Anime> current)
+                {
+                    ResultGrid.ItemsSource = current
+                        .Where(anime => !_blockedIds.Contains(anime.ID))
+                        .ToList();
+                }
             }
 #pragma warning disable CA1031 // 屏蔽列表加载失败不影响搜索
             catch (Exception ex)
@@ -119,6 +124,7 @@ namespace AniMeido.Plugin.Base.Views
 
             try
             {
+                await LoadBlockedIdsAsync();
                 var (results, total) = await _dataSource.SearchByKeywordAsync(_currentKeyword ?? string.Empty, offset, token);
 
                 // 如果已有更新的搜索，丢弃此结果

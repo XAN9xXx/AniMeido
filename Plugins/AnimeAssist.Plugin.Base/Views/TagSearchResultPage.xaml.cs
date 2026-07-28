@@ -97,8 +97,7 @@ namespace AniMeido.Plugin.Base.Views
         {
             try
             {
-                var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
-                _blockedIds = blocked.ToHashSet();
+                _blockedIds = await _tracking.GetBlockedAnimeIdsAsync();
                 // 如果数据已经加载完成，重新过滤
                 if (_allData != null && _allData.Count > 0)
                 {

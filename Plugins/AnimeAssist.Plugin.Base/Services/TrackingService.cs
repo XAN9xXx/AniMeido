@@ -121,6 +121,13 @@ namespace AniMeido.Plugin.Base.Services
             return list;
         }
 
+        public async Task<HashSet<int>> GetBlockedAnimeIdsAsync()
+        {
+            var blocked = await GetAnimeIdsByStatusAsync(
+                AnimeTrackingStatus.Blocked);
+            return blocked.ToHashSet();
+        }
+
         public async Task<bool> RemoveStatusAsync(int animeId)
         {
             using var connection = await _dbFactory.OpenAsync();

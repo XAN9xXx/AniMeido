@@ -66,8 +66,20 @@ public sealed partial class TodayPage : Page, INavigationAware
 
     public Button NotificationSettingsButton { get; }
 
-    private void OnLoaded(object sender, RoutedEventArgs e)
+    private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        try
+        {
+            await ViewModel.RemoveBlockedEntriesAsync();
+        }
+#pragma warning disable CA1031 // 可见性刷新失败不应阻止页面加载
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[TodayPage] RemoveBlockedEntriesAsync failed: {ex.Message}");
+        }
+#pragma warning restore CA1031
+
         if (_isPlaybackAvailabilitySubscribed)
         {
             return;

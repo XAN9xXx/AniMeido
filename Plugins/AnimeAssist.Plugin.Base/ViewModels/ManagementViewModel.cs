@@ -94,6 +94,13 @@ namespace AniMeido.Plugin.Base.ViewModels
             ErrorMessage = null;
             _panelsLoaded.Clear();
             _statusIdsCache.Clear();
+            WatchingList.Clear();
+            PlanToWatchList.Clear();
+            NotInterestedList.Clear();
+            FollowingList.Clear();
+            CompletedList.Clear();
+            DroppedList.Clear();
+            BlockedList.Clear();
 
             try
             {
@@ -333,7 +340,11 @@ namespace AniMeido.Plugin.Base.ViewModels
                     // 通过 Bangumi API 搜索带此 Tag 的番剧
                     var (results, _) = await _animeDataSource.SearchByTagAsync(
                         tagName, 0, "rank", CancellationToken.None);
-                    foreach (var anime in results.Take(20))
+                    var blocked =
+                        await _trackingService.GetBlockedAnimeIdsAsync();
+                    foreach (var anime in results
+                        .Where(item => !blocked.Contains(item.ID))
+                        .Take(20))
                     {
                         TagAnimeList.Add(anime);
                     }

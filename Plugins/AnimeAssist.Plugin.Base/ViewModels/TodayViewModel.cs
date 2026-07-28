@@ -88,11 +88,17 @@ public partial class TodayViewModel : ObservableObject
             var statusById = trackingRows.ToDictionary(
                 row => row.AnimeId,
                 row => row.Status);
+            var blockedIds = statusById
+                .Where(pair => pair.Value == AnimeTrackingStatus.Blocked)
+                .Select(pair => pair.Key)
+                .ToHashSet();
             var (year, season) = SeasonHelper.GetCurrentSeason();
-            var seasonal = await _dataSource.GetAnimeBySeasonAsync(
-                year,
-                season,
-                cancellationToken);
+            var seasonal = (await _dataSource.GetAnimeBySeasonAsync(
+                    year,
+                    season,
+                    cancellationToken))
+                .Where(anime => !blockedIds.Contains(anime.ID))
+                .ToList();
             var today = ToBangumiWeekday(DateTime.Today.DayOfWeek);
             AllBroadcasts = new ObservableCollection<Anime>(
                 seasonal.Where(item => item.Weekday == today));
@@ -119,7 +125,9 @@ public partial class TodayViewModel : ObservableObject
                 .GroupBy(item => item.AnimeId)
                 .ToDictionary(group => group.Key, group => group.Count());
             Plans = new ObservableCollection<TodayPlanEntry>(
-                plans.Select(plan => new TodayPlanEntry(
+                plans
+                    .Where(plan => !blockedIds.Contains(plan.AnimeId))
+                    .Select(plan => new TodayPlanEntry(
                     plan,
                     BuildPlanSubtitle(
                         plan,
@@ -168,6 +176,28 @@ public partial class TodayViewModel : ObservableObject
         }
     }
 
+    public async Task RemoveBlockedEntriesAsync()
+    {
+        var blocked = await _tracking.GetBlockedAnimeIdsAsync();
+        if (blocked.Count == 0)
+        {
+            return;
+        }
+
+        AllBroadcasts = new ObservableCollection<Anime>(
+            AllBroadcasts.Where(anime => !blocked.Contains(anime.ID)));
+        PersonalBroadcasts = new ObservableCollection<Anime>(
+            PersonalBroadcasts.Where(anime => !blocked.Contains(anime.ID)));
+        ContinueWatching = new ObservableCollection<TodayAnimeEntry>(
+            ContinueWatching.Where(
+                entry => !blocked.Contains(entry.Anime.ID)));
+        RecentActivity = new ObservableCollection<TodayAnimeEntry>(
+            RecentActivity.Where(
+                entry => !blocked.Contains(entry.Anime.ID)));
+        Plans = new ObservableCollection<TodayPlanEntry>(
+            Plans.Where(entry => !blocked.Contains(entry.Plan.AnimeId)));
+    }
+
     private async Task LoadPlaybackActivityAsync(
         IReadOnlyDictionary<int, AnimeTrackingStatus> statusById,
         IReadOnlyList<Anime> seasonal,
@@ -197,12 +227,16 @@ public partial class TodayViewModel : ObservableObject
             })
             .OrderByDescending(item =>
                 progress.GetValueOrDefault(item.Anime.ID)?.LastWatchedAt));
+        var visibleProgress = progress
+            .Where(pair => statusById.GetValueOrDefault(pair.Key)
+                != AnimeTrackingStatus.Blocked)
+            .ToDictionary();
         var recentAnime = await ResolveAnimeAsync(
-            progress.Keys.ToList(),
+            visibleProgress.Keys.ToList(),
             seasonalById,
             cancellationToken);
         RecentActivity = new ObservableCollection<TodayAnimeEntry>(
-            progress.Values
+            visibleProgress.Values
                 .OrderByDescending(item => item.LastWatchedAt)
                 .Take(8)
                 .Join(

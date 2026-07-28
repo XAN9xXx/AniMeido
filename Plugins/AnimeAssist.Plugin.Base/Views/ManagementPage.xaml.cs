@@ -107,8 +107,6 @@ namespace AniMeido.Plugin.Base.Views
                 }
             };
 
-            ViewModel.LoadDataCommand.Execute(null);
-
             // 主题切换时通过统一刷新方法恢复视觉状态
             this.ActualThemeChanged += (_, _) => RefreshNavigationVisualState();
         }
@@ -118,6 +116,7 @@ namespace AniMeido.Plugin.Base.Views
             // 初始选中"追番中"
             _currentTab = WatchingCard;
             RefreshNavigationVisualState();
+            ViewModel.LoadDataCommand.Execute(null);
         }
 
         private void OnTabClicked(object sender, TappedRoutedEventArgs e)

@@ -99,7 +99,7 @@ namespace AniMeido.Plugin.Base.Views
 
                 if (cancellationToken.IsCancellationRequested) return;
 
-                var blocked = (await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked)).ToHashSet();
+                var blocked = await _tracking.GetBlockedAnimeIdsAsync();
                 ResultGrid.ItemsSource = animes.Where(a => !blocked.Contains(a.ID)).ToList();
 
                 if (animes.Count == 0)
@@ -137,6 +137,29 @@ namespace AniMeido.Plugin.Base.Views
 
             rootGrid.Unloaded -= OnRootGridUnloaded;
             rootGrid.Unloaded += OnRootGridUnloaded;
+
+            _ = RemoveBlockedResultsAsync();
+        }
+
+        private async Task RemoveBlockedResultsAsync()
+        {
+            try
+            {
+                var blocked = await _tracking.GetBlockedAnimeIdsAsync();
+                if (ResultGrid.ItemsSource is IEnumerable<Anime> current)
+                {
+                    ResultGrid.ItemsSource = current
+                        .Where(anime => !blocked.Contains(anime.ID))
+                        .ToList();
+                }
+            }
+#pragma warning disable CA1031 // 可见性刷新失败不应清空已有结果
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[PersonSearchResultPage] RemoveBlockedResultsAsync failed: {ex.Message}");
+            }
+#pragma warning restore CA1031
         }
 
         private void EnsureDropHostRegistered(Grid rootGrid)

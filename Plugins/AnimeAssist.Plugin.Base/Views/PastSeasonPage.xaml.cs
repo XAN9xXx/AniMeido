@@ -32,8 +32,6 @@ namespace AniMeido.Plugin.Base.Views
             _pluginNavigator = pluginNavigator;
             InitializeComponent();
 
-            _ = LoadDragConfigAndBlockedAsync();
-
             ViewModel.PropertyChanged += (s, e) =>
             {
                 switch (e.PropertyName)
@@ -274,8 +272,7 @@ namespace AniMeido.Plugin.Base.Views
             try
             {
                 await _dragDrop.ReloadConfigAsync();
-                var blocked = await _tracking.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
-                _blockedIds = blocked.ToHashSet();
+                _blockedIds = await _tracking.GetBlockedAnimeIdsAsync();
                 // 无论数据是否已加载，都重新从原始数据过滤一次
                 if (ViewModel.AnimeList.Count > 0)
                 {
@@ -306,6 +303,9 @@ namespace AniMeido.Plugin.Base.Views
             // 确保 Unloaded 只注册一次
             rootGrid.Unloaded -= OnRootGridUnloaded;
             rootGrid.Unloaded += OnRootGridUnloaded;
+
+            // 返回已缓存页面时重新读取屏蔽状态，移除刚屏蔽的条目。
+            _ = LoadDragConfigAndBlockedAsync();
         }
 
         private void EnsureDropHostRegistered(Grid rootGrid)

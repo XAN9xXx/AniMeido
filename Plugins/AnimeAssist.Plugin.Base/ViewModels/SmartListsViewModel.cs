@@ -1,4 +1,5 @@
 using AniMeido.Contracts;
+using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
@@ -325,6 +326,13 @@ public partial class SmartListsViewModel : ObservableObject
         BuildCandidatesAsync(CancellationToken cancellationToken)
     {
         var tracking = await _tracking.GetAllTrackingAsync();
+        var blockedIds = tracking
+            .Where(item => item.Status == AnimeTrackingStatus.Blocked)
+            .Select(item => item.AnimeId)
+            .ToHashSet();
+        tracking = tracking
+            .Where(item => !blockedIds.Contains(item.AnimeId))
+            .ToList();
         var plans = await _actionCenter.GetPlansAsync(
             includeArchived: true,
             cancellationToken);
@@ -336,6 +344,7 @@ public partial class SmartListsViewModel : ObservableObject
         var ids = tracking.Select(item => item.AnimeId)
             .Concat(plans.Select(item => item.AnimeId))
             .Concat(progress.Keys)
+            .Where(animeId => !blockedIds.Contains(animeId))
             .Distinct()
             .ToList();
         var candidates = new List<SmartListCandidate>();

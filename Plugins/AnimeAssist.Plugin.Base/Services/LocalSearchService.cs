@@ -53,7 +53,6 @@ namespace AniMeido.Plugin.Base.Services
                 AnimeTrackingStatus.Following,
                 AnimeTrackingStatus.Completed,
                 AnimeTrackingStatus.Dropped,
-                AnimeTrackingStatus.Blocked,
             };
 
             var trackedIds = new List<int>();

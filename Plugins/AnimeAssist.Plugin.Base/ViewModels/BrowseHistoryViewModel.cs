@@ -11,6 +11,7 @@ namespace AniMeido.Plugin.Base.ViewModels
     {
         private readonly BrowseHistoryService _browseHistory;
         private readonly IAnimeDataSource _dataSource;
+        private readonly TrackingService _tracking;
 
         [ObservableProperty]
         private ObservableCollection<Anime> _historyList = [];
@@ -24,10 +25,14 @@ namespace AniMeido.Plugin.Base.ViewModels
         [ObservableProperty]
         private bool _isEmpty = true;
 
-        public BrowseHistoryViewModel(BrowseHistoryService browseHistory, IAnimeDataSource dataSource)
+        public BrowseHistoryViewModel(
+            BrowseHistoryService browseHistory,
+            IAnimeDataSource dataSource,
+            TrackingService tracking)
         {
             _browseHistory = browseHistory;
             _dataSource = dataSource;
+            _tracking = tracking;
         }
 
         [RelayCommand]
@@ -39,12 +44,18 @@ namespace AniMeido.Plugin.Base.ViewModels
             try
             {
                 var records = await _browseHistory.GetHistoryAsync(50);
+                var blocked = await _tracking.GetBlockedAnimeIdsAsync();
 
                 // 先收集到临时列表，再一次性替换到可观测集合（保持同一个集合实例避免绑定断链）
                 HistoryList.Clear();
 
                 foreach (var (animeId, title, lastViewed, viewCount) in records)
                 {
+                    if (blocked.Contains(animeId))
+                    {
+                        continue;
+                    }
+
                     // 优先从缓存/详情接口获取完整数据
                     Anime? anime = null;
                     try
@@ -80,6 +91,21 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 IsLoading = false;
             }
+        }
+
+        public async Task RemoveBlockedEntriesAsync()
+        {
+            var blocked = await _tracking.GetBlockedAnimeIdsAsync();
+            for (var index = HistoryList.Count - 1; index >= 0; index--)
+            {
+                if (blocked.Contains(HistoryList[index].ID))
+                {
+                    HistoryList.RemoveAt(index);
+                }
+            }
+
+            HasData = HistoryList.Count > 0;
+            IsEmpty = HistoryList.Count == 0;
         }
 
         [RelayCommand]

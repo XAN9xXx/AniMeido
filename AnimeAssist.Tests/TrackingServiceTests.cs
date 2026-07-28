@@ -82,6 +82,21 @@ namespace AniMeido.Tests
         }
 
         [Fact]
+        public async Task GetBlockedAnimeIdsAsync_ReturnsOnlyBlockedIds()
+        {
+            await RunProductionMigrationAsync();
+            var svc = CreateService();
+
+            await svc.SetStatusAsync(1, AnimeTrackingStatus.Blocked);
+            await svc.SetStatusAsync(2, AnimeTrackingStatus.Watching);
+            await svc.SetStatusAsync(3, AnimeTrackingStatus.Blocked);
+
+            var blockedIds = await svc.GetBlockedAnimeIdsAsync();
+
+            Assert.Equal([1, 3], blockedIds.Order());
+        }
+
+        [Fact]
         public async Task GetAllTrackingAsync_ReturnsAllEntries()
         {
             await RunProductionMigrationAsync();

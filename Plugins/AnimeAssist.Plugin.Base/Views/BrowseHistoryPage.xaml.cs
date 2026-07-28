@@ -25,6 +25,21 @@ namespace AniMeido.Plugin.Base.Views
             return Task.CompletedTask;
         }
 
+        private async void OnPageLoaded(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                await ViewModel.RemoveBlockedEntriesAsync();
+            }
+#pragma warning disable CA1031 // 可见性刷新失败不应阻止页面加载
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BrowseHistoryPage] RemoveBlockedEntriesAsync failed: {ex.Message}");
+            }
+#pragma warning restore CA1031
+        }
+
         private void OnAnimeCardClicked(object? sender, Views.Controls.AnimeCardClickedEventArgs e)
         {
             _pluginNavigator.Navigate(typeof(AnimeDetailPage), e.Anime.ID);
