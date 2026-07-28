@@ -765,7 +765,6 @@ namespace AniMeido.Plugin.Base.Services
                 new DragEventHandler(OnPageDrop), true);
 
             _pageDragHosts.Add(host);
-            System.Diagnostics.Debug.WriteLine($"[DragDropService] Page standard drag host registered = {host.GetType().Name}");
         }
 
         /// <summary>
@@ -782,7 +781,6 @@ namespace AniMeido.Plugin.Base.Services
                 new DragEventHandler(OnPageDrop));
 
             _pageDragHosts.Remove(host);
-            System.Diagnostics.Debug.WriteLine($"[DragDropService] Page standard drag host unregistered = {host.GetType().Name}");
         }
 
         private void OnPageDragOver(object sender, DragEventArgs e)
