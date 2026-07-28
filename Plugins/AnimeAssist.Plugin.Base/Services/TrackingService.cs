@@ -1,5 +1,6 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using AniMeido.Contracts.Notifications;
 using AniMeido.Plugin.Base.Models;
 using Microsoft.Data.Sqlite;
 using System.Text.Json;
@@ -9,14 +10,18 @@ namespace AniMeido.Plugin.Base.Services
     public class TrackingService
     {
         private readonly SqliteConnectionFactory _dbFactory;
+        private readonly IAppNotificationService? _notifications;
         private static readonly JsonSerializerOptions ConfigJsonOptions = new()
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         };
 
-        public TrackingService(SqliteConnectionFactory dbFactory)
+        public TrackingService(
+            SqliteConnectionFactory dbFactory,
+            IAppNotificationService? notifications = null)
         {
             _dbFactory = dbFactory;
+            _notifications = notifications;
         }
 
         public async Task SetStatusAsync(int animeId, AnimeTrackingStatus status)
@@ -45,6 +50,10 @@ namespace AniMeido.Plugin.Base.Services
                 status,
                 updatedAt);
             transaction.Commit();
+            if (status != AnimeTrackingStatus.PlanToWatch)
+            {
+                await CancelPlanNotificationsAsync(animeId);
+            }
         }
 
         /// <summary>
@@ -75,6 +84,10 @@ namespace AniMeido.Plugin.Base.Services
                 status,
                 updatedAt);
             transaction.Commit();
+            if (status != AnimeTrackingStatus.PlanToWatch)
+            {
+                await CancelPlanNotificationsAsync(animeId);
+            }
         }
 
         public async Task<AnimeTrackingStatus?> GetStatusAsync(int animeId)
@@ -124,6 +137,7 @@ namespace AniMeido.Plugin.Base.Services
                 animeId,
                 DateTime.UtcNow.ToString("O"));
             transaction.Commit();
+            await CancelPlanNotificationsAsync(animeId);
             return removed;
         }
 
@@ -251,6 +265,11 @@ namespace AniMeido.Plugin.Base.Services
                 (int)PlanReminderState.Pending);
             await reminders.ExecuteNonQueryAsync();
         }
+
+        private Task CancelPlanNotificationsAsync(int animeId)
+            => _notifications?.CancelGroupAsync(
+                PlanReminderCoordinator.GetNotificationGroup(animeId))
+                ?? Task.CompletedTask;
 
     }
 }

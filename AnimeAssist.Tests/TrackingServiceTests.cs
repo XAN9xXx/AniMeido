@@ -1,4 +1,5 @@
 using AniMeido.Contracts.Models;
+using AniMeido.Contracts.Notifications;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 
@@ -205,6 +206,67 @@ namespace AniMeido.Tests
             var plan = await actionCenter.GetPlanAsync(43);
             Assert.Null(plan?.ArchivedAt);
             Assert.Null(plan?.StartedAt);
+        }
+
+        [Fact]
+        public async Task ChangingAwayFromPlanToWatch_CancelsSystemNotifications()
+        {
+            await RunProductionMigrationAsync();
+            var notifications = new FakeNotificationService();
+            var tracking = new TrackingService(DbFactory, notifications);
+
+            await tracking.SetStatusAsync(
+                44,
+                AnimeTrackingStatus.Completed);
+
+            Assert.Equal(["anime-plan-44"], notifications.CancelledGroups);
+        }
+
+        private sealed class FakeNotificationService :
+            IAppNotificationService
+        {
+            public bool IsSupported => true;
+
+            public bool NotificationsEnabled => true;
+
+            public List<string> CancelledGroups { get; } = [];
+
+            public Task ScheduleAsync(
+                AppNotificationRequest request,
+                CancellationToken cancellationToken = default)
+                => Task.CompletedTask;
+
+            public Task CancelAsync(
+                string group,
+                string tag,
+                CancellationToken cancellationToken = default)
+                => Task.CompletedTask;
+
+            public Task CancelGroupAsync(
+                string group,
+                CancellationToken cancellationToken = default)
+            {
+                CancelledGroups.Add(group);
+                return Task.CompletedTask;
+            }
+
+            public IDisposable RegisterActivationHandler(
+                string category,
+                Func<
+                    AppNotificationActivation,
+                    CancellationToken,
+                    Task> handler)
+                => new Registration();
+
+            public Task OpenNotificationSettingsAsync()
+                => Task.CompletedTask;
+
+            private sealed class Registration : IDisposable
+            {
+                public void Dispose()
+                {
+                }
+            }
         }
     }
 }

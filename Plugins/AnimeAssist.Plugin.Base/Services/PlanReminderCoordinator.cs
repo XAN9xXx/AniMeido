@@ -96,7 +96,7 @@ public sealed class PlanReminderCoordinator : IDisposable
             reminder.ReminderId,
             cancellationToken);
         await _notifications.CancelAsync(
-            GetGroup(reminder.AnimeId),
+            GetNotificationGroup(reminder.AnimeId),
             reminder.ReminderId,
             cancellationToken);
     }
@@ -218,7 +218,7 @@ public sealed class PlanReminderCoordinator : IDisposable
         => _notifications.ScheduleAsync(
             new AppNotificationRequest(
                 NotificationCategory,
-                GetGroup(plan.AnimeId),
+                GetNotificationGroup(plan.AnimeId),
                 reminder.ReminderId,
                 reminder.ScheduledFor,
                 "补番计划提醒",
@@ -262,7 +262,7 @@ public sealed class PlanReminderCoordinator : IDisposable
                     animeId,
                     cancellationToken);
                 await _notifications.CancelGroupAsync(
-                    GetGroup(animeId),
+                    GetNotificationGroup(animeId),
                     cancellationToken);
                 break;
 
@@ -329,7 +329,7 @@ public sealed class PlanReminderCoordinator : IDisposable
             TimeZoneInfo.Local.GetUtcOffset(local));
     }
 
-    private static string GetGroup(int animeId)
+    internal static string GetNotificationGroup(int animeId)
         => $"anime-plan-{animeId}";
 
     private static bool TryGetInt(
