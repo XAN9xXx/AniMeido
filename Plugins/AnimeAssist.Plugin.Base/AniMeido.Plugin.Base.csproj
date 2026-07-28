@@ -33,6 +33,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>AniMeido.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
     <Page Update="Views\DragZonePreviewPage.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>

@@ -16,6 +16,8 @@ namespace AniMeido.Plugin.Base.Services
         private readonly CacheService _cacheService;
         private const string FallbackTitle = "不好，标题走丢了Q^Q";
         private const string FallbackDescription = "No description available.";
+        private const int SeasonSearchPageSize = 20;
+        private const int SeasonCacheVersion = 2;
         private static readonly string? FallbackImageUrl = null;
         private static readonly IReadOnlyList<VoiceActor> FallbackCVs = Array.Empty<VoiceActor>();
         private static readonly IReadOnlyList<string> StudioFilter = new List<string> { "製作", "原作", "企画", "动画制作", "发行" }; // API中Type 2 代表参与制作的商业实体，此处仅筛选制作/原作。
@@ -298,7 +300,9 @@ namespace AniMeido.Plugin.Base.Services
             if (!Enum.IsDefined(season))
                 throw new ArgumentOutOfRangeException(nameof(season));
 
-            var cacheKey = $"season:{year}:{season}";
+            // 缓存版本属于查询语义的一部分。v1 的往季结果最多只有 40 条，
+            // 使用新键可避免修复后继续命中已截断的旧缓存。
+            var cacheKey = $"season:v{SeasonCacheVersion}:{year}:{season}";
             var cached = await _cacheService.GetCacheAsync(cacheKey);
             if (cached != null)
             {
@@ -382,20 +386,48 @@ namespace AniMeido.Plugin.Base.Services
                 Filter: filter
             );
 
-            // 分页获取，最多 2 页（每页 20 条，共 40 条，覆盖大部分季度的番剧数）
             var allAnimes = new List<Anime>();
-            for (int offset = 0; offset < 40; offset += 20)
-            {
-                if (ct.IsCancellationRequested) break;
+            var seenIds = new HashSet<int>();
+            var offset = 0;
 
-                var url = $"/v0/search/subjects?limit=20&offset={offset}";
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var url = $"/v0/search/subjects?limit={SeasonSearchPageSize}&offset={offset}";
                 var result = await _apiClient.PostJsonAsync<PagedSubjectResponse>(url, request, ct)
                     .ConfigureAwait(false);
 
-                if (result?.Data == null || result.Data.Count == 0)
-                    break;
+                if (result is null)
+                {
+                    throw new BangumiApiException(
+                        $"Bangumi season search returned null at offset {offset}.");
+                }
 
-                allAnimes.AddRange(result.Data.Select(item => MapFromSubject(item)));
+                if (result.Data.Count == 0)
+                {
+                    if (offset >= result.Total)
+                    {
+                        break;
+                    }
+
+                    throw new BangumiApiException(
+                        $"Bangumi season search ended at offset {offset} before reaching total {result.Total}.");
+                }
+
+                foreach (var item in result.Data)
+                {
+                    if (seenIds.Add(item.Id))
+                    {
+                        allAnimes.Add(MapFromSubject(item));
+                    }
+                }
+
+                offset += result.Data.Count;
+                if (offset >= result.Total || result.Data.Count < SeasonSearchPageSize)
+                {
+                    break;
+                }
             }
 
             return allAnimes;
