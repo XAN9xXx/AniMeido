@@ -99,9 +99,17 @@ namespace AniMeido.App.Services
             if (_frame == null)
                 throw new InvalidOperationException("NavigationService 未初始化。请先调用 Initialize(Frame)。");
 
-            // 相同页面 + 无参数时不重复导航
-            if (mode != NavigationMode.TopLevel && CurrentPageType == pageType && parameter == null)
+            // 同一页面目标的重复请求不创建第二个页面实例，否则返回时
+            // 会先恢复一个视觉上完全相同的页面，看起来需要点击两次。
+            if (mode != NavigationMode.TopLevel
+                && IsSameTarget(
+                    CurrentPageType,
+                    _lastParameter,
+                    pageType,
+                    parameter))
+            {
                 return;
+            }
 
             // 顶层导航清空返回栈，否则保存当前页面实例到返回栈
             if (mode == NavigationMode.TopLevel)
@@ -134,6 +142,14 @@ namespace AniMeido.App.Services
                 FirstNavigationCompleted.TrySetResult();
             }
         }
+
+        internal static bool IsSameTarget(
+            Type? currentPageType,
+            object? currentParameter,
+            Type targetPageType,
+            object? targetParameter)
+            => currentPageType == targetPageType
+                && Equals(currentParameter, targetParameter);
 
         /// <summary>
         /// 安全调用 INavigationAware.OnNavigatedToAsync，捕获并记录异常。

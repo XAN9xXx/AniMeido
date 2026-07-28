@@ -95,5 +95,36 @@ namespace AniMeido.Tests
             stack.Pop(); // remove one
             Assert.False(stack.CanGoBack); // should only have one entry
         }
+
+        [Theory]
+        [InlineData(null, null, true)]
+        [InlineData(42, 42, true)]
+        [InlineData(42, 43, false)]
+        public void IsSameTarget_UsesPageTypeAndParameter(
+            object? currentParameter,
+            object? targetParameter,
+            bool expected)
+        {
+            Assert.Equal(
+                expected,
+                NavigationService.IsSameTarget(
+                    typeof(TestPage),
+                    currentParameter,
+                    typeof(TestPage),
+                    targetParameter));
+        }
+
+        [Fact]
+        public void IsSameTarget_DifferentPageType_ReturnsFalse()
+            => Assert.False(
+                NavigationService.IsSameTarget(
+                    typeof(TestPage),
+                    42,
+                    typeof(OtherTestPage),
+                    42));
+
+        private sealed class TestPage;
+
+        private sealed class OtherTestPage;
     }
 }
