@@ -193,64 +193,83 @@ namespace AniMeido.Plugin.Base.ViewModels
         [RelayCommand]
         private async Task RemoveFromWatchingAsync(int animeId)
         {
-            await _trackingService.RemoveStatusAsync(animeId);
+            var removed = await _trackingService.RemoveStatusAsync(animeId);
             var item = WatchingList.FirstOrDefault(a => a.ID == animeId);
             if (item != null) WatchingList.Remove(item);
-            WatchingCount = WatchingList.Count;
+            RemoveCachedId(AnimeTrackingStatus.Watching, animeId);
+            if (removed) WatchingCount = Math.Max(0, WatchingCount - 1);
         }
 
         [RelayCommand]
         private async Task RemoveFromPlanAsync(int animeId)
         {
-            await _trackingService.RemoveStatusAsync(animeId);
+            var removed = await _trackingService.RemoveStatusAsync(animeId);
             var item = PlanToWatchList.FirstOrDefault(a => a.ID == animeId);
             if (item != null) PlanToWatchList.Remove(item);
-            PlanToWatchCount = PlanToWatchList.Count;
+            RemoveCachedId(AnimeTrackingStatus.PlanToWatch, animeId);
+            if (removed) PlanToWatchCount = Math.Max(0, PlanToWatchCount - 1);
         }
 
         [RelayCommand]
         private async Task RemoveFromNotInterestedAsync(int animeId)
         {
-            await _trackingService.RemoveStatusAsync(animeId);
+            var removed = await _trackingService.RemoveStatusAsync(animeId);
             var item = NotInterestedList.FirstOrDefault(a => a.ID == animeId);
             if (item != null) NotInterestedList.Remove(item);
-            NotInterestedCount = NotInterestedList.Count;
+            RemoveCachedId(AnimeTrackingStatus.NotInterested, animeId);
+            if (removed) NotInterestedCount = Math.Max(0, NotInterestedCount - 1);
         }
 
         [RelayCommand]
         private async Task RemoveFromFollowingAsync(int animeId)
         {
-            await _trackingService.RemoveStatusAsync(animeId);
+            var removed = await _trackingService.RemoveStatusAsync(animeId);
             var item = FollowingList.FirstOrDefault(a => a.ID == animeId);
             if (item != null) FollowingList.Remove(item);
-            FollowingCount = FollowingList.Count;
+            RemoveCachedId(AnimeTrackingStatus.Following, animeId);
+            if (removed) FollowingCount = Math.Max(0, FollowingCount - 1);
         }
 
         [RelayCommand]
         private async Task RemoveFromCompletedAsync(int animeId)
         {
-            await _trackingService.RemoveStatusAsync(animeId);
+            var removed = await _trackingService.RemoveStatusAsync(animeId);
             var item = CompletedList.FirstOrDefault(a => a.ID == animeId);
             if (item != null) CompletedList.Remove(item);
-            CompletedCount = CompletedList.Count;
+            RemoveCachedId(AnimeTrackingStatus.Completed, animeId);
+            if (removed) CompletedCount = Math.Max(0, CompletedCount - 1);
         }
 
         [RelayCommand]
         private async Task RemoveFromDroppedAsync(int animeId)
         {
-            await _trackingService.RemoveStatusAsync(animeId);
+            var removed = await _trackingService.RemoveStatusAsync(animeId);
             var item = DroppedList.FirstOrDefault(a => a.ID == animeId);
             if (item != null) DroppedList.Remove(item);
-            DroppedCount = DroppedList.Count;
+            RemoveCachedId(AnimeTrackingStatus.Dropped, animeId);
+            if (removed) DroppedCount = Math.Max(0, DroppedCount - 1);
         }
 
         [RelayCommand]
         private async Task RemoveFromBlockedAsync(int animeId)
         {
-            await _trackingService.RemoveStatusAsync(animeId);
+            var removed = await _trackingService.RemoveStatusAsync(animeId);
             var item = BlockedList.FirstOrDefault(a => a.ID == animeId);
             if (item != null) BlockedList.Remove(item);
-            BlockedCount = BlockedList.Count;
+            RemoveCachedId(AnimeTrackingStatus.Blocked, animeId);
+            if (removed) BlockedCount = Math.Max(0, BlockedCount - 1);
+        }
+
+        private void RemoveCachedId(
+            AnimeTrackingStatus status,
+            int animeId)
+        {
+            if (_statusIdsCache.TryGetValue(status, out var ids))
+            {
+                _statusIdsCache[status] = ids
+                    .Where(id => id != animeId)
+                    .ToList();
+            }
         }
 
         // ======== Tag 管理 ========

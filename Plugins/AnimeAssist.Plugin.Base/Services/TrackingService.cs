@@ -108,7 +108,7 @@ namespace AniMeido.Plugin.Base.Services
             return list;
         }
 
-        public async Task RemoveStatusAsync(int animeId)
+        public async Task<bool> RemoveStatusAsync(int animeId)
         {
             using var connection = await _dbFactory.OpenAsync();
             using var transaction = connection.BeginTransaction();
@@ -117,13 +117,14 @@ namespace AniMeido.Plugin.Base.Services
             command.CommandText = "DELETE FROM tracking WHERE AnimeId = @animeId";
             command.Parameters.AddWithValue("@animeId", animeId);
 
-            await command.ExecuteNonQueryAsync();
+            var removed = await command.ExecuteNonQueryAsync() == 1;
             await ArchivePlanAsync(
                 connection,
                 transaction,
                 animeId,
                 DateTime.UtcNow.ToString("O"));
             transaction.Commit();
+            return removed;
         }
 
         /// <summary>

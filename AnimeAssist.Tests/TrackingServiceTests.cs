@@ -53,9 +53,10 @@ namespace AniMeido.Tests
             var svc = CreateService();
 
             await svc.SetStatusAsync(1, AnimeTrackingStatus.Watching);
-            await svc.RemoveStatusAsync(1);
+            var removed = await svc.RemoveStatusAsync(1);
             var status = await svc.GetStatusAsync(1);
 
+            Assert.True(removed);
             Assert.Null(status);
         }
 
@@ -100,8 +101,9 @@ namespace AniMeido.Tests
             await RunProductionMigrationAsync();
             var svc = CreateService();
 
-            await svc.RemoveStatusAsync(999);
-            // Should not throw
+            var removed = await svc.RemoveStatusAsync(999);
+
+            Assert.False(removed);
         }
 
         [Fact]
