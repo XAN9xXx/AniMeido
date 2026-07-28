@@ -128,20 +128,18 @@ namespace AniMeido.Plugin.Base.Views
 
         private void InitializeComboBoxes()
         {
-            int currentYear = DateTime.Now.Year;
-            for (int y = EarliestSupportedYear; y <= currentYear; y++)
+            var latestCompleted = GetLatestCompletedSeason(DateTime.Now);
+            for (int y = EarliestSupportedYear;
+                y <= latestCompleted.Year;
+                y++)
+            {
                 YearComboBox.Items.Add(y);
+            }
 
-            // 计算上一个季度及对应的年份
-            var previousSeason = GetPreviousSeason();
-            var currentSeason = GetCurrentSeason();
-            var previousYear = currentYear;
-            if (currentSeason == Season.Winter && previousSeason == Season.Fall)
-                previousYear--;
-
-            // 默认识别到上一个年度的最后一个季度之前的季度
-            YearComboBox.SelectedItem = previousYear;
-            RebuildSeasonItems(previousYear, previousSeason);
+            YearComboBox.SelectedItem = latestCompleted.Year;
+            RebuildSeasonItems(
+                latestCompleted.Year,
+                latestCompleted.Season);
 
             YearComboBox.SelectionChanged += OnYearSelectionChanged;
             SeasonComboBox.SelectionChanged += OnSeasonSelectionChanged;
@@ -154,33 +152,15 @@ namespace AniMeido.Plugin.Base.Views
             }
         }
 
-        private static Season GetCurrentSeason()
+        internal static (int Year, Season Season) GetLatestCompletedSeason(
+            DateTime now)
         {
-            return DateTime.Now.Month switch
+            return now.Month switch
             {
-                >= 1 and <= 3 => Season.Winter,
-                >= 4 and <= 6 => Season.Spring,
-                >= 7 and <= 9 => Season.Summer,
-                _ => Season.Fall
-            };
-        }
-
-        private static Season GetPreviousSeason()
-        {
-            var current = DateTime.Now.Month switch
-            {
-                >= 1 and <= 3 => Season.Winter,
-                >= 4 and <= 6 => Season.Spring,
-                >= 7 and <= 9 => Season.Summer,
-                _ => Season.Fall
-            };
-            return current switch
-            {
-                Season.Winter => Season.Fall,
-                Season.Spring => Season.Winter,
-                Season.Summer => Season.Spring,
-                Season.Fall => Season.Summer,
-                _ => Season.Winter
+                >= 1 and <= 3 => (now.Year - 1, Season.Fall),
+                >= 4 and <= 6 => (now.Year, Season.Winter),
+                >= 7 and <= 9 => (now.Year, Season.Spring),
+                _ => (now.Year, Season.Summer),
             };
         }
 
@@ -194,8 +174,12 @@ namespace AniMeido.Plugin.Base.Views
             SeasonComboBox.Items.Clear();
 
             var allSeasons = new[] { Season.Winter, Season.Spring, Season.Summer, Season.Fall };
-            var maxSeason = defaultSeason ?? GetPreviousSeason();
-            var validSeasons = year < DateTime.Now.Year
+            var latestCompleted = GetLatestCompletedSeason(DateTime.Now);
+            var maxSeason = defaultSeason
+                ?? (year < latestCompleted.Year
+                    ? Season.Fall
+                    : latestCompleted.Season);
+            var validSeasons = year < latestCompleted.Year
                 ? allSeasons
                 : allSeasons.TakeWhile(s => s <= maxSeason).ToArray();
 
