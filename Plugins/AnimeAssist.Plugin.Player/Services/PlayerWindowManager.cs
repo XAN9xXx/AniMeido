@@ -1,4 +1,3 @@
-using AniMeido.Contracts;
 using AniMeido.Contracts.Playback;
 using AniMeido.Plugin.Player.Diagnostics;
 using AniMeido.Plugin.Player.Playback;
@@ -16,7 +15,7 @@ namespace AniMeido.Plugin.Player.Services;
 /// <summary>
 /// Owns the online player window without exposing its implementation to BasePlugin.
 /// </summary>
-internal sealed class PlayerWindowManager : IAnimePlaybackLauncher
+internal sealed class PlayerWindowManager : IAnimePlaybackLauncher, IDisposable
 {
     private readonly OnlineSourceCatalog _sourceCatalog;
     private readonly SourcePackageInstaller _sourcePackageInstaller;
@@ -27,8 +26,15 @@ internal sealed class PlayerWindowManager : IAnimePlaybackLauncher
     private readonly PlaybackDiagnosticRecorder _diagnostics;
     private readonly PlayerExperienceSettingsStore _experienceSettings;
     private PlayerWindow? _playerWindow;
-    private Window? _mainWindow;
-    private bool _isAppClosing;
+    private bool _disposed;
+
+    public bool IsAvailable => true;
+
+    public event EventHandler? AvailabilityChanged
+    {
+        add { }
+        remove { }
+    }
 
     public PlayerWindowManager(
         OnlineSourceCatalog sourceCatalog,
@@ -54,13 +60,9 @@ internal sealed class PlayerWindowManager : IAnimePlaybackLauncher
         AnimePlaybackContext context,
         CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
-        if (_isAppClosing)
-        {
-            return;
-        }
-
         if (_playerWindow is not null)
         {
             try
@@ -73,12 +75,6 @@ internal sealed class PlayerWindowManager : IAnimePlaybackLauncher
             {
                 DetachWindow();
             }
-        }
-
-        _mainWindow = AppServices.MainWindow as Window;
-        if (_mainWindow is not null)
-        {
-            _mainWindow.Closed += OnMainWindowClosed;
         }
 
         _playerWindow = new PlayerWindow(
@@ -95,14 +91,6 @@ internal sealed class PlayerWindowManager : IAnimePlaybackLauncher
         _playerWindow.Activate();
     }
 
-    private void OnMainWindowClosed(object sender, WindowEventArgs args)
-    {
-        _isAppClosing = true;
-        var playerWindow = _playerWindow;
-        DetachWindow();
-        playerWindow?.Close();
-    }
-
     private void OnPlayerWindowClosed(object sender, WindowEventArgs args)
         => DetachWindow();
 
@@ -114,10 +102,31 @@ internal sealed class PlayerWindowManager : IAnimePlaybackLauncher
             _playerWindow = null;
         }
 
-        if (_mainWindow is not null)
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
         {
-            _mainWindow.Closed -= OnMainWindowClosed;
-            _mainWindow = null;
+            return;
+        }
+
+        _disposed = true;
+        var playerWindow = _playerWindow;
+        DetachWindow();
+        if (playerWindow is null)
+        {
+            return;
+        }
+
+        try
+        {
+            playerWindow.Close();
+        }
+        catch (Exception ex)
+            when (ex is COMException or InvalidOperationException)
+        {
+            // The WinUI shutdown path may already have invalidated the window.
         }
     }
 }

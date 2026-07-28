@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
@@ -61,6 +61,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\AnimeAssist.Contracts\AniMeido.Contracts.csproj" />
+    <ProjectReference Include="..\AnimeAssist.PluginProtocol\AniMeido.PluginProtocol.csproj" />
     <ProjectReference Include="..\Plugins\AnimeAssist.Plugin.Base\AniMeido.Plugin.Base.csproj" />
   </ItemGroup>
   <ItemGroup>
@@ -102,5 +103,35 @@
   <!-- 复制 App.pri 到 publish 目录 -->
   <Target Name="CopyAppPri" AfterTargets="Publish">
     <Copy SourceFiles="$(OutDir)$(TargetName).pri" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="BuildPluginHost" BeforeTargets="PrepareForBuild">
+    <MSBuild Projects="$(MSBuildProjectDirectory)\..\AnimeAssist.PluginHost\AniMeido.PluginHost.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);Platform=$(Platform)" />
+  </Target>
+
+  <Target Name="CopyPluginHostOutput"
+          AfterTargets="Build"
+          DependsOnTargets="BuildPluginHost">
+    <ItemGroup>
+      <PluginHostOutput Include="$(MSBuildProjectDirectory)\..\AnimeAssist.PluginHost\bin\$(Platform)\$(Configuration)\net8.0-windows10.0.19041.0\win-x64\**\*"
+                        Exclude="**\*.pdb" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PluginHostOutput)"
+          DestinationFiles="@(PluginHostOutput->'$(OutDir)PluginHost\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true"
+          Condition="'@(PluginHostOutput)' != ''" />
+  </Target>
+
+  <Target Name="CopyPluginHostPublishOutput" AfterTargets="Publish">
+    <ItemGroup>
+      <PluginHostPublishOutput Include="$(MSBuildProjectDirectory)\..\AnimeAssist.PluginHost\bin\$(Platform)\$(Configuration)\net8.0-windows10.0.19041.0\win-x64\**\*"
+                               Exclude="**\*.pdb" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PluginHostPublishOutput)"
+          DestinationFiles="@(PluginHostPublishOutput->'$(PublishDir)PluginHost\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true"
+          Condition="'@(PluginHostPublishOutput)' != ''" />
   </Target>
 </Project>

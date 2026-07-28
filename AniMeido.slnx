@@ -3,6 +3,14 @@
     <Platform Name="x64" />
   </Configurations>
   <Folder Name="/AnimeAssist.Contracts/" />
+  <Folder Name="/Plugin Infrastructure/">
+    <Project Path="AnimeAssist.PluginProtocol/AniMeido.PluginProtocol.csproj">
+      <Platform Solution="Debug|*" Project="x64" />
+    </Project>
+    <Project Path="AnimeAssist.PluginHost/AniMeido.PluginHost.csproj">
+      <Platform Solution="Debug|*" Project="x64" />
+    </Project>
+  </Folder>
   <Folder Name="/AnimeAssist.Tests/">
     <Project Path="AnimeAssist.Tests/AniMeido.Tests.csproj" />
   </Folder>

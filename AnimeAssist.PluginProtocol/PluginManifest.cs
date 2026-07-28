@@ -1,14 +1,14 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace AniMeido.App.Models;
+namespace AniMeido.PluginProtocol;
 
 /// <summary>
-/// Metadata stored at the root of an AniMeido plugin package.
+/// Version 2 metadata stored at the root of an AniMeido plugin package.
 /// </summary>
 public sealed class PluginManifest
 {
-    public const int CurrentFormatVersion = 1;
+    public const int CurrentFormatVersion = 2;
 
     [JsonPropertyName("formatVersion")]
     public int FormatVersion { get; set; } = CurrentFormatVersion;
@@ -28,6 +28,12 @@ public sealed class PluginManifest
     [JsonPropertyName("entryAssembly")]
     public string EntryAssembly { get; set; } = string.Empty;
 
+    [JsonPropertyName("activationEvents")]
+    public List<string> ActivationEvents { get; set; } = [];
+
+    [JsonPropertyName("contributes")]
+    public PluginContributions Contributions { get; set; } = new();
+
     [JsonPropertyName("files")]
     public List<PluginPackageFile> Files { get; set; } = [];
 
@@ -35,14 +41,9 @@ public sealed class PluginManifest
         => JsonSerializer.Deserialize<PluginManifest>(json, SerializerOptions);
 
     public static PluginManifest? LoadFromFile(string manifestPath)
-    {
-        if (!File.Exists(manifestPath))
-        {
-            return null;
-        }
-
-        return Load(File.ReadAllText(manifestPath));
-    }
+        => File.Exists(manifestPath)
+            ? Load(File.ReadAllText(manifestPath))
+            : null;
 
     public static string NormalizePackagePath(string path)
         => path.Replace('\\', '/');
@@ -51,7 +52,36 @@ public sealed class PluginManifest
     {
         PropertyNameCaseInsensitive = true,
     };
+}
 
+public sealed class PluginContributions
+{
+    [JsonPropertyName("commands")]
+    public List<PluginCommandContribution> Commands { get; set; } = [];
+
+    [JsonPropertyName("navigation")]
+    public List<PluginNavigationContribution> Navigation { get; set; } = [];
+
+    [JsonPropertyName("capabilities")]
+    public List<string> Capabilities { get; set; } = [];
+}
+
+public sealed class PluginCommandContribution
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = string.Empty;
+
+    [JsonPropertyName("icon")]
+    public string Icon { get; set; } = string.Empty;
+}
+
+public sealed class PluginNavigationContribution
+{
+    [JsonPropertyName("command")]
+    public string Command { get; set; } = string.Empty;
 }
 
 public sealed class PluginPackageFile

@@ -58,12 +58,21 @@
                         Click="OnInstallPluginClick"/>
             </Grid>
 
-            <InfoBar x:Name="PluginRestartInfoBar"
+            <InfoBar x:Name="PluginReloadInfoBar"
                      IsOpen="False"
                      IsClosable="False"
                      Severity="Informational"
-                     Title="需要重启 AniMeido"
-                     Message="插件变更将在下次启动时生效。"/>
+                     Title="需要重载插件"
+                     Message="插件变更尚未应用，AniMeido 主窗口可以继续使用。">
+                <InfoBar.ActionButton>
+                    <Button Content="立即重载插件"
+                            Click="OnReloadPluginsClick"/>
+                </InfoBar.ActionButton>
+            </InfoBar>
+
+            <TextBlock x:Name="PluginHostStatusText"
+                       FontSize="12"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
             <TextBlock x:Name="NoInstalledPluginsText"
                        Text="尚未安装可选插件。"
@@ -137,11 +146,11 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <!-- 当前进程已加载插件 -->
+            <!-- 当前 App 进程加载的核心插件 -->
             <StackPanel Orientation="Horizontal"
                         Spacing="8"
                         Margin="0,12,0,0">
-                <TextBlock Text="本次启动已加载插件"
+                <TextBlock Text="App 进程核心插件"
                            FontWeight="Bold"
                            VerticalAlignment="Center"/>
             </StackPanel>

@@ -34,6 +34,7 @@ public sealed class ChatPlugin : IPlugin
         yield return PluginNavigationItem.CreateCommand(
             "聊天室",
             "\uE8BD",
+            "AniMeido.Plugin.Chat.open",
             command);
     }
 }

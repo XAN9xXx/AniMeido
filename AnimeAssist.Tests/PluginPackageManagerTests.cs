@@ -1,5 +1,6 @@
 using AniMeido.App.Models;
 using AniMeido.App.Services;
+using AniMeido.PluginProtocol;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
@@ -130,6 +131,50 @@ public sealed class PluginPackageManagerTests : IDisposable
 
         Assert.Throws<PluginOperationException>(
             () => verifier.ValidateManifest(manifest));
+    }
+
+    [Fact]
+    public void ValidateManifest_V1Package_IsRejectedWithMigrationMessage()
+    {
+        var verifier = new PluginPackageVerifier(new Version(1, 3, 0));
+        var manifest = CreateManifest("1.0.0");
+        manifest.FormatVersion = 1;
+
+        var exception = Assert.Throws<PluginOperationException>(
+            () => verifier.ValidateManifest(manifest));
+
+        Assert.Contains("v1 已停用", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateManifest_CommandWithoutActivationEvent_IsRejected()
+    {
+        var verifier = new PluginPackageVerifier(new Version(1, 3, 0));
+        var manifest = CreateManifest("1.0.0");
+        manifest.Contributions.Commands.Add(new PluginCommandContribution
+        {
+            Id = $"{PluginId}.open",
+            Title = "Open",
+            Icon = "\uE8A7",
+        });
+
+        var exception = Assert.Throws<PluginOperationException>(
+            () => verifier.ValidateManifest(manifest));
+
+        Assert.Contains("缺少激活事件", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateManifest_PlaybackContribution_IsAccepted()
+    {
+        var verifier = new PluginPackageVerifier(new Version(1, 3, 0));
+        var manifest = CreateManifest("1.0.0");
+        manifest.ActivationEvents.Add(
+            PluginHostProtocol.AnimePlaybackActivationEvent);
+        manifest.Contributions.Capabilities.Add(
+            PluginHostProtocol.AnimePlaybackCapability);
+
+        verifier.ValidateManifest(manifest);
     }
 
     public void Dispose()

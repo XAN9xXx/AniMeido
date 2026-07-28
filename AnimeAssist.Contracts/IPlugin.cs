@@ -40,6 +40,9 @@ namespace AniMeido.Contracts
         /// </summary>
         public System.Windows.Input.ICommand? Command { get; init; }
 
+        /// <summary>Command 类型入口的稳定标识，用于跨进程命令分派。</summary>
+        public string? CommandId { get; init; }
+
         /// <summary>创建 Page 类型导航项。</summary>
         /// <param name="label">导航栏显示名称。</param>
         /// <param name="icon">导航栏图标。</param>
@@ -58,10 +61,15 @@ namespace AniMeido.Contracts
         /// <param name="label">导航栏显示名称。</param>
         /// <param name="icon">导航栏图标。</param>
         /// <param name="command">导航项点击时执行的命令。</param>
-        public static PluginNavigationItem CreateCommand(string label, string icon, System.Windows.Input.ICommand command)
+        public static PluginNavigationItem CreateCommand(
+            string label,
+            string icon,
+            string commandId,
+            System.Windows.Input.ICommand command)
             => new(label, icon, null)
             {
                 Kind = PluginNavigationItemKind.Command,
+                CommandId = commandId,
                 Command = command,
             };
     }

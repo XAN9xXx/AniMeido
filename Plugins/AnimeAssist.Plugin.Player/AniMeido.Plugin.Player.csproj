@@ -6,8 +6,8 @@
     <RootNamespace>AniMeido.Plugin.Player</RootNamespace>
     <AssemblyName>AniMeido.Plugin.Player</AssemblyName>
     <Title>在线播放器</Title>
-    <Version>0.2.2</Version>
-    <PluginMinAppVersion>1.2.0</PluginMinAppVersion>
+    <Version>0.3.1</Version>
+    <PluginMinAppVersion>1.3.0</PluginMinAppVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWinUI>true</UseWinUI>
@@ -68,7 +68,7 @@
     <Error Condition="'@(LibMpvNative)' == ''"
            Text="PlayerPlugin 打包缺少 libmpv。请先运行 Tools\prepare-libmpv.ps1。" />
     <Delete Files="$(PluginPackageOutput)" />
-    <Exec Command="pwsh -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\Tools\pack-plugin.ps1&quot; -PluginDir &quot;$(PluginPackageStage)&quot; -PluginId &quot;$(AssemblyName)&quot; -DisplayName &quot;$(Title)&quot; -Version &quot;$(Version)&quot; -MinAppVersion &quot;$(PluginMinAppVersion)&quot; -EntryAssembly &quot;$(AssemblyName).dll&quot; -OutputPath &quot;$(PluginPackageOutput)&quot;" />
+    <Exec Command="pwsh -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\Tools\pack-plugin.ps1&quot; -PluginDir &quot;$(PluginPackageStage)&quot; -PluginId &quot;$(AssemblyName)&quot; -DisplayName &quot;$(Title)&quot; -Version &quot;$(Version)&quot; -MinAppVersion &quot;$(PluginMinAppVersion)&quot; -EntryAssembly &quot;$(AssemblyName).dll&quot; -OutputPath &quot;$(PluginPackageOutput)&quot; -ManifestTemplatePath &quot;$(MSBuildProjectDirectory)\plugin.manifest.json&quot;" />
     <Message Importance="high"
              Text="Player plugin package: $(PluginPackageOutput)" />
   </Target>

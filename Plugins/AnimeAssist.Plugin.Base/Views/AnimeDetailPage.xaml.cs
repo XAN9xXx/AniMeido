@@ -41,9 +41,12 @@ namespace AniMeido.Plugin.Base.Views
             ViewModel = new AnimeDetailViewModel(dataSource, trackingService);
             DataContext = ViewModel;
             InitializeComponent();
-            OnlinePlayButton.Visibility = _playbackLauncher is null
-                ? Visibility.Collapsed
-                : Visibility.Visible;
+            UpdatePlaybackAvailability();
+            if (_playbackLauncher is not null)
+            {
+                _playbackLauncher.AvailabilityChanged += OnPlaybackAvailabilityChanged;
+                Unloaded += OnPageUnloaded;
+            }
 
             ViewModel.PropertyChanged += (s, e) =>
             {
@@ -98,6 +101,7 @@ namespace AniMeido.Plugin.Base.Views
         private async void OnOnlinePlayClick(object sender, RoutedEventArgs e)
         {
             if (_playbackLauncher is null
+                || !_playbackLauncher.IsAvailable
                 || _currentAnimeId <= 0
                 || ViewModel.AnimeDetail is not { } anime)
             {
@@ -120,6 +124,22 @@ namespace AniMeido.Plugin.Base.Views
             }
 #pragma warning restore CA1031
         }
+
+        private void OnPlaybackAvailabilityChanged(object? sender, EventArgs e)
+            => DispatcherQueue.TryEnqueue(UpdatePlaybackAvailability);
+
+        private void OnPageUnloaded(object sender, RoutedEventArgs e)
+        {
+            if (_playbackLauncher is not null)
+            {
+                _playbackLauncher.AvailabilityChanged -= OnPlaybackAvailabilityChanged;
+            }
+        }
+
+        private void UpdatePlaybackAvailability()
+            => OnlinePlayButton.Visibility = _playbackLauncher?.IsAvailable == true
+                ? Visibility.Visible
+                : Visibility.Collapsed;
 
         public Task OnNavigatedToAsync(object? parameter)
         {

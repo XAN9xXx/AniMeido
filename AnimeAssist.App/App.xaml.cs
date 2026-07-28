@@ -55,8 +55,7 @@ namespace AniMeido.App
             services.AddSingleton(pluginPackageManager);
 
             // 插件加载（在 ServiceProvider 构建前，因为 PluginHost 需要向 services 注册插件服务）
-            var (navItems, plugins) = await PluginStartup.LoadPluginsAsync(
-                services, pluginPackageManager);
+            var (navItems, plugins) = await PluginStartup.LoadPluginsAsync(services);
             App.Plugins = plugins;
 
             // 构建 DI 容器并初始化数据库
@@ -66,13 +65,33 @@ namespace AniMeido.App
             await DatabaseStartup.InitializeAsync(provider);
 
             // 创建主窗口
-            _window = new MainWindow(navItems, provider.GetRequiredService<NavigationService>());
+            var contributionRegistry =
+                provider.GetRequiredService<PluginContributionRegistry>();
+            contributionRegistry.SetBuiltInItems(navItems);
+            _window = new MainWindow(
+                contributionRegistry,
+                provider.GetRequiredService<NavigationService>());
             MainWindow = _window;
             Contracts.AppServices.MainWindow = _window;
 
+            var pluginHostSupervisor =
+                provider.GetRequiredService<PluginHostSupervisor>();
             _window.Closed += (_, _) =>
             {
-                _serviceProvider?.Dispose();
+                var serviceProvider = _serviceProvider;
+                _serviceProvider = null;
+                Task.Run(async () =>
+                {
+                    if (serviceProvider is not null)
+                    {
+                        await serviceProvider.DisposeAsync();
+                    }
+                })
+                    .GetAwaiter()
+                    .GetResult();
+                Services = null;
+                MainWindow = null;
+                Contracts.AppServices.MainWindow = null;
                 Log.CloseAndFlush();
             };
             _window.Activate();
@@ -80,7 +99,23 @@ namespace AniMeido.App
             if (_window.Content is FrameworkElement root)
                 ThemeService.InitializeTheme(root);
 
+            _ = StartPluginHostSafelyAsync(pluginHostSupervisor);
             _ = UpdateStartupTask.CheckForUpdateSilentlyAsync(provider, _window);
+        }
+
+        private static async Task StartPluginHostSafelyAsync(
+            PluginHostSupervisor supervisor)
+        {
+            try
+            {
+                await supervisor.StartAsync();
+            }
+#pragma warning disable CA1031 // Optional plugins must not prevent the core App from running.
+            catch (Exception ex)
+            {
+                Log.Error(ex, "PluginHost 启动失败，可选插件已跳过");
+            }
+#pragma warning restore CA1031
         }
 
         private void OnAppUnhandledException(object? sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)

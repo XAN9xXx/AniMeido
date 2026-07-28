@@ -1,4 +1,5 @@
 using AniMeido.App.Models;
+using AniMeido.PluginProtocol;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -22,6 +23,8 @@ public sealed class PluginPackageManager
     }
 
     public bool RestartRequired { get; private set; }
+
+    public void MarkReloadApplied() => RestartRequired = false;
 
     public static PluginPackageManager CreateDefault()
     {

@@ -12,15 +12,20 @@ namespace AniMeido.App.Views
     {
         private readonly UpdateService _updateService;
         private readonly PluginPackageManager _pluginPackageManager;
+        private readonly PluginHostSupervisor _pluginHostSupervisor;
 
         public AppSettingsPage(
             UpdateService updateService,
-            PluginPackageManager pluginPackageManager)
+            PluginPackageManager pluginPackageManager,
+            PluginHostSupervisor pluginHostSupervisor)
         {
             _updateService = updateService;
             _pluginPackageManager = pluginPackageManager;
+            _pluginHostSupervisor = pluginHostSupervisor;
             InitializeComponent();
             Loaded += OnPageLoaded;
+            Unloaded += OnPageUnloaded;
+            _pluginHostSupervisor.StatusChanged += OnPluginHostStatusChanged;
 
             var current = App.ThemeService.GetCurrentTheme();
             ThemeCombo.SelectedIndex = current switch
@@ -79,7 +84,9 @@ namespace AniMeido.App.Views
             NoInstalledPluginsText.Visibility = plugins.Count == 0
                 ? Visibility.Visible
                 : Visibility.Collapsed;
-            PluginRestartInfoBar.IsOpen = _pluginPackageManager.RestartRequired;
+            PluginReloadInfoBar.IsOpen = _pluginPackageManager.RestartRequired;
+            PluginHostStatusText.Text =
+                $"插件宿主：{_pluginHostSupervisor.StatusText}";
         }
 
         private async void OnInstallPluginClick(object sender, RoutedEventArgs e)
@@ -109,7 +116,8 @@ namespace AniMeido.App.Views
                 await RefreshInstalledPluginsAsync();
                 await ShowPluginMessageAsync(
                     $"{action}完成",
-                    $"{result.DisplayName} {result.Version} 已准备完成，重启 AniMeido 后生效。");
+                    $"{result.DisplayName} {result.Version} 已安装。");
+                await ApplyPendingPluginChangesAsync();
             }
             catch (PluginOperationException ex)
             {
@@ -125,19 +133,19 @@ namespace AniMeido.App.Views
             => await RunPluginActionAsync(
                 sender,
                 (pluginId) => _pluginPackageManager.SetEnabledAsync(pluginId, true),
-                "插件将在重启后启用。");
+                "插件已启用。");
 
         private async void OnDisablePluginClick(object sender, RoutedEventArgs e)
             => await RunPluginActionAsync(
                 sender,
                 (pluginId) => _pluginPackageManager.SetEnabledAsync(pluginId, false),
-                "插件将在重启后禁用。");
+                "插件已禁用。");
 
         private async void OnRollbackPluginClick(object sender, RoutedEventArgs e)
             => await RunPluginActionAsync(
                 sender,
                 (pluginId) => _pluginPackageManager.RollbackAsync(pluginId),
-                "插件将在重启后切换到上一版本。");
+                "插件已切换到上一版本。");
 
         private async void OnUninstallPluginClick(object sender, RoutedEventArgs e)
         {
@@ -149,7 +157,7 @@ namespace AniMeido.App.Views
             var confirmation = new ContentDialog
             {
                 Title = "卸载插件",
-                Content = "插件文件将在重启 AniMeido 时删除。插件自行保存的用户数据不会自动删除。",
+                Content = "插件宿主重载后将删除插件文件。插件自行保存的用户数据不会自动删除。",
                 PrimaryButtonText = "卸载",
                 CloseButtonText = "取消",
                 DefaultButton = ContentDialogButton.Close,
@@ -163,7 +171,7 @@ namespace AniMeido.App.Views
             await RunPluginActionAsync(
                 sender,
                 (id) => _pluginPackageManager.RequestUninstallAsync(id),
-                "插件将在重启后卸载。");
+                "插件已卸载。");
         }
 
         private async Task RunPluginActionAsync(
@@ -181,7 +189,10 @@ namespace AniMeido.App.Views
             {
                 await action(pluginId);
                 await RefreshInstalledPluginsAsync();
-                await ShowPluginMessageAsync("插件管理", successMessage);
+                if (await ApplyPendingPluginChangesAsync())
+                {
+                    await ShowPluginMessageAsync("插件管理", successMessage);
+                }
             }
             catch (PluginOperationException ex)
             {
@@ -192,6 +203,68 @@ namespace AniMeido.App.Views
                 button.IsEnabled = true;
             }
         }
+
+        private async void OnReloadPluginsClick(
+            object sender,
+            RoutedEventArgs e)
+            => await ApplyPendingPluginChangesAsync(forcePrompt: true);
+
+        private async Task<bool> ApplyPendingPluginChangesAsync(
+            bool forcePrompt = false)
+        {
+            var hasActiveUi = await _pluginHostSupervisor
+                .HasActivePluginUiAsync();
+            if (hasActiveUi || forcePrompt)
+            {
+                var confirmation = new ContentDialog
+                {
+                    Title = "重载插件",
+                    Content = hasActiveUi
+                        ? "正在运行的插件窗口或播放将被关闭。是否现在重载？"
+                        : "是否立即重载可选插件？",
+                    PrimaryButtonText = "重载",
+                    CloseButtonText = "稍后",
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = XamlRoot,
+                };
+                if (await confirmation.ShowAsync()
+                    != ContentDialogResult.Primary)
+                {
+                    await RefreshInstalledPluginsAsync();
+                    return false;
+                }
+            }
+
+            try
+            {
+                await _pluginHostSupervisor.ReloadAsync();
+                await RefreshInstalledPluginsAsync();
+                return true;
+            }
+            catch (Exception ex) when (
+                ex is PluginOperationException
+                or IOException
+                or InvalidOperationException
+                or TimeoutException)
+            {
+                await RefreshInstalledPluginsAsync();
+                await ShowPluginMessageAsync(
+                    "插件重载失败",
+                    ex.Message);
+                return false;
+            }
+        }
+
+        private void OnPluginHostStatusChanged(
+            object? sender,
+            EventArgs e)
+            => DispatcherQueue.TryEnqueue(() =>
+                PluginHostStatusText.Text =
+                    $"插件宿主：{_pluginHostSupervisor.StatusText}");
+
+        private void OnPageUnloaded(object sender, RoutedEventArgs e)
+            => _pluginHostSupervisor.StatusChanged -=
+                OnPluginHostStatusChanged;
 
         private async Task ShowPluginMessageAsync(string title, string message)
         {

@@ -5,7 +5,7 @@
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>AniMeido.Plugin.Chat</RootNamespace>
     <AssemblyName>AniMeido.Plugin.Chat</AssemblyName>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWinUI>true</UseWinUI>
@@ -36,7 +36,7 @@
     <Copy SourceFiles="$(TargetPath)"
           DestinationFolder="$(PluginPackageStage)" />
     <Delete Files="$(PluginPackageOutput)" />
-    <Exec Command="pwsh -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\Tools\pack-plugin.ps1&quot; -PluginDir &quot;$(PluginPackageStage)&quot; -PluginId &quot;AniMeido.Plugin.Chat&quot; -DisplayName &quot;聊天室&quot; -Version &quot;$(Version)&quot; -MinAppVersion &quot;1.1.0&quot; -EntryAssembly &quot;$(AssemblyName).dll&quot; -OutputPath &quot;$(PluginPackageOutput)&quot;" />
+    <Exec Command="pwsh -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\Tools\pack-plugin.ps1&quot; -PluginDir &quot;$(PluginPackageStage)&quot; -PluginId &quot;AniMeido.Plugin.Chat&quot; -DisplayName &quot;聊天室&quot; -Version &quot;$(Version)&quot; -MinAppVersion &quot;1.3.0&quot; -EntryAssembly &quot;$(AssemblyName).dll&quot; -OutputPath &quot;$(PluginPackageOutput)&quot; -ManifestTemplatePath &quot;$(MSBuildProjectDirectory)\plugin.manifest.json&quot;" />
     <Message Importance="high"
              Text="ChatPlugin package: $(PluginPackageOutput)" />
   </Target>

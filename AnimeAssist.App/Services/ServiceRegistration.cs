@@ -1,4 +1,5 @@
 using AniMeido.Contracts;
+using AniMeido.Contracts.Playback;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
@@ -27,6 +28,11 @@ internal static class ServiceRegistration
             new UpdateService(sp.GetRequiredService<IHttpClientFactory>(), "https://animeido.com/version.json"));
         services.AddSingleton<PageFactory>();
         services.AddSingleton<NavigationService>();
+        services.AddSingleton<PluginContributionRegistry>();
+        services.AddSingleton<HostedAnimePlaybackLauncher>();
+        services.AddSingleton<IAnimePlaybackLauncher>(provider =>
+            provider.GetRequiredService<HostedAnimePlaybackLauncher>());
+        services.AddSingleton<PluginHostSupervisor>();
         services.AddSingleton<Contracts.IPluginNavigator>(sp => sp.GetRequiredService<NavigationService>());
         services.AddTransient<Views.SettingPage>();
 

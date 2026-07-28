@@ -8,7 +8,7 @@ namespace AniMeido.App
 {
     public sealed partial class MainWindow : Window
     {
-        private readonly IReadOnlyList<PluginNavigationItem> _naviItems;
+        private readonly PluginContributionRegistry _pluginContributions;
         private readonly NavigationService _navigationService;
         private readonly SplashCoordinator _splash;
         private readonly StartupDialogCoordinator _dialogs;
@@ -18,7 +18,9 @@ namespace AniMeido.App
         private bool _isClosing;
 
 
-        public MainWindow(IReadOnlyList<PluginNavigationItem> naviItems, NavigationService navigationService)
+        public MainWindow(
+            PluginContributionRegistry pluginContributions,
+            NavigationService navigationService)
         {
             InitializeComponent();
 
@@ -32,7 +34,8 @@ namespace AniMeido.App
 
             TitleBarHelper.SetWindowIcon(this);
 
-            _naviItems = naviItems;
+            _pluginContributions = pluginContributions;
+            _pluginContributions.Changed += OnPluginContributionsChanged;
             BuildNavigationMenu();
 
             MainNaviView.ItemInvoked += OnNaviItemInvoked;
@@ -45,6 +48,8 @@ namespace AniMeido.App
 
             // 主窗口关闭时停止排队中的导航状态恢复
             Closed += OnMainWindowClosing;
+            Closed += (_, _) =>
+                _pluginContributions.Changed -= OnPluginContributionsChanged;
 
             // 主窗口关闭时注销全部 DropHost
             Closed += (_, _) => _dropHost.UnregisterAll();
@@ -138,9 +143,10 @@ namespace AniMeido.App
             var splashStart = DateTime.UtcNow;
 
             // 开始导航到首页
-            if (MainNaviView.MenuItems.Count > 0 && _naviItems.Count > 0)
+            var navigationItems = _pluginContributions.NavigationItems;
+            if (MainNaviView.MenuItems.Count > 0 && navigationItems.Count > 0)
             {
-                var firstItem = _naviItems[0];
+                var firstItem = navigationItems[0];
                 if (firstItem.Kind == PluginNavigationItemKind.Page && firstItem.PageType != null)
                 {
                     MainNaviView.SelectedItem = MainNaviView.MenuItems[0];
@@ -175,9 +181,29 @@ namespace AniMeido.App
         //
         private void BuildNavigationMenu()
         {
-            NavigationMenuBuilder.Build(MainNaviView, _naviItems);
+            NavigationMenuBuilder.Build(
+                MainNaviView,
+                _pluginContributions.NavigationItems);
             MainNaviView.Loaded += OnMainNaviViewLoaded;
         }
+
+        private void OnPluginContributionsChanged(
+            object? sender,
+            EventArgs e)
+            => DispatcherQueue.TryEnqueue(() =>
+            {
+                var selectedPage = _lastSelectedPageItem?.Tag;
+                NavigationMenuBuilder.Build(
+                    MainNaviView,
+                    _pluginContributions.NavigationItems);
+                _lastSelectedPageItem = MainNaviView.MenuItems
+                    .OfType<NavigationViewItem>()
+                    .FirstOrDefault(item => Equals(item.Tag, selectedPage));
+                if (_lastSelectedPageItem is not null)
+                {
+                    MainNaviView.SelectedItem = _lastSelectedPageItem;
+                }
+            });
 
         // 
         private void OnNaviItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)

@@ -34,7 +34,10 @@ param(
     [string]$EntryAssembly,
 
     [Parameter(Mandatory = $true)]
-    [string]$OutputPath
+    [string]$OutputPath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ManifestTemplatePath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,6 +65,23 @@ if (-not (Test-Path -LiteralPath $entryPath -PathType Leaf)) {
 }
 if ($EntryAssembly.Contains('/') -or $EntryAssembly.Contains('\')) {
     throw '入口程序集必须位于插件包根目录。'
+}
+
+$manifestTemplateFile = [IO.Path]::GetFullPath($ManifestTemplatePath)
+if (-not (Test-Path -LiteralPath $manifestTemplateFile -PathType Leaf)) {
+    throw "插件清单模板不存在：$manifestTemplateFile"
+}
+$manifest = Get-Content -LiteralPath $manifestTemplateFile -Raw |
+    ConvertFrom-Json
+if ($manifest.formatVersion -ne 2) {
+    throw '插件清单模板必须使用 formatVersion 2。'
+}
+if ($manifest.pluginId -ne $PluginId -or
+    $manifest.displayName -ne $DisplayName -or
+    $manifest.version -ne $Version -or
+    $manifest.minAppVersion -ne $MinAppVersion -or
+    $manifest.entryAssembly -ne $EntryAssembly.Replace('\', '/')) {
+    throw '插件清单模板身份与打包参数不一致。'
 }
 
 $sourceFiles = @(
@@ -93,15 +113,7 @@ $sortedFiles = $fileEntries.ToArray()
         return [StringComparer]::Ordinal.Compare($left.path, $right.path)
     })
 
-$manifest = [PSCustomObject][ordered]@{
-    formatVersion = 1
-    pluginId = $PluginId
-    displayName = $DisplayName
-    version = $Version
-    minAppVersion = $MinAppVersion
-    entryAssembly = $EntryAssembly.Replace('\', '/')
-    files = $sortedFiles
-}
+$manifest.files = $sortedFiles
 
 $stagingDirectory = Join-Path (
     [IO.Path]::GetTempPath()) (

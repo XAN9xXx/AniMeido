@@ -1,4 +1,4 @@
-using AniMeido.App.Models;
+using AniMeido.PluginProtocol;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 
@@ -23,6 +23,12 @@ internal sealed partial class PluginPackageVerifier
 
         if (manifest.FormatVersion != PluginManifest.CurrentFormatVersion)
         {
+            if (manifest.FormatVersion == 1)
+            {
+                throw new PluginOperationException(
+                    "插件包格式 v1 已停用。请安装面向 PluginHost 重新打包的 v2 插件。");
+            }
+
             throw new PluginOperationException(
                 $"不支持的插件包格式版本：{manifest.FormatVersion}。");
         }
@@ -94,6 +100,85 @@ internal sealed partial class PluginPackageVerifier
         if (!paths.Contains(PluginManifest.NormalizePackagePath(manifest.EntryAssembly)))
         {
             throw new PluginOperationException("插件入口程序集未包含在文件清单中。");
+        }
+
+        ValidateContributions(manifest);
+    }
+
+    private static void ValidateContributions(PluginManifest manifest)
+    {
+        var commandIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var command in manifest.Contributions.Commands)
+        {
+            if (string.IsNullOrWhiteSpace(command.Id)
+                || !command.Id.StartsWith(
+                    manifest.PluginId + ".",
+                    StringComparison.Ordinal)
+                || string.IsNullOrWhiteSpace(command.Title)
+                || !commandIds.Add(command.Id))
+            {
+                throw new PluginOperationException("插件命令贡献无效或重复。");
+            }
+        }
+
+        foreach (var navigation in manifest.Contributions.Navigation)
+        {
+            if (!commandIds.Contains(navigation.Command))
+            {
+                throw new PluginOperationException("插件导航贡献引用了未声明的命令。");
+            }
+        }
+
+        var capabilities = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var capability in manifest.Contributions.Capabilities)
+        {
+            if (!string.Equals(
+                    capability,
+                    PluginHostProtocol.AnimePlaybackCapability,
+                    StringComparison.Ordinal)
+                || !capabilities.Add(capability))
+            {
+                throw new PluginOperationException($"不支持的插件能力：{capability}");
+            }
+        }
+
+        foreach (var activationEvent in manifest.ActivationEvents)
+        {
+            var valid = string.Equals(
+                    activationEvent,
+                    PluginHostProtocol.AnimePlaybackActivationEvent,
+                    StringComparison.Ordinal)
+                || string.Equals(
+                    activationEvent,
+                    PluginHostProtocol.StartupFinishedActivationEvent,
+                    StringComparison.Ordinal)
+                || activationEvent.StartsWith(
+                    PluginHostProtocol.CommandActivationPrefix,
+                    StringComparison.Ordinal)
+                    && commandIds.Contains(
+                        activationEvent[PluginHostProtocol.CommandActivationPrefix.Length..]);
+            if (!valid)
+            {
+                throw new PluginOperationException($"不支持的插件激活事件：{activationEvent}");
+            }
+        }
+
+        foreach (var commandId in commandIds)
+        {
+            if (!manifest.ActivationEvents.Contains(
+                PluginHostProtocol.CommandActivationPrefix + commandId,
+                StringComparer.Ordinal))
+            {
+                throw new PluginOperationException($"插件命令缺少激活事件：{commandId}");
+            }
+        }
+
+        if (capabilities.Contains(PluginHostProtocol.AnimePlaybackCapability)
+            && !manifest.ActivationEvents.Contains(
+                PluginHostProtocol.AnimePlaybackActivationEvent,
+                StringComparer.Ordinal))
+        {
+            throw new PluginOperationException("播放能力缺少 onAnimePlayback 激活事件。");
         }
     }
 
