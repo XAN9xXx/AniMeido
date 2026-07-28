@@ -32,6 +32,20 @@ public sealed class PlanReminderCoordinator : IDisposable
     public bool NotificationsAvailable =>
         _notifications.IsSupported && _notifications.NotificationsEnabled;
 
+    internal static int GetRelativeDayOffset(double daysBefore)
+    {
+        if (!double.IsFinite(daysBefore)
+            || daysBefore < 0
+            || daysBefore > 365
+            || daysBefore != Math.Truncate(daysBefore))
+        {
+            throw new InvalidOperationException(
+                "提前天数必须是 0 到 365 之间的整数。");
+        }
+
+        return -(int)daysBefore;
+    }
+
     public async Task<PlanReminder> AddRelativeReminderAsync(
         AnimePlan plan,
         int relativeDays,

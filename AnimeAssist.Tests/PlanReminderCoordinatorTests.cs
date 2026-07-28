@@ -8,6 +8,27 @@ namespace AniMeido.Tests;
 
 public sealed class PlanReminderCoordinatorTests : DbTestBase
 {
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(1, -1)]
+    [InlineData(365, -365)]
+    public void GetRelativeDayOffset_ValidInteger_ReturnsNegativeOffset(
+        double value,
+        int expected)
+        => Assert.Equal(
+            expected,
+            PlanReminderCoordinator.GetRelativeDayOffset(value));
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(-1)]
+    [InlineData(1.5)]
+    [InlineData(366)]
+    public void GetRelativeDayOffset_InvalidValue_Throws(double value)
+        => Assert.Throws<InvalidOperationException>(
+            () => PlanReminderCoordinator.GetRelativeDayOffset(value));
+
     [Fact]
     public async Task RelativeReminder_ReschedulesWhenTargetDateChanges()
     {

@@ -288,7 +288,7 @@ public sealed partial class TodayPage : Page, INavigationAware
             {
                 await _reminders.AddRelativeReminderAsync(
                     entry.Plan,
-                    -(int)days.Value,
+                    PlanReminderCoordinator.GetRelativeDayOffset(days.Value),
                     TimeOnly.FromTimeSpan(time.Time));
             }
             else if (date.Date is { } selectedDate)
