@@ -103,13 +103,14 @@ public partial class TodayViewModel : ObservableObject
                 .Select(pair => pair.Key)
                 .ToHashSet();
             var (year, season) = SeasonHelper.GetCurrentSeason();
-            var seasonal = (await _dataSource.GetAnimeBySeasonAsync(
+            var seasonal = AnimeListPresentation.Filter(
+                await _dataSource.GetAnimeBySeasonAsync(
                     year,
                     season,
-                    cancellationToken))
-                .Where(anime => !blockedIds.Contains(anime.ID))
-                .ToList();
-            var today = ToBangumiWeekday(DateTime.Today.DayOfWeek);
+                    cancellationToken),
+                blockedIds);
+            var today = AnimeListPresentation.ToBangumiWeekday(
+                DateTime.Today.DayOfWeek);
             AllBroadcasts = new ObservableCollection<Anime>(
                 seasonal.Where(item => item.Weekday == today));
             var personalIds = statusById
@@ -408,6 +409,4 @@ public partial class TodayViewModel : ObservableObject
         return $"{dateText} · {reminderText}";
     }
 
-    private static int ToBangumiWeekday(DayOfWeek day)
-        => day == DayOfWeek.Sunday ? 7 : (int)day;
 }

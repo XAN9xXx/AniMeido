@@ -2,6 +2,7 @@
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
+using AniMeido.Plugin.Base.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -17,7 +18,7 @@ namespace AniMeido.Plugin.Base.Views
         private readonly DragDropService _dragDrop;
         private CancellationTokenSource? _loadCts;
 
-        private bool _dropHostRegistered;
+        private IDisposable? _dropHostRegistration;
 
         public PersonSearchResultPage(IAnimeDataSource dataSource, TrackingService tracking, DragDropService dragDropService, IPluginNavigator pluginNavigator)
         {
@@ -100,7 +101,9 @@ namespace AniMeido.Plugin.Base.Views
                 if (cancellationToken.IsCancellationRequested) return;
 
                 var blocked = await _tracking.GetBlockedAnimeIdsAsync();
-                ResultGrid.ItemsSource = animes.Where(a => !blocked.Contains(a.ID)).ToList();
+                ResultGrid.ItemsSource = AnimeListPresentation.Filter(
+                    animes,
+                    blocked);
 
                 if (animes.Count == 0)
                 {
@@ -133,7 +136,11 @@ namespace AniMeido.Plugin.Base.Views
             if (sender is not Grid rootGrid)
                 return;
 
-            EnsureDropHostRegistered(rootGrid);
+            _dropHostRegistration?.Dispose();
+            _dropHostRegistration = _dragDrop.AttachStandardDragHost(
+                rootGrid,
+                DragOverlay,
+                DragAction.PlanToWatch);
 
             rootGrid.Unloaded -= OnRootGridUnloaded;
             rootGrid.Unloaded += OnRootGridUnloaded;
@@ -148,9 +155,9 @@ namespace AniMeido.Plugin.Base.Views
                 var blocked = await _tracking.GetBlockedAnimeIdsAsync();
                 if (ResultGrid.ItemsSource is IEnumerable<Anime> current)
                 {
-                    ResultGrid.ItemsSource = current
-                        .Where(anime => !blocked.Contains(anime.ID))
-                        .ToList();
+                    ResultGrid.ItemsSource = AnimeListPresentation.Filter(
+                        current,
+                        blocked);
                 }
             }
 #pragma warning disable CA1031 // 可见性刷新失败不应清空已有结果
@@ -162,24 +169,10 @@ namespace AniMeido.Plugin.Base.Views
 #pragma warning restore CA1031
         }
 
-        private void EnsureDropHostRegistered(Grid rootGrid)
-        {
-            if (_dropHostRegistered)
-                return;
-            _dropHostRegistered = true;
-
-            _dragDrop.SetActiveDropContext(rootGrid, DragOverlay, DragAction.PlanToWatch);
-            _dragDrop.RegisterStandardDragHost(rootGrid);
-        }
-
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
         {
-            if (sender is not Grid rootGrid)
-                return;
-
-            _dragDrop.ClearActiveDropContext(rootGrid);
-            _dragDrop.UnregisterStandardDragHost(rootGrid);
-            _dropHostRegistered = false;
+            _dropHostRegistration?.Dispose();
+            _dropHostRegistration = null;
         }
 
 

@@ -2,6 +2,7 @@
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
+using AniMeido.Plugin.Base.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -59,11 +60,15 @@ namespace AniMeido.Plugin.Base.Views
             _pluginNavigator = pluginNavigator;
         }
 
-        private bool _dropHostRegistered;
+        private IDisposable? _dropHostRegistration;
 
         private void OnPageLoaded(object sender, RoutedEventArgs e)
         {
-            EnsureDropHostRegistered(RootGrid);
+            _dropHostRegistration?.Dispose();
+            _dropHostRegistration = _dragDrop.AttachStandardDragHost(
+                RootGrid,
+                DragOverlay,
+                DragAction.PlanToWatch);
 
             // 确保 Unloaded 只注册一次
             RootGrid.Unloaded -= OnRootGridUnloaded;
@@ -73,24 +78,10 @@ namespace AniMeido.Plugin.Base.Views
             _ = LoadBlockedIdsAsync();
         }
 
-        private void EnsureDropHostRegistered(Grid rootGrid)
-        {
-            if (_dropHostRegistered)
-                return;
-            _dropHostRegistered = true;
-
-            _dragDrop.SetActiveDropContext(rootGrid, DragOverlay, DragAction.PlanToWatch);
-            _dragDrop.RegisterStandardDragHost(rootGrid);
-        }
-
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
         {
-            if (sender is not Grid rootGrid)
-                return;
-
-            _dragDrop.ClearActiveDropContext(rootGrid);
-            _dragDrop.UnregisterStandardDragHost(rootGrid);
-            _dropHostRegistered = false;
+            _dropHostRegistration?.Dispose();
+            _dropHostRegistration = null;
         }
 
         private async Task LoadBlockedIdsAsync()
@@ -101,7 +92,9 @@ namespace AniMeido.Plugin.Base.Views
                 // 如果数据已经加载完成，重新过滤
                 if (_allData != null && _allData.Count > 0)
                 {
-                    _allData = _allData.Where(a => !_blockedIds.Contains(a.ID)).ToList();
+                    _allData = AnimeListPresentation.Filter(
+                        _allData,
+                        _blockedIds).ToList();
                     ShowPage(0);
                 }
             }
@@ -183,7 +176,9 @@ namespace AniMeido.Plugin.Base.Views
                     {
                         if (version != _searchVersion) return;
                         // 缓存的是原始数据，展示时应用当前屏蔽列表
-                        _allData = deserialized.Where(a => !_blockedIds.Contains(a.ID)).ToList();
+                        _allData = AnimeListPresentation.Filter(
+                            deserialized,
+                            _blockedIds).ToList();
                         _allData = SortLocally(_allData);
                         ShowPage(0);
                         return;
@@ -221,7 +216,9 @@ namespace AniMeido.Plugin.Base.Views
                     await LoadYearDataAsync(y, allResults, seenIds, token);
                 }
 
-                _allData = allResults.Where(a => !_blockedIds.Contains(a.ID)).ToList();
+                _allData = AnimeListPresentation.Filter(
+                    allResults,
+                    _blockedIds).ToList();
 
                 if (_cacheService != null && allResults.Count > 0)
                 {

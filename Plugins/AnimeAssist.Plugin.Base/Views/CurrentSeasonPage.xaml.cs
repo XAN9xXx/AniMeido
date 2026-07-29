@@ -20,7 +20,7 @@ namespace AniMeido.Plugin.Base.Views
         private readonly List<Anime> _allAnime = new();
         private HashSet<int> _blockedIds = new();
         private DragDropService _dragDrop;
-        private bool _dropHostRegistered;
+        private IDisposable? _dropHostRegistration;
         private TrackingService _tracking;
         private readonly IPluginNavigator _pluginNavigator;
 
@@ -43,7 +43,9 @@ namespace AniMeido.Plugin.Base.Views
                             UpdateViewState();
                             // 保存原始数据用于过滤（_blockedIds 此时应已加载）
                             _allAnime.Clear();
-                            _allAnime.AddRange(ViewModel.AnimeList.Where(a => !_blockedIds.Contains(a.ID)));
+                            _allAnime.AddRange(AnimeListPresentation.Filter(
+                                ViewModel.AnimeList,
+                                _blockedIds));
                             // 重建分组以反映过滤后的数据
                             ApplyFilter(FilterBox.Text);
                         }
@@ -72,7 +74,11 @@ namespace AniMeido.Plugin.Base.Views
             if (sender is not Grid rootGrid)
                 return;
 
-            EnsureDropHostRegistered(rootGrid);
+            _dropHostRegistration?.Dispose();
+            _dropHostRegistration = _dragDrop.AttachStandardDragHost(
+                rootGrid,
+                DragOverlay,
+                DragAction.PlanToWatch);
 
             // 确保 Unloaded 只注册一次
             rootGrid.Unloaded -= OnRootGridUnloaded;
@@ -85,24 +91,10 @@ namespace AniMeido.Plugin.Base.Views
             _ = WaitForSplashAndAutoScrollAsync();
         }
 
-        private void EnsureDropHostRegistered(Grid rootGrid)
-        {
-            if (_dropHostRegistered)
-                return;
-            _dropHostRegistered = true;
-
-            _dragDrop.SetActiveDropContext(rootGrid, DragOverlay, DragAction.PlanToWatch);
-            _dragDrop.RegisterStandardDragHost(rootGrid);
-        }
-
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
         {
-            if (sender is not Grid rootGrid)
-                return;
-
-            _dragDrop.ClearActiveDropContext(rootGrid);
-            _dragDrop.UnregisterStandardDragHost(rootGrid);
-            _dropHostRegistered = false;
+            _dropHostRegistration?.Dispose();
+            _dropHostRegistration = null;
         }
 
         private async Task WaitForSplashAndAutoScrollAsync()
@@ -276,7 +268,9 @@ namespace AniMeido.Plugin.Base.Views
                 if (ViewModel.AnimeList.Count > 0)
                 {
                     _allAnime.Clear();
-                    _allAnime.AddRange(ViewModel.AnimeList.Where(a => !_blockedIds.Contains(a.ID)));
+                    _allAnime.AddRange(AnimeListPresentation.Filter(
+                        ViewModel.AnimeList,
+                        _blockedIds));
                     ApplyFilter(FilterBox.Text);
                 }
             }
@@ -299,68 +293,16 @@ namespace AniMeido.Plugin.Base.Views
 
         private void ApplyFilter(string query)
         {
-            if (string.IsNullOrWhiteSpace(query))
-            {
-                // 恢复全部分组
-                ViewModel.HasData = _allAnime.Count > 0;
-                ViewModel.WeekdayGroups.Clear();
-                var groups = _allAnime
-                    .GroupBy(a => a.Weekday)
-                    .OrderBy(g => g.Key ?? 99)
-                    .Select(g => new WeekdayGroup
-                    {
-                        WeekdayName = g.Key switch
-                        {
-                            1 => "周一",
-                            2 => "周二",
-                            3 => "周三",
-                            4 => "周四",
-                            5 => "周五",
-                            6 => "周六",
-                            7 => "周日",
-                            _ => "其他",
-                        },
-                        Items = new ObservableCollection<Anime>(g)
-                    });
-                foreach (var group in groups)
-                    ViewModel.WeekdayGroups.Add(group);
-                return;
-            }
-
-            var lower = query.ToLowerInvariant();
-            var filtered = _allAnime
-                .Where(a => a.Title.Contains(lower, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
+            var filtered = AnimeListPresentation.Filter(
+                _allAnime,
+                titleQuery: query);
             ViewModel.WeekdayGroups.Clear();
-            if (filtered.Count == 0)
+            ViewModel.HasData = filtered.Count > 0;
+            foreach (var group in
+                AnimeListPresentation.GroupByWeekday(filtered))
             {
-                // 无匹配时显示提示（通过空状态处理）
-                ViewModel.HasData = false;
-                return;
-            }
-
-            ViewModel.HasData = true;
-            var filteredGroups = filtered
-                .GroupBy(a => a.Weekday)
-                .OrderBy(g => g.Key ?? 99)
-                .Select(g => new WeekdayGroup
-                {
-                    WeekdayName = g.Key switch
-                    {
-                        1 => "周一",
-                        2 => "周二",
-                        3 => "周三",
-                        4 => "周四",
-                        5 => "周五",
-                        6 => "周六",
-                        7 => "周日",
-                        _ => "其他",
-                    },
-                    Items = new ObservableCollection<Anime>(g)
-                });
-            foreach (var group in filteredGroups)
                 ViewModel.WeekdayGroups.Add(group);
+            }
         }
     }
 }

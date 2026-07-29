@@ -59,7 +59,9 @@ namespace AniMeido.Plugin.Base.Views
                             TotalCountText.Text = ViewModel.TotalCount.ToString();
                             // 数据加载完成后保存原始列表、显示过滤框
                             _allAnime.Clear();
-                            _allAnime.AddRange(ViewModel.AnimeList.Where(a => !_blockedIds.Contains(a.ID)));
+                            _allAnime.AddRange(AnimeListPresentation.Filter(
+                                ViewModel.AnimeList,
+                                _blockedIds));
                             FilterCard.Visibility = Visibility.Visible;
                             FilterBox.Text = "";
                         }
@@ -277,7 +279,9 @@ namespace AniMeido.Plugin.Base.Views
                 if (ViewModel.AnimeList.Count > 0)
                 {
                     _allAnime.Clear();
-                    _allAnime.AddRange(ViewModel.AnimeList.Where(a => !_blockedIds.Contains(a.ID)));
+                    _allAnime.AddRange(AnimeListPresentation.Filter(
+                        ViewModel.AnimeList,
+                        _blockedIds));
                     ApplyFilter(FilterBox.Text);
                 }
             }
@@ -291,14 +295,18 @@ namespace AniMeido.Plugin.Base.Views
 
         // ======== 自定义拖放 ========
 
-        private bool _dropHostRegistered;
+        private IDisposable? _dropHostRegistration;
 
         private void OnPageLoaded(object sender, RoutedEventArgs e)
         {
             if (sender is not Grid rootGrid)
                 return;
 
-            EnsureDropHostRegistered(rootGrid);
+            _dropHostRegistration?.Dispose();
+            _dropHostRegistration = _dragDrop.AttachStandardDragHost(
+                rootGrid,
+                DragOverlay,
+                DragAction.PlanToWatch);
 
             // 确保 Unloaded 只注册一次
             rootGrid.Unloaded -= OnRootGridUnloaded;
@@ -308,24 +316,10 @@ namespace AniMeido.Plugin.Base.Views
             _ = LoadDragConfigAndBlockedAsync();
         }
 
-        private void EnsureDropHostRegistered(Grid rootGrid)
-        {
-            if (_dropHostRegistered)
-                return;
-            _dropHostRegistered = true;
-
-            _dragDrop.SetActiveDropContext(rootGrid, DragOverlay, DragAction.PlanToWatch);
-            _dragDrop.RegisterStandardDragHost(rootGrid);
-        }
-
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
         {
-            if (sender is not Grid rootGrid)
-                return;
-
-            _dragDrop.ClearActiveDropContext(rootGrid);
-            _dragDrop.UnregisterStandardDragHost(rootGrid);
-            _dropHostRegistered = false;
+            _dropHostRegistration?.Dispose();
+            _dropHostRegistration = null;
         }
 
 
@@ -351,22 +345,14 @@ namespace AniMeido.Plugin.Base.Views
 
         private void ApplyFilter(string query)
         {
-            if (string.IsNullOrWhiteSpace(query))
-            {
-                ViewModel.AnimeList.Clear();
-                foreach (var a in _allAnime)
-                    ViewModel.AnimeList.Add(a);
-                return;
-            }
-
-            var lower = query.ToLowerInvariant();
-            var filtered = _allAnime
-                .Where(a => a.Title.Contains(lower, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
+            var filtered = AnimeListPresentation.Filter(
+                _allAnime,
+                titleQuery: query);
             ViewModel.AnimeList.Clear();
-            foreach (var a in filtered)
-                ViewModel.AnimeList.Add(a);
+            foreach (var anime in filtered)
+            {
+                ViewModel.AnimeList.Add(anime);
+            }
         }
     }
 }

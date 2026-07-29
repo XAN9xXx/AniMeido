@@ -748,6 +748,20 @@ namespace AniMeido.Plugin.Base.Services
         private readonly List<UIElement> _pageDragHosts = new();
 
         /// <summary>
+        /// 一次性附加页面拖放上下文和标准拖放事件。
+        /// 返回的租约可重复释放，页面无需分别维护注册状态。
+        /// </summary>
+        public IDisposable AttachStandardDragHost(
+            UIElement host,
+            Panel overlay,
+            params DragAction[] excludeActions)
+        {
+            SetActiveDropContext(host, overlay, excludeActions);
+            RegisterStandardDragHost(host);
+            return new StandardDragHostLease(this, host);
+        }
+
+        /// <summary>
         /// 在 BasePlugin 页面根元素上注册标准拖拽宿主。
         /// 使用 AddHandler(handledEventsToo=true) 确保不被子控件拦截。
         /// 页面在 Loaded 时调用。
@@ -781,6 +795,25 @@ namespace AniMeido.Plugin.Base.Services
                 new DragEventHandler(OnPageDrop));
 
             _pageDragHosts.Remove(host);
+        }
+
+        private sealed class StandardDragHostLease(
+            DragDropService owner,
+            UIElement host) : IDisposable
+        {
+            private DragDropService? _owner = owner;
+
+            public void Dispose()
+            {
+                var current = Interlocked.Exchange(ref _owner, null);
+                if (current is null)
+                {
+                    return;
+                }
+
+                current.ClearActiveDropContext(host);
+                current.UnregisterStandardDragHost(host);
+            }
         }
 
         private void OnPageDragOver(object sender, DragEventArgs e)

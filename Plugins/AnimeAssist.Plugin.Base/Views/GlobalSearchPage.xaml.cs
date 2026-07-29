@@ -2,6 +2,7 @@
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
+using AniMeido.Plugin.Base.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -33,11 +34,15 @@ namespace AniMeido.Plugin.Base.Views
             _pluginNavigator = pluginNavigator;
         }
 
-        private bool _dropHostRegistered;
+        private IDisposable? _dropHostRegistration;
 
         private void OnPageLoaded(object sender, RoutedEventArgs e)
         {
-            EnsureDropHostRegistered(RootGrid);
+            _dropHostRegistration?.Dispose();
+            _dropHostRegistration = _dragDrop.AttachStandardDragHost(
+                RootGrid,
+                DragOverlay,
+                DragAction.PlanToWatch);
 
             // 确保 Unloaded 只注册一次
             RootGrid.Unloaded -= OnRootGridUnloaded;
@@ -47,24 +52,10 @@ namespace AniMeido.Plugin.Base.Views
             _ = LoadBlockedIdsAsync();
         }
 
-        private void EnsureDropHostRegistered(Grid rootGrid)
-        {
-            if (_dropHostRegistered)
-                return;
-            _dropHostRegistered = true;
-
-            _dragDrop.SetActiveDropContext(rootGrid, DragOverlay, DragAction.PlanToWatch);
-            _dragDrop.RegisterStandardDragHost(rootGrid);
-        }
-
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
         {
-            if (sender is not Grid rootGrid)
-                return;
-
-            _dragDrop.ClearActiveDropContext(rootGrid);
-            _dragDrop.UnregisterStandardDragHost(rootGrid);
-            _dropHostRegistered = false;
+            _dropHostRegistration?.Dispose();
+            _dropHostRegistration = null;
         }
 
         private async Task LoadBlockedIdsAsync()
@@ -74,9 +65,9 @@ namespace AniMeido.Plugin.Base.Views
                 _blockedIds = await _tracking.GetBlockedAnimeIdsAsync();
                 if (ResultGrid.ItemsSource is IEnumerable<Anime> current)
                 {
-                    ResultGrid.ItemsSource = current
-                        .Where(anime => !_blockedIds.Contains(anime.ID))
-                        .ToList();
+                    ResultGrid.ItemsSource = AnimeListPresentation.Filter(
+                        current,
+                        _blockedIds);
                 }
             }
 #pragma warning disable CA1031 // 屏蔽列表加载失败不影响搜索
@@ -134,7 +125,9 @@ namespace AniMeido.Plugin.Base.Views
                 _currentOffset = offset;
                 _totalResults = total;
 
-                var filtered = results.Where(a => !_blockedIds.Contains(a.ID)).ToList();
+                var filtered = AnimeListPresentation.Filter(
+                    results,
+                    _blockedIds);
                 ResultGrid.ItemsSource = filtered;
 
                 var currentPage = (offset / PageSize) + 1;
