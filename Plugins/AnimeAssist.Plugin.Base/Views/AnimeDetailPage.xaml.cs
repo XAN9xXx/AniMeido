@@ -64,18 +64,8 @@ namespace AniMeido.Plugin.Base.Views
                         }
                         break;
 
-                    case nameof(AnimeDetailViewModel.CurrentStatus):
-                        UpdateStatusHint();
-                        break;
-
                     case nameof(AnimeDetailViewModel.StudiosText):
                         UpdateStudios();
-                        break;
-
-                    case nameof(AnimeDetailViewModel.IsCurrentSeason):
-                    case nameof(AnimeDetailViewModel.IsOldSeason):
-                        WatchingBtn.Visibility = ViewModel.IsCurrentSeason ? Visibility.Visible : Visibility.Collapsed;
-                        PlanToWatchBtn.Visibility = ViewModel.IsOldSeason ? Visibility.Visible : Visibility.Collapsed;
                         break;
                 }
             };
@@ -194,154 +184,8 @@ namespace AniMeido.Plugin.Base.Views
             }
         }
 
-        private void UpdateStatusHint()
-        {
-            var status = ViewModel.CurrentStatus;
-
-            if (status == AnimeTrackingStatus.None)
-            {
-                StatusHint.Visibility = Visibility.Collapsed;
-                RefreshTrackingButtonVisuals();
-                return;
-            }
-
-            StatusHint.Visibility = Visibility.Visible;
-            var label = status switch
-            {
-                AnimeTrackingStatus.Watching => "追番中",
-                AnimeTrackingStatus.PlanToWatch => "补番中",
-                AnimeTrackingStatus.NotInterested => "不感兴趣",
-                AnimeTrackingStatus.Following => "关注中",
-                AnimeTrackingStatus.Completed => "已看完",
-                AnimeTrackingStatus.Dropped => "已弃番",
-                AnimeTrackingStatus.Blocked => "已屏蔽",
-                _ => ""
-            };
-            StatusHint.Text = $"当前标记：{label}";
-
-            RefreshTrackingButtonVisuals();
-        }
-
-        private void ResetButtonVisuals()
-        {
-            var defaultBg = Application.Current.Resources["CardBackgroundFillColorDefault"] as Microsoft.UI.Xaml.Media.Brush;
-            var secondaryBrush = Application.Current.Resources["TextFillColorSecondaryBrush"] as Microsoft.UI.Xaml.Media.Brush;
-
-            if (defaultBg == null) defaultBg = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(25, 25, 25, 25));
-            if (secondaryBrush == null) secondaryBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 180, 180, 180));
-
-            SetButtonInactive(WatchingBtn, WatchingIcon, WatchingText, defaultBg, secondaryBrush);
-            SetButtonInactive(PlanToWatchBtn, PlanToWatchIcon, PlanToWatchText, defaultBg, secondaryBrush);
-            SetButtonInactive(NotInterestedBtn, NotInterestedIcon, NotInterestedText, defaultBg, secondaryBrush);
-            SetButtonInactive(FollowingBtn, FollowingIcon, FollowingText, defaultBg, secondaryBrush);
-            SetButtonInactive(CompletedBtn, CompletedIcon, CompletedText, defaultBg, secondaryBrush);
-            SetButtonInactive(DroppedBtn, DroppedIcon, DroppedText, defaultBg, secondaryBrush);
-            SetButtonInactive(BlockedBtn, BlockedIcon, BlockedText, defaultBg, secondaryBrush);
-        }
-
-        private void SetButtonActive(Button btn, FontIcon icon, TextBlock text,
-            Microsoft.UI.Xaml.Media.Brush accentBg, Microsoft.UI.Xaml.Media.Brush whiteFg)
-        {
-            btn.Background = accentBg;
-            btn.Foreground = whiteFg;
-            btn.BorderBrush = accentBg;
-            if (icon != null) icon.Foreground = whiteFg;
-            if (text != null) text.Foreground = whiteFg;
-        }
-
-        private void SetButtonInactive(Button btn, FontIcon icon, TextBlock text,
-            Microsoft.UI.Xaml.Media.Brush bg, Microsoft.UI.Xaml.Media.Brush fg)
-        {
-            btn.Background = bg;
-            btn.Foreground = fg;
-            btn.BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(60, 255, 255, 255));
-            if (icon != null) icon.Foreground = fg;
-            if (text != null) text.Foreground = fg;
-        }
-
-        /// <summary>
-        /// 判断指定按钮是否对应 ViewModel 的当前激活状态。
-        /// </summary>
-        private bool IsTrackingButtonActive(Button btn)
-        {
-            return ViewModel.CurrentStatus switch
-            {
-                AnimeTrackingStatus.Watching => btn == WatchingBtn,
-                AnimeTrackingStatus.PlanToWatch => btn == PlanToWatchBtn,
-                AnimeTrackingStatus.NotInterested => btn == NotInterestedBtn,
-                AnimeTrackingStatus.Following => btn == FollowingBtn,
-                AnimeTrackingStatus.Completed => btn == CompletedBtn,
-                AnimeTrackingStatus.Dropped => btn == DroppedBtn,
-                AnimeTrackingStatus.Blocked => btn == BlockedBtn,
-                _ => false,
-            };
-        }
-
-        /// <summary>
-        /// 根据 ViewModel.CurrentStatus 统一刷新所有追踪按钮的视觉状态。
-        /// 在状态变更、PointerExited 后调用。
-        /// </summary>
-        private void RefreshTrackingButtonVisuals()
-        {
-            // 重置所有按钮为非激活样式
-            ResetButtonVisuals();
-            // 重新高亮当前选中按钮
-            var status = ViewModel.CurrentStatus;
-            if (status == AnimeTrackingStatus.None) return;
-
-            var accent = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"]);
-            var whiteBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 255, 255));
-
-            switch (status)
-            {
-                case AnimeTrackingStatus.Watching:
-                    SetButtonActive(WatchingBtn, WatchingIcon, WatchingText, accent, whiteBrush);
-                    break;
-                case AnimeTrackingStatus.PlanToWatch:
-                    SetButtonActive(PlanToWatchBtn, PlanToWatchIcon, PlanToWatchText, accent, whiteBrush);
-                    break;
-                case AnimeTrackingStatus.NotInterested:
-                    SetButtonActive(NotInterestedBtn, NotInterestedIcon, NotInterestedText, accent, whiteBrush);
-                    break;
-                case AnimeTrackingStatus.Following:
-                    SetButtonActive(FollowingBtn, FollowingIcon, FollowingText, accent, whiteBrush);
-                    break;
-                case AnimeTrackingStatus.Completed:
-                    SetButtonActive(CompletedBtn, CompletedIcon, CompletedText, accent, whiteBrush);
-                    break;
-                case AnimeTrackingStatus.Dropped:
-                    SetButtonActive(DroppedBtn, DroppedIcon, DroppedText, accent, whiteBrush);
-                    break;
-                case AnimeTrackingStatus.Blocked:
-                    SetButtonActive(BlockedBtn, BlockedIcon, BlockedText, accent, whiteBrush);
-                    break;
-            }
-        }
-
-        private void OnTrackingBtnEntered(object sender, PointerRoutedEventArgs e)
-        {
-            if (sender is Button btn)
-            {
-                // 如果是当前激活按钮，不覆盖 active 样式
-                if (IsTrackingButtonActive(btn))
-                    return;
-
-                // 非激活按钮应用 hover 样式
-                var accentColor = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
-                btn.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                    Windows.UI.Color.FromArgb(25, accentColor.R, accentColor.G, accentColor.B));
-            }
-        }
-
-        private void OnTrackingBtnExited(object sender, PointerRoutedEventArgs e)
-        {
-            if (sender is Button btn)
-            {
-                // 通过统一刷新恢复正确状态（active 或 inactive）
-                RefreshTrackingButtonVisuals();
-            }
-        }
+        public static Visibility BooleanToVisibility(bool value) =>
+            value ? Visibility.Visible : Visibility.Collapsed;
 
         private async void OnBangumiCardTapped(object sender, TappedRoutedEventArgs e)
         {

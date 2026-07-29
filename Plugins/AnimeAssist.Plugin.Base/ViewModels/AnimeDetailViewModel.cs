@@ -22,6 +22,8 @@ namespace AniMeido.Plugin.Base.ViewModels
         [ObservableProperty]
         private bool _hasData = false;
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(CurrentStatusHint))]
+        [NotifyPropertyChangedFor(nameof(HasCurrentStatus))]
         private AnimeTrackingStatus _currentStatus = AnimeTrackingStatus.None;
         [ObservableProperty]
         private bool _isCurrentSeason = false;
@@ -39,7 +41,25 @@ namespace AniMeido.Plugin.Base.ViewModels
         private readonly IAnimeDataSource _animeDataSource;
         private readonly TrackingService _trackingService;
 
+        public ObservableCollection<TrackingActionDescriptor> TrackingActions
+        {
+            get;
+        } = new(TrackingActionDescriptor.CreateDefaults());
 
+        public bool HasCurrentStatus =>
+            CurrentStatus != AnimeTrackingStatus.None;
+
+        public string CurrentStatusHint
+        {
+            get
+            {
+                var action = TrackingActions.FirstOrDefault(candidate =>
+                    candidate.Status == CurrentStatus);
+                return action is null
+                    ? string.Empty
+                    : $"当前标记：{action.ActiveLabel}";
+            }
+        }
 
         public AnimeDetailViewModel(IAnimeDataSource dataSource, TrackingService trackingService)
         {
@@ -137,49 +157,8 @@ namespace AniMeido.Plugin.Base.ViewModels
         }
 
 
-        [RelayCommand]
-        private async Task SetWatchingAsync()
-        {
-            await SetTrackingStatusAsync(AnimeTrackingStatus.Watching);
-        }
-
-        [RelayCommand]
-        private async Task SetPlanToWatchAsync()
-        {
-            await SetTrackingStatusAsync(AnimeTrackingStatus.PlanToWatch);
-        }
-
-        [RelayCommand]
-        private async Task SetNotInterestedAsync()
-        {
-            await SetTrackingStatusAsync(AnimeTrackingStatus.NotInterested);
-        }
-
-        [RelayCommand]
-        private async Task SetFollowingAsync()
-        {
-            await SetTrackingStatusAsync(AnimeTrackingStatus.Following);
-        }
-
-        [RelayCommand]
-        private async Task SetCompletedAsync()
-        {
-            await SetTrackingStatusAsync(AnimeTrackingStatus.Completed);
-        }
-
-        [RelayCommand]
-        private async Task SetDroppedAsync()
-        {
-            await SetTrackingStatusAsync(AnimeTrackingStatus.Dropped);
-        }
-
-        [RelayCommand]
-        private async Task SetBlockedAsync()
-        {
-            await SetTrackingStatusAsync(AnimeTrackingStatus.Blocked);
-        }
-
         /// <summary>统一设置番剧状态：已设置则取消，未设置则设置。</summary>
+        [RelayCommand]
         private async Task SetTrackingStatusAsync(AnimeTrackingStatus status)
         {
             if (_lastAnimeID <= 0) return;
@@ -195,12 +174,30 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
         }
 
-        [RelayCommand]
-        private async Task ClearTrackingStatusAsync()
+        partial void OnCurrentStatusChanged(AnimeTrackingStatus value)
         {
-            if (_lastAnimeID <= 0) return;
-            await _trackingService.RemoveStatusAsync(_lastAnimeID);
-            CurrentStatus = AnimeTrackingStatus.None;
+            foreach (var action in TrackingActions)
+            {
+                action.IsSelected = action.Status == value;
+            }
+        }
+
+        partial void OnIsCurrentSeasonChanged(bool value)
+        {
+            UpdateTrackingActionAvailability();
+        }
+
+        partial void OnIsOldSeasonChanged(bool value)
+        {
+            UpdateTrackingActionAvailability();
+        }
+
+        private void UpdateTrackingActionAvailability()
+        {
+            foreach (var action in TrackingActions)
+            {
+                action.UpdateAvailability(IsCurrentSeason, IsOldSeason);
+            }
         }
 
         private async Task LoadStudiosAsync(int animeID)
