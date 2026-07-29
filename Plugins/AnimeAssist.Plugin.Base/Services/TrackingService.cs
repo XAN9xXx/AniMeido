@@ -26,40 +26,20 @@ namespace AniMeido.Plugin.Base.Services
 
         public async Task SetStatusAsync(int animeId, AnimeTrackingStatus status)
         {
-            using var connection = await _dbFactory.OpenAsync();
-            using var transaction = connection.BeginTransaction();
-            using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = """
-                INSERT INTO tracking (AnimeId, Status, UpdatedAt)
-                VALUES (@animeId, @status, @updatedAt)
-                ON CONFLICT(AnimeId) DO UPDATE SET
-                    Status = excluded.Status,
-                    UpdatedAt = excluded.UpdatedAt
-                """;
-            command.Parameters.AddWithValue("@animeId", animeId);
-            command.Parameters.AddWithValue("@status", (int)status);
             var updatedAt = DateTime.UtcNow.ToString("O");
-            command.Parameters.AddWithValue("@updatedAt", updatedAt);
-
-            await command.ExecuteNonQueryAsync();
-            await SynchronizePlanAsync(
-                connection,
-                transaction,
-                animeId,
-                status,
-                updatedAt);
-            transaction.Commit();
-            if (status != AnimeTrackingStatus.PlanToWatch)
-            {
-                await CancelPlanNotificationsAsync(animeId);
-            }
+            await SetStatusCoreAsync(animeId, status, updatedAt);
         }
 
         /// <summary>
         /// 导入专用方法：写入指定状态和原始 UpdatedAt，保留导出时的时间戳。
         /// </summary>
         public async Task SetStatusWithTimestampAsync(int animeId, AnimeTrackingStatus status, string updatedAt)
+            => await SetStatusCoreAsync(animeId, status, updatedAt);
+
+        private async Task SetStatusCoreAsync(
+            int animeId,
+            AnimeTrackingStatus status,
+            string updatedAt)
         {
             using var connection = await _dbFactory.OpenAsync();
             using var transaction = connection.BeginTransaction();
