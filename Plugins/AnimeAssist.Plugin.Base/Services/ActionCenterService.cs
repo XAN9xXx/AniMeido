@@ -9,6 +9,14 @@ namespace AniMeido.Plugin.Base.Services;
 
 public sealed class ActionCenterService : IAnimePlaybackProgressSink
 {
+    private const string PlanColumns = """
+        AnimeId, TitleSnapshot, Priority, TargetStartDate,
+        SortOrder, CreatedAt, UpdatedAt, StartedAt, ArchivedAt
+        """;
+    private const string ReminderColumns = """
+        ReminderId, AnimeId, Kind, RelativeDays, TimeOfDay,
+        AbsoluteAt, ScheduledFor, State, CatchUpSentAt, HandledAt
+        """;
     private static readonly JsonSerializerOptions SmartListJsonOptions =
         new(JsonSerializerDefaults.Web);
     private readonly SqliteConnectionFactory _dbFactory;
@@ -26,7 +34,8 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(animeId);
         ArgumentException.ThrowIfNullOrWhiteSpace(title);
-        using var connection = await _dbFactory.OpenAsync();
+        using var connection =
+            await _dbFactory.OpenAsync(cancellationToken);
         using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO anime_plans(
@@ -43,7 +52,7 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
                 UpdatedAt = excluded.UpdatedAt,
                 ArchivedAt = NULL
             """;
-        var now = DateTimeOffset.UtcNow.ToString("O");
+        var now = FormatTimestamp(DateTimeOffset.UtcNow);
         command.Parameters.AddWithValue("@animeId", animeId);
         command.Parameters.AddWithValue("@title", title.Trim());
         command.Parameters.AddWithValue("@priority", (int)priority);
@@ -60,11 +69,11 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
         bool includeArchived = false,
         CancellationToken cancellationToken = default)
     {
-        using var connection = await _dbFactory.OpenAsync();
+        using var connection =
+            await _dbFactory.OpenAsync(cancellationToken);
         using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT AnimeId, TitleSnapshot, Priority, TargetStartDate,
-                   SortOrder, CreatedAt, UpdatedAt, StartedAt, ArchivedAt
+        command.CommandText = $"""
+            SELECT {PlanColumns}
             FROM anime_plans
             WHERE @includeArchived = 1 OR ArchivedAt IS NULL
             ORDER BY Priority DESC,
@@ -76,25 +85,21 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
         command.Parameters.AddWithValue(
             "@includeArchived",
             includeArchived ? 1 : 0);
-        var plans = new List<AnimePlan>();
-        using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            plans.Add(ReadPlan(reader));
-        }
-
-        return plans;
+        return await ReadAllAsync(
+            command,
+            ReadPlan,
+            cancellationToken);
     }
 
     public async Task<AnimePlan?> GetPlanAsync(
         int animeId,
         CancellationToken cancellationToken = default)
     {
-        using var connection = await _dbFactory.OpenAsync();
+        using var connection =
+            await _dbFactory.OpenAsync(cancellationToken);
         using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT AnimeId, TitleSnapshot, Priority, TargetStartDate,
-                   SortOrder, CreatedAt, UpdatedAt, StartedAt, ArchivedAt
+        command.CommandText = $"""
+            SELECT {PlanColumns}
             FROM anime_plans
             WHERE AnimeId = @animeId
             """;
@@ -109,9 +114,10 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
         int animeId,
         CancellationToken cancellationToken = default)
     {
-        using var connection = await _dbFactory.OpenAsync();
+        using var connection =
+            await _dbFactory.OpenAsync(cancellationToken);
         using var transaction = connection.BeginTransaction();
-        var now = DateTimeOffset.UtcNow.ToString("O");
+        var now = FormatTimestamp(DateTimeOffset.UtcNow);
         using (var tracking = connection.CreateCommand())
         {
             tracking.Transaction = transaction;
@@ -171,7 +177,8 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(reminder);
-        using var connection = await _dbFactory.OpenAsync();
+        using var connection =
+            await _dbFactory.OpenAsync(cancellationToken);
         using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO plan_reminders(
@@ -200,11 +207,11 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
         PlanReminderState? state = null,
         CancellationToken cancellationToken = default)
     {
-        using var connection = await _dbFactory.OpenAsync();
+        using var connection =
+            await _dbFactory.OpenAsync(cancellationToken);
         using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT ReminderId, AnimeId, Kind, RelativeDays, TimeOfDay,
-                   AbsoluteAt, ScheduledFor, State, CatchUpSentAt, HandledAt
+        command.CommandText = $"""
+            SELECT {ReminderColumns}
             FROM plan_reminders
             WHERE (@animeId IS NULL OR AnimeId = @animeId)
               AND (@state IS NULL OR State = @state)
@@ -216,14 +223,10 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
         command.Parameters.AddWithValue(
             "@state",
             state is null ? DBNull.Value : (int)state.Value);
-        var reminders = new List<PlanReminder>();
-        using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            reminders.Add(ReadReminder(reader));
-        }
-
-        return reminders;
+        return await ReadAllAsync(
+            command,
+            ReadReminder,
+            cancellationToken);
     }
 
     public async Task<IReadOnlyList<PlanReminder>>
@@ -232,11 +235,11 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
             TimeSpan catchUpWindow,
             CancellationToken cancellationToken = default)
     {
-        using var connection = await _dbFactory.OpenAsync();
+        using var connection =
+            await _dbFactory.OpenAsync(cancellationToken);
         using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT ReminderId, AnimeId, Kind, RelativeDays, TimeOfDay,
-                   AbsoluteAt, ScheduledFor, State, CatchUpSentAt, HandledAt
+        command.CommandText = $"""
+            SELECT {ReminderColumns}
             FROM plan_reminders
             WHERE State = @pending
               AND CatchUpSentAt IS NULL
@@ -247,18 +250,14 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
         command.Parameters.AddWithValue(
             "@pending",
             (int)PlanReminderState.Pending);
-        command.Parameters.AddWithValue("@now", now.ToString("O"));
+        command.Parameters.AddWithValue("@now", FormatTimestamp(now));
         command.Parameters.AddWithValue(
             "@oldest",
-            now.Subtract(catchUpWindow).ToString("O"));
-        var reminders = new List<PlanReminder>();
-        using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            reminders.Add(ReadReminder(reader));
-        }
-
-        return reminders;
+            FormatTimestamp(now.Subtract(catchUpWindow)));
+        return await ReadAllAsync(
+            command,
+            ReadReminder,
+            cancellationToken);
     }
 
     public Task MarkReminderCatchUpSentAsync(
@@ -267,13 +266,15 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
         => UpdateReminderAsync(
             reminderId,
             "CatchUpSentAt = @now",
-            cancellationToken);
+            state: null,
+            cancellationToken: cancellationToken);
 
     public async Task<bool> TryMarkReminderHandledAsync(
         string reminderId,
         CancellationToken cancellationToken = default)
     {
-        using var connection = await _dbFactory.OpenAsync();
+        using var connection =
+            await _dbFactory.OpenAsync(cancellationToken);
         using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE plan_reminders
@@ -289,7 +290,7 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
             (int)PlanReminderState.Pending);
         command.Parameters.AddWithValue(
             "@now",
-            DateTimeOffset.UtcNow.ToString("O"));
+            FormatTimestamp(DateTimeOffset.UtcNow));
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
@@ -298,7 +299,8 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
         CancellationToken cancellationToken = default)
         => UpdateReminderAsync(
             reminderId,
-            "State = 2",
+            "State = @state",
+            PlanReminderState.Cancelled,
             cancellationToken);
 
     public async Task RecordAsync(
@@ -316,7 +318,8 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
 
         var completed = progress.ReachedNaturalEnd
             || progress.PositionSeconds / progress.DurationSeconds >= 0.9;
-        using var connection = await _dbFactory.OpenAsync();
+        using var connection =
+            await _dbFactory.OpenAsync(cancellationToken);
         using var transaction = connection.BeginTransaction();
         using (var session = connection.CreateCommand())
         {
@@ -439,7 +442,7 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
                 (int)AnimeTrackingStatus.Following);
             tracking.Parameters.AddWithValue(
                 "@observedAt",
-                progress.ObservedAt.UtcDateTime.ToString("O"));
+                FormatTimestamp(progress.ObservedAt));
             await tracking.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -450,7 +453,8 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
         GetProgressAsync(
             CancellationToken cancellationToken = default)
     {
-        using var connection = await _dbFactory.OpenAsync();
+        using var connection =
+            await _dbFactory.OpenAsync(cancellationToken);
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT AnimeId, CurrentEpisode, PositionSeconds,
@@ -479,7 +483,8 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
     {
         ArgumentNullException.ThrowIfNull(definition);
         _ = SmartListEvaluator.Apply(definition, []);
-        using var connection = await _dbFactory.OpenAsync();
+        using var connection =
+            await _dbFactory.OpenAsync(cancellationToken);
         using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO smart_lists(
@@ -514,17 +519,34 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
                     SmartListJsonOptions));
         command.Parameters.AddWithValue(
             "@createdAt",
-            definition.CreatedAt.ToString("O"));
+            FormatTimestamp(definition.CreatedAt));
         command.Parameters.AddWithValue(
             "@updatedAt",
-            definition.UpdatedAt.ToString("O"));
+            FormatTimestamp(definition.UpdatedAt));
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task<IReadOnlyList<T>> ReadAllAsync<T>(
+        SqliteCommand command,
+        Func<SqliteDataReader, T> map,
+        CancellationToken cancellationToken)
+    {
+        var items = new List<T>();
+        using var reader =
+            await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            items.Add(map(reader));
+        }
+
+        return items;
     }
 
     public async Task<IReadOnlyList<SmartListDefinition>> GetSmartListsAsync(
         CancellationToken cancellationToken = default)
     {
-        using var connection = await _dbFactory.OpenAsync();
+        using var connection =
+            await _dbFactory.OpenAsync(cancellationToken);
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT Id, Name, SchemaVersion, RuleJson, SortJson,
@@ -566,7 +588,8 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
         string id,
         CancellationToken cancellationToken = default)
     {
-        using var connection = await _dbFactory.OpenAsync();
+        using var connection =
+            await _dbFactory.OpenAsync(cancellationToken);
         using var command = connection.CreateCommand();
         command.CommandText = "DELETE FROM smart_lists WHERE Id = @id";
         command.Parameters.AddWithValue("@id", id);
@@ -576,16 +599,22 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
     private async Task UpdateReminderAsync(
         string reminderId,
         string setClause,
+        PlanReminderState? state,
         CancellationToken cancellationToken)
     {
-        using var connection = await _dbFactory.OpenAsync();
+        using var connection =
+            await _dbFactory.OpenAsync(cancellationToken);
         using var command = connection.CreateCommand();
         command.CommandText =
             $"UPDATE plan_reminders SET {setClause} WHERE ReminderId = @id";
         command.Parameters.AddWithValue("@id", reminderId);
         command.Parameters.AddWithValue(
             "@now",
-            DateTimeOffset.UtcNow.ToString("O"));
+            FormatTimestamp(DateTimeOffset.UtcNow));
+        if (state is not null)
+        {
+            command.Parameters.AddWithValue("@state", (int)state.Value);
+        }
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -650,19 +679,17 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
                 ?? (object)DBNull.Value);
         command.Parameters.AddWithValue(
             "@absoluteAt",
-            reminder.AbsoluteAt?.ToString("O") ?? (object)DBNull.Value);
+            FormatOptionalTimestamp(reminder.AbsoluteAt));
         command.Parameters.AddWithValue(
             "@scheduledFor",
-            reminder.ScheduledFor.ToString("O"));
+            FormatTimestamp(reminder.ScheduledFor));
         command.Parameters.AddWithValue("@state", (int)reminder.State);
         command.Parameters.AddWithValue(
             "@catchUp",
-            reminder.CatchUpSentAt?.ToString("O")
-                ?? (object)DBNull.Value);
+            FormatOptionalTimestamp(reminder.CatchUpSentAt));
         command.Parameters.AddWithValue(
             "@handled",
-            reminder.HandledAt?.ToString("O")
-                ?? (object)DBNull.Value);
+            FormatOptionalTimestamp(reminder.HandledAt));
     }
 
     private static void AddProgressParameters(
@@ -686,7 +713,7 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
             completed ? 1 : 0);
         command.Parameters.AddWithValue(
             "@observedAt",
-            progress.ObservedAt.UtcDateTime.ToString("O"));
+            FormatTimestamp(progress.ObservedAt));
     }
 
     private static DateTimeOffset ParseTimestamp(string value)
@@ -694,4 +721,12 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
             value,
             CultureInfo.InvariantCulture,
             DateTimeStyles.RoundtripKind);
+
+    private static string FormatTimestamp(DateTimeOffset value)
+        => value.ToString("O", CultureInfo.InvariantCulture);
+
+    private static object FormatOptionalTimestamp(DateTimeOffset? value)
+        => value is null
+            ? DBNull.Value
+            : FormatTimestamp(value.Value);
 }

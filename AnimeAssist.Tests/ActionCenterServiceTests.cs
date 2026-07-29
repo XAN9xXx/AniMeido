@@ -8,6 +8,67 @@ namespace AniMeido.Tests;
 public sealed class ActionCenterServiceTests : DbTestBase
 {
     [Fact]
+    public async Task PlanAndReminderMappings_RoundTrip()
+    {
+        await RunProductionMigrationAsync();
+        var service = new ActionCenterService(DbFactory);
+        await service.UpsertPlanAsync(
+            50,
+            "映射测试",
+            AnimePlanPriority.High,
+            new DateOnly(2026, 8, 1),
+            3);
+        var scheduledFor = DateTimeOffset.UtcNow.AddDays(1);
+        var reminder = new PlanReminder(
+            "mapping-reminder",
+            50,
+            PlanReminderKind.Absolute,
+            null,
+            null,
+            scheduledFor,
+            scheduledFor,
+            PlanReminderState.Pending,
+            null,
+            null);
+        await service.AddReminderAsync(reminder);
+
+        var plan = await service.GetPlanAsync(50);
+        var plans = await service.GetPlansAsync();
+        var reminders = await service.GetRemindersAsync(animeId: 50);
+
+        Assert.NotNull(plan);
+        Assert.Equal(AnimePlanPriority.High, plan.Priority);
+        Assert.Equal(new DateOnly(2026, 8, 1), plan.TargetStartDate);
+        Assert.Contains(plans, item => item.AnimeId == 50);
+        Assert.Equal(reminder, Assert.Single(reminders));
+    }
+
+    [Fact]
+    public async Task CancelReminder_UsesCancelledState()
+    {
+        await RunProductionMigrationAsync();
+        var service = new ActionCenterService(DbFactory);
+        var scheduledFor = DateTimeOffset.UtcNow.AddDays(1);
+        await service.AddReminderAsync(new PlanReminder(
+            "cancel-reminder",
+            60,
+            PlanReminderKind.Absolute,
+            null,
+            null,
+            scheduledFor,
+            scheduledFor,
+            PlanReminderState.Pending,
+            null,
+            null));
+
+        await service.CancelReminderAsync("cancel-reminder");
+
+        var reminder = Assert.Single(
+            await service.GetRemindersAsync(animeId: 60));
+        Assert.Equal(PlanReminderState.Cancelled, reminder.State);
+    }
+
+    [Fact]
     public async Task RecordAsync_DeduplicatesAndDoesNotRegressEpisode()
     {
         await RunProductionMigrationAsync();
