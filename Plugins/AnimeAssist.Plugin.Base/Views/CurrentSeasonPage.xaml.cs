@@ -137,7 +137,7 @@ namespace AniMeido.Plugin.Base.Views
                         DayOfWeek.Sunday => 6,
                         _ => (int)DateTime.Now.DayOfWeek - 1
                     };
-                    _ = DispatcherQueue.TryEnqueue(() => DelayedScrollToGroup(todayIndex));
+                    await DelayedScrollToGroupAsync(todayIndex);
                 }
             }
 #pragma warning disable CA1031 // 开屏动画失败不应影响页面
@@ -199,7 +199,7 @@ namespace AniMeido.Plugin.Base.Views
         }
 
 
-        private async void DelayedScrollToGroup(int index)
+        private async Task DelayedScrollToGroupAsync(int index)
         {
             for (int i = 0; i < 10; i++)
             {
