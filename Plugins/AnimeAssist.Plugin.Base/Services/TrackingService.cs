@@ -121,6 +121,38 @@ namespace AniMeido.Plugin.Base.Services
             return list;
         }
 
+        public async Task<Dictionary<AnimeTrackingStatus, List<int>>>
+            GetAnimeIdsGroupedByStatusAsync()
+        {
+            using var connection = await _dbFactory.OpenAsync();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT AnimeId, Status
+                FROM tracking
+                ORDER BY UpdatedAt DESC
+                """;
+
+            var result =
+                new Dictionary<AnimeTrackingStatus, List<int>>();
+            using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var animeId = Convert.ToInt32(reader.GetInt64(0));
+                var status = (AnimeTrackingStatus)Convert.ToInt32(
+                    reader.GetInt64(1));
+                if (!result.TryGetValue(status, out var ids))
+                {
+                    ids = [];
+                    result.Add(status, ids);
+                }
+
+                ids.Add(animeId);
+            }
+
+            return result;
+        }
+
         public async Task<HashSet<int>> GetBlockedAnimeIdsAsync()
         {
             var blocked = await GetAnimeIdsByStatusAsync(

@@ -55,14 +55,13 @@ namespace AniMeido.Plugin.Base.Services
                 AnimeTrackingStatus.Dropped,
             };
 
-            var trackedIds = new List<int>();
-            foreach (var status in allStatuses)
-            {
-                var ids = await _tracking.GetAnimeIdsByStatusAsync(status);
-                trackedIds.AddRange(ids);
-            }
-
-            trackedIds = trackedIds.Distinct().ToList();
+            var idsByStatus =
+                await _tracking.GetAnimeIdsGroupedByStatusAsync();
+            var trackedIds = allStatuses
+                .SelectMany(status =>
+                    idsByStatus.GetValueOrDefault(status) ?? [])
+                .Distinct()
+                .ToList();
 
             // 为每个 ID 获取详情并匹配
             foreach (var id in trackedIds)

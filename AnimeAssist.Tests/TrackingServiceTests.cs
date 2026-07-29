@@ -97,6 +97,25 @@ namespace AniMeido.Tests
         }
 
         [Fact]
+        public async Task GetAnimeIdsGroupedByStatusAsync_GroupsAllStatuses()
+        {
+            await RunProductionMigrationAsync();
+            var svc = CreateService();
+
+            await svc.SetStatusAsync(1, AnimeTrackingStatus.Watching);
+            await svc.SetStatusAsync(2, AnimeTrackingStatus.Blocked);
+            await svc.SetStatusAsync(3, AnimeTrackingStatus.Watching);
+
+            var grouped = await svc.GetAnimeIdsGroupedByStatusAsync();
+
+            Assert.Equal([1, 3], grouped[AnimeTrackingStatus.Watching]
+                .Order());
+            Assert.Equal([2], grouped[AnimeTrackingStatus.Blocked]);
+            Assert.False(grouped.ContainsKey(
+                AnimeTrackingStatus.PlanToWatch));
+        }
+
+        [Fact]
         public async Task GetAllTrackingAsync_ReturnsAllEntries()
         {
             await RunProductionMigrationAsync();

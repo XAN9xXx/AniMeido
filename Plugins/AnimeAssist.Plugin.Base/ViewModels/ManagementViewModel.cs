@@ -104,14 +104,19 @@ namespace AniMeido.Plugin.Base.ViewModels
 
             try
             {
-                // 获取各状态的番剧 ID 列表（仅 DB 查询，快）
-                var watchingIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Watching);
-                var planIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.PlanToWatch);
-                var notInterestedIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.NotInterested);
-                var followingIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Following);
-                var completedIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Completed);
-                var droppedIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Dropped);
-                var blockedIds = await _trackingService.GetAnimeIdsByStatusAsync(AnimeTrackingStatus.Blocked);
+                // 一次读取全部状态，避免为七个面板重复打开数据库连接。
+                var idsByStatus =
+                    await _trackingService.GetAnimeIdsGroupedByStatusAsync();
+                List<int> GetIds(AnimeTrackingStatus status)
+                    => idsByStatus.GetValueOrDefault(status) ?? [];
+                var watchingIds = GetIds(AnimeTrackingStatus.Watching);
+                var planIds = GetIds(AnimeTrackingStatus.PlanToWatch);
+                var notInterestedIds =
+                    GetIds(AnimeTrackingStatus.NotInterested);
+                var followingIds = GetIds(AnimeTrackingStatus.Following);
+                var completedIds = GetIds(AnimeTrackingStatus.Completed);
+                var droppedIds = GetIds(AnimeTrackingStatus.Dropped);
+                var blockedIds = GetIds(AnimeTrackingStatus.Blocked);
 
                 // 缓存 ID 列表供按需加载使用
                 _statusIdsCache[AnimeTrackingStatus.Watching] = watchingIds;
