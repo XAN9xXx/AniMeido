@@ -19,7 +19,6 @@ internal sealed class NavigationMenuBuilder
             "补番计划" => Symbol.Clock,
             "搜索" => Symbol.Find,
             "关注管理" => Symbol.Favorite,
-            "浏览记录" => Symbol.Clock,
             "拖放标记" => null, // Symbol.Move 不存在，回退 FontIcon
             "数据管理" => Symbol.Save,
             "设置" => Symbol.Setting,

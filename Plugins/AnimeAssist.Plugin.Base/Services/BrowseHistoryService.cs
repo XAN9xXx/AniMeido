@@ -37,9 +37,12 @@ namespace AniMeido.Plugin.Base.Services
         }
 
         /// <summary>获取浏览记录（最近 -N 条）。</summary>
-        public async Task<List<(int AnimeId, string? Title, DateTime LastViewed, int ViewCount)>> GetHistoryAsync(int limit = 50)
+        public async Task<List<(int AnimeId, string? Title, DateTime LastViewed, int ViewCount)>> GetHistoryAsync(
+            int limit = 50,
+            CancellationToken cancellationToken = default)
         {
-            using var connection = await _dbFactory.OpenAsync();
+            using var connection =
+                await _dbFactory.OpenAsync(cancellationToken);
 
             var cmd = connection.CreateCommand();
             cmd.CommandText = """
@@ -51,8 +54,9 @@ namespace AniMeido.Plugin.Base.Services
             cmd.Parameters.AddWithValue("@limit", limit);
 
             var results = new List<(int, string?, DateTime, int)>();
-            using var reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
+            using var reader =
+                await cmd.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
             {
                 results.Add((
                     reader.GetInt32(0),
@@ -65,13 +69,15 @@ namespace AniMeido.Plugin.Base.Services
         }
 
         /// <summary>清空浏览记录。</summary>
-        public async Task ClearAsync()
+        public async Task ClearAsync(
+            CancellationToken cancellationToken = default)
         {
-            using var connection = await _dbFactory.OpenAsync();
+            using var connection =
+                await _dbFactory.OpenAsync(cancellationToken);
 
             var cmd = connection.CreateCommand();
             cmd.CommandText = "DELETE FROM browse_history";
-            await cmd.ExecuteNonQueryAsync();
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
     }
 }

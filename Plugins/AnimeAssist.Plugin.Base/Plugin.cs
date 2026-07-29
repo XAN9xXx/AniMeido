@@ -1,6 +1,5 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Plugin.Base.Services;
-using AniMeido.Plugin.Base.ViewModels;
 using AniMeido.Contracts.Playback;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -47,10 +46,6 @@ namespace AniMeido.Plugin.Base
                 {
                     PageType = typeof(Views.ManagementPage)
                 },
-                new PluginNavigationItem("浏览记录", "\uE9D2", "AniMeido.Plugin.Base.Views.BrowseHistoryPage")
-                {
-                    PageType = typeof(Views.BrowseHistoryPage)
-                },
                 new PluginNavigationItem("拖放标记", "\uE777", "AniMeido.Plugin.Base.Views.DragZoneSettingsPage")
                 {
                     PageType = typeof(Views.DragZoneSettingsPage),
@@ -85,7 +80,6 @@ namespace AniMeido.Plugin.Base
                     sp.GetRequiredService<TrackingService>(),
                     sp.GetRequiredService<IAnimeDataSource>(),
                     sp.GetRequiredService<CacheService>()));
-            services.AddTransient<BrowseHistoryViewModel>();
             return Task.CompletedTask;
         }
     }

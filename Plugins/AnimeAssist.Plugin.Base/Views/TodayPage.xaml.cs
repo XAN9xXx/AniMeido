@@ -22,6 +22,7 @@ public sealed partial class TodayPage : Page, INavigationAware
         TrackingService tracking,
         ActionCenterService actionCenter,
         PlanReminderCoordinator reminders,
+        BrowseHistoryService browseHistory,
         IPluginNavigator navigator,
         IAnimePlaybackLauncher playbackLauncher)
     {
@@ -33,7 +34,8 @@ public sealed partial class TodayPage : Page, INavigationAware
             dataSource,
             tracking,
             actionCenter,
-            reminders);
+            reminders,
+            browseHistory);
         NotificationSettingsButton = new Button
         {
             Content = "通知设置",
@@ -141,6 +143,35 @@ public sealed partial class TodayPage : Page, INavigationAware
         if (e.ClickedItem is TodayAnimeEntry entry)
         {
             _navigator.Navigate(typeof(AnimeDetailPage), entry.Anime.ID);
+        }
+    }
+
+    private void OnBrowseEntryClick(
+        object sender,
+        ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is TodayBrowseEntry entry)
+        {
+            _navigator.Navigate(typeof(AnimeDetailPage), entry.Anime.ID);
+        }
+    }
+
+    private async void OnClearBrowseHistoryClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "清空最近浏览",
+            Content = "确定要清空所有浏览记录吗？",
+            PrimaryButtonText = "确认清空",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Close,
+        };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            await ViewModel.ClearBrowseHistoryCommand.ExecuteAsync(null);
         }
     }
 

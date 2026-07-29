@@ -16,7 +16,6 @@
     <None Remove="Views\DragZoneSettingsPage.xaml" />
     <None Remove="Views\PastSeasonPage.xaml" />
     <None Remove="Views\TagSearchResultPage.xaml" />
-    <None Remove="Views\BrowseHistoryPage.xaml" />
     <None Remove="Views\DataManagementSettingsPage.xaml" />
   </ItemGroup>
 

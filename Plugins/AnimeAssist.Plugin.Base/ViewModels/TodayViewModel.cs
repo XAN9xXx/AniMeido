@@ -12,6 +12,10 @@ public sealed record TodayAnimeEntry(
     Anime Anime,
     string Subtitle);
 
+public sealed record TodayBrowseEntry(
+    Anime Anime,
+    string Subtitle);
+
 public sealed record TodayPlanEntry(
     AnimePlan Plan,
     string Subtitle)
@@ -33,6 +37,7 @@ public partial class TodayViewModel : ObservableObject
     private readonly TrackingService _tracking;
     private readonly ActionCenterService _actionCenter;
     private readonly PlanReminderCoordinator _reminders;
+    private readonly BrowseHistoryService _browseHistory;
 
     [ObservableProperty]
     private ObservableCollection<Anime> _personalBroadcasts = [];
@@ -50,6 +55,9 @@ public partial class TodayViewModel : ObservableObject
     private ObservableCollection<TodayAnimeEntry> _recentActivity = [];
 
     [ObservableProperty]
+    private ObservableCollection<TodayBrowseEntry> _recentBrowsed = [];
+
+    [ObservableProperty]
     private bool _isLoading;
 
     [ObservableProperty]
@@ -65,12 +73,14 @@ public partial class TodayViewModel : ObservableObject
         IAnimeDataSource dataSource,
         TrackingService tracking,
         ActionCenterService actionCenter,
-        PlanReminderCoordinator reminders)
+        PlanReminderCoordinator reminders,
+        BrowseHistoryService browseHistory)
     {
         _dataSource = dataSource;
         _tracking = tracking;
         _actionCenter = actionCenter;
         _reminders = reminders;
+        _browseHistory = browseHistory;
     }
 
     public string TodayLabel => DateTime.Today.ToString(
@@ -134,6 +144,8 @@ public partial class TodayViewModel : ObservableObject
                         reminderCountByAnime.GetValueOrDefault(
                             plan.AnimeId)))));
 
+            await LoadBrowseHistoryAsync(blockedIds, cancellationToken);
+
             if (IsPlaybackAvailable)
             {
                 await LoadPlaybackActivityAsync(
@@ -194,8 +206,74 @@ public partial class TodayViewModel : ObservableObject
         RecentActivity = new ObservableCollection<TodayAnimeEntry>(
             RecentActivity.Where(
                 entry => !blocked.Contains(entry.Anime.ID)));
+        RecentBrowsed = new ObservableCollection<TodayBrowseEntry>(
+            RecentBrowsed.Where(
+                entry => !blocked.Contains(entry.Anime.ID)));
         Plans = new ObservableCollection<TodayPlanEntry>(
             Plans.Where(entry => !blocked.Contains(entry.Plan.AnimeId)));
+    }
+
+    [RelayCommand]
+    public async Task ClearBrowseHistoryAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await _browseHistory.ClearAsync(cancellationToken);
+        RecentBrowsed.Clear();
+    }
+
+    private async Task LoadBrowseHistoryAsync(
+        IReadOnlySet<int> blockedIds,
+        CancellationToken cancellationToken)
+    {
+        var records = await _browseHistory.GetHistoryAsync(
+            8,
+            cancellationToken);
+        var entries = new List<TodayBrowseEntry>();
+        foreach (var record in records)
+        {
+            if (blockedIds.Contains(record.AnimeId))
+            {
+                continue;
+            }
+
+            Anime? anime = null;
+            try
+            {
+                anime = await _dataSource.GetAnimeDetailAsync(
+                    record.AnimeId,
+                    cancellationToken);
+            }
+            catch (HttpRequestException)
+            {
+            }
+            catch (InvalidOperationException)
+            {
+            }
+            catch (System.Text.Json.JsonException)
+            {
+            }
+            catch (TaskCanceledException)
+                when (!cancellationToken.IsCancellationRequested)
+            {
+            }
+
+            anime ??= new Anime(
+                record.AnimeId,
+                record.Title ?? $"#{record.AnimeId}",
+                null,
+                [],
+                null,
+                null,
+                string.Empty,
+                0,
+                0);
+            entries.Add(new TodayBrowseEntry(
+                anime,
+                $"{record.LastViewed.ToLocalTime():g} · "
+                    + $"浏览 {record.ViewCount} 次"));
+        }
+
+        RecentBrowsed = new(entries);
     }
 
     private async Task LoadPlaybackActivityAsync(

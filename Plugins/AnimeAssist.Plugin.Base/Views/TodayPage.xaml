@@ -130,6 +130,43 @@
                     </GridView>
                 </Expander>
 
+                <StackPanel Spacing="8">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            Style="{StaticResource SubtitleTextBlockStyle}"
+                            Text="最近浏览"/>
+                        <Button
+                            Grid.Column="1"
+                            Click="OnClearBrowseHistoryClick"
+                            Content="清空"/>
+                    </Grid>
+                    <ListView
+                        ItemsSource="{x:Bind ViewModel.RecentBrowsed}"
+                        IsItemClickEnabled="True"
+                        ItemClick="OnBrowseEntryClick"
+                        SelectionMode="None">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="vm:TodayBrowseEntry">
+                                <Grid Padding="8" ColumnDefinitions="*,Auto">
+                                    <StackPanel>
+                                        <TextBlock
+                                            FontWeight="SemiBold"
+                                            Text="{x:Bind Anime.Title}"/>
+                                        <TextBlock
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="{x:Bind Subtitle}"/>
+                                    </StackPanel>
+                                    <FontIcon
+                                        Grid.Column="1"
+                                        VerticalAlignment="Center"
+                                        Glyph="&#xE9D2;"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+
                 <StackPanel Spacing="8"
                             Visibility="{x:Bind ViewModel.IsPlaybackAvailable, Mode=OneWay}">
                     <TextBlock Text="最近观看"
