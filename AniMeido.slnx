@@ -18,9 +18,6 @@
     <Project Path="Plugins/AnimeAssist.Plugin.Base/AniMeido.Plugin.Base.csproj" Id="70cbece3-4de2-4b18-b9c6-a07dd5c7a53c">
       <Platform Solution="Debug|*" Project="x64" />
     </Project>
-    <Project Path="Plugins/AnimeAssist.Plugin.Chat/AniMeido.Plugin.Chat.csproj">
-      <Platform Solution="Debug|*" Project="x64" />
-    </Project>
     <Project Path="Plugins/AnimeAssist.Plugin.Player/AniMeido.Plugin.Player.csproj">
       <Platform Solution="Debug|*" Project="x64" />
     </Project>

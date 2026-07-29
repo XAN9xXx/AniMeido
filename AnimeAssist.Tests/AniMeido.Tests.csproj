@@ -25,7 +25,6 @@
         <ProjectReference Include="..\AnimeAssist.Contracts\AniMeido.Contracts.csproj" />
         <ProjectReference Include="..\AnimeAssist.App\AniMeido.App.csproj" />
         <ProjectReference Include="..\Plugins\AnimeAssist.Plugin.Base\AniMeido.Plugin.Base.csproj" />
-        <ProjectReference Include="..\Plugins\AnimeAssist.Plugin.Chat\AniMeido.Plugin.Chat.csproj" />
         <ProjectReference Include="..\Plugins\AnimeAssist.Plugin.Player\AniMeido.Plugin.Player.csproj" />
     </ItemGroup>
 

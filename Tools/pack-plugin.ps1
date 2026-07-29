@@ -4,13 +4,14 @@
 
 .EXAMPLE
     .\Tools\pack-plugin.ps1 `
-        -PluginDir .\artifacts\ChatPlugin `
-        -PluginId AniMeido.Plugin.Chat `
-        -DisplayName ChatPlugin `
-        -Version 1.0.0 `
-        -MinAppVersion 1.1.0 `
-        -EntryAssembly AniMeido.Plugin.Chat.dll `
-        -OutputPath .\artifacts\AniMeido.Plugin.Chat-1.0.0.animeido-plugin
+        -PluginDir .\artifacts\PlayerPlugin `
+        -PluginId AniMeido.Plugin.Player `
+        -DisplayName 在线播放器 `
+        -Version 0.4.0 `
+        -MinAppVersion 1.4.0 `
+        -EntryAssembly AniMeido.Plugin.Player.dll `
+        -ManifestTemplatePath .\Plugins\AnimeAssist.Plugin.Player\plugin.manifest.json `
+        -OutputPath .\artifacts\AniMeido.Plugin.Player-0.4.0.animeido-plugin
 #>
 
 [CmdletBinding()]
