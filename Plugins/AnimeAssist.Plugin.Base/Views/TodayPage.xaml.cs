@@ -119,7 +119,6 @@ public sealed partial class TodayPage : Page, INavigationAware
         {
             PlanList.SelectedItem = ViewModel.Plans.FirstOrDefault(
                 item => item.Plan.AnimeId == animeId);
-            PlanList.SelectedItem?.ToString();
             if (PlanList.SelectedItem is not null)
             {
                 PlanList.ScrollIntoView(PlanList.SelectedItem);
@@ -147,9 +146,8 @@ public sealed partial class TodayPage : Page, INavigationAware
 
     private async void OnEditPlanClick(object sender, RoutedEventArgs e)
     {
-        if (PlanList.SelectedItem is not TodayPlanEntry entry)
+        if (!TryGetSelectedPlan(out var entry))
         {
-            ShowPlanSelectionHint();
             return;
         }
 
@@ -230,9 +228,8 @@ public sealed partial class TodayPage : Page, INavigationAware
         object sender,
         RoutedEventArgs e)
     {
-        if (PlanList.SelectedItem is not TodayPlanEntry entry)
+        if (!TryGetSelectedPlan(out var entry))
         {
-            ShowPlanSelectionHint();
             return;
         }
 
@@ -313,8 +310,7 @@ public sealed partial class TodayPage : Page, INavigationAware
         }
         catch (InvalidOperationException ex)
         {
-            NotificationInfoBar.Message = ex.Message;
-            NotificationInfoBar.IsOpen = true;
+            ShowNotification(ex.Message);
         }
     }
 
@@ -322,9 +318,8 @@ public sealed partial class TodayPage : Page, INavigationAware
         object sender,
         RoutedEventArgs e)
     {
-        if (PlanList.SelectedItem is not TodayPlanEntry entry)
+        if (!TryGetSelectedPlan(out var entry))
         {
-            ShowPlanSelectionHint();
             return;
         }
 
@@ -336,9 +331,8 @@ public sealed partial class TodayPage : Page, INavigationAware
         object sender,
         RoutedEventArgs e)
     {
-        if (PlanList.SelectedItem is not TodayPlanEntry entry)
+        if (!TryGetSelectedPlan(out var entry))
         {
-            ShowPlanSelectionHint();
             return;
         }
 
@@ -347,8 +341,7 @@ public sealed partial class TodayPage : Page, INavigationAware
             PlanReminderState.Pending);
         if (reminders.Count == 0)
         {
-            NotificationInfoBar.Message = "这条计划当前没有待处理提醒。";
-            NotificationInfoBar.IsOpen = true;
+            ShowNotification("这条计划当前没有待处理提醒。");
             return;
         }
 
@@ -388,9 +381,23 @@ public sealed partial class TodayPage : Page, INavigationAware
         RoutedEventArgs e)
         => await _reminders.OpenNotificationSettingsAsync();
 
-    private void ShowPlanSelectionHint()
+    private bool TryGetSelectedPlan(
+        out TodayPlanEntry entry)
     {
-        NotificationInfoBar.Message = "请先选择一条补番计划。";
+        if (PlanList.SelectedItem is TodayPlanEntry selected)
+        {
+            entry = selected;
+            return true;
+        }
+
+        entry = null!;
+        ShowNotification("请先选择一条补番计划。");
+        return false;
+    }
+
+    private void ShowNotification(string message)
+    {
+        NotificationInfoBar.Message = message;
         NotificationInfoBar.IsOpen = true;
     }
 
