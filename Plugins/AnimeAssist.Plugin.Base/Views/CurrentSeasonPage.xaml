@@ -10,34 +10,37 @@
     xmlns:contracts="using:AniMeido.Contracts.Models">
 
     <Grid AllowDrop="True"
-          Background="Transparent"
+          Padding="24,20,24,24"
+          Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
           Loaded="OnPageLoaded">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- 错误提示 + 搜索过滤 (固定在顶部) -->
         <StackPanel Grid.Row="0"
-                    Margin="0,0,0,12">
+                    Spacing="12"
+                    Margin="0,0,0,16">
+            <StackPanel Spacing="2">
+                <TextBlock Text="放送日历"
+                           Style="{StaticResource AniMeidoPageTitleStyle}"/>
+                <TextBlock Text="按星期浏览本季正在放送的动画"
+                           Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
+            </StackPanel>
             <InfoBar x:Name="ErrorInfoBar"
                      Severity="Error"
                      IsClosable="True"
-                     IsOpen="False"
-                     Margin="0,0,0,12"/>
-            <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
-                    CornerRadius="8"
-                    Padding="12,6">
+                     IsOpen="False"/>
+            <Border Style="{StaticResource AniMeidoToolbarStyle}">
                 <Grid ColumnDefinitions="Auto,*"
                       ColumnSpacing="8">
-                    <TextBlock Text="&#xE71A;"
-                               FontFamily="Segoe MDL2 Assets"
-                               FontSize="14"
-                               VerticalAlignment="Center"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <FontIcon Glyph="&#xE721;"
+                              FontSize="14"
+                              VerticalAlignment="Center"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <TextBox x:Name="FilterBox"
                              Grid.Column="1"
-                             PlaceholderText="搜索当前季番剧…"
+                             PlaceholderText="搜索本季番剧"
                              BorderThickness="0"
                              Background="Transparent"
                              FontSize="14"
@@ -51,21 +54,19 @@
                       x:Name="RootScrollViewer">
             <StackPanel>
 
-                <!-- 空状态提示 -->
                 <StackPanel x:Name="EmptyState"
                             Visibility="Collapsed"
                             HorizontalAlignment="Center"
                             Margin="0,40,0,0">
-                    <Image Source="ms-appx:///Assets/Empty_anime.png"
-                           Width="120"
-                           Height="120"
-                           Stretch="Uniform"
-                           HorizontalAlignment="Center"/>
+                    <FontIcon Glyph="&#xE11A;"
+                              Style="{StaticResource AniMeidoEmptyStateIconStyle}"/>
                     <TextBlock Text="当季暂无新番数据"
-                               FontSize="16"
-                               Foreground="{ThemeResource AniMeidoMutedTextBrush}"
+                               FontWeight="SemiBold"
                                HorizontalAlignment="Center"
                                Margin="0,12,0,0"/>
+                    <TextBlock Text="稍后刷新，或检查网络和 Bangumi 数据源"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               HorizontalAlignment="Center"/>
                 </StackPanel>
 
                 <!-- 按星期分组展示当季番剧 -->
@@ -73,14 +74,13 @@
                               ItemsSource="{x:Bind ViewModel.WeekdayGroups}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:WeekdayGroup">
-                            <Border Background="{ThemeResource SolidBackgroundFillColorSecondary}"
-                                    CornerRadius="8"
+                            <Border Style="{StaticResource AniMeidoContentCardStyle}"
                                     Margin="0,0,0,12"
-                                    Padding="12">
+                                    Padding="16">
                                 <StackPanel>
                                     <TextBlock Text="{x:Bind WeekdayName}"
-                                               Style="{StaticResource SubtitleTextBlockStyle}"
-                                               Margin="0,0,0,8"/>
+                                               Style="{StaticResource AniMeidoSectionTitleStyle}"
+                                               Margin="0,0,0,12"/>
                                     <GridView ItemsSource="{x:Bind Items}"
                                               SelectionMode="None"
                                               ScrollViewer.HorizontalScrollMode="Disabled"

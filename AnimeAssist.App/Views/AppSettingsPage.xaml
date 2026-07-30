@@ -8,12 +8,15 @@
     mc:Ignorable="d">
 
     <ScrollViewer>
-        <StackPanel Padding="24,16"
+        <StackPanel Padding="0,0,4,24"
                     Spacing="16">
 
-            <TextBlock Text="App 设置"
-                       FontSize="24"
-                       FontWeight="Bold"/>
+            <StackPanel Spacing="2">
+                <TextBlock Text="App 设置"
+                           Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                <TextBlock Text="外观、桌面集成与可安装插件"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            </StackPanel>
 
             <!-- 主题设置卡片 -->
             <Border Background="{ThemeResource CardBackgroundFillColorDefault}"

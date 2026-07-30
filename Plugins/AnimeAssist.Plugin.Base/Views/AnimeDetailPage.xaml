@@ -21,6 +21,7 @@
         <!-- 错误提示 -->
         <InfoBar x:Name="ErrorInfoBar"
                  Grid.Row="0"
+                 Margin="24,16,24,0"
                  Severity="Error"
                  IsClosable="True"
                  IsOpen="False"/>
@@ -28,20 +29,21 @@
         <!-- 内容区域 -->
         <ScrollViewer Grid.Row="1"
                       x:Name="ContentScrollViewer">
-            <Grid Padding="32">
+            <Grid Padding="24,20,24,24">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"
-                                      MaxWidth="400"/>
+                    <ColumnDefinition Width="300"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
                 <!-- 左列：封面图 -->
                 <Border Grid.Column="0"
                         CornerRadius="12"
-                        Margin="0,0,32,0"
-                        MaxWidth="400"
+                        Margin="0,0,24,0"
+                        Width="300"
+                        MaxHeight="440"
                         VerticalAlignment="Top"
-                        Background="{ThemeResource CardBackgroundFillColorDefault}">
+                        Style="{StaticResource AniMeidoCardStyle}"
+                        Padding="0">
                     <Image x:Name="DetailCoverImage"
                            Source="{Binding AnimeDetail.CoverURL}"
                            Stretch="Uniform"
@@ -50,36 +52,35 @@
 
                 <!-- 右列：信息 -->
                 <StackPanel Grid.Column="1"
-                            Spacing="12">
+                            Spacing="16">
 
                     <!-- 标题 -->
                     <TextBlock Text="{Binding AnimeDetail.Title}"
-                               FontSize="26"
-                               FontWeight="Bold"
+                               Style="{StaticResource AniMeidoPageTitleStyle}"
                                TextWrapping="Wrap"/>
 
-                    <Button x:Name="OnlinePlayButton"
-                            Click="OnOnlinePlayClick"
-                            IsEnabled="{Binding HasData}"
-                            Visibility="Collapsed"
-                            HorizontalAlignment="Left"
-                            Padding="16,8">
-                        <StackPanel Orientation="Horizontal"
-                                    Spacing="6">
-                            <FontIcon Glyph="&#xE768;"/>
-                            <TextBlock Text="在线播放"/>
-                        </StackPanel>
-                    </Button>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="OnlinePlayButton"
+                                Click="OnOnlinePlayClick"
+                                IsEnabled="{Binding HasData}"
+                                Visibility="Collapsed"
+                                Style="{StaticResource AccentButtonStyle}"
+                                Padding="16,8">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE768;"/>
+                                <TextBlock Text="在线播放"/>
+                            </StackPanel>
+                        </Button>
 
-                    <Button Click="OnPersonalArchiveClick"
-                            IsEnabled="{Binding HasData}"
-                            HorizontalAlignment="Left"
-                            Padding="16,8">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon Glyph="&#xE8F1;"/>
-                            <TextBlock Text="个人档案"/>
-                        </StackPanel>
-                    </Button>
+                        <Button Click="OnPersonalArchiveClick"
+                                IsEnabled="{Binding HasData}"
+                                Padding="16,8">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE8F1;"/>
+                                <TextBlock Text="个人档案"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
 
                     <!-- 制作/原作 -->
                     <TextBlock x:Name="DetailStudio"
@@ -102,24 +103,24 @@
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                Visibility="Collapsed"/>
 
-                    <!-- 分割线 -->
-                    <Border Height="1"
-                            Background="{ThemeResource DividerStrokeColorDefault}"/>
-
                     <!-- 简介 -->
-                    <TextBlock Text="{Binding AnimeDetail.Description}"
-                               FontSize="15"
-                               TextWrapping="Wrap"
-                               LineHeight="24">
-                    </TextBlock>
+                    <Border Style="{StaticResource AniMeidoContentCardStyle}">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="简介"
+                                       Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                            <TextBlock Text="{Binding AnimeDetail.Description}"
+                                       FontSize="15"
+                                       TextWrapping="Wrap"
+                                       LineHeight="24"/>
+                        </StackPanel>
+                    </Border>
 
                     <!-- 角色区 -->
                     <StackPanel x:Name="CharacterSection"
                                 Visibility="Collapsed"
                                 Spacing="8">
                         <TextBlock Text="角色"
-                                   FontSize="16"
-                                   FontWeight="SemiBold"/>
+                                   Style="{StaticResource AniMeidoSectionTitleStyle}"/>
                         <ScrollViewer HorizontalScrollMode="Auto"
                                       VerticalScrollMode="Disabled"
                                       HorizontalScrollBarVisibility="Hidden">
@@ -149,7 +150,7 @@
                                     BorderThickness="1"
                                     Command="{Binding ElementName=RootPage, Path=ViewModel.SetTrackingStatusCommand}"
                                     CommandParameter="{x:Bind Status}"
-                                    CornerRadius="6"
+                                    CornerRadius="8"
                                     IsChecked="{x:Bind IsSelected, Mode=OneWay}"
                                     IsEnabled="{Binding ElementName=RootPage, Path=ViewModel.HasData}"
                                     Visibility="{x:Bind local:AnimeDetailPage.BooleanToVisibility(IsVisible), Mode=OneWay}">
@@ -180,8 +181,7 @@
 
                     <!-- 标签区域 -->
                     <TextBlock Text="Bangumi 标签"
-                               FontSize="13"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                               Style="{StaticResource AniMeidoSectionTitleStyle}"/>
                     <StackPanel x:Name="TagContainer"
                                 Orientation="Horizontal"
                                 Visibility="Collapsed">
@@ -193,10 +193,7 @@
 
                     <!-- Bangumi 百科入口 -->
                     <Border x:Name="BangumiCard"
-                            Background="{ThemeResource CardBackgroundFillColorDefault}"
-                            CornerRadius="8"
-                            BorderBrush="{ThemeResource ControlStrokeColorDefault}"
-                            BorderThickness="1"
+                            Style="{StaticResource AniMeidoContentCardStyle}"
                             Padding="14,10"
                             IsTapEnabled="True"
                             Tapped="OnBangumiCardTapped"

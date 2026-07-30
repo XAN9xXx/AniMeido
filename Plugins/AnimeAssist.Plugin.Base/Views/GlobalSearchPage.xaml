@@ -7,18 +7,25 @@
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
     <Grid x:Name="RootGrid"
+          Padding="24,20,24,24"
           Loaded="OnPageLoaded">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- 搜索栏 -->
-        <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
-                CornerRadius="8"
-                Margin="24,16,24,0"
-                Padding="16,12">
+        <StackPanel Spacing="2">
+            <TextBlock Text="搜索"
+                       Style="{StaticResource AniMeidoPageTitleStyle}"/>
+            <TextBlock Text="从 Bangumi 查找番剧，并加入你的追番与档案"
+                       Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
+        </StackPanel>
+
+        <Border Grid.Row="1"
+                Style="{StaticResource AniMeidoToolbarStyle}"
+                Margin="0,16,0,0">
             <StackPanel Spacing="8">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -26,12 +33,13 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <TextBox x:Name="SearchBox"
-                             PlaceholderText="搜索番剧..."
+                             PlaceholderText="输入番剧名称"
                              FontSize="16"
                              VerticalAlignment="Center"
                              KeyDown="OnSearchKeyDown"/>
                     <Button Grid.Column="1"
                             Content="搜索"
+                            Style="{StaticResource AccentButtonStyle}"
                             Click="OnSearchClick"
                             Margin="8,0,0,0"
                             VerticalAlignment="Center"/>
@@ -43,8 +51,8 @@
         </Border>
 
         <!-- 结果列表 -->
-        <ScrollViewer Grid.Row="1"
-                      Margin="24,12,24,0">
+        <ScrollViewer Grid.Row="2"
+                      Margin="0,12,0,0">
             <GridView x:Name="ResultGrid"
                       SelectionMode="None"
                       ScrollViewer.VerticalScrollBarVisibility="Hidden"
@@ -75,11 +83,9 @@
         </ScrollViewer>
 
         <!-- 翻页栏 -->
-        <Border Grid.Row="2"
-                Background="{ThemeResource CardBackgroundFillColorDefault}"
-                CornerRadius="8"
-                Margin="24,8,24,16"
-                Padding="12,8"
+        <Border Grid.Row="3"
+                Style="{StaticResource AniMeidoToolbarStyle}"
+                Margin="0,8,0,0"
                 Visibility="Collapsed"
                 x:Name="PaginationBar">
             <StackPanel Orientation="Horizontal"
@@ -98,7 +104,7 @@
         </Border>
 
         <!-- 加载覆盖层 -->
-        <Grid Grid.RowSpan="3"
+        <Grid Grid.RowSpan="4"
               x:Name="LoadingOverlay"
               Visibility="Collapsed"
               Background="{ThemeResource AniMeidoOverlayScrimBrush}">
@@ -119,7 +125,7 @@
         </Grid>
 
         <!-- 拖放覆盖层 -->
-        <Canvas Grid.RowSpan="3"
+        <Canvas Grid.RowSpan="4"
                 x:Name="DragOverlay"
                 Visibility="Collapsed"
                 Background="Transparent"

@@ -11,6 +11,8 @@
     xmlns:contracts="using:AniMeido.Contracts.Models">
 
     <Grid AllowDrop="True"
+          Padding="24,20,24,24"
+          Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
           Loaded="OnPageLoaded">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -26,21 +28,24 @@
                  Margin="0,0,0,12"/>
         <!-- 固定顶部区域：搜索过滤 + 年份季度选择器 -->
         <StackPanel Grid.Row="0"
-                    Margin="0,0,0,12"
-                    Spacing="8">
+                    Margin="0,0,0,16"
+                    Spacing="12">
+            <StackPanel Spacing="2">
+                <TextBlock Text="番剧库"
+                           Style="{StaticResource AniMeidoPageTitleStyle}"/>
+                <TextBlock Text="按年份和季度回顾历季动画"
+                           Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
+            </StackPanel>
             <!-- 搜索过滤 -->
             <Border x:Name="FilterCard"
-                    Background="{ThemeResource CardBackgroundFillColorDefault}"
-                    CornerRadius="8"
-                    Padding="12,6"
+                    Style="{StaticResource AniMeidoToolbarStyle}"
                     Visibility="Collapsed">
                 <Grid ColumnDefinitions="Auto,*"
                       ColumnSpacing="8">
-                    <TextBlock Text="&#xE71A;"
-                               FontFamily="Segoe MDL2 Assets"
-                               FontSize="14"
-                               VerticalAlignment="Center"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <FontIcon Glyph="&#xE721;"
+                              FontSize="14"
+                              VerticalAlignment="Center"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <TextBox x:Name="FilterBox"
                              Grid.Column="1"
                              PlaceholderText="搜索当前列表…"
@@ -51,18 +56,21 @@
                 </Grid>
             </Border>
             <!-- 年份季度选择器 (固定) -->
-            <Border Background="{ThemeResource SolidBackgroundFillColorSecondary}"
-                    CornerRadius="8"
-                    Padding="12">
-                <StackPanel Orientation="Horizontal"
-                            Spacing="12">
+            <Border Style="{StaticResource AniMeidoToolbarStyle}">
+                <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="12">
                     <ComboBox x:Name="YearComboBox"
                               Header="年份"
-                              Width="120"/>
+                              Width="140"/>
                     <ComboBox x:Name="SeasonComboBox"
+                              Grid.Column="1"
                               Header="季度"
-                              Width="120"/>
-                </StackPanel>
+                              Width="140"/>
+                    <TextBlock Grid.Column="2"
+                               Text="选择季度后自动加载"
+                               VerticalAlignment="Bottom"
+                               Margin="0,0,0,8"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </Grid>
             </Border>
         </StackPanel>
         <!-- 内容区域 -->
@@ -72,10 +80,8 @@
 
                 <!-- 统计信息 -->
                 <Border x:Name="StatsCard"
-                        Background="{ThemeResource SolidBackgroundFillColorSecondary}"
-                        CornerRadius="8"
+                        Style="{StaticResource AniMeidoContentCardStyle}"
                         Margin="0,0,0,12"
-                        Padding="16"
                         Visibility="Collapsed">
                     <StackPanel Orientation="Horizontal"
                                 Spacing="6">
@@ -97,14 +103,10 @@
                             Visibility="Collapsed"
                             HorizontalAlignment="Center"
                             Margin="0,40,0,0">
-                    <Image Source="ms-appx:///Assets/Empty_anime.png"
-                           Width="120"
-                           Height="120"
-                           Stretch="Uniform"
-                           HorizontalAlignment="Center"/>
+                    <FontIcon Glyph="&#xE11A;"
+                              Style="{StaticResource AniMeidoEmptyStateIconStyle}"/>
                     <TextBlock Text="该季度暂无番剧数据"
-                               FontSize="16"
-                               Foreground="{ThemeResource AniMeidoMutedTextBrush}"
+                               FontWeight="SemiBold"
                                HorizontalAlignment="Center"
                                Margin="0,12,0,0"/>
                 </StackPanel>

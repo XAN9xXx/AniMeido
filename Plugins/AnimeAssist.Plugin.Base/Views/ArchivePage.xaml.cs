@@ -35,8 +35,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         InitializeComponent();
         StatusFilter.SelectedIndex = 0;
         ReviewYear.Value = DateTime.Now.Year;
-        SectionNavigation.SelectedItem =
-            SectionNavigation.MenuItems[0];
+        ShowPanel("archives");
     }
 
     public async Task OnNavigatedToAsync(object? parameter)
@@ -56,8 +55,6 @@ public sealed partial class ArchivePage : Page, INavigationAware
         }
         if (_requestedScreenshotId is not null)
         {
-            SectionNavigation.SelectedItem =
-                SectionNavigation.MenuItems[3];
             ShowPanel("screenshots");
             ScreenshotList.SelectedItem = ScreenshotList.Items
                 .OfType<AnimeScreenshot>()
@@ -201,7 +198,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         var year = double.IsNaN(ArchiveYearFilter.Value)
             ? null
             : (int?)ArchiveYearFilter.Value;
-        ArchiveList.ItemsSource = _allArchives.Where(item =>
+        var filteredArchives = _allArchives.Where(item =>
             item.TrackingStatus
                 != AniMeido.Contracts.Models.AnimeTrackingStatus.Blocked
             && (string.IsNullOrWhiteSpace(filter)
@@ -217,6 +214,19 @@ public sealed partial class ArchivePage : Page, INavigationAware
             && (year is null
                 || item.Archive.CreatedAt.ToLocalTime().Year == year))
             .ToList();
+        ArchiveList.ItemsSource = filteredArchives;
+        ArchiveResultCount.Text = $"{filteredArchives.Count} 部";
+        ArchiveListEmptyState.Visibility = filteredArchives.Count == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        if (_selectedArchive is not null
+            && filteredArchives.All(item =>
+                item.Archive.AnimeId
+                    != _selectedArchive.Archive.AnimeId))
+        {
+            ArchiveList.SelectedItem = null;
+        }
     }
 
     private async void OnRefreshClick(object sender, RoutedEventArgs e)
@@ -237,6 +247,17 @@ public sealed partial class ArchivePage : Page, INavigationAware
         NumberBoxValueChangedEventArgs args)
         => ApplyArchiveFilter();
 
+    private void OnClearArchiveFiltersClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        ArchiveFilter.Text = string.Empty;
+        StatusFilter.SelectedIndex = 0;
+        MinimumRatingFilter.Value = double.NaN;
+        ArchiveYearFilter.Value = double.NaN;
+        ApplyArchiveFilter();
+    }
+
     private async void OnArchiveSelectionChanged(
         object sender,
         SelectionChangedEventArgs e)
@@ -244,9 +265,16 @@ public sealed partial class ArchivePage : Page, INavigationAware
         _selectedArchive = ArchiveList.SelectedItem as ArchiveListItem;
         if (_selectedArchive is null)
         {
+            ArchiveSelectionEmptyState.Visibility = Visibility.Visible;
+            ArchiveDetailPanel.Visibility = Visibility.Collapsed;
+            EntryList.ItemsSource = null;
+            WatchHistoryList.ItemsSource = null;
+            UpdateEntryActions();
             return;
         }
 
+        ArchiveSelectionEmptyState.Visibility = Visibility.Collapsed;
+        ArchiveDetailPanel.Visibility = Visibility.Visible;
         ArchiveTitle.Text = _selectedArchive.Archive.TitleSnapshot;
         RatingBox.Value =
             _selectedArchive.Archive.PersonalRating ?? double.NaN;
@@ -256,6 +284,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
             _selectedArchive.Archive.AnimeId);
         WatchHistoryList.ItemsSource = await _archive.GetWatchHistoryAsync(
             _selectedArchive.Archive.AnimeId);
+        UpdateEntryActions();
     }
 
     private async void OnSaveArchiveClick(
@@ -270,6 +299,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
 
         try
         {
+            var selectedAnimeId = _selectedArchive.Archive.AnimeId;
             double? rating = double.IsNaN(RatingBox.Value)
                 ? null
                 : RatingBox.Value;
@@ -282,6 +312,10 @@ public sealed partial class ArchivePage : Page, INavigationAware
                 _selectedArchive.Archive.AnimeId,
                 SplitTags(TagsBox.Text));
             await LoadAsync();
+            ArchiveList.SelectedItem = ArchiveList.Items
+                .OfType<ArchiveListItem>()
+                .FirstOrDefault(item =>
+                    item.Archive.AnimeId == selectedAnimeId);
             ShowStatus("档案已保存。", InfoBarSeverity.Success);
         }
         catch (ArgumentOutOfRangeException ex)
@@ -479,11 +513,23 @@ public sealed partial class ArchivePage : Page, INavigationAware
         }
     }
 
-    private void OnSectionChanged(
-        NavigationView sender,
-        NavigationViewSelectionChangedEventArgs args)
+    private void OnEntrySelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+        => UpdateEntryActions();
+
+    private void UpdateEntryActions()
     {
-        if (args.SelectedItemContainer?.Tag is string tag)
+        var hasSelection = EntryList.SelectedItem is ArchiveEntry;
+        EditEntryButton.IsEnabled = hasSelection;
+        DeleteEntryButton.IsEnabled = hasSelection;
+    }
+
+    private void OnSectionButtonClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string tag })
         {
             ShowPanel(tag);
         }
@@ -499,6 +545,21 @@ public sealed partial class ArchivePage : Page, INavigationAware
             tag == "review" ? Visibility.Visible : Visibility.Collapsed;
         ScreenshotsPanel.Visibility =
             tag == "screenshots" ? Visibility.Visible : Visibility.Collapsed;
+        ArchivesSectionButton.IsChecked = tag == "archives";
+        StatisticsSectionButton.IsChecked = tag == "statistics";
+        ReviewSectionButton.IsChecked = tag == "review";
+        ScreenshotsSectionButton.IsChecked = tag == "screenshots";
+    }
+
+    private void OnShowScreenshotMoreActionsClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element)
+        {
+            Microsoft.UI.Xaml.Controls.Primitives.FlyoutBase
+                .ShowAttachedFlyout(element);
+        }
     }
 
     private async void OnReviewYearChanged(

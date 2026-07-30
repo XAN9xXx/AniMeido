@@ -185,4 +185,80 @@
                                          Color="#B0333333"/>
                 </ResourceDictionary>
         </ResourceDictionary.ThemeDictionaries>
+
+        <!-- ========= Shared layout and component styles ========= -->
+        <Style x:Key="AniMeidoPageTitleStyle"
+               TargetType="TextBlock"
+               BasedOn="{StaticResource TitleTextBlockStyle}">
+                <Setter Property="FontSize" Value="28"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
+        <Style x:Key="AniMeidoPageSubtitleStyle"
+               TargetType="TextBlock"
+               BasedOn="{StaticResource BodyTextBlockStyle}">
+                <Setter Property="Foreground"
+                        Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </Style>
+
+        <Style x:Key="AniMeidoSectionTitleStyle"
+               TargetType="TextBlock"
+               BasedOn="{StaticResource SubtitleTextBlockStyle}">
+                <Setter Property="FontSize" Value="18"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
+        <Style x:Key="AniMeidoCardStyle"
+               TargetType="Border">
+                <Setter Property="Background"
+                        Value="{ThemeResource CardBackgroundFillColorDefault}"/>
+                <Setter Property="BorderBrush"
+                        Value="{ThemeResource ControlStrokeColorDefault}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CornerRadius" Value="12"/>
+                <Setter Property="Padding" Value="16"/>
+        </Style>
+
+        <Style x:Key="AniMeidoSectionTabStyle"
+               TargetType="ToggleButton">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="CornerRadius" Value="6"/>
+                <Setter Property="Padding" Value="12,8"/>
+                <Setter Property="MinHeight" Value="40"/>
+        </Style>
+
+        <Style x:Key="AniMeidoEmptyStateIconStyle"
+               TargetType="FontIcon">
+                <Setter Property="FontSize" Value="36"/>
+                <Setter Property="Foreground"
+                        Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </Style>
+
+        <Style x:Key="AniMeidoToolbarStyle"
+               TargetType="Border"
+               BasedOn="{StaticResource AniMeidoCardStyle}">
+                <Setter Property="Padding" Value="12"/>
+                <Setter Property="CornerRadius" Value="10"/>
+        </Style>
+
+        <Style x:Key="AniMeidoContentCardStyle"
+               TargetType="Border"
+               BasedOn="{StaticResource AniMeidoCardStyle}">
+                <Setter Property="Padding" Value="16"/>
+        </Style>
+
+        <Style x:Key="AniMeidoDangerButtonStyle"
+               TargetType="Button">
+                <Setter Property="Foreground"
+                        Value="{ThemeResource SystemFillColorCriticalBrush}"/>
+        </Style>
+
+        <Style x:Key="AniMeidoListItemStyle"
+               TargetType="ListViewItem">
+                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                <Setter Property="Padding" Value="4"/>
+                <Setter Property="Margin" Value="0,0,0,4"/>
+                <Setter Property="CornerRadius" Value="8"/>
+        </Style>
 </ResourceDictionary>

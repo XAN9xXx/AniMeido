@@ -20,8 +20,17 @@
                         PaneDisplayMode="Left"
                         IsBackButtonVisible="Collapsed"
                         IsPaneToggleButtonVisible="False"
-                        OpenPaneLength="130"
-                        Margin="0,30,0,0">
+                        CompactPaneLength="48"
+                        OpenPaneLength="164"
+                        Margin="0,32,0,0">
+
+            <NavigationView.Resources>
+                <Style TargetType="NavigationViewItem">
+                    <Setter Property="MinHeight" Value="48"/>
+                    <Setter Property="CornerRadius" Value="8"/>
+                    <Setter Property="FontSize" Value="14"/>
+                </Style>
+            </NavigationView.Resources>
 
             <Frame x:Name="ContentFrame"/>
 
@@ -29,10 +38,10 @@
 
         <!-- 标题栏 -->
         <Grid x:Name="AppTitleBar"
-              Height="32"
+              Height="33"
               VerticalAlignment="Top"
               IsHitTestVisible="True"
-              Background="{ThemeResource SolidBackgroundFillColorBase}"
+              Background="Transparent"
               Margin="0,-1,0,0">
             <Rectangle Height="1"
                        VerticalAlignment="Bottom"
@@ -44,7 +53,7 @@
                     FontFamily="Segoe MDL2 Assets"
                     FontSize="14"
                     Width="48"
-                    Height="32"
+                    Height="33"
                     HorizontalAlignment="Left"
                     VerticalAlignment="Center"
                     Background="Transparent"

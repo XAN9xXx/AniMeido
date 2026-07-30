@@ -8,17 +8,16 @@
     mc:Ignorable="d">
 
     <ScrollViewer>
-        <StackPanel Padding="24"
+        <StackPanel Padding="0,0,4,24"
                     Spacing="16">
 
-            <TextBlock Text="拖放标记"
-                       FontSize="20"
-                       FontWeight="Bold"/>
-
-            <TextBlock Text="在预览区拖拽区域可移动位置，拖拽右下角手柄调整大小，点击区域切换动作。可添加或删除区域。"
-                       FontSize="14"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                       TextWrapping="WrapWholeWords"/>
+            <StackPanel Spacing="2">
+                <TextBlock Text="拖放标记"
+                           Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                <TextBlock Text="拖动区域调整位置，拖动右下角改变大小；点击区域可切换动作。"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="WrapWholeWords"/>
+            </StackPanel>
 
             <!-- 可视化预览区 -->
             <Border x:Name="PreviewBorder"

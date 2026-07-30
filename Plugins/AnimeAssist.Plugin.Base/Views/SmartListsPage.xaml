@@ -7,108 +7,144 @@
     xmlns:models="using:AniMeido.Plugin.Base.Models"
     xmlns:vm="using:AniMeido.Plugin.Base.ViewModels">
 
-    <Grid ColumnDefinitions="280,*" ColumnSpacing="16">
-        <StackPanel Spacing="10">
+    <Grid Padding="24,20,24,24"
+          RowDefinitions="Auto,*"
+          RowSpacing="16"
+          Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <StackPanel Spacing="2">
             <TextBlock Text="智能列表"
-                       Style="{StaticResource TitleTextBlockStyle}"/>
-            <ListView ItemsSource="{x:Bind ViewModel.Definitions}"
-                      SelectedItem="{x:Bind ViewModel.SelectedDefinition, Mode=TwoWay}">
-                <ListView.ItemTemplate>
-                    <DataTemplate x:DataType="models:SmartListDefinition">
-                        <TextBlock Text="{x:Bind Name}"/>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
-            <Button Content="新建"
-                    Click="OnNewClick"/>
-            <Button Content="删除所选"
-                    Command="{x:Bind ViewModel.DeleteCommand}"/>
+                       Style="{StaticResource AniMeidoPageTitleStyle}"/>
+            <TextBlock Text="用可视化条件组合出会自动更新的番剧列表"
+                       Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
         </StackPanel>
 
-        <ScrollViewer Grid.Column="1">
-            <StackPanel Spacing="12" Padding="0,0,0,24">
+        <Grid Grid.Row="1"
+              ColumnDefinitions="300,*"
+              ColumnSpacing="16">
+            <Border Style="{StaticResource AniMeidoContentCardStyle}">
+                <Grid RowDefinitions="Auto,*,Auto" RowSpacing="12">
+                    <TextBlock Text="已保存列表"
+                               Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                    <ListView Grid.Row="1"
+                              ItemsSource="{x:Bind ViewModel.Definitions}"
+                              SelectedItem="{x:Bind ViewModel.SelectedDefinition, Mode=TwoWay}"
+                              ItemContainerStyle="{StaticResource AniMeidoListItemStyle}">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="models:SmartListDefinition">
+                                <TextBlock Text="{x:Bind Name}" Padding="8"/>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <StackPanel Grid.Row="2"
+                                Orientation="Horizontal"
+                                Spacing="8">
+                        <Button Content="新建"
+                                Style="{StaticResource AccentButtonStyle}"
+                                Click="OnNewClick"/>
+                        <Button Content="删除所选"
+                                Style="{StaticResource AniMeidoDangerButtonStyle}"
+                                Command="{x:Bind ViewModel.DeleteCommand}"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <ScrollViewer Grid.Column="1">
+                <StackPanel Spacing="16" Padding="0,0,4,4">
                 <InfoBar x:Name="ErrorInfoBar"
                          Severity="Error"
                          IsClosable="True"/>
-                <TextBox Header="名称"
-                         Text="{x:Bind ViewModel.Name, Mode=TwoWay}"/>
-                <Grid ColumnDefinitions="*,*,*,Auto" ColumnSpacing="8">
-                    <ComboBox Header="根条件组"
-                              ItemsSource="{x:Bind ViewModel.GroupModes}"
-                              SelectedItem="{x:Bind ViewModel.RootMode, Mode=TwoWay}"/>
-                    <ComboBox Grid.Column="1"
-                              Header="第二层条件组"
-                              ItemsSource="{x:Bind ViewModel.GroupModes}"
-                              SelectedItem="{x:Bind ViewModel.NestedMode, Mode=TwoWay}"/>
-                    <ComboBox Grid.Column="2"
-                              Header="排序"
-                              ItemsSource="{x:Bind ViewModel.Fields}"
-                              SelectedItem="{x:Bind ViewModel.SortField, Mode=TwoWay}"/>
-                    <CheckBox Grid.Column="3"
-                              Content="降序"
-                              IsChecked="{x:Bind ViewModel.SortDescending, Mode=TwoWay}"
-                              VerticalAlignment="Bottom"
-                              Margin="0,0,0,8"/>
-                </Grid>
-
-                <ItemsControl ItemsSource="{x:Bind ViewModel.Conditions}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:SmartConditionEditor">
-                            <Grid ColumnDefinitions="100,*,*,2*,Auto"
-                                  ColumnSpacing="8"
-                                  Margin="0,0,0,8">
-                                <NumberBox Value="{x:Bind GroupDepth, Mode=TwoWay}"
-                                           Minimum="0"
-                                           Maximum="1"
-                                           Header="层级"/>
+                    <Border Style="{StaticResource AniMeidoContentCardStyle}">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="规则编辑器"
+                                       Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                            <TextBox Header="名称"
+                                     Text="{x:Bind ViewModel.Name, Mode=TwoWay}"/>
+                            <Grid ColumnDefinitions="*,*,*,Auto" ColumnSpacing="8">
+                                <ComboBox Header="根条件组"
+                                          ItemsSource="{x:Bind ViewModel.GroupModes}"
+                                          SelectedItem="{x:Bind ViewModel.RootMode, Mode=TwoWay}"/>
                                 <ComboBox Grid.Column="1"
-                                          Header="字段"
-                                          ItemsSource="{Binding ViewModel.Fields, ElementName=RootPage}"
-                                          SelectedItem="{x:Bind Field, Mode=TwoWay}"/>
+                                          Header="第二层条件组"
+                                          ItemsSource="{x:Bind ViewModel.GroupModes}"
+                                          SelectedItem="{x:Bind ViewModel.NestedMode, Mode=TwoWay}"/>
                                 <ComboBox Grid.Column="2"
-                                          Header="运算符"
-                                          ItemsSource="{Binding ViewModel.Operators, ElementName=RootPage}"
-                                          SelectedItem="{x:Bind Operator, Mode=TwoWay}"/>
-                                <TextBox Grid.Column="3"
-                                         Header="值"
-                                         Text="{x:Bind Value, Mode=TwoWay}"/>
-                                <Button Grid.Column="4"
-                                        Content="删除"
-                                        VerticalAlignment="Bottom"
-                                        Command="{Binding ViewModel.RemoveConditionCommand, ElementName=RootPage}"
-                                        CommandParameter="{Binding}"/>
+                                          Header="排序"
+                                          ItemsSource="{x:Bind ViewModel.Fields}"
+                                          SelectedItem="{x:Bind ViewModel.SortField, Mode=TwoWay}"/>
+                                <CheckBox Grid.Column="3"
+                                          Content="降序"
+                                          IsChecked="{x:Bind ViewModel.SortDescending, Mode=TwoWay}"
+                                          VerticalAlignment="Bottom"
+                                          Margin="0,0,0,8"/>
                             </Grid>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
 
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button Content="添加条件"
-                            Command="{x:Bind ViewModel.AddConditionCommand}"/>
-                    <Button Content="预览"
-                            Command="{x:Bind ViewModel.EvaluateCommand}"/>
-                    <Button Content="保存"
-                            Command="{x:Bind ViewModel.SaveCommand}"
-                            Style="{StaticResource AccentButtonStyle}"/>
+                            <ItemsControl ItemsSource="{x:Bind ViewModel.Conditions}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:SmartConditionEditor">
+                                        <Grid ColumnDefinitions="100,*,*,2*,Auto"
+                                              ColumnSpacing="8"
+                                              Margin="0,0,0,8">
+                                            <NumberBox Value="{x:Bind GroupDepth, Mode=TwoWay}"
+                                                       Minimum="0"
+                                                       Maximum="1"
+                                                       Header="层级"/>
+                                            <ComboBox Grid.Column="1"
+                                                      Header="字段"
+                                                      ItemsSource="{Binding ViewModel.Fields, ElementName=RootPage}"
+                                                      SelectedItem="{x:Bind Field, Mode=TwoWay}"/>
+                                            <ComboBox Grid.Column="2"
+                                                      Header="运算符"
+                                                      ItemsSource="{Binding ViewModel.Operators, ElementName=RootPage}"
+                                                      SelectedItem="{x:Bind Operator, Mode=TwoWay}"/>
+                                            <TextBox Grid.Column="3"
+                                                     Header="值"
+                                                     Text="{x:Bind Value, Mode=TwoWay}"/>
+                                            <Button Grid.Column="4"
+                                                    Content="删除"
+                                                    Style="{StaticResource AniMeidoDangerButtonStyle}"
+                                                    VerticalAlignment="Bottom"
+                                                    Command="{Binding ViewModel.RemoveConditionCommand, ElementName=RootPage}"
+                                                    CommandParameter="{Binding}"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Content="添加条件"
+                                        Command="{x:Bind ViewModel.AddConditionCommand}"/>
+                                <Button Content="预览"
+                                        Command="{x:Bind ViewModel.EvaluateCommand}"/>
+                                <Button Content="保存"
+                                        Command="{x:Bind ViewModel.SaveCommand}"
+                                        Style="{StaticResource AccentButtonStyle}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource AniMeidoContentCardStyle}">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="预览结果"
+                                       Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                            <ListView ItemsSource="{x:Bind ViewModel.Results}"
+                                      IsItemClickEnabled="True"
+                                      ItemClick="OnResultClick"
+                                      ItemContainerStyle="{StaticResource AniMeidoListItemStyle}">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="models:SmartListCandidate">
+                                        <Grid ColumnDefinitions="*,Auto" Padding="8">
+                                            <TextBlock Text="{x:Bind Title}"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{x:Bind PlaybackSummary}"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
-
-                <TextBlock Text="结果"
-                           Style="{StaticResource SubtitleTextBlockStyle}"/>
-                <ListView ItemsSource="{x:Bind ViewModel.Results}"
-                          IsItemClickEnabled="True"
-                          ItemClick="OnResultClick">
-                    <ListView.ItemTemplate>
-                        <DataTemplate x:DataType="models:SmartListCandidate">
-                            <Grid ColumnDefinitions="*,Auto" Padding="8">
-                                <TextBlock Text="{x:Bind Title}"/>
-                                <TextBlock Grid.Column="1"
-                                           Text="{x:Bind PlaybackSummary}"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            </Grid>
-                        </DataTemplate>
-                    </ListView.ItemTemplate>
-                </ListView>
-            </StackPanel>
-        </ScrollViewer>
+            </ScrollViewer>
+        </Grid>
     </Grid>
 </Page>

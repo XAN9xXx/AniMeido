@@ -13,7 +13,9 @@
     <Grid Width="150"
           Margin="6">
         <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
-                CornerRadius="8"
+                BorderBrush="{ThemeResource ControlStrokeColorDefault}"
+                BorderThickness="1"
+                CornerRadius="10"
                 Translation="0,0,32">
             <Grid>
                 <Grid.RowDefinitions>
@@ -24,7 +26,7 @@
                 <!-- 封面图片 + 重试加载环 -->
                 <Grid Grid.Row="0"
                       Height="200">
-                    <Border CornerRadius="8,8,0,0"
+                    <Border CornerRadius="10,10,0,0"
                             Height="200">
                         <Border.Clip>
                             <RectangleGeometry Rect="0,0,150,200"/>
@@ -51,7 +53,7 @@
                 <!-- 星期放送角标（补番页使用，默认隐藏） -->
                 <Border x:Name="WeekdayBadge"
                         Background="{ThemeResource SystemAccentColor}"
-                        CornerRadius="0,0,8,0"
+                        CornerRadius="0,0,10,0"
                         Padding="8,4"
                         HorizontalAlignment="Left"
                         VerticalAlignment="Top"
@@ -66,7 +68,7 @@
                 <!-- 评分角标（封面右下角） -->
                 <Border x:Name="ScoreBadge"
                         Background="{ThemeResource SystemAccentColor}"
-                        CornerRadius="8,0,0,0"
+                        CornerRadius="10,0,0,0"
                         Padding="6,3"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Bottom"

@@ -7,19 +7,29 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Grid Padding="24">
+    <Grid Padding="24,20,24,24"
+          RowDefinitions="Auto,*"
+          RowSpacing="16"
+          Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="160"/>
+            <ColumnDefinition Width="220"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
+        <StackPanel Grid.ColumnSpan="2" Spacing="2">
+            <TextBlock Text="设置"
+                       Style="{StaticResource AniMeidoPageTitleStyle}"/>
+            <TextBlock Text="管理应用、插件和基础功能"
+                       Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
+        </StackPanel>
+
         <!-- 左侧导航 -->
-        <StackPanel Grid.Column="0"
+        <StackPanel Grid.Row="1"
+                    Grid.Column="0"
                     Margin="0,0,16,0"
                     Spacing="0">
-            <TextBlock Text="设置"
-                       FontSize="20"
-                       FontWeight="Bold"
+            <TextBlock Text="设置分类"
+                       FontWeight="SemiBold"
                        Margin="0,0,0,12"/>
 
             <!-- App 设置入口 -->
@@ -52,6 +62,7 @@
 
         <!-- 右侧 Frame -->
         <Frame x:Name="SettingsFrame"
+               Grid.Row="1"
                Grid.Column="1"/>
     </Grid>
 </Page>

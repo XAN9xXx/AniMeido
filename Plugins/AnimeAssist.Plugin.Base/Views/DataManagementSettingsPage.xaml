@@ -7,12 +7,15 @@
     mc:Ignorable="d">
 
     <ScrollViewer>
-        <StackPanel Padding="24"
+        <StackPanel Padding="0,0,4,24"
                     Spacing="16">
 
-            <TextBlock Text="数据管理"
-                       FontSize="20"
-                       FontWeight="Bold"/>
+            <StackPanel Spacing="2">
+                <TextBlock Text="数据管理"
+                           Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                <TextBlock Text="缓存、备份、导入导出与档案迁移"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            </StackPanel>
 
             <!-- 本地缓存 -->
             <Border Background="{ThemeResource CardBackgroundFillColorDefault}"

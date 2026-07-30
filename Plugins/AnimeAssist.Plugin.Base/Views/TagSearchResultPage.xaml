@@ -8,6 +8,7 @@
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
     <Grid x:Name="RootGrid"
+          Padding="24,20,24,24"
           Loaded="OnPageLoaded">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -16,10 +17,7 @@
         </Grid.RowDefinitions>
 
         <!-- 标题栏：左侧显示信息，右侧排序选择 -->
-        <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
-                CornerRadius="8"
-                Margin="24,16,24,0"
-                Padding="16,12">
+        <Border Style="{StaticResource AniMeidoToolbarStyle}">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -27,8 +25,7 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Spacing="4">
-                    <TextBlock FontSize="20"
-                               FontWeight="Bold">
+                    <TextBlock Style="{StaticResource AniMeidoSectionTitleStyle}">
                         <Run Text="Tag 搜索："/>
                         <Run x:Name="TagTitle"
                              FontWeight="Bold"/>
@@ -87,7 +84,7 @@
 
         <!-- 结果列表（卡片网格） -->
         <ScrollViewer Grid.Row="1"
-                      Margin="24,12,24,0">
+                      Margin="0,12,0,0">
             <GridView x:Name="ResultGrid"
                       SelectionMode="None"
                       ScrollViewer.VerticalScrollBarVisibility="Hidden"
