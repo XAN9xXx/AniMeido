@@ -27,22 +27,46 @@ namespace AniMeido.Plugin.Base.Services
         public async Task SetStatusAsync(int animeId, AnimeTrackingStatus status)
         {
             var updatedAt = DateTime.UtcNow.ToString("O");
-            await SetStatusCoreAsync(animeId, status, updatedAt);
+            await SetStatusCoreAsync(
+                animeId,
+                status,
+                updatedAt,
+                recordEvent: true);
         }
 
         /// <summary>
         /// 导入专用方法：写入指定状态和原始 UpdatedAt，保留导出时的时间戳。
         /// </summary>
         public async Task SetStatusWithTimestampAsync(int animeId, AnimeTrackingStatus status, string updatedAt)
-            => await SetStatusCoreAsync(animeId, status, updatedAt);
+            => await SetStatusCoreAsync(
+                animeId,
+                status,
+                updatedAt,
+                recordEvent: false);
 
         private async Task SetStatusCoreAsync(
             int animeId,
             AnimeTrackingStatus status,
-            string updatedAt)
+            string updatedAt,
+            bool recordEvent)
         {
             using var connection = await _dbFactory.OpenAsync();
             using var transaction = connection.BeginTransaction();
+            AnimeTrackingStatus? previousStatus = null;
+            using (var previous = connection.CreateCommand())
+            {
+                previous.Transaction = transaction;
+                previous.CommandText =
+                    "SELECT Status FROM tracking WHERE AnimeId = @animeId";
+                previous.Parameters.AddWithValue("@animeId", animeId);
+                var value = await previous.ExecuteScalarAsync();
+                if (value is not null and not DBNull)
+                {
+                    previousStatus = (AnimeTrackingStatus)Convert.ToInt32(
+                        value);
+                }
+            }
+
             using var command = connection.CreateCommand();
             command.Transaction = transaction;
             command.CommandText = """
@@ -57,6 +81,28 @@ namespace AniMeido.Plugin.Base.Services
             command.Parameters.AddWithValue("@updatedAt", updatedAt);
 
             await command.ExecuteNonQueryAsync();
+            if (recordEvent && previousStatus != status)
+            {
+                using var eventCommand = connection.CreateCommand();
+                eventCommand.Transaction = transaction;
+                eventCommand.CommandText = """
+                    INSERT INTO tracking_events(
+                        EventId, AnimeId, PreviousStatus, NewStatus, ChangedAt)
+                    VALUES(@id, @animeId, @previous, @next, @changedAt)
+                    """;
+                eventCommand.Parameters.AddWithValue(
+                    "@id",
+                    Guid.NewGuid().ToString("N"));
+                eventCommand.Parameters.AddWithValue("@animeId", animeId);
+                eventCommand.Parameters.AddWithValue(
+                    "@previous",
+                    previousStatus is null
+                        ? DBNull.Value
+                        : (int)previousStatus.Value);
+                eventCommand.Parameters.AddWithValue("@next", (int)status);
+                eventCommand.Parameters.AddWithValue("@changedAt", updatedAt);
+                await eventCommand.ExecuteNonQueryAsync();
+            }
             await SynchronizePlanAsync(
                 connection,
                 transaction,

@@ -2,7 +2,7 @@ namespace AniMeido.PluginProtocol;
 
 public static class PluginHostProtocol
 {
-    public const int Version = 2;
+    public const int Version = 3;
     public const string AnimePlaybackCapability = "animePlayback";
     public const string AnimePlaybackActivationEvent = "onAnimePlayback";
     public const string StartupFinishedActivationEvent = "onStartupFinished";
@@ -54,4 +54,11 @@ public sealed record HostedPlaybackProgressEvent(
     double PositionSeconds,
     double DurationSeconds,
     bool ReachedNaturalEnd,
+    DateTimeOffset ObservedAt);
+
+public sealed record HostedActivePlaybackContext(
+    int AnimeId,
+    string Title,
+    int? EpisodeNumber,
+    double? PositionSeconds,
     DateTimeOffset ObservedAt);

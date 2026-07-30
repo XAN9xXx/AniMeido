@@ -88,6 +88,13 @@ internal sealed class PlayerWindow : Window
     private IReadOnlyList<PlayerEpisodeGroup> _episodeGroups = [];
     private AppWindow? _appWindow;
     private SourceManagementWindow? _sourceManagementWindow;
+    private readonly object _activeContextSync = new();
+    private int _activeAnimeId;
+    private string _activeAnimeTitle = string.Empty;
+    private bool _hasActivePlayback;
+    private int? _activeEpisodeNumber;
+    private double? _activePositionSeconds;
+    private DateTimeOffset _activeContextObservedAt = DateTimeOffset.UtcNow;
 
     public PlayerWindow(
         AnimePlaybackContext anime,
@@ -115,6 +122,8 @@ internal sealed class PlayerWindow : Window
             Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread(),
             WindowNative.GetWindowHandle(this));
         _session = new PlaybackSession(anime);
+        _activeAnimeId = anime.AnimeId;
+        _activeAnimeTitle = anime.Title;
         Title = "AniMeido 在线播放器";
         Content = BuildLayout();
         ResizeWindow();
@@ -136,8 +145,35 @@ internal sealed class PlayerWindow : Window
 
         CancelPlaybackResolution();
         _session.ChangeAnime(anime);
+        lock (_activeContextSync)
+        {
+            _activeAnimeId = anime.AnimeId;
+            _activeAnimeTitle = anime.Title;
+            _activeEpisodeNumber = null;
+            _activePositionSeconds = null;
+            _hasActivePlayback = false;
+            _activeContextObservedAt = DateTimeOffset.UtcNow;
+        }
         ResetProgressReport();
         await LoadEpisodesAsync(cancellationToken);
+    }
+
+    internal ActiveAnimePlaybackContext? GetActiveContextSnapshot()
+    {
+        lock (_activeContextSync)
+        {
+            if (!_hasActivePlayback)
+            {
+                return null;
+            }
+
+            return new ActiveAnimePlaybackContext(
+                _activeAnimeId,
+                _activeAnimeTitle,
+                _activeEpisodeNumber,
+                _activePositionSeconds,
+                _activeContextObservedAt);
+        }
     }
 
     private UIElement BuildLayout()
@@ -625,6 +661,13 @@ internal sealed class PlayerWindow : Window
     {
         if (_episodeList.SelectedItem is not PlayerEpisodeGroup group)
         {
+            lock (_activeContextSync)
+            {
+                _activeEpisodeNumber = null;
+                _activePositionSeconds = null;
+                _hasActivePlayback = false;
+                _activeContextObservedAt = DateTimeOffset.UtcNow;
+            }
             CancelPlaybackResolution();
             _routeList.ItemsSource = null;
             _playButton.IsEnabled = false;
@@ -632,6 +675,16 @@ internal sealed class PlayerWindow : Window
         }
 
         CancelPlaybackResolution();
+        lock (_activeContextSync)
+        {
+            _activeEpisodeNumber = group.TryGetEpisodeNumber(
+                out var episodeNumber)
+                ? episodeNumber
+                : null;
+            _activePositionSeconds = null;
+            _hasActivePlayback = false;
+            _activeContextObservedAt = DateTimeOffset.UtcNow;
+        }
         _pendingResumePosition = null;
         ResetProgressReport();
         var routes = group.Routes.ToList();
@@ -736,6 +789,10 @@ internal sealed class PlayerWindow : Window
 
         _playButton.IsEnabled = false;
         _loading.IsActive = true;
+        lock (_activeContextSync)
+        {
+            _hasActivePlayback = false;
+        }
         SetPlaybackState(
             PlaybackViewState.Resolving,
             $"正在解析：{selectedEpisode.DisplayText}");
@@ -1018,6 +1075,12 @@ internal sealed class PlayerWindow : Window
         {
             _lastPlaybackPosition = position;
             _lastPlaybackDuration = duration;
+            lock (_activeContextSync)
+            {
+                _activePositionSeconds = position;
+                _hasActivePlayback = duration > 0;
+                _activeContextObservedAt = DateTimeOffset.UtcNow;
+            }
             _progressSlider.Maximum = Math.Max(1, duration);
             _progressSlider.Value = Math.Clamp(position, 0, Math.Max(1, duration));
             _volumeSlider.Value = Math.Clamp(volume, 0, 100);

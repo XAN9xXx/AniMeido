@@ -11,17 +11,142 @@ namespace AniMeido.Plugin.Base.Views
         private readonly CacheService _cacheService;
         private readonly ExportService? _exportService;
         private readonly BackupService _backupService;
+        private readonly ArchiveBundleService _archiveBundle;
         private readonly IAppDataPaths _paths;
 
-        public DataManagementSettingsPage(CacheService cacheService, ExportService? exportService, BackupService backupService, IAppDataPaths paths)
+        public DataManagementSettingsPage(
+            CacheService cacheService,
+            ExportService? exportService,
+            BackupService backupService,
+            ArchiveBundleService archiveBundle,
+            IAppDataPaths paths)
         {
             _cacheService = cacheService;
             _exportService = exportService;
             _backupService = backupService;
+            _archiveBundle = archiveBundle;
             _paths = paths;
             InitializeComponent();
             InitDataSettings();
             _ = UpdateCacheInfoAsync();
+        }
+
+        private async void OnExportBundleClick(
+            object sender,
+            RoutedEventArgs e)
+        {
+            var picker = new Windows.Storage.Pickers.FileSavePicker();
+            picker.SuggestedStartLocation =
+                Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
+            picker.FileTypeChoices.Add(
+                "AniMeido 完整档案",
+                [".zip"]);
+            picker.SuggestedFileName =
+                $"AniMeido-archive-{DateTime.Now:yyyyMMdd}";
+            InitializePicker(picker);
+            var file = await picker.PickSaveFileAsync();
+            if (file is null)
+            {
+                return;
+            }
+
+            ExportBundleButton.IsEnabled = false;
+            try
+            {
+                await _archiveBundle.ExportAsync(file.Path);
+                await ShowMessageAsync(
+                    "导出完成",
+                    "完整档案 ZIP 已生成，并包含逐文件 SHA-256 清单。");
+            }
+            catch (Exception ex) when (
+                ex is IOException
+                    or UnauthorizedAccessException
+                    or InvalidDataException)
+            {
+                await ShowMessageAsync("导出失败", ex.Message);
+            }
+            finally
+            {
+                ExportBundleButton.IsEnabled = true;
+            }
+        }
+
+        private async void OnImportBundleClick(
+            object sender,
+            RoutedEventArgs e)
+        {
+            var picker = new Windows.Storage.Pickers.FileOpenPicker();
+            picker.SuggestedStartLocation =
+                Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
+            picker.FileTypeFilter.Add(".zip");
+            InitializePicker(picker);
+            var file = await picker.PickSingleFileAsync();
+            if (file is null)
+            {
+                return;
+            }
+
+            var confirmation = new ContentDialog
+            {
+                Title = "导入完整档案",
+                Content = "将先校验路径、schema 和全部文件哈希，再自动备份数据库并导入。",
+                PrimaryButtonText = "开始导入",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = XamlRoot,
+            };
+            if (await confirmation.ShowAsync()
+                != ContentDialogResult.Primary)
+            {
+                return;
+            }
+
+            ImportBundleButton.IsEnabled = false;
+            try
+            {
+                var screenshotCount = await _archiveBundle.ImportAsync(
+                    file.Path);
+                await ShowMessageAsync(
+                    "导入完成",
+                    $"基础数据已导入，新增 {screenshotCount} 张截图。");
+            }
+            catch (Exception ex) when (
+                ex is IOException
+                    or UnauthorizedAccessException
+                    or InvalidDataException
+                    or Microsoft.Data.Sqlite.SqliteException)
+            {
+                await ShowMessageAsync(
+                    "导入失败",
+                    $"{ex.Message}\n\n数据库已从导入前备份恢复。");
+            }
+            finally
+            {
+                ImportBundleButton.IsEnabled = true;
+            }
+        }
+
+        private static void InitializePicker(object picker)
+        {
+            if (AppServices.MainWindow is not Microsoft.UI.Xaml.Window window)
+            {
+                return;
+            }
+
+            var handle = WinRT.Interop.WindowNative.GetWindowHandle(window);
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, handle);
+        }
+
+        private async Task ShowMessageAsync(string title, string content)
+        {
+            var dialog = new ContentDialog
+            {
+                Title = title,
+                Content = content,
+                CloseButtonText = "确定",
+                XamlRoot = XamlRoot,
+            };
+            await dialog.ShowAsync();
         }
 
         private void InitDataSettings()

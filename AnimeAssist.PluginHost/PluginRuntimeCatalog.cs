@@ -35,6 +35,41 @@ internal sealed class PluginRuntimeCatalog : IAsyncDisposable
     public void AcknowledgePlaybackProgressEvents(long sequence)
         => _playbackProgress.Acknowledge(sequence);
 
+    public async Task<HostedActivePlaybackContext?>
+        GetActivePlaybackContextAsync()
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            foreach (var active in _activePlugins.Values)
+            {
+                var provider = active.Services
+                    .GetService<IActiveAnimePlaybackContextProvider>();
+                if (provider is null)
+                {
+                    continue;
+                }
+
+                var context = await provider.GetActiveContextAsync();
+                if (context is not null)
+                {
+                    return new HostedActivePlaybackContext(
+                        context.AnimeId,
+                        context.Title,
+                        context.EpisodeNumber,
+                        context.PositionSeconds,
+                        context.ObservedAt);
+                }
+            }
+
+            return null;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<PluginHostSnapshot> InitializeAsync(
         IReadOnlyList<HostedPluginDescriptor> plugins)
     {

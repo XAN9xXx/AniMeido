@@ -25,7 +25,7 @@ namespace AniMeido.Plugin.Base.Services
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         };
 
-        public const int SchemaVersion = 3;
+        public const int SchemaVersion = 4;
         private static readonly IReadOnlyDictionary<string, string[]> P4TableColumns =
             new Dictionary<string, string[]>(StringComparer.Ordinal)
             {
@@ -60,6 +60,35 @@ namespace AniMeido.Plugin.Base.Services
                 [
                     "Id", "Name", "SchemaVersion", "RuleJson", "SortJson",
                     "CreatedAt", "UpdatedAt",
+                ],
+                ["anime_archives"] =
+                [
+                    "AnimeId", "TitleSnapshot", "PersonalRating",
+                    "SummaryNote", "CreatedAt", "UpdatedAt",
+                ],
+                ["archive_entries"] =
+                [
+                    "EntryId", "AnimeId", "OccurredAt", "EpisodeNumber",
+                    "Body", "CreatedAt", "UpdatedAt",
+                ],
+                ["personal_tags"] =
+                [
+                    "TagId", "Name",
+                ],
+                ["anime_personal_tags"] =
+                [
+                    "AnimeId", "TagId",
+                ],
+                ["manual_watch_events"] =
+                [
+                    "EventId", "AnimeId", "TitleSnapshot", "OccurredAt",
+                    "EpisodeFrom", "EpisodeTo", "DurationMinutes", "Note",
+                    "CreatedAt",
+                ],
+                ["tracking_events"] =
+                [
+                    "EventId", "AnimeId", "PreviousStatus", "NewStatus",
+                    "ChangedAt",
                 ],
             };
 

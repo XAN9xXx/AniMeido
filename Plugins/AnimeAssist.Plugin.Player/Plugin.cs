@@ -56,6 +56,8 @@ public sealed class PlayerPlugin : IPlugin
         services.AddSingleton<PlayerWindowManager>();
         services.AddSingleton<IAnimePlaybackLauncher>(provider =>
             provider.GetRequiredService<PlayerWindowManager>());
+        services.AddSingleton<IActiveAnimePlaybackContextProvider>(provider =>
+            provider.GetRequiredService<PlayerWindowManager>());
         return Task.CompletedTask;
     }
 

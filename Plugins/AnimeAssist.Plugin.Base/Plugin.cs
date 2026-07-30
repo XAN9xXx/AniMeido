@@ -1,6 +1,7 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Contracts.Playback;
+using AniMeido.Contracts.Desktop;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AniMeido.Plugin.Base
@@ -14,7 +15,7 @@ namespace AniMeido.Plugin.Base
 
         public string DisplayName => "基础插件";
 
-        public string Version => "1.4.0";
+        public string Version => "1.5.0";
 
         public bool IsRequired => true;
 
@@ -33,6 +34,10 @@ namespace AniMeido.Plugin.Base
                 new PluginNavigationItem("今天", "\uEC92", "AniMeido.Plugin.Base.Views.TodayPage")
                 {
                     PageType = typeof(Views.TodayPage)
+                },
+                new PluginNavigationItem("档案馆", "\uE8F1", "AniMeido.Plugin.Base.Views.ArchivePage")
+                {
+                    PageType = typeof(Views.ArchivePage)
                 },
                 new PluginNavigationItem("番剧库", "\uE916", "AniMeido.Plugin.Base.Views.PastSeasonPage")
                 {
@@ -72,6 +77,12 @@ namespace AniMeido.Plugin.Base
             services.AddSingleton<SavedTagService>();
             services.AddSingleton<DragDropService>();
             services.AddSingleton<ActionCenterService>();
+            services.AddSingleton<ArchiveService>();
+            services.AddSingleton<ScreenshotArchiveService>();
+            services.AddSingleton<ArchiveBundleService>();
+            services.AddSingleton<ScreenshotShortcutAction>();
+            services.AddSingleton<IGlobalShortcutAction>(provider =>
+                provider.GetRequiredService<ScreenshotShortcutAction>());
             services.AddSingleton<IAnimePlaybackProgressSink>(provider =>
                 provider.GetRequiredService<ActionCenterService>());
             services.AddSingleton<PlanReminderCoordinator>();

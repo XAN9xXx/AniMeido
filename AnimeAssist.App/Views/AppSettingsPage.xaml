@@ -38,6 +38,27 @@
                 </Grid>
             </Border>
 
+            <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
+                    CornerRadius="8"
+                    Padding="16">
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="关闭主窗口时驻留托盘"
+                                   FontSize="16"/>
+                        <TextBlock Text="默认关闭；启用后请从托盘菜单显式退出"
+                                   FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
+                    <ToggleSwitch x:Name="KeepInTrayToggle"
+                                  Grid.Column="1"
+                                  Toggled="OnKeepInTrayToggled"/>
+                </Grid>
+            </Border>
+
             <!-- 可安装插件管理 -->
             <Grid Margin="0,12,0,0"
                   ColumnSpacing="12">

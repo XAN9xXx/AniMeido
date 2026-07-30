@@ -13,15 +13,19 @@ namespace AniMeido.App.Views
         private readonly UpdateService _updateService;
         private readonly PluginPackageManager _pluginPackageManager;
         private readonly PluginHostSupervisor _pluginHostSupervisor;
+        private readonly DesktopSettingsStore _desktopSettings;
+        private bool _loadingDesktopSettings;
 
         public AppSettingsPage(
             UpdateService updateService,
             PluginPackageManager pluginPackageManager,
-            PluginHostSupervisor pluginHostSupervisor)
+            PluginHostSupervisor pluginHostSupervisor,
+            DesktopSettingsStore desktopSettings)
         {
             _updateService = updateService;
             _pluginPackageManager = pluginPackageManager;
             _pluginHostSupervisor = pluginHostSupervisor;
+            _desktopSettings = desktopSettings;
             InitializeComponent();
             Loaded += OnPageLoaded;
             Unloaded += OnPageUnloaded;
@@ -69,11 +73,31 @@ namespace AniMeido.App.Views
             Loaded -= OnPageLoaded;
             try
             {
+                _loadingDesktopSettings = true;
+                KeepInTrayToggle.IsOn = (await _desktopSettings.LoadAsync())
+                    .KeepInTrayOnClose;
+                _loadingDesktopSettings = false;
                 await RefreshInstalledPluginsAsync();
             }
             catch (PluginOperationException ex)
             {
                 await ShowPluginMessageAsync("无法读取插件状态", ex.Message);
+            }
+        }
+
+        private async void OnKeepInTrayToggled(
+            object sender,
+            RoutedEventArgs e)
+        {
+            if (_loadingDesktopSettings)
+            {
+                return;
+            }
+
+            if (App.Current is App app)
+            {
+                await app.SetKeepInTrayOnCloseAsync(
+                    KeepInTrayToggle.IsOn);
             }
         }
 

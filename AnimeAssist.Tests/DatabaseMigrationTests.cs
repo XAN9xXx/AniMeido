@@ -23,7 +23,7 @@ namespace AniMeido.Tests
             var cmd = conn.CreateCommand();
             cmd.CommandText = "PRAGMA user_version";
             var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            Assert.Equal(4, version);
+            Assert.Equal(5, version);
 
             // 检查所有表是否存在
             cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name";
@@ -43,6 +43,14 @@ namespace AniMeido.Tests
             Assert.Contains("episode_progress", tables);
             Assert.Contains("watch_sessions", tables);
             Assert.Contains("smart_lists", tables);
+            Assert.Contains("anime_archives", tables);
+            Assert.Contains("archive_entries", tables);
+            Assert.Contains("personal_tags", tables);
+            Assert.Contains("anime_personal_tags", tables);
+            Assert.Contains("screenshots", tables);
+            Assert.Contains("screenshot_personal_tags", tables);
+            Assert.Contains("manual_watch_events", tables);
+            Assert.Contains("tracking_events", tables);
         }
 
         [Fact]
@@ -169,7 +177,7 @@ namespace AniMeido.Tests
             await verifyConn.OpenAsync();
             var versionCmd = verifyConn.CreateCommand();
             versionCmd.CommandText = "PRAGMA user_version";
-            Assert.Equal(4, Convert.ToInt32(await versionCmd.ExecuteScalarAsync()));
+            Assert.Equal(5, Convert.ToInt32(await versionCmd.ExecuteScalarAsync()));
 
             // 验证 Distinct TagName 被保留（"原创"只出现一次）
             var tagCmd = verifyConn.CreateCommand();
@@ -196,7 +204,52 @@ namespace AniMeido.Tests
             var cmd = conn.CreateCommand();
             cmd.CommandText = "PRAGMA user_version";
             var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            Assert.Equal(4, version);
+            Assert.Equal(5, version);
+        }
+
+        [Fact]
+        public async Task Migration_FromV4ToV5_BacksUpAndPreservesTracking()
+        {
+            using (var connection =
+                new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString))
+            {
+                await connection.OpenAsync();
+                var command = connection.CreateCommand();
+                command.CommandText = """
+                    CREATE TABLE tracking(
+                        AnimeID INTEGER PRIMARY KEY,
+                        Status INTEGER NOT NULL,
+                        UpdatedAt TEXT NOT NULL);
+                    CREATE TABLE cache(
+                        CacheKey TEXT PRIMARY KEY,
+                        Data TEXT NOT NULL,
+                        ExpiresAt TEXT NOT NULL);
+                    CREATE TABLE config(
+                        Key TEXT PRIMARY KEY,
+                        Value TEXT NOT NULL);
+                    CREATE TABLE saved_tags(
+                        TagName TEXT NOT NULL PRIMARY KEY);
+                    INSERT INTO tracking(AnimeID, Status, UpdatedAt)
+                    VALUES(88, 5, '2026-07-01T00:00:00Z');
+                    PRAGMA user_version = 4;
+                    """;
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await RunProductionMigrationAsync();
+
+            using var verify =
+                new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString);
+            await verify.OpenAsync();
+            var statusCommand = verify.CreateCommand();
+            statusCommand.CommandText =
+                "SELECT Status FROM tracking WHERE AnimeID = 88";
+            Assert.Equal(
+                5,
+                Convert.ToInt32(await statusCommand.ExecuteScalarAsync()));
+            Assert.NotEmpty(Directory.GetFiles(
+                Paths.BackupDirectory,
+                "AniMeido-*.db"));
         }
     }
 }

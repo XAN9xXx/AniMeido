@@ -17,6 +17,7 @@
     <None Remove="Views\PastSeasonPage.xaml" />
     <None Remove="Views\TagSearchResultPage.xaml" />
     <None Remove="Views\DataManagementSettingsPage.xaml" />
+    <None Remove="Views\ArchivePage.xaml" />
   </ItemGroup>
 
   <ItemGroup>
@@ -54,6 +55,9 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Update="Views\TodayPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Update="Views\ArchivePage.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Update="Views\SmartListsPage.xaml">

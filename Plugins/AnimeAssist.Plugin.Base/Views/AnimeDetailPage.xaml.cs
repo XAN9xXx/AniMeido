@@ -22,6 +22,7 @@ namespace AniMeido.Plugin.Base.Views
         private readonly IAnimeDataSource _dataSource;
         private readonly IPluginNavigator _pluginNavigator;
         private readonly IAnimePlaybackLauncher? _playbackLauncher;
+        private readonly ArchiveService _archive;
         private int _currentAnimeId;
         private readonly HashSet<string> _savedTagNames = new();
 
@@ -31,11 +32,13 @@ namespace AniMeido.Plugin.Base.Views
             SavedTagService savedTagService,
             BrowseHistoryService browseHistory,
             IPluginNavigator pluginNavigator,
+            ArchiveService archive,
             IEnumerable<IAnimePlaybackLauncher> playbackLaunchers)
         {
             _dataSource = dataSource;
             _browseHistory = browseHistory;
             _pluginNavigator = pluginNavigator;
+            _archive = archive;
             _savedTagService = savedTagService;
             _playbackLauncher = playbackLaunchers.FirstOrDefault();
             ViewModel = new AnimeDetailViewModel(dataSource, trackingService);
@@ -86,6 +89,102 @@ namespace AniMeido.Plugin.Base.Views
                     (float)e.NewSize.Width / 2,
                     (float)e.NewSize.Height / 2, 0);
             };
+        }
+
+        private async void OnPersonalArchiveClick(
+            object sender,
+            RoutedEventArgs e)
+        {
+            if (_currentAnimeId <= 0
+                || ViewModel.AnimeDetail is not { } anime)
+            {
+                return;
+            }
+
+            var existing = await _archive.GetArchiveAsync(_currentAnimeId);
+            var rating = new NumberBox
+            {
+                Header = "个人评分（0.5–10，可留空）",
+                Minimum = 0.5,
+                Maximum = 10,
+                SmallChange = 0.5,
+                Value = existing?.PersonalRating ?? double.NaN,
+                SpinButtonPlacementMode =
+                    NumberBoxSpinButtonPlacementMode.Compact,
+            };
+            var tags = new TextBox
+            {
+                Header = "个人标签",
+                PlaceholderText = "使用逗号分隔",
+                Text = string.Join(
+                    ", ",
+                    await _archive.GetAnimeTagsAsync(_currentAnimeId)),
+            };
+            var summary = new TextBox
+            {
+                Header = "概要笔记",
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                MinHeight = 120,
+                Text = existing?.SummaryNote ?? string.Empty,
+            };
+            var panel = new StackPanel { Spacing = 8 };
+            panel.Children.Add(rating);
+            panel.Children.Add(tags);
+            panel.Children.Add(summary);
+            var dialog = new ContentDialog
+            {
+                XamlRoot = XamlRoot,
+                Title = $"《{anime.Title}》个人档案",
+                Content = panel,
+                PrimaryButtonText = "保存",
+                SecondaryButtonText = "打开档案馆",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Primary,
+            };
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Secondary)
+            {
+                if (existing is null)
+                {
+                    await _archive.UpsertArchiveAsync(
+                        _currentAnimeId,
+                        anime.Title,
+                        null,
+                        string.Empty);
+                }
+                _pluginNavigator.Navigate(
+                    typeof(ArchivePage),
+                    _currentAnimeId);
+                return;
+            }
+
+            if (result != ContentDialogResult.Primary)
+            {
+                return;
+            }
+
+            try
+            {
+                await _archive.UpsertArchiveAsync(
+                    _currentAnimeId,
+                    anime.Title,
+                    double.IsNaN(rating.Value)
+                        ? null
+                        : rating.Value,
+                    summary.Text);
+                await _archive.SetAnimeTagsAsync(
+                    _currentAnimeId,
+                    tags.Text.Split(
+                        [',', '，'],
+                        StringSplitOptions.RemoveEmptyEntries
+                            | StringSplitOptions.TrimEntries));
+            }
+            catch (ArgumentOutOfRangeException ex)
+            {
+                ErrorInfoBar.Message = ex.Message;
+                ErrorInfoBar.IsOpen = true;
+            }
         }
 
         private async void OnOnlinePlayClick(object sender, RoutedEventArgs e)

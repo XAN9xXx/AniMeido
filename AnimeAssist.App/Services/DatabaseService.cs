@@ -45,6 +45,10 @@ namespace AniMeido.App.Services
                     await pragmaCmd.ExecuteNonQueryAsync();
                 }
                 await CreateTablesAsync(connection);
+                if (await GetSchemaVersionAsync(connection) is > 0 and < 5)
+                {
+                    await BackupAsync(throwOnFailure: true);
+                }
                 await RunMigrationsAsync(connection);
             }
             catch (SqliteException ex) when (ex.SqliteErrorCode is 11 or 26)
@@ -60,7 +64,7 @@ namespace AniMeido.App.Services
             _ = BackupAsync();
         }
 
-        public async Task BackupAsync()
+        public async Task BackupAsync(bool throwOnFailure = false)
         {
             try
             {
@@ -90,6 +94,10 @@ namespace AniMeido.App.Services
             catch (Exception ex)
             {
                 Serilog.Log.Warning(ex, "Database backup failed.");
+                if (throwOnFailure)
+                {
+                    throw;
+                }
             }
 #pragma warning restore CA1031
         }
@@ -280,6 +288,117 @@ namespace AniMeido.App.Services
                     await cmd.ExecuteNonQueryAsync();
                     version = 4;
                 }
+                if (version < 5)
+                {
+                    cmd.CommandText = """
+                        CREATE TABLE IF NOT EXISTS anime_archives(
+                            AnimeId INTEGER PRIMARY KEY,
+                            TitleSnapshot TEXT NOT NULL,
+                            PersonalRating REAL NULL CHECK(
+                                PersonalRating IS NULL OR
+                                (PersonalRating >= 0.5 AND
+                                 PersonalRating <= 10.0 AND
+                                 PersonalRating * 2 =
+                                    CAST(PersonalRating * 2 AS INTEGER))),
+                            SummaryNote TEXT NOT NULL DEFAULT '',
+                            CreatedAt TEXT NOT NULL,
+                            UpdatedAt TEXT NOT NULL
+                        );
+
+                        CREATE TABLE IF NOT EXISTS archive_entries(
+                            EntryId TEXT PRIMARY KEY,
+                            AnimeId INTEGER NOT NULL,
+                            OccurredAt TEXT NOT NULL,
+                            EpisodeNumber INTEGER NULL,
+                            Body TEXT NOT NULL,
+                            CreatedAt TEXT NOT NULL,
+                            UpdatedAt TEXT NOT NULL,
+                            FOREIGN KEY(AnimeId)
+                                REFERENCES anime_archives(AnimeId)
+                                ON DELETE CASCADE
+                        );
+                        CREATE INDEX IF NOT EXISTS
+                            IX_archive_entries_anime_time
+                            ON archive_entries(AnimeId, OccurredAt);
+
+                        CREATE TABLE IF NOT EXISTS personal_tags(
+                            TagId INTEGER PRIMARY KEY AUTOINCREMENT,
+                            Name TEXT NOT NULL COLLATE NOCASE UNIQUE
+                        );
+                        CREATE TABLE IF NOT EXISTS anime_personal_tags(
+                            AnimeId INTEGER NOT NULL,
+                            TagId INTEGER NOT NULL,
+                            PRIMARY KEY(AnimeId, TagId),
+                            FOREIGN KEY(AnimeId)
+                                REFERENCES anime_archives(AnimeId)
+                                ON DELETE CASCADE,
+                            FOREIGN KEY(TagId)
+                                REFERENCES personal_tags(TagId)
+                                ON DELETE CASCADE
+                        );
+
+                        CREATE TABLE IF NOT EXISTS screenshots(
+                            ScreenshotId TEXT PRIMARY KEY,
+                            FilePath TEXT NOT NULL,
+                            Sha256 TEXT NOT NULL,
+                            CapturedAt TEXT NOT NULL,
+                            WindowTitle TEXT NOT NULL,
+                            ProcessName TEXT NOT NULL,
+                            Width INTEGER NOT NULL,
+                            Height INTEGER NOT NULL,
+                            AnimeId INTEGER NULL,
+                            AnimeTitle TEXT NULL,
+                            EpisodeNumber INTEGER NULL,
+                            PlaybackPositionSeconds REAL NULL,
+                            ContextNote TEXT NOT NULL DEFAULT ''
+                        );
+                        CREATE INDEX IF NOT EXISTS
+                            IX_screenshots_anime_time
+                            ON screenshots(AnimeId, CapturedAt);
+
+                        CREATE TABLE IF NOT EXISTS screenshot_personal_tags(
+                            ScreenshotId TEXT NOT NULL,
+                            TagId INTEGER NOT NULL,
+                            PRIMARY KEY(ScreenshotId, TagId),
+                            FOREIGN KEY(ScreenshotId)
+                                REFERENCES screenshots(ScreenshotId)
+                                ON DELETE CASCADE,
+                            FOREIGN KEY(TagId)
+                                REFERENCES personal_tags(TagId)
+                                ON DELETE CASCADE
+                        );
+
+                        CREATE TABLE IF NOT EXISTS manual_watch_events(
+                            EventId TEXT PRIMARY KEY,
+                            AnimeId INTEGER NOT NULL,
+                            TitleSnapshot TEXT NOT NULL,
+                            OccurredAt TEXT NOT NULL,
+                            EpisodeFrom INTEGER NOT NULL,
+                            EpisodeTo INTEGER NOT NULL,
+                            DurationMinutes INTEGER NULL,
+                            Note TEXT NOT NULL DEFAULT '',
+                            CreatedAt TEXT NOT NULL
+                        );
+                        CREATE INDEX IF NOT EXISTS
+                            IX_manual_watch_events_anime_time
+                            ON manual_watch_events(AnimeId, OccurredAt);
+
+                        CREATE TABLE IF NOT EXISTS tracking_events(
+                            EventId TEXT PRIMARY KEY,
+                            AnimeId INTEGER NOT NULL,
+                            PreviousStatus INTEGER NULL,
+                            NewStatus INTEGER NOT NULL,
+                            ChangedAt TEXT NOT NULL
+                        );
+                        CREATE INDEX IF NOT EXISTS
+                            IX_tracking_events_anime_time
+                            ON tracking_events(AnimeId, ChangedAt);
+
+                        PRAGMA user_version = 5;
+                        """;
+                    await cmd.ExecuteNonQueryAsync();
+                    version = 5;
+                }
                 tx.Commit();
             }
             catch
@@ -287,6 +406,14 @@ namespace AniMeido.App.Services
                 tx.Rollback();
                 throw;
             }
+        }
+
+        private static async Task<int> GetSchemaVersionAsync(
+            SqliteConnection connection)
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA user_version";
+            return Convert.ToInt32(await command.ExecuteScalarAsync());
         }
     }
 }

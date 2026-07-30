@@ -15,7 +15,10 @@ namespace AniMeido.Plugin.Player.Services;
 /// <summary>
 /// Owns the online player window without exposing its implementation to BasePlugin.
 /// </summary>
-internal sealed class PlayerWindowManager : IAnimePlaybackLauncher, IDisposable
+internal sealed class PlayerWindowManager :
+    IAnimePlaybackLauncher,
+    IActiveAnimePlaybackContextProvider,
+    IDisposable
 {
     private readonly OnlineSourceCatalog _sourceCatalog;
     private readonly SourcePackageInstaller _sourcePackageInstaller;
@@ -93,6 +96,13 @@ internal sealed class PlayerWindowManager : IAnimePlaybackLauncher, IDisposable
             _playbackProgressReporter);
         _playerWindow.Closed += OnPlayerWindowClosed;
         _playerWindow.Activate();
+    }
+
+    public Task<ActiveAnimePlaybackContext?> GetActiveContextAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(_playerWindow?.GetActiveContextSnapshot());
     }
 
     private void OnPlayerWindowClosed(object sender, WindowEventArgs args)

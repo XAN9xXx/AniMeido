@@ -129,6 +129,22 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
             cancellationToken);
     }
 
+    public async Task<HostedActivePlaybackContext?>
+        GetActivePlaybackContextAsync(
+            CancellationToken cancellationToken = default)
+    {
+        var rpc = _rpc;
+        if (rpc is null)
+        {
+            return null;
+        }
+
+        return await rpc.InvokeAsync<HostedActivePlaybackContext?>(
+            PluginHostRpcTargetNames.GetActivePlaybackContextAsync,
+            [],
+            cancellationToken);
+    }
+
     private async Task StartCoreAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -507,5 +523,7 @@ internal static class PluginHostRpcTargetNames
         "GetPlaybackProgressEventsAsync";
     public const string AcknowledgePlaybackProgressEventsAsync =
         "AcknowledgePlaybackProgressEventsAsync";
+    public const string GetActivePlaybackContextAsync =
+        "GetActivePlaybackContextAsync";
     public const string ShutdownAsync = "ShutdownAsync";
 }

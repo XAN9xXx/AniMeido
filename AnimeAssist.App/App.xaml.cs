@@ -16,6 +16,8 @@ namespace AniMeido.App
         private bool _isRecoverableErrorShown;
         private bool _shutdownStarted;
         private bool _shutdownCompleted;
+        private bool _exitRequested;
+        private DesktopSettings _desktopSettings = new();
         private ServiceProvider? _serviceProvider;
         private AppWindow? _mainAppWindow;
 
@@ -70,6 +72,9 @@ namespace AniMeido.App
                 .GetRequiredService<WindowsAppNotificationService>()
                 .InitializeAsync();
             await DatabaseStartup.InitializeAsync(provider);
+            _desktopSettings = await provider
+                .GetRequiredService<DesktopSettingsStore>()
+                .LoadAsync();
 
             // 创建主窗口
             var contributionRegistry =
@@ -88,6 +93,9 @@ namespace AniMeido.App
             var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(
                 windowHandle);
             _mainAppWindow = AppWindow.GetFromWindowId(windowId);
+            var activationService =
+                provider.GetRequiredService<AppWindowActivationService>();
+            activationService.Attach(_window, _mainAppWindow);
             _mainAppWindow.Closing += OnMainAppWindowClosing;
             _window.Closed += (_, _) =>
             {
@@ -98,8 +106,15 @@ namespace AniMeido.App
                 }
                 MainWindow = null;
                 Contracts.AppServices.MainWindow = null;
+                activationService.Detach();
             };
             _window.Activate();
+            await provider.GetRequiredService<GlobalShortcutManager>()
+                .StartAsync();
+            if (_desktopSettings.KeepInTrayOnClose)
+            {
+                StartTrayIcon(provider);
+            }
 
             if (_window.Content is FrameworkElement root)
                 ThemeService.InitializeTheme(root);
@@ -118,6 +133,15 @@ namespace AniMeido.App
             }
 
             args.Cancel = true;
+            if (!_exitRequested
+                && _desktopSettings.KeepInTrayOnClose)
+            {
+                _serviceProvider?
+                    .GetRequiredService<AppWindowActivationService>()
+                    .HideMainWindow();
+                return;
+            }
+
             if (_shutdownStarted)
             {
                 return;
@@ -148,6 +172,43 @@ namespace AniMeido.App
                 _window?.Close();
             }
         }
+
+        internal async Task SetKeepInTrayOnCloseAsync(bool enabled)
+        {
+            _desktopSettings = _desktopSettings with
+            {
+                KeepInTrayOnClose = enabled,
+            };
+            var provider = _serviceProvider;
+            if (provider is null)
+            {
+                return;
+            }
+
+            await provider.GetRequiredService<DesktopSettingsStore>()
+                .SaveAsync(_desktopSettings);
+            if (enabled)
+            {
+                StartTrayIcon(provider);
+            }
+            else
+            {
+                provider.GetRequiredService<TrayIconService>().Stop();
+            }
+        }
+
+        internal void RequestExit()
+        {
+            _exitRequested = true;
+            _window?.Close();
+        }
+
+        private void StartTrayIcon(IServiceProvider provider)
+            => provider.GetRequiredService<TrayIconService>().Start(
+                () => provider
+                    .GetRequiredService<AppWindowActivationService>()
+                    .ActivateMainWindow(),
+                RequestExit);
 
         private static async Task StartPluginHostSafelyAsync(
             PluginHostSupervisor supervisor)
@@ -195,7 +256,7 @@ namespace AniMeido.App
                         if (result == ContentDialogResult.Primary)
                         {
                             _isRecoverableErrorShown = false;
-                            _window?.Close();
+                            RequestExit();
                         }
                     }
                 }

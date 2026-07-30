@@ -1,6 +1,7 @@
 using AniMeido.Contracts;
 using AniMeido.Contracts.Playback;
 using AniMeido.Contracts.Notifications;
+using AniMeido.Contracts.Desktop;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
@@ -34,6 +35,17 @@ internal static class ServiceRegistration
         services.AddSingleton<IAnimePlaybackLauncher>(provider =>
             provider.GetRequiredService<HostedAnimePlaybackLauncher>());
         services.AddSingleton<PluginHostSupervisor>();
+        services.AddSingleton<IActiveAnimePlaybackContextProvider,
+            HostedActivePlaybackContextProvider>();
+        services.AddSingleton<ForegroundWindowCaptureService>();
+        services.AddSingleton<IForegroundWindowCaptureService>(provider =>
+            provider.GetRequiredService<ForegroundWindowCaptureService>());
+        services.AddSingleton<AppWindowActivationService>();
+        services.AddSingleton<IAppWindowActivationService>(provider =>
+            provider.GetRequiredService<AppWindowActivationService>());
+        services.AddSingleton<GlobalShortcutManager>();
+        services.AddSingleton<DesktopSettingsStore>();
+        services.AddSingleton<TrayIconService>();
         services.AddSingleton<WindowsAppNotificationService>();
         services.AddSingleton<IAppNotificationService>(provider =>
             provider.GetRequiredService<WindowsAppNotificationService>());

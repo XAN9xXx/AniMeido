@@ -33,6 +33,8 @@ public sealed class PluginHostRpcTarget
             nameof(AcknowledgePlaybackProgressEventsAsync) => BoxAsync(
                 AcknowledgePlaybackProgressEventsAsync(
                     ReadArgument<long>(request, 0))),
+            nameof(GetActivePlaybackContextAsync) => BoxAsync(
+                GetActivePlaybackContextAsync()),
             nameof(ShutdownAsync) => BoxAsync(ShutdownAsync()),
             _ => throw new InvalidOperationException(
                 $"未知 PluginHost RPC 方法：{request.Method}"),
@@ -96,6 +98,9 @@ public sealed class PluginHostRpcTarget
         _catalog.AcknowledgePlaybackProgressEvents(sequence);
         return Task.CompletedTask;
     }
+
+    public Task<HostedActivePlaybackContext?> GetActivePlaybackContextAsync()
+        => _catalog.GetActivePlaybackContextAsync();
 
     public Task ShutdownAsync()
     {

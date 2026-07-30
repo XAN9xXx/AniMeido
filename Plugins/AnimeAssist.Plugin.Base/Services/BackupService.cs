@@ -25,7 +25,7 @@ namespace AniMeido.Plugin.Base.Services
         /// <summary>
         /// 执行在线备份。使用 SQLite BackupDatabase 确保一致性。
         /// </summary>
-        public async Task BackupAsync()
+        public async Task<string> BackupAsync()
         {
             // 备份前执行 checkpoint，确保 WAL 内容合并
             using (var checkpointCmd = await _dbFactory.OpenAsync())
@@ -56,6 +56,32 @@ namespace AniMeido.Plugin.Base.Services
 
             foreach (var old in backups.Skip(MaxBackups))
                 File.Delete(old);
+
+            return backupPath;
+        }
+
+        public async Task RestoreAsync(
+            string backupPath,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(backupPath);
+            if (!File.Exists(backupPath))
+            {
+                throw new FileNotFoundException(
+                    "数据库备份不存在。",
+                    backupPath);
+            }
+
+            await using var backup = new SqliteConnection(
+                new SqliteConnectionStringBuilder
+                {
+                    DataSource = backupPath,
+                    Mode = SqliteOpenMode.ReadOnly,
+                }.ToString());
+            await backup.OpenAsync(cancellationToken);
+            await using var destination = await _dbFactory.OpenAsync(
+                cancellationToken);
+            backup.BackupDatabase(destination);
         }
     }
 }

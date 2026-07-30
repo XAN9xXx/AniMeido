@@ -189,6 +189,34 @@
                                 VerticalAlignment="Center"
                                 Click="OnImportClick"/>
                     </Grid>
+                    <Rectangle Height="1"
+                            Fill="{ThemeResource DividerStrokeColorDefault}"
+                            Margin="16,0"/>
+                    <Grid Margin="16,0,16,0"
+                          MinHeight="56">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="完整档案 ZIP"
+                                       FontSize="15"/>
+                            <TextBlock Text="包含截图原图、元数据和 SHA-256 清单"
+                                       FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    Spacing="8"
+                                    VerticalAlignment="Center">
+                            <Button x:Name="ExportBundleButton"
+                                    Content="导出 ZIP"
+                                    Click="OnExportBundleClick"/>
+                            <Button x:Name="ImportBundleButton"
+                                    Content="导入 ZIP"
+                                    Click="OnImportBundleClick"/>
+                        </StackPanel>
+                    </Grid>
                 </StackPanel>
             </Border>
         </StackPanel>
