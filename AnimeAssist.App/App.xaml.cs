@@ -20,6 +20,7 @@ namespace AniMeido.App
         private DesktopSettings _desktopSettings = new();
         private ServiceProvider? _serviceProvider;
         private AppWindow? _mainAppWindow;
+        private AppWindowActivationService? _activationService;
 
         public App()
         {
@@ -93,20 +94,17 @@ namespace AniMeido.App
             var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(
                 windowHandle);
             _mainAppWindow = AppWindow.GetFromWindowId(windowId);
-            var activationService =
+            _activationService =
                 provider.GetRequiredService<AppWindowActivationService>();
-            activationService.Attach(_window, _mainAppWindow);
+            _activationService.Attach(_window, _mainAppWindow);
             _mainAppWindow.Closing += OnMainAppWindowClosing;
             _window.Closed += (_, _) =>
             {
-                if (_mainAppWindow is not null)
-                {
-                    _mainAppWindow.Closing -= OnMainAppWindowClosing;
-                    _mainAppWindow = null;
-                }
                 MainWindow = null;
                 Contracts.AppServices.MainWindow = null;
-                activationService.Detach();
+                _activationService?.Detach();
+                _activationService = null;
+                _mainAppWindow = null;
             };
             _window.Activate();
             await provider.GetRequiredService<GlobalShortcutManager>()
@@ -168,6 +166,12 @@ namespace AniMeido.App
             {
                 Services = null;
                 _shutdownCompleted = true;
+                if (_mainAppWindow is not null)
+                {
+                    _mainAppWindow.Closing -= OnMainAppWindowClosing;
+                    _mainAppWindow = null;
+                }
+                _activationService?.Detach();
                 Log.CloseAndFlush();
                 _window?.Close();
             }

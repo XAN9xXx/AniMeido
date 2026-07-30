@@ -733,6 +733,25 @@ namespace AniMeido.Plugin.Base.Services
         }
 
         /// <summary>
+        /// 在主窗口视觉树销毁前释放全部 WinUI 拖放资源。
+        /// 页面稍后收到 Unloaded 时，其租约释放将安全地成为无操作。
+        /// </summary>
+        public void PrepareForWindowClose()
+        {
+            CancelStandardDrag();
+
+            foreach (var host in _pageDragHosts.ToList())
+            {
+                UnregisterStandardDragHost(host);
+            }
+
+            _standardPageRoot = null;
+            _standardOverlay = null;
+            _standardExcludeActions = Array.Empty<DragAction>();
+            _standardCurrentZoneId = null;
+        }
+
+        /// <summary>
         /// 隐藏所有 Zone 的提示文字。在取消拖拽或切换 Zone 时调用。
         /// </summary>
         private void HideAllZoneHints()

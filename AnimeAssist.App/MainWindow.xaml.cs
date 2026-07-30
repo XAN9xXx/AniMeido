@@ -13,6 +13,8 @@ namespace AniMeido.App
         private readonly SplashCoordinator _splash;
         private readonly StartupDialogCoordinator _dialogs;
         private readonly AnimeCardDropHost _dropHost = new();
+        private AniMeido.Plugin.Base.Services.DragDropService?
+            _dragDropService;
 
         private NavigationViewItem? _lastSelectedPageItem;
         private bool _isClosing;
@@ -51,9 +53,6 @@ namespace AniMeido.App
             Closed += (_, _) =>
                 _pluginContributions.Changed -= OnPluginContributionsChanged;
 
-            // 主窗口关闭时注销全部 DropHost
-            Closed += (_, _) => _dropHost.UnregisterAll();
-
             // 布局完成后注册 AnimeCard 拖放兜底到多个宿主元素
             // 使用 AddHandler(handledEventsToo=true) 确保不被子控件拦截 DragOver
             ContentFrame.Loaded += (_, _) =>
@@ -68,6 +67,7 @@ namespace AniMeido.App
                     as AniMeido.Plugin.Base.Services.DragDropService;
                 if (ddService != null)
                 {
+                    _dragDropService = ddService;
                     _dropHost.SetHandlers(
                         dragOver: (e) => ddService.HandleStandardDragOver(e, RootGrid),
                         dropAsync: async (e) => await ddService.HandleStandardDropAsync(e, RootGrid)
@@ -190,6 +190,14 @@ namespace AniMeido.App
             MainNaviView.Loaded -= OnMainNaviViewLoaded;
             MainNaviView.ItemInvoked -= OnNaviItemInvoked;
             _navigationService.Navigated -= OnNavigationServiceNavigated;
+            _dragDropService?.PrepareForWindowClose();
+            _dragDropService = null;
+            _dropHost.SetHandlers(null, null);
+            _dropHost.UnregisterAll();
+
+            // 在窗口仍属于 UI 线程且 XamlRoot 有效时卸载当前页面。
+            // 这样页面的 Unloaded 清理和异步取消不会延迟到 Window.Close 之后。
+            ContentFrame.Content = null;
         }
 
         //

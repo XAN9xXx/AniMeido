@@ -3,12 +3,14 @@ using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
+using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 
 using System.Collections.ObjectModel;
+using System.Numerics;
 
 namespace AniMeido.Plugin.Base.Views
 {
@@ -21,6 +23,8 @@ namespace AniMeido.Plugin.Base.Views
         private HashSet<int> _blockedIds = new();
         private DragDropService _dragDrop;
         private IDisposable? _dropHostRegistration;
+        private CancellationTokenSource? _autoScrollCts;
+        private Visual? _autoScrollEffectVisual;
         private TrackingService _tracking;
         private readonly IPluginNavigator _pluginNavigator;
 
@@ -88,16 +92,24 @@ namespace AniMeido.Plugin.Base.Views
             _ = LoadDragConfigAndBlockedAsync();
 
             // 等待开屏淡出完成后，自动跳转到今日星期分组
-            _ = WaitForSplashAndAutoScrollAsync();
+            _autoScrollCts?.Cancel();
+            _autoScrollCts?.Dispose();
+            _autoScrollCts = new CancellationTokenSource();
+            _ = WaitForSplashAndAutoScrollAsync(_autoScrollCts.Token);
         }
 
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
         {
+            _autoScrollCts?.Cancel();
+            _autoScrollCts?.Dispose();
+            _autoScrollCts = null;
+            StopAutoScrollEffect();
             _dropHostRegistration?.Dispose();
             _dropHostRegistration = null;
         }
 
-        private async Task WaitForSplashAndAutoScrollAsync()
+        private async Task WaitForSplashAndAutoScrollAsync(
+            CancellationToken cancellationToken)
         {
             try
             {
@@ -117,8 +129,11 @@ namespace AniMeido.Plugin.Base.Views
                     ViewModel.PropertyChanged += handler;
 
                     // 最多等 10 秒，防止错误状态下永久等待
-                    await Task.WhenAny(tcs.Task, Task.Delay(10000));
+                    await Task.WhenAny(
+                        tcs.Task,
+                        Task.Delay(10000, cancellationToken));
                     ViewModel.PropertyChanged -= handler;
+                    cancellationToken.ThrowIfCancellationRequested();
                 }
 
                 // 如果数据加载失败，不执行自动滚动
@@ -126,19 +141,27 @@ namespace AniMeido.Plugin.Base.Views
                     return;
 
                 // 等待开屏淡出完成（固定等待），开屏动画至少 2 秒显示 + 1.6 秒淡出
-                await Task.Delay(3600);
+                await Task.Delay(3600, cancellationToken);
 
                 // 执行自动跳转
                 if (!_hasAutoScrolledOnce && ViewModel.WeekdayGroups.Count > 0)
                 {
-                    _hasAutoScrolledOnce = true;
                     int todayIndex = DateTime.Now.DayOfWeek switch
                     {
                         DayOfWeek.Sunday => 6,
                         _ => (int)DateTime.Now.DayOfWeek - 1
                     };
-                    await DelayedScrollToGroupAsync(todayIndex);
+                    if (await DelayedScrollToGroupAsync(
+                            todayIndex,
+                            cancellationToken))
+                    {
+                        _hasAutoScrolledOnce = true;
+                    }
                 }
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
             }
 #pragma warning disable CA1031 // 开屏动画失败不应影响页面
             catch (Exception ex)
@@ -199,44 +222,85 @@ namespace AniMeido.Plugin.Base.Views
         }
 
 
-        private async Task DelayedScrollToGroupAsync(int index)
+        private async Task<bool> DelayedScrollToGroupAsync(
+            int index,
+            CancellationToken cancellationToken)
         {
             for (int i = 0; i < 10; i++)
             {
                 if (i > 0)
-                    await Task.Delay(50);
+                    await Task.Delay(50, cancellationToken);
 
                 WeekdayRepeater.UpdateLayout();
 
                 var container = WeekdayRepeater.ContainerFromIndex(index) as UIElement;
-                if (container is not null)
+                if (container is not null
+                    && RootScrollViewer.Content is UIElement scrollContent)
                 {
-                    container.StartBringIntoView(new BringIntoViewOptions
-                    {
-                        AnimationDesired = true,
-                        VerticalOffset = 0
-                    });
-                    await Task.Delay(500);
-                    PlayBringIntoViewEffect(container);
+                    var position = container
+                        .TransformToVisual(scrollContent)
+                        .TransformPoint(new Windows.Foundation.Point());
+                    await ScrollToOffsetAsync(
+                        Math.Max(0, position.Y),
+                        cancellationToken);
+                    PlayAutoScrollEffect(container);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private async Task ScrollToOffsetAsync(
+            double verticalOffset,
+            CancellationToken cancellationToken)
+        {
+            var completed = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            EventHandler<ScrollViewerViewChangedEventArgs>? handler = null;
+            handler = (_, args) =>
+            {
+                if (!args.IsIntermediate)
+                {
+                    completed.TrySetResult();
+                }
+            };
+
+            RootScrollViewer.ViewChanged += handler;
+            try
+            {
+                var viewChanged = RootScrollViewer.ChangeView(
+                    null,
+                    verticalOffset,
+                    null,
+                    disableAnimation: false);
+                if (!viewChanged)
+                {
                     return;
                 }
+
+                await Task.WhenAny(
+                    completed.Task,
+                    Task.Delay(1200, cancellationToken));
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            finally
+            {
+                RootScrollViewer.ViewChanged -= handler;
             }
         }
 
-        private void OnAnimeCardClicked(object? sender, Views.Controls.AnimeCardClickedEventArgs e)
+        private void PlayAutoScrollEffect(UIElement element)
         {
-            _pluginNavigator.Navigate(typeof(AnimeDetailPage), e.Anime.ID);
-        }
+            StopAutoScrollEffect();
 
-        private static void PlayBringIntoViewEffect(UIElement element)
-        {
             var visual = ElementCompositionPreview.GetElementVisual(element);
             var compositor = visual.Compositor;
-
-            visual.CenterPoint = new System.Numerics.Vector3(
+            visual.CenterPoint = new Vector3(
                 (float)element.ActualSize.X / 2,
                 (float)element.ActualSize.Y / 2,
                 0);
+            _autoScrollEffectVisual = visual;
 
             var scaleX = compositor.CreateScalarKeyFrameAnimation();
             scaleX.InsertKeyFrame(0.0f, 1.0f);
@@ -254,6 +318,24 @@ namespace AniMeido.Plugin.Base.Views
 
             visual.StartAnimation("Scale.X", scaleX);
             visual.StartAnimation("Scale.Y", scaleY);
+        }
+
+        private void StopAutoScrollEffect()
+        {
+            if (_autoScrollEffectVisual is null)
+            {
+                return;
+            }
+
+            _autoScrollEffectVisual.StopAnimation("Scale.X");
+            _autoScrollEffectVisual.StopAnimation("Scale.Y");
+            _autoScrollEffectVisual.Scale = Vector3.One;
+            _autoScrollEffectVisual = null;
+        }
+
+        private void OnAnimeCardClicked(object? sender, Views.Controls.AnimeCardClickedEventArgs e)
+        {
+            _pluginNavigator.Navigate(typeof(AnimeDetailPage), e.Anime.ID);
         }
 
         // ======== 拖放标记 ========
