@@ -96,8 +96,23 @@ namespace AniMeido.App.Views
 
             if (App.Current is App app)
             {
-                await app.SetKeepInTrayOnCloseAsync(
-                    KeepInTrayToggle.IsOn);
+                var requestedValue = KeepInTrayToggle.IsOn;
+                try
+                {
+                    await app.SetKeepInTrayOnCloseAsync(requestedValue);
+                }
+                catch (Exception ex) when (
+                    ex is InvalidOperationException
+                    or IOException
+                    or UnauthorizedAccessException)
+                {
+                    _loadingDesktopSettings = true;
+                    KeepInTrayToggle.IsOn = !requestedValue;
+                    _loadingDesktopSettings = false;
+                    await ShowPluginMessageAsync(
+                        "无法更改托盘设置",
+                        ex.Message);
+                }
             }
         }
 

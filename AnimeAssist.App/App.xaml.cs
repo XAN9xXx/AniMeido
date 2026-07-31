@@ -111,7 +111,7 @@ namespace AniMeido.App
                 .StartAsync();
             if (_desktopSettings.KeepInTrayOnClose)
             {
-                StartTrayIcon(provider);
+                await StartTrayIconAtStartupAsync(provider);
             }
 
             if (_window.Content is FrameworkElement root)
@@ -179,7 +179,7 @@ namespace AniMeido.App
 
         internal async Task SetKeepInTrayOnCloseAsync(bool enabled)
         {
-            _desktopSettings = _desktopSettings with
+            var updatedSettings = _desktopSettings with
             {
                 KeepInTrayOnClose = enabled,
             };
@@ -189,15 +189,34 @@ namespace AniMeido.App
                 return;
             }
 
-            await provider.GetRequiredService<DesktopSettingsStore>()
-                .SaveAsync(_desktopSettings);
+            var trayIcon = provider.GetRequiredService<TrayIconService>();
             if (enabled)
             {
                 StartTrayIcon(provider);
             }
             else
             {
-                provider.GetRequiredService<TrayIconService>().Stop();
+                trayIcon.Stop();
+            }
+
+            try
+            {
+                await provider.GetRequiredService<DesktopSettingsStore>()
+                    .SaveAsync(updatedSettings);
+                _desktopSettings = updatedSettings;
+            }
+            catch
+            {
+                if (enabled)
+                {
+                    trayIcon.Stop();
+                }
+                else if (_desktopSettings.KeepInTrayOnClose)
+                {
+                    StartTrayIcon(provider);
+                }
+
+                throw;
             }
         }
 
@@ -213,6 +232,39 @@ namespace AniMeido.App
                     .GetRequiredService<AppWindowActivationService>()
                     .ActivateMainWindow(),
                 RequestExit);
+
+        private async Task StartTrayIconAtStartupAsync(
+            IServiceProvider provider)
+        {
+            try
+            {
+                StartTrayIcon(provider);
+            }
+            catch (Exception ex) when (
+                ex is InvalidOperationException or TimeoutException)
+            {
+                Log.Error(
+                    ex,
+                    "托盘图标启动失败，已关闭托盘驻留设置");
+                _desktopSettings = _desktopSettings with
+                {
+                    KeepInTrayOnClose = false,
+                };
+                try
+                {
+                    await provider.GetRequiredService<DesktopSettingsStore>()
+                        .SaveAsync(_desktopSettings);
+                }
+                catch (Exception saveException) when (
+                    saveException is IOException
+                    or UnauthorizedAccessException)
+                {
+                    Log.Warning(
+                        saveException,
+                        "无法保存托盘驻留降级设置");
+                }
+            }
+        }
 
         private static async Task StartPluginHostSafelyAsync(
             PluginHostSupervisor supervisor)

@@ -1,4 +1,6 @@
 using Microsoft.UI.Dispatching;
+using Microsoft.Extensions.Logging;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 
 namespace AniMeido.App.Services;
@@ -22,6 +24,7 @@ public sealed class TrayIconService : IDisposable
     private const int OpenCommand = 1;
     private const int ExitCommand = 2;
     private readonly DispatcherQueue _dispatcher;
+    private readonly ILogger<TrayIconService> _logger;
     private readonly WindowProcedure _windowProcedure;
     private readonly object _sync = new();
     private readonly ManualResetEventSlim _ready = new();
@@ -30,10 +33,13 @@ public sealed class TrayIconService : IDisposable
     private uint _threadId;
     private Action? _open;
     private Action? _exit;
+    private Exception? _startupException;
+    private bool _started;
     private bool _disposed;
 
-    public TrayIconService()
+    public TrayIconService(ILogger<TrayIconService> logger)
     {
+        _logger = logger;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         _windowProcedure = WindowProc;
     }
@@ -55,13 +61,65 @@ public sealed class TrayIconService : IDisposable
                 IsBackground = true,
                 Name = "AniMeido tray icon",
             };
+            _startupException = null;
+            _started = false;
             _ready.Reset();
             _thread.Start();
         }
-        _ready.Wait(TimeSpan.FromSeconds(2));
+
+        if (!_ready.Wait(TimeSpan.FromSeconds(2)))
+        {
+            Stop();
+            throw new TimeoutException("创建托盘图标超时。");
+        }
+
+        if (_startupException is not null)
+        {
+            var exception = _startupException;
+            Stop();
+            throw new InvalidOperationException(
+                "无法创建 AniMeido 托盘图标。",
+                exception);
+        }
+
+        if (!_started)
+        {
+            Stop();
+            throw new InvalidOperationException(
+                "AniMeido 托盘图标未能启动。");
+        }
     }
 
     private void Run()
+    {
+        try
+        {
+            RunCore();
+        }
+#pragma warning disable CA1031 // Exceptions must not escape the dedicated native message thread.
+        catch (Exception ex)
+        {
+            _startupException = ex;
+            _logger.LogError(ex, "Tray icon thread stopped unexpectedly.");
+        }
+#pragma warning restore CA1031
+        finally
+        {
+            lock (_sync)
+            {
+                if (ReferenceEquals(_thread, Thread.CurrentThread))
+                {
+                    _thread = null;
+                    _threadId = 0;
+                    _window = 0;
+                }
+            }
+
+            _ready.Set();
+        }
+    }
+
+    private void RunCore()
     {
         _threadId = GetCurrentThreadId();
         var className = $"AniMeido.Tray.{Environment.ProcessId}";
@@ -75,45 +133,82 @@ public sealed class TrayIconService : IDisposable
         var atom = RegisterClassEx(ref windowClass);
         if (atom == 0)
         {
-            _ready.Set();
-            return;
+            throw new Win32Exception(
+                Marshal.GetLastWin32Error(),
+                "无法注册托盘窗口类。");
         }
 
-        _window = CreateWindowEx(
-            0,
-            className,
-            "AniMeido",
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            windowClass.Instance,
-            0);
-        if (_window == 0)
-        {
-            _ready.Set();
-            return;
-        }
-
-        var icon = LoadIcon(0, new nint(32512));
-        var data = CreateIconData(_window, icon);
-        _ = ShellNotifyIcon(NimAdd, ref data);
-        _ready.Set();
+        nint icon = 0;
+        var iconAdded = false;
         try
         {
-            while (GetMessage(out var message, 0, 0, 0) > 0)
+            _window = CreateWindowEx(
+                0,
+                className,
+                "AniMeido",
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                windowClass.Instance,
+                0);
+            if (_window == 0)
             {
+                throw new Win32Exception(
+                    Marshal.GetLastWin32Error(),
+                    "无法创建托盘消息窗口。");
+            }
+
+            icon = LoadIcon(0, new nint(32512));
+            if (icon == 0)
+            {
+                throw new Win32Exception(
+                    Marshal.GetLastWin32Error(),
+                    "无法加载托盘图标。");
+            }
+
+            var data = CreateIconData(_window, icon);
+            if (!ShellNotifyIcon(NimAdd, ref data))
+            {
+                throw new Win32Exception(
+                    Marshal.GetLastWin32Error(),
+                    "Windows 拒绝添加托盘图标。");
+            }
+
+            iconAdded = true;
+            _started = true;
+            _ready.Set();
+            while (true)
+            {
+                var result = GetMessage(out var message, 0, 0, 0);
+                if (result == 0)
+                {
+                    break;
+                }
+
+                if (result < 0)
+                {
+                    throw new Win32Exception(
+                        Marshal.GetLastWin32Error(),
+                        "托盘消息循环读取失败。");
+                }
+
                 TranslateMessage(ref message);
                 DispatchMessage(ref message);
             }
         }
         finally
         {
-            data = CreateIconData(_window, icon);
-            _ = ShellNotifyIcon(NimDelete, ref data);
+            _started = false;
+            if (iconAdded)
+            {
+                var data = CreateIconData(_window, icon);
+                _ = ShellNotifyIcon(NimDelete, ref data);
+            }
+
             if (_window != 0)
             {
                 DestroyWindow(_window);
@@ -376,7 +471,12 @@ public sealed class TrayIconService : IDisposable
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern nint LoadIcon(nint instance, nint iconName);
 
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    [DllImport(
+        "shell32.dll",
+        EntryPoint = "Shell_NotifyIconW",
+        ExactSpelling = true,
+        SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool ShellNotifyIcon(
         uint message,
         ref NotifyIconData data);
