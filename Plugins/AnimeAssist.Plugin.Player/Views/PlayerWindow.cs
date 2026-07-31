@@ -3,9 +3,6 @@ using AniMeido.Plugin.Player.Diagnostics;
 using AniMeido.Plugin.Player.Models;
 using AniMeido.Plugin.Player.Playback;
 using AniMeido.Plugin.Player.Sources;
-using AniMeido.Plugin.Player.Sources.EasyBangumi;
-using AniMeido.Plugin.Player.Sources.Packages;
-using AniMeido.Plugin.Player.Sources.Subscriptions;
 using AniMeido.Plugin.Player.Sources.Web;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI;
@@ -25,16 +22,8 @@ namespace AniMeido.Plugin.Player.Views;
 
 internal sealed class PlayerWindow : Window
 {
-    private static readonly SolidColorBrush WindowBackground =
-        new(ColorHelper.FromArgb(255, 19, 19, 32));
-    private static readonly SolidColorBrush PanelBackground =
-        new(ColorHelper.FromArgb(255, 31, 31, 49));
-
     private readonly OnlineSourceCatalog _sourceCatalog;
-    private readonly SourcePackageInstaller _sourcePackageInstaller;
-    private readonly SourceSubscriptionService _subscriptionService;
-    private readonly EasyPreferenceStore _preferenceStore;
-    private readonly PlayerRuntimeSettingsStore _runtimeSettings;
+    private readonly Action _openSourceManagement;
     private readonly WebMediaResolver _webResolver;
     private readonly PlaybackDiagnosticRecorder _diagnostics;
     private readonly Grid _root = new();
@@ -87,7 +76,6 @@ internal sealed class PlayerWindow : Window
     private PlayerExperienceSettings _experience = new();
     private IReadOnlyList<PlayerEpisodeGroup> _episodeGroups = [];
     private AppWindow? _appWindow;
-    private SourceManagementWindow? _sourceManagementWindow;
     private readonly object _activeContextSync = new();
     private int _activeAnimeId;
     private string _activeAnimeTitle = string.Empty;
@@ -99,10 +87,7 @@ internal sealed class PlayerWindow : Window
     public PlayerWindow(
         AnimePlaybackContext anime,
         OnlineSourceCatalog sourceCatalog,
-        SourcePackageInstaller sourcePackageInstaller,
-        SourceSubscriptionService subscriptionService,
-        EasyPreferenceStore preferenceStore,
-        PlayerRuntimeSettingsStore runtimeSettings,
+        Action openSourceManagement,
         WebMediaResolver webResolver,
         PlaybackDiagnosticRecorder diagnostics,
         PlayerExperienceSettingsStore experienceSettings,
@@ -110,10 +95,7 @@ internal sealed class PlayerWindow : Window
     {
         ArgumentNullException.ThrowIfNull(anime);
         _sourceCatalog = sourceCatalog;
-        _sourcePackageInstaller = sourcePackageInstaller;
-        _subscriptionService = subscriptionService;
-        _preferenceStore = preferenceStore;
-        _runtimeSettings = runtimeSettings;
+        _openSourceManagement = openSourceManagement;
         _webResolver = webResolver;
         _diagnostics = diagnostics;
         _experienceSettings = experienceSettings;
@@ -178,9 +160,9 @@ internal sealed class PlayerWindow : Window
 
     private UIElement BuildLayout()
     {
-        _root.Background = WindowBackground;
-        _root.Padding = new Thickness(16);
-        _root.RowSpacing = 10;
+        _root.Background = PlayerVisualStyles.WindowBackground;
+        _root.Padding = new Thickness(20, 18, 20, 20);
+        _root.RowSpacing = 12;
         _root.IsTabStop = true;
         _root.RowDefinitions.Add(
             new RowDefinition { Height = GridLength.Auto });
@@ -196,14 +178,10 @@ internal sealed class PlayerWindow : Window
             new ColumnDefinition { Width = GridLength.Auto });
 
         var titlePanel = new StackPanel { Spacing = 3 };
-        titlePanel.Children.Add(new TextBlock
-        {
-            Text = "在线播放",
-            FontSize = 26,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-        });
+        titlePanel.Children.Add(
+            PlayerVisualStyles.CreatePageTitle("在线播放"));
         _animeTitle.FontSize = 13;
-        _animeTitle.Opacity = 0.7;
+        _animeTitle.Opacity = 0.68;
         titlePanel.Children.Add(_animeTitle);
         _heading.Children.Add(titlePanel);
 
@@ -215,14 +193,19 @@ internal sealed class PlayerWindow : Window
         _root.Children.Add(_heading);
 
         _videoSurface.Background = new SolidColorBrush(Colors.Black);
-        _videoSurface.CornerRadius = new CornerRadius(12);
+        _videoSurface.CornerRadius = new CornerRadius(14);
+        _videoSurface.BorderBrush = PlayerVisualStyles.SurfaceStroke;
+        _videoSurface.BorderThickness = new Thickness(1);
         _videoSurface.SizeChanged += OnVideoSurfaceSizeChanged;
         Grid.SetRow(_videoSurface, 1);
         _root.Children.Add(_videoSurface);
 
-        _selectorBar.Background = PanelBackground;
-        _selectorBar.CornerRadius = new CornerRadius(10);
-        _selectorBar.Padding = new Thickness(10, 7, 10, 7);
+        _selectorBar.Background =
+            PlayerVisualStyles.SurfaceBackground;
+        _selectorBar.BorderBrush = PlayerVisualStyles.SurfaceStroke;
+        _selectorBar.BorderThickness = new Thickness(1);
+        _selectorBar.CornerRadius = new CornerRadius(12);
+        _selectorBar.Padding = new Thickness(12, 9, 12, 9);
         _selectorBar.ColumnSpacing = 8;
         _selectorBar.ColumnDefinitions.Add(
             new ColumnDefinition { Width = GridLength.Auto });
@@ -257,9 +240,11 @@ internal sealed class PlayerWindow : Window
         Grid.SetRow(_selectorBar, 2);
         _root.Children.Add(_selectorBar);
 
-        _footer.Background = PanelBackground;
-        _footer.CornerRadius = new CornerRadius(10);
-        _footer.Padding = new Thickness(10);
+        _footer.Background = PlayerVisualStyles.SurfaceBackground;
+        _footer.BorderBrush = PlayerVisualStyles.SurfaceStroke;
+        _footer.BorderThickness = new Thickness(1);
+        _footer.CornerRadius = new CornerRadius(12);
+        _footer.Padding = new Thickness(12);
         _footer.ColumnSpacing = 8;
         _footer.ColumnDefinitions.Add(new ColumnDefinition());
         _footer.ColumnDefinitions.Add(
@@ -297,12 +282,16 @@ internal sealed class PlayerWindow : Window
         _playButton.Content = "播放";
         _playButton.IsEnabled = false;
         _playButton.Click += OnPlayClick;
+        PlayerVisualStyles.StyleButton(
+            _playButton,
+            PlayerButtonTone.Primary);
         primaryControls.Children.Add(_playButton);
         primaryControls.Children.Add(
             CreateControlButton("+10 秒", OnSeekForward));
         _nextButton.Content = "下一集";
         _nextButton.IsEnabled = false;
         _nextButton.Click += OnNextEpisodeClick;
+        PlayerVisualStyles.StyleButton(_nextButton);
         primaryControls.Children.Add(_nextButton);
         Grid.SetRow(primaryControls, 1);
         _footer.Children.Add(primaryControls);
@@ -318,6 +307,7 @@ internal sealed class PlayerWindow : Window
         playbackDetails.Children.Add(_timeText);
         _muteButton.Content = "音量";
         _muteButton.Click += OnMuteClick;
+        PlayerVisualStyles.StyleButton(_muteButton);
         playbackDetails.Children.Add(_muteButton);
         _volumeSlider.Minimum = 0;
         _volumeSlider.Maximum = 100;
@@ -336,6 +326,7 @@ internal sealed class PlayerWindow : Window
         playbackDetails.Children.Add(_speedList);
         _fullScreenButton.Content = "全屏";
         _fullScreenButton.Click += OnFullScreenClick;
+        PlayerVisualStyles.StyleButton(_fullScreenButton);
         playbackDetails.Children.Add(_fullScreenButton);
         playbackDetails.Children.Add(
             CreateControlButton("更多", OnMoreClick));
@@ -365,8 +356,8 @@ internal sealed class PlayerWindow : Window
         var button = new Button
         {
             Content = text,
-            MinWidth = 0,
         };
+        PlayerVisualStyles.StyleButton(button);
         button.Click += handler;
         return button;
     }
@@ -601,28 +592,9 @@ internal sealed class PlayerWindow : Window
     }
 
     private void OnManageSourcesClick(object sender, RoutedEventArgs e)
-    {
-        if (_sourceManagementWindow is null)
-        {
-            _sourceManagementWindow = new SourceManagementWindow(
-                _sourceCatalog,
-                _sourcePackageInstaller,
-                _subscriptionService,
-                _preferenceStore,
-                _runtimeSettings,
-                _webResolver);
-            _sourceManagementWindow.SourcesChanged +=
-                OnManagedSourcesChanged;
-            _sourceManagementWindow.Closed +=
-                OnSourceManagementWindowClosed;
-        }
+        => _openSourceManagement();
 
-        _sourceManagementWindow.Activate();
-    }
-
-    private async void OnManagedSourcesChanged(
-        object? sender,
-        EventArgs e)
+    internal async Task RefreshSourcesAsync()
     {
         if (_isClosing)
         {
@@ -639,20 +611,6 @@ internal sealed class PlayerWindow : Window
             _status.Text = $"播放源已更新，但重新查询失败：{ex.Message}";
         }
 #pragma warning restore CA1031
-    }
-
-    private void OnSourceManagementWindowClosed(
-        object sender,
-        WindowEventArgs args)
-    {
-        if (_sourceManagementWindow is not null)
-        {
-            _sourceManagementWindow.SourcesChanged -=
-                OnManagedSourcesChanged;
-            _sourceManagementWindow.Closed -=
-                OnSourceManagementWindowClosed;
-            _sourceManagementWindow = null;
-        }
     }
 
     private void OnEpisodeSelectionChanged(
@@ -1682,15 +1640,6 @@ internal sealed class PlayerWindow : Window
         _mpv = null;
         _nativeVideoHost?.Dispose();
         _nativeVideoHost = null;
-        if (_sourceManagementWindow is not null)
-        {
-            _sourceManagementWindow.SourcesChanged -=
-                OnManagedSourcesChanged;
-            _sourceManagementWindow.Closed -=
-                OnSourceManagementWindowClosed;
-            _sourceManagementWindow.Close();
-            _sourceManagementWindow = null;
-        }
         _webResolver.CloseBrowserWindow();
         _root.KeyDown -= OnRootKeyDown;
         Activated -= OnWindowActivated;

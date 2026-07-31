@@ -15,7 +15,7 @@ namespace AniMeido.Plugin.Base
 
         public string DisplayName => "基础插件";
 
-        public string Version => "1.5.0";
+        public string Version => "1.6.0";
 
         public bool IsRequired => true;
 

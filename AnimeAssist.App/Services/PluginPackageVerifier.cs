@@ -78,6 +78,7 @@ internal sealed partial class PluginPackageVerifier
             || manifest.Contributions is null
             || manifest.Contributions.Commands is null
             || manifest.Contributions.Navigation is null
+            || manifest.Contributions.Settings is null
             || manifest.Contributions.Capabilities is null)
         {
             throw new PluginOperationException("插件清单缺少必需的集合字段。");
@@ -123,6 +124,8 @@ internal sealed partial class PluginPackageVerifier
         if (manifest.Contributions.Commands.Any(command => command is null)
             || manifest.Contributions.Navigation.Any(
                 navigation => navigation is null)
+            || manifest.Contributions.Settings.Any(
+                settings => settings is null)
             || manifest.Contributions.Capabilities.Any(
                 capability => capability is null)
             || manifest.ActivationEvents.Any(
@@ -153,6 +156,21 @@ internal sealed partial class PluginPackageVerifier
             }
         }
 
+        var settingsIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var settings in manifest.Contributions.Settings)
+        {
+            if (string.IsNullOrWhiteSpace(settings.Id)
+                || !settings.Id.StartsWith(
+                    manifest.PluginId + ".",
+                    StringComparison.Ordinal)
+                || string.IsNullOrWhiteSpace(settings.Title)
+                || !settingsIds.Add(settings.Id))
+            {
+                throw new PluginOperationException(
+                    "插件设置贡献无效或重复。");
+            }
+        }
+
         var capabilities = new HashSet<string>(StringComparer.Ordinal);
         foreach (var capability in manifest.Contributions.Capabilities)
         {
@@ -180,7 +198,12 @@ internal sealed partial class PluginPackageVerifier
                     PluginHostProtocol.CommandActivationPrefix,
                     StringComparison.Ordinal)
                     && commandIds.Contains(
-                        activationEvent[PluginHostProtocol.CommandActivationPrefix.Length..]);
+                        activationEvent[PluginHostProtocol.CommandActivationPrefix.Length..])
+                || activationEvent.StartsWith(
+                    PluginHostProtocol.SettingsActivationPrefix,
+                    StringComparison.Ordinal)
+                    && settingsIds.Contains(
+                        activationEvent[PluginHostProtocol.SettingsActivationPrefix.Length..]);
             if (!valid)
             {
                 throw new PluginOperationException($"不支持的插件激活事件：{activationEvent}");
@@ -194,6 +217,17 @@ internal sealed partial class PluginPackageVerifier
                 StringComparer.Ordinal))
             {
                 throw new PluginOperationException($"插件命令缺少激活事件：{commandId}");
+            }
+        }
+
+        foreach (var settingsId in settingsIds)
+        {
+            if (!manifest.ActivationEvents.Contains(
+                PluginHostProtocol.SettingsActivationPrefix + settingsId,
+                StringComparer.Ordinal))
+            {
+                throw new PluginOperationException(
+                    $"插件设置缺少激活事件：{settingsId}");
             }
         }
 

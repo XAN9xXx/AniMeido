@@ -24,6 +24,7 @@ internal static class SettingsEntryCollector
                     plugin.PluginID,
                     plugin.DisplayName,
                     item.Label,
+                    item.Icon,
                     item.PageType));
             }
         }
@@ -35,4 +36,9 @@ internal static class SettingsEntryCollector
 /// <summary>
 /// 设置页条目记录，标识设置项所属的插件和页面类型。
 /// </summary>
-public sealed record PluginSettingsEntry(string PluginId, string PluginDisplayName, string Label, Type PageType);
+public sealed record PluginSettingsEntry(
+    string PluginId,
+    string PluginDisplayName,
+    string Label,
+    string Icon,
+    Type PageType);

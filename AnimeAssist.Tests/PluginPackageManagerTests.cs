@@ -177,10 +177,81 @@ public sealed class PluginPackageManagerTests : IDisposable
         verifier.ValidateManifest(manifest);
     }
 
+    [Fact]
+    public void ValidateManifest_SettingsContribution_IsAccepted()
+    {
+        var verifier = new PluginPackageVerifier(new Version(1, 6, 0));
+        var manifest = CreateManifest("1.0.0");
+        var settingsId = $"{PluginId}.settings";
+        manifest.Contributions.Settings.Add(new PluginSettingsContribution
+        {
+            Id = settingsId,
+            Title = "Plugin settings",
+            Icon = "\uE713",
+        });
+        manifest.ActivationEvents.Add(
+            PluginHostProtocol.SettingsActivationPrefix + settingsId);
+
+        verifier.ValidateManifest(manifest);
+    }
+
+    [Fact]
+    public void ValidateManifest_SettingsWithoutActivationEvent_IsRejected()
+    {
+        var verifier = new PluginPackageVerifier(new Version(1, 6, 0));
+        var manifest = CreateManifest("1.0.0");
+        manifest.Contributions.Settings.Add(new PluginSettingsContribution
+        {
+            Id = $"{PluginId}.settings",
+            Title = "Plugin settings",
+            Icon = "\uE713",
+        });
+
+        var exception = Assert.Throws<PluginOperationException>(
+            () => verifier.ValidateManifest(manifest));
+
+        Assert.Contains(
+            "设置缺少激活事件",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateManifest_DuplicateSettingsContribution_IsRejected()
+    {
+        var verifier = new PluginPackageVerifier(new Version(1, 6, 0));
+        var manifest = CreateManifest("1.0.0");
+        var settingsId = $"{PluginId}.settings";
+        manifest.Contributions.Settings.Add(new PluginSettingsContribution
+        {
+            Id = settingsId,
+            Title = "Plugin settings",
+            Icon = "\uE713",
+        });
+        manifest.Contributions.Settings.Add(new PluginSettingsContribution
+        {
+            Id = settingsId,
+            Title = "Duplicate settings",
+            Icon = "\uE713",
+        });
+        manifest.ActivationEvents.Add(
+            PluginHostProtocol.SettingsActivationPrefix + settingsId);
+
+        var exception = Assert.Throws<PluginOperationException>(
+            () => verifier.ValidateManifest(manifest));
+
+        Assert.Contains(
+            "设置贡献无效或重复",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("""{"formatVersion":2,"files":null}""")]
     [InlineData("""{"formatVersion":2,"activationEvents":null}""")]
     [InlineData("""{"formatVersion":2,"contributes":null}""")]
+    [InlineData(
+        """{"formatVersion":2,"contributes":{"commands":[],"navigation":[],"settings":null,"capabilities":[]}}""")]
     public void ValidateManifest_NullCollections_AreRejectedWithDomainError(
         string json)
     {

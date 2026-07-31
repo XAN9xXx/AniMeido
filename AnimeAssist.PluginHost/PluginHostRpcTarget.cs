@@ -24,6 +24,9 @@ public sealed class PluginHostRpcTarget
             nameof(InvokeCommandAsync) => BoxAsync(InvokeCommandAsync(
                 ReadArgument<string>(request, 0),
                 ReadArgument<string>(request, 1))),
+            nameof(OpenSettingsAsync) => BoxAsync(OpenSettingsAsync(
+                ReadArgument<string>(request, 0),
+                ReadArgument<string>(request, 1))),
             nameof(LaunchAnimePlaybackAsync) => BoxAsync(
                 LaunchAnimePlaybackAsync(
                     ReadArgument<AnimePlaybackRequest>(request, 0))),
@@ -83,6 +86,11 @@ public sealed class PluginHostRpcTarget
         string pluginId,
         string commandId)
         => _catalog.InvokeCommandAsync(pluginId, commandId);
+
+    public Task OpenSettingsAsync(
+        string pluginId,
+        string settingsId)
+        => _catalog.OpenSettingsAsync(pluginId, settingsId);
 
     public Task LaunchAnimePlaybackAsync(AnimePlaybackRequest request)
         => _catalog.LaunchAnimePlaybackAsync(request);

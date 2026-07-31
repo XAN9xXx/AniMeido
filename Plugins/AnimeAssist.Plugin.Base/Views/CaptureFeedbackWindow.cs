@@ -33,33 +33,54 @@ internal sealed class CaptureFeedbackWindow : Window
         {
             Orientation = Orientation.Horizontal,
             Spacing = 12,
-            Padding = new Thickness(12),
+            Padding = new Thickness(14),
+            VerticalAlignment = VerticalAlignment.Center,
         };
         if (screenshot is not null)
         {
-            panel.Children.Add(new Image
+            panel.Children.Add(new Border
             {
                 Width = 120,
                 Height = 68,
-                Stretch = Stretch.UniformToFill,
-                Source = new BitmapImage(new Uri(screenshot.FilePath)),
+                CornerRadius = new CornerRadius(8),
+                Child = new Image
+                {
+                    Stretch = Stretch.UniformToFill,
+                    Source = new BitmapImage(new Uri(screenshot.FilePath)),
+                },
             });
         }
 
-        panel.Children.Add(new TextBlock
+        var message = new StackPanel
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            Spacing = 3,
+            MaxWidth = screenshot is null ? 330 : 210,
+        };
+        message.Children.Add(new TextBlock
+        {
+            Text = errorMessage is null ? "截图已保存" : "截图失败",
+            FontSize = 16,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        });
+        message.Children.Add(new TextBlock
         {
             Text = errorMessage is null
-                ? "截图已保存"
-                : $"截图失败\n{errorMessage}",
+                ? "点击可在档案馆中查看"
+                : errorMessage,
+            Opacity = 0.68,
             TextWrapping = TextWrapping.Wrap,
-            VerticalAlignment = VerticalAlignment.Center,
-            MaxWidth = 210,
         });
+        panel.Children.Add(message);
+
         var border = new Border
         {
             Background = new SolidColorBrush(
-                Microsoft.UI.ColorHelper.FromArgb(245, 35, 35, 42)),
-            CornerRadius = new CornerRadius(10),
+                Microsoft.UI.ColorHelper.FromArgb(248, 27, 29, 42)),
+            BorderBrush = new SolidColorBrush(
+                Microsoft.UI.ColorHelper.FromArgb(72, 255, 255, 255)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
             Child = panel,
         };
         border.Tapped += (_, _) =>
@@ -87,8 +108,8 @@ internal sealed class CaptureFeedbackWindow : Window
             style | WsExToolWindow | WsExNoActivate | WsExTopmost);
         var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(handle);
         var appWindow = AppWindow.GetFromWindowId(windowId);
-        const int width = 360;
-        const int height = 96;
+        const int width = 380;
+        const int height = 104;
         var display = DisplayArea.GetFromWindowId(
             windowId,
             DisplayAreaFallback.Nearest);

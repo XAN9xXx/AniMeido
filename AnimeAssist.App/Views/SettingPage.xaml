@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="AniMeido.App.Views.SettingPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -7,62 +7,35 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Grid Padding="24,20,24,24"
-          RowDefinitions="Auto,*"
+    <Grid RowDefinitions="Auto,*"
           RowSpacing="16"
+          Padding="24,20,24,24"
           Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="220"/>
-            <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
-
-        <StackPanel Grid.ColumnSpan="2" Spacing="2">
+        <StackPanel Spacing="2">
             <TextBlock Text="设置"
                        Style="{StaticResource AniMeidoPageTitleStyle}"/>
-            <TextBlock Text="管理应用、插件和基础功能"
+            <TextBlock Text="管理 AniMeido、基础功能与可选插件"
                        Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
         </StackPanel>
 
-        <!-- 左侧导航 -->
-        <StackPanel Grid.Row="1"
-                    Grid.Column="0"
-                    Margin="0,0,16,0"
-                    Spacing="0">
-            <TextBlock Text="设置分类"
-                       FontWeight="SemiBold"
-                       Margin="0,0,0,12"/>
+        <NavigationView x:Name="SettingsNavigation"
+                        Grid.Row="1"
+                        PaneDisplayMode="Left"
+                        IsPaneOpen="True"
+                        IsPaneToggleButtonVisible="False"
+                        IsBackButtonVisible="Collapsed"
+                        IsSettingsVisible="False"
+                        IsTitleBarAutoPaddingEnabled="False"
+                        OpenPaneLength="230"
+                        SelectionChanged="OnSettingsSelectionChanged">
+            <NavigationView.Resources>
+                <Style TargetType="NavigationViewItem">
+                    <Setter Property="MinHeight" Value="44"/>
+                    <Setter Property="CornerRadius" Value="8"/>
+                </Style>
+            </NavigationView.Resources>
 
-            <!-- App 设置入口 -->
-            <Border x:Name="AppSettingsCard"
-                    Padding="12,10,12,10"
-                    Height="40"
-                    Tapped="OnNavItemTapped"
-                    PointerEntered="OnCardPointerEntered"
-                    PointerExited="OnCardPointerExited">
-                <Grid ColumnDefinitions="3,*">
-                    <Rectangle x:Name="AppSettingsIndicator"
-                               Width="3"
-                               Height="20"
-                               Fill="{ThemeResource AniMeidoNavIndicatorBrush}"
-                               VerticalAlignment="Center"/>
-                    <TextBlock x:Name="AppSettingsLabel"
-                               Grid.Column="1"
-                               Text="App 设置"
-                               FontSize="14"
-                               Foreground="{ThemeResource AniMeidoNavTextSelectedBrush}"
-                               VerticalAlignment="Center"
-                               Margin="12,0,0,0"/>
-                </Grid>
-            </Border>
-
-            <!-- 插件设置入口（由代码动态填充） -->
-            <StackPanel x:Name="PluginSettingsList"
-                        Spacing="0"/>
-        </StackPanel>
-
-        <!-- 右侧 Frame -->
-        <Frame x:Name="SettingsFrame"
-               Grid.Row="1"
-               Grid.Column="1"/>
+            <Frame x:Name="SettingsFrame"/>
+        </NavigationView>
     </Grid>
 </Page>

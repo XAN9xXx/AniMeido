@@ -88,8 +88,7 @@ internal sealed class SourceVerificationWindow : Window
 
     private UIElement BuildLayout()
     {
-        _root.Background = new SolidColorBrush(
-            ColorHelper.FromArgb(255, 19, 19, 32));
+        _root.Background = PlayerVisualStyles.WindowBackground;
         _root.RowDefinitions.Add(
             new RowDefinition { Height = GridLength.Auto });
         _root.RowDefinitions.Add(new RowDefinition());
@@ -98,8 +97,7 @@ internal sealed class SourceVerificationWindow : Window
         {
             Padding = new Thickness(14, 10, 14, 10),
             ColumnSpacing = 10,
-            Background = new SolidColorBrush(
-                ColorHelper.FromArgb(255, 31, 31, 49)),
+            Background = PlayerVisualStyles.SurfaceBackground,
         };
         header.ColumnDefinitions.Add(new ColumnDefinition());
         header.ColumnDefinitions.Add(
@@ -108,12 +106,8 @@ internal sealed class SourceVerificationWindow : Window
             new ColumnDefinition { Width = GridLength.Auto });
 
         var information = new StackPanel { Spacing = 2 };
-        information.Children.Add(new TextBlock
-        {
-            Text = "源站验证",
-            FontSize = 18,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-        });
+        information.Children.Add(
+            PlayerVisualStyles.CreatePageTitle("源站验证"));
         _address.Text = _uri.Host;
         _address.Opacity = 0.7;
         _address.TextTrimming = TextTrimming.CharacterEllipsis;
@@ -126,6 +120,9 @@ internal sealed class SourceVerificationWindow : Window
         header.Children.Add(information);
 
         _retryButton.Click += OnCompleteClick;
+        PlayerVisualStyles.StyleButton(
+            _retryButton,
+            PlayerButtonTone.Primary);
         Grid.SetColumn(_retryButton, 1);
         header.Children.Add(_retryButton);
 
@@ -134,6 +131,7 @@ internal sealed class SourceVerificationWindow : Window
             Content = "取消",
             VerticalAlignment = VerticalAlignment.Center,
         };
+        PlayerVisualStyles.StyleButton(cancel);
         cancel.Click += OnCancelClick;
         Grid.SetColumn(cancel, 2);
         header.Children.Add(cancel);

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="AniMeido.App.Views.HostedPluginSettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <ScrollViewer HorizontalScrollMode="Disabled"
+                  HorizontalScrollBarVisibility="Disabled">
+        <StackPanel MaxWidth="760"
+                    HorizontalAlignment="Left"
+                    Spacing="16"
+                    Padding="24,8,24,24">
+            <StackPanel Spacing="3">
+                <TextBlock x:Name="TitleText"
+                           Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                <TextBlock x:Name="PluginText"
+                           Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
+            </StackPanel>
+
+            <Border Style="{StaticResource AniMeidoContentCardStyle}">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="此设置界面由插件进程维护。打开后可以继续使用 AniMeido 主窗口，关闭插件窗口不会退出应用。"
+                               TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="10">
+                        <Button x:Name="OpenButton"
+                                Content="打开插件设置"
+                                Style="{StaticResource AccentButtonStyle}"
+                                Click="OnOpenClick"/>
+                        <ProgressRing x:Name="OpenProgress"
+                                      Width="22"
+                                      Height="22"
+                                      IsActive="False"
+                                      Visibility="Collapsed"/>
+                    </StackPanel>
+                    <InfoBar x:Name="StatusBar"
+                             IsOpen="False"
+                             IsClosable="True"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

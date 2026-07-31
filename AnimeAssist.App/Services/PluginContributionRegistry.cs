@@ -8,6 +8,7 @@ public sealed class PluginContributionRegistry
 {
     private IReadOnlyList<PluginNavigationItem> _builtInItems = [];
     private IReadOnlyList<HostedCommandContribution> _hostedCommands = [];
+    private IReadOnlyList<HostedSettingsContribution> _hostedSettings = [];
 
     public event EventHandler? Changed;
 
@@ -24,7 +25,11 @@ public sealed class PluginContributionRegistry
                             command.CommandId)))))
             .ToList();
 
+    public IReadOnlyList<HostedSettingsContribution> Settings
+        => _hostedSettings;
+
     internal Func<string, string, Task>? CommandInvoker { get; set; }
+    internal Func<string, string, Task>? SettingsInvoker { get; set; }
 
     public void SetBuiltInItems(
         IReadOnlyList<PluginNavigationItem> builtInItems)
@@ -33,12 +38,21 @@ public sealed class PluginContributionRegistry
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    public void SetHostedCommands(
-        IReadOnlyList<HostedCommandContribution> hostedCommands)
+    public void SetHostedContributions(
+        IReadOnlyList<HostedCommandContribution> hostedCommands,
+        IReadOnlyList<HostedSettingsContribution> hostedSettings)
     {
         _hostedCommands = hostedCommands;
+        _hostedSettings = hostedSettings;
         Changed?.Invoke(this, EventArgs.Empty);
     }
+
+    public Task OpenSettingsAsync(
+        string pluginId,
+        string settingsId)
+        => SettingsInvoker?.Invoke(pluginId, settingsId)
+            ?? Task.FromException(
+                new InvalidOperationException("PluginHost 尚未连接。"));
 
     private Task InvokeHostedCommandAsync(
         string pluginId,

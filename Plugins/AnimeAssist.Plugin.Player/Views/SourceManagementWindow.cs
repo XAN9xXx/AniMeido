@@ -62,8 +62,9 @@ internal sealed class SourceManagementWindow : Window
 
     private UIElement BuildLayout()
     {
-        _root.Padding = new Thickness(18);
-        _root.RowSpacing = 12;
+        _root.Background = PlayerVisualStyles.WindowBackground;
+        _root.Padding = new Thickness(20, 18, 20, 20);
+        _root.RowSpacing = 14;
         _root.RowDefinitions.Add(
             new RowDefinition { Height = GridLength.Auto });
         _root.RowDefinitions.Add(new RowDefinition());
@@ -74,19 +75,26 @@ internal sealed class SourceManagementWindow : Window
         heading.ColumnDefinitions.Add(new ColumnDefinition());
         heading.ColumnDefinitions.Add(
             new ColumnDefinition { Width = GridLength.Auto });
-        heading.Children.Add(new TextBlock
-        {
-            Text = "播放源管理",
-            FontSize = 26,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-        });
+        var headingText = new StackPanel { Spacing = 3 };
+        headingText.Children.Add(
+            PlayerVisualStyles.CreatePageTitle("播放源管理"));
+        headingText.Children.Add(
+            PlayerVisualStyles.CreateSubtitle(
+                "订阅、启用并诊断在线播放来源"));
+        heading.Children.Add(headingText);
         _progress.Width = 28;
         _progress.Height = 28;
         Grid.SetColumn(_progress, 1);
         heading.Children.Add(_progress);
         _root.Children.Add(heading);
 
-        var tabs = new TabView();
+        var tabs = new TabView
+        {
+            Background = PlayerVisualStyles.SurfaceBackground,
+            BorderBrush = PlayerVisualStyles.SurfaceStroke,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+        };
         tabs.TabItems.Add(CreateSubscriptionsTab());
         tabs.TabItems.Add(CreatePackagesTab());
         tabs.TabItems.Add(CreateRuntimeTab());
@@ -107,10 +115,17 @@ internal sealed class SourceManagementWindow : Window
         _subscriptionUrl.PlaceholderText =
             "粘贴 EasyBangumi inner_source 或 ani-subs GitHub URL";
         var addButton = new Button { Content = "预览并导入" };
+        PlayerVisualStyles.StyleButton(
+            addButton,
+            PlayerButtonTone.Primary);
         addButton.Click += OnPreviewNewSubscriptionClick;
         var refreshButton = new Button { Content = "刷新所选订阅" };
+        PlayerVisualStyles.StyleButton(refreshButton);
         refreshButton.Click += OnRefreshSubscriptionClick;
         var removeButton = new Button { Content = "移除所选订阅" };
+        PlayerVisualStyles.StyleButton(
+            removeButton,
+            PlayerButtonTone.Danger);
         removeButton.Click += OnRemoveSubscriptionClick;
         var controls = new StackPanel
         {
@@ -120,32 +135,40 @@ internal sealed class SourceManagementWindow : Window
         controls.Children.Add(addButton);
         controls.Children.Add(refreshButton);
         controls.Children.Add(removeButton);
-        var panel = new StackPanel { Spacing = 10 };
-        panel.Children.Add(new TextBlock
+        var panel = CreateScrollableListLayout();
+        var description = new TextBlock
         {
             Text = "源内容仅在用户确认后从上游获取；应用前会显示差异。",
             TextWrapping = TextWrapping.Wrap,
-        });
-        panel.Children.Add(_subscriptionUrl);
-        panel.Children.Add(controls);
-        panel.Children.Add(_subscriptionList);
-        return new TabViewItem
-        {
-            Header = "订阅",
-            IsClosable = false,
-            Content = panel,
         };
+        panel.Children.Add(description);
+        var editor = new StackPanel { Spacing = 10 };
+        editor.Children.Add(_subscriptionUrl);
+        editor.Children.Add(controls);
+        Grid.SetRow(editor, 1);
+        panel.Children.Add(editor);
+        Grid.SetRow(_subscriptionList, 2);
+        panel.Children.Add(_subscriptionList);
+        return CreateTab("订阅", panel);
     }
 
     private TabViewItem CreatePackagesTab()
     {
         var installButton = new Button { Content = "安装本地源包" };
+        PlayerVisualStyles.StyleButton(
+            installButton,
+            PlayerButtonTone.Primary);
         installButton.Click += OnInstallPackageClick;
         var toggleButton = new Button { Content = "启用 / 禁用" };
+        PlayerVisualStyles.StyleButton(toggleButton);
         toggleButton.Click += OnTogglePackageClick;
         var settingsButton = new Button { Content = "源设置" };
+        PlayerVisualStyles.StyleButton(settingsButton);
         settingsButton.Click += OnSourceSettingsClick;
         var uninstallButton = new Button { Content = "卸载" };
+        PlayerVisualStyles.StyleButton(
+            uninstallButton,
+            PlayerButtonTone.Danger);
         uninstallButton.Click += OnUninstallPackageClick;
         var controls = new StackPanel
         {
@@ -156,29 +179,34 @@ internal sealed class SourceManagementWindow : Window
         controls.Children.Add(toggleButton);
         controls.Children.Add(settingsButton);
         controls.Children.Add(uninstallButton);
-        var panel = new StackPanel { Spacing = 10 };
-        panel.Children.Add(new TextBlock
+        var panel = CreateScrollableListLayout();
+        var description = new TextBlock
         {
             Text = "新订阅源默认禁用。建议每次只启用少量可靠来源。",
             TextWrapping = TextWrapping.Wrap,
-        });
-        panel.Children.Add(controls);
-        panel.Children.Add(_packageList);
-        return new TabViewItem
-        {
-            Header = "已安装源",
-            IsClosable = false,
-            Content = panel,
         };
+        panel.Children.Add(description);
+        Grid.SetRow(controls, 1);
+        panel.Children.Add(controls);
+        Grid.SetRow(_packageList, 2);
+        panel.Children.Add(_packageList);
+        return CreateTab("已安装源", panel);
     }
 
     private TabViewItem CreateRuntimeTab()
     {
         var saveTimeout = new Button { Content = "保存全局超时" };
+        PlayerVisualStyles.StyleButton(
+            saveTimeout,
+            PlayerButtonTone.Primary);
         saveTimeout.Click += OnSaveGlobalTimeoutClick;
         var clearSelected = new Button { Content = "清除所选会话" };
+        PlayerVisualStyles.StyleButton(clearSelected);
         clearSelected.Click += OnClearSelectedSessionClick;
         var clearAll = new Button { Content = "清除全部会话" };
+        PlayerVisualStyles.StyleButton(
+            clearAll,
+            PlayerButtonTone.Danger);
         clearAll.Click += OnClearAllSessionsClick;
         var sessionControls = new StackPanel
         {
@@ -187,31 +215,63 @@ internal sealed class SourceManagementWindow : Window
         };
         sessionControls.Children.Add(clearSelected);
         sessionControls.Children.Add(clearAll);
-        var panel = new StackPanel { Spacing = 10 };
-        panel.Children.Add(new TextBlock
+        var panel = new Grid
+        {
+            Padding = new Thickness(12),
+            RowSpacing = 10,
+        };
+        panel.RowDefinitions.Add(
+            new RowDefinition { Height = GridLength.Auto });
+        panel.RowDefinitions.Add(new RowDefinition());
+        var settings = new StackPanel { Spacing = 10 };
+        settings.Children.Add(new TextBlock
         {
             Text =
                 "后台解析默认 30 秒，可设置为 10–120 秒。"
                 + "登录窗口不计入该超时。",
             TextWrapping = TextWrapping.Wrap,
         });
-        panel.Children.Add(_globalTimeout);
-        panel.Children.Add(saveTimeout);
-        panel.Children.Add(new TextBlock
+        settings.Children.Add(_globalTimeout);
+        settings.Children.Add(saveTimeout);
+        settings.Children.Add(new TextBlock
         {
             Text = "站点登录会话",
             FontSize = 18,
             Margin = new Thickness(0, 10, 0, 0),
         });
-        panel.Children.Add(sessionControls);
+        settings.Children.Add(sessionControls);
+        panel.Children.Add(settings);
+        Grid.SetRow(_sessionList, 1);
         panel.Children.Add(_sessionList);
-        return new TabViewItem
-        {
-            Header = "运行时",
-            IsClosable = false,
-            Content = panel,
-        };
+        return CreateTab("运行时", panel);
     }
+
+    private static Grid CreateScrollableListLayout()
+    {
+        var panel = new Grid
+        {
+            Padding = new Thickness(12),
+            RowSpacing = 10,
+        };
+        panel.RowDefinitions.Add(
+            new RowDefinition { Height = GridLength.Auto });
+        panel.RowDefinitions.Add(
+            new RowDefinition { Height = GridLength.Auto });
+        panel.RowDefinitions.Add(new RowDefinition());
+        return panel;
+    }
+
+    private static TabViewItem CreateTab(
+        string header,
+        UIElement content)
+        => new()
+        {
+            Header = header,
+            IsClosable = false,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Stretch,
+            Content = content,
+        };
 
     private async void OnActivated(object sender, WindowActivatedEventArgs args)
     {

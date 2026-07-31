@@ -2,11 +2,12 @@ namespace AniMeido.PluginProtocol;
 
 public static class PluginHostProtocol
 {
-    public const int Version = 3;
+    public const int Version = 4;
     public const string AnimePlaybackCapability = "animePlayback";
     public const string AnimePlaybackActivationEvent = "onAnimePlayback";
     public const string StartupFinishedActivationEvent = "onStartupFinished";
     public const string CommandActivationPrefix = "onCommand:";
+    public const string SettingsActivationPrefix = "onSettings:";
 }
 
 public sealed record PluginHostHandshakeRequest(
@@ -28,12 +29,20 @@ public sealed record HostedCommandContribution(
     string Title,
     string Icon);
 
+public sealed record HostedSettingsContribution(
+    string PluginId,
+    string PluginDisplayName,
+    string SettingsId,
+    string Title,
+    string Icon);
+
 public sealed record HostedPluginFailure(
     string PluginId,
     string Message);
 
 public sealed record PluginHostSnapshot(
     IReadOnlyList<HostedCommandContribution> NavigationCommands,
+    IReadOnlyList<HostedSettingsContribution> Settings,
     IReadOnlyList<string> Capabilities,
     IReadOnlyList<HostedPluginFailure> Failures);
 

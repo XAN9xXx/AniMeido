@@ -1,5 +1,6 @@
 using AniMeido.Contracts;
 using AniMeido.Contracts.Playback;
+using AniMeido.Contracts.Plugins;
 using AniMeido.PluginProtocol;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
@@ -76,6 +77,7 @@ internal sealed class PluginRuntimeCatalog : IAsyncDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         _descriptors.Clear();
         var commands = new List<HostedCommandContribution>();
+        var settings = new List<HostedSettingsContribution>();
         var capabilities = new HashSet<string>(StringComparer.Ordinal);
         var failures = new List<HostedPluginFailure>();
 
@@ -107,6 +109,14 @@ internal sealed class PluginRuntimeCatalog : IAsyncDisposable
             {
                 capabilities.Add(capability);
             }
+
+            settings.AddRange(plugin.Manifest.Contributions.Settings.Select(
+                item => new HostedSettingsContribution(
+                    plugin.Manifest.PluginId,
+                    plugin.Manifest.DisplayName,
+                    item.Id,
+                    item.Title,
+                    item.Icon)));
         }
 
         foreach (var plugin in plugins.Where(item =>
@@ -132,8 +142,41 @@ internal sealed class PluginRuntimeCatalog : IAsyncDisposable
 
         return new PluginHostSnapshot(
             commands,
+            settings,
             capabilities.ToList(),
             failures);
+    }
+
+    public async Task OpenSettingsAsync(
+        string pluginId,
+        string settingsId)
+    {
+        Interlocked.Increment(ref _activeInvocationCount);
+        try
+        {
+            if (!_descriptors.TryGetValue(pluginId, out var descriptor)
+                || !descriptor.Manifest.Contributions.Settings.Any(item =>
+                    string.Equals(
+                        item.Id,
+                        settingsId,
+                        StringComparison.Ordinal)))
+            {
+                throw new InvalidOperationException(
+                    $"插件未注册设置入口：{settingsId}");
+            }
+
+            var active = await ActivateAsync(pluginId);
+            var launcher = active.Services
+                .GetService<IPluginSettingsLauncher>()
+                ?? throw new InvalidOperationException(
+                    "插件未注册 IPluginSettingsLauncher。");
+            await RunOnUiAsync(
+                () => launcher.OpenSettingsAsync(settingsId));
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _activeInvocationCount);
+        }
     }
 
     public async Task InvokeCommandAsync(

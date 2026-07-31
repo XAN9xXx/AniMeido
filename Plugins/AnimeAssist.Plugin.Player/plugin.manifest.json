@@ -2,15 +2,23 @@
   "formatVersion": 2,
   "pluginId": "AniMeido.Plugin.Player",
   "displayName": "在线播放器",
-  "version": "0.4.1",
-  "minAppVersion": "1.5.0",
+  "version": "0.4.4",
+  "minAppVersion": "1.6.0",
   "entryAssembly": "AniMeido.Plugin.Player.dll",
   "activationEvents": [
-    "onAnimePlayback"
+    "onAnimePlayback",
+    "onSettings:AniMeido.Plugin.Player.settings"
   ],
   "contributes": {
     "commands": [],
     "navigation": [],
+    "settings": [
+      {
+        "id": "AniMeido.Plugin.Player.settings",
+        "title": "播放器与播放源",
+        "icon": "\uE714"
+      }
+    ],
     "capabilities": [
       "animePlayback"
     ]

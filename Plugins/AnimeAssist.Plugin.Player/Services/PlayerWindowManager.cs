@@ -1,4 +1,5 @@
 using AniMeido.Contracts.Playback;
+using AniMeido.Contracts.Plugins;
 using AniMeido.Plugin.Player.Diagnostics;
 using AniMeido.Plugin.Player.Playback;
 using AniMeido.Plugin.Player.Sources;
@@ -18,6 +19,7 @@ namespace AniMeido.Plugin.Player.Services;
 internal sealed class PlayerWindowManager :
     IAnimePlaybackLauncher,
     IActiveAnimePlaybackContextProvider,
+    IPluginSettingsLauncher,
     IDisposable
 {
     private readonly OnlineSourceCatalog _sourceCatalog;
@@ -30,6 +32,8 @@ internal sealed class PlayerWindowManager :
     private readonly PlayerExperienceSettingsStore _experienceSettings;
     private readonly IAnimePlaybackProgressReporter _playbackProgressReporter;
     private PlayerWindow? _playerWindow;
+    private SourceManagementWindow? _settingsWindow;
+    private bool _endingSession;
     private bool _disposed;
 
     public bool IsAvailable => true;
@@ -67,6 +71,12 @@ internal sealed class PlayerWindowManager :
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_endingSession)
+        {
+            throw new InvalidOperationException(
+                "播放器会话正在退出，请稍后重试。");
+        }
+
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
         if (_playerWindow is not null)
@@ -86,10 +96,7 @@ internal sealed class PlayerWindowManager :
         _playerWindow = new PlayerWindow(
             context,
             _sourceCatalog,
-            _sourcePackageInstaller,
-            _subscriptionService,
-            _preferenceStore,
-            _runtimeSettings,
+            OpenSourceManagement,
             _webResolver,
             _diagnostics,
             _experienceSettings,
@@ -105,8 +112,64 @@ internal sealed class PlayerWindowManager :
         return Task.FromResult(_playerWindow?.GetActiveContextSnapshot());
     }
 
+    public Task OpenSettingsAsync(
+        string settingsId,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_endingSession)
+        {
+            throw new InvalidOperationException(
+                "播放器会话正在退出，请稍后重试。");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!string.Equals(
+            settingsId,
+            PlayerSettingsId,
+            StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                $"未知播放器设置入口：{settingsId}",
+                nameof(settingsId));
+        }
+
+        OpenSourceManagement();
+        return Task.CompletedTask;
+    }
+
+    private void OpenSourceManagement()
+    {
+        if (_settingsWindow is not null)
+        {
+            try
+            {
+                _settingsWindow.Activate();
+                return;
+            }
+            catch (COMException)
+            {
+                DetachSettingsWindow();
+            }
+        }
+
+        _settingsWindow = new SourceManagementWindow(
+            _sourceCatalog,
+            _sourcePackageInstaller,
+            _subscriptionService,
+            _preferenceStore,
+            _runtimeSettings,
+            _webResolver);
+        _settingsWindow.SourcesChanged += OnSourcesChanged;
+        _settingsWindow.Closed += OnSettingsWindowClosed;
+        _settingsWindow.Activate();
+    }
+
     private void OnPlayerWindowClosed(object sender, WindowEventArgs args)
-        => DetachWindow();
+    {
+        DetachWindow();
+        EndSession();
+    }
 
     private void DetachWindow()
     {
@@ -118,6 +181,57 @@ internal sealed class PlayerWindowManager :
 
     }
 
+    private void OnSettingsWindowClosed(
+        object sender,
+        WindowEventArgs args)
+    {
+        DetachSettingsWindow();
+        EndSession();
+    }
+
+    private void EndSession()
+    {
+        if (_endingSession)
+        {
+            return;
+        }
+
+        _endingSession = true;
+        var playerWindow = _playerWindow;
+        var settingsWindow = _settingsWindow;
+        DetachWindow();
+        DetachSettingsWindow();
+        if (settingsWindow is not null)
+        {
+            TryClose(settingsWindow);
+        }
+
+        if (playerWindow is not null)
+        {
+            TryClose(playerWindow);
+        }
+    }
+
+    private async void OnSourcesChanged(object? sender, EventArgs args)
+    {
+        if (_playerWindow is null)
+        {
+            return;
+        }
+
+        await _playerWindow.RefreshSourcesAsync();
+    }
+
+    private void DetachSettingsWindow()
+    {
+        if (_settingsWindow is not null)
+        {
+            _settingsWindow.SourcesChanged -= OnSourcesChanged;
+            _settingsWindow.Closed -= OnSettingsWindowClosed;
+            _settingsWindow = null;
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -127,15 +241,25 @@ internal sealed class PlayerWindowManager :
 
         _disposed = true;
         var playerWindow = _playerWindow;
+        var settingsWindow = _settingsWindow;
         DetachWindow();
-        if (playerWindow is null)
+        if (settingsWindow is not null)
         {
-            return;
+            DetachSettingsWindow();
+            TryClose(settingsWindow);
         }
 
+        if (playerWindow is not null)
+        {
+            TryClose(playerWindow);
+        }
+    }
+
+    private static void TryClose(Window window)
+    {
         try
         {
-            playerWindow.Close();
+            window.Close();
         }
         catch (Exception ex)
             when (ex is COMException or InvalidOperationException)
@@ -143,4 +267,7 @@ internal sealed class PlayerWindowManager :
             // The WinUI shutdown path may already have invalidated the window.
         }
     }
+
+    internal const string PlayerSettingsId =
+        "AniMeido.Plugin.Player.settings";
 }

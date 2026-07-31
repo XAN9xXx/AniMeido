@@ -1,5 +1,6 @@
 using AniMeido.Contracts;
 using AniMeido.Contracts.Playback;
+using AniMeido.Contracts.Plugins;
 using AniMeido.Plugin.Player.Diagnostics;
 using AniMeido.Plugin.Player.Playback;
 using AniMeido.Plugin.Player.Services;
@@ -57,6 +58,8 @@ public sealed class PlayerPlugin : IPlugin
         services.AddSingleton<IAnimePlaybackLauncher>(provider =>
             provider.GetRequiredService<PlayerWindowManager>());
         services.AddSingleton<IActiveAnimePlaybackContextProvider>(provider =>
+            provider.GetRequiredService<PlayerWindowManager>());
+        services.AddSingleton<IPluginSettingsLauncher>(provider =>
             provider.GetRequiredService<PlayerWindowManager>());
         return Task.CompletedTask;
     }

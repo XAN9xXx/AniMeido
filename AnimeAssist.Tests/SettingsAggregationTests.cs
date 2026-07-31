@@ -44,6 +44,7 @@ namespace AniMeido.Tests
             var settings = SettingsEntryCollector.Collect(new[] { plugin });
             Assert.Single(settings);
             Assert.Equal("设置", settings[0].Label);
+            Assert.Equal("\uE713", settings[0].Icon);
         }
 
         [Fact]
@@ -78,6 +79,29 @@ namespace AniMeido.Tests
         {
             var settings = SettingsEntryCollector.Collect(Array.Empty<IPlugin>());
             Assert.Empty(settings);
+        }
+
+        [Fact]
+        public async Task HostedSettings_UsesRegisteredInvoker()
+        {
+            var registry = new PluginContributionRegistry();
+            string? invokedPluginId = null;
+            string? invokedSettingsId = null;
+            registry.SettingsInvoker = (pluginId, settingsId) =>
+            {
+                invokedPluginId = pluginId;
+                invokedSettingsId = settingsId;
+                return Task.CompletedTask;
+            };
+
+            await registry.OpenSettingsAsync(
+                "AniMeido.Plugin.Test",
+                "AniMeido.Plugin.Test.settings");
+
+            Assert.Equal("AniMeido.Plugin.Test", invokedPluginId);
+            Assert.Equal(
+                "AniMeido.Plugin.Test.settings",
+                invokedSettingsId);
         }
     }
 }

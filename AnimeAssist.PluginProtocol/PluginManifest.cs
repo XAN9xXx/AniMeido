@@ -62,6 +62,9 @@ public sealed class PluginContributions
     [JsonPropertyName("navigation")]
     public List<PluginNavigationContribution> Navigation { get; set; } = [];
 
+    [JsonPropertyName("settings")]
+    public List<PluginSettingsContribution> Settings { get; set; } = [];
+
     [JsonPropertyName("capabilities")]
     public List<string> Capabilities { get; set; } = [];
 }
@@ -82,6 +85,18 @@ public sealed class PluginNavigationContribution
 {
     [JsonPropertyName("command")]
     public string Command { get; set; } = string.Empty;
+}
+
+public sealed class PluginSettingsContribution
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = string.Empty;
+
+    [JsonPropertyName("icon")]
+    public string Icon { get; set; } = string.Empty;
 }
 
 public sealed class PluginPackageFile
