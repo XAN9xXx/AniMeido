@@ -135,38 +135,42 @@
                             Background="{ThemeResource DividerStrokeColorDefault}"/>
 
                     <!-- 关注状态按钮 -->
-                    <ItemsControl ItemsSource="{x:Bind ViewModel.TrackingActions}">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <ItemsWrapGrid Orientation="Horizontal"/>
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="vm:TrackingActionDescriptor">
-                                <ToggleButton
-                                    Margin="0,0,8,8"
-                                    Padding="14,8"
-                                    BorderBrush="{ThemeResource ControlStrokeColorDefault}"
-                                    BorderThickness="1"
-                                    Command="{Binding ElementName=RootPage, Path=ViewModel.SetTrackingStatusCommand}"
-                                    CommandParameter="{x:Bind Status}"
-                                    CornerRadius="8"
-                                    IsChecked="{x:Bind IsSelected, Mode=OneWay}"
-                                    IsEnabled="{Binding ElementName=RootPage, Path=ViewModel.HasData}"
-                                    Visibility="{x:Bind local:AnimeDetailPage.BooleanToVisibility(IsVisible), Mode=OneWay}">
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <FontIcon
-                                            FontSize="14"
-                                            Glyph="{x:Bind Glyph}"/>
-                                        <TextBlock
-                                            FontSize="14"
-                                            FontWeight="SemiBold"
-                                            Text="{x:Bind Label}"/>
-                                    </StackPanel>
-                                </ToggleButton>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <ScrollViewer
+                        HorizontalScrollBarVisibility="Hidden"
+                        HorizontalScrollMode="Auto"
+                        VerticalScrollMode="Disabled">
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.VisibleTrackingActions, Mode=OneWay}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <ItemsStackPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:TrackingActionDescriptor">
+                                    <ToggleButton
+                                        Margin="0,0,8,8"
+                                        Padding="14,8"
+                                        BorderBrush="{ThemeResource ControlStrokeColorDefault}"
+                                        BorderThickness="1"
+                                        Command="{Binding ElementName=RootPage, Path=ViewModel.SetTrackingStatusCommand}"
+                                        CommandParameter="{x:Bind Status}"
+                                        CornerRadius="8"
+                                        IsChecked="{x:Bind IsSelected, Mode=OneWay}"
+                                        IsEnabled="{Binding ElementName=RootPage, Path=ViewModel.HasData}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <FontIcon
+                                                FontSize="14"
+                                                Glyph="{x:Bind Glyph}"/>
+                                            <TextBlock
+                                                FontSize="14"
+                                                FontWeight="SemiBold"
+                                                Text="{x:Bind Label}"/>
+                                        </StackPanel>
+                                    </ToggleButton>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
 
                     <!-- 当前状态提示 -->
                     <TextBlock

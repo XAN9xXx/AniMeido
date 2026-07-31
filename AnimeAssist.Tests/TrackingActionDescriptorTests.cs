@@ -49,5 +49,24 @@ namespace AniMeido.Tests
             Assert.False(watching.IsVisible);
             Assert.True(plan.IsVisible);
         }
+
+        [Fact]
+        public void NonSeasonalActions_RemainVisibleWhenSeasonIsUnknown()
+        {
+            var actions = TrackingActionDescriptor.CreateDefaults();
+
+            foreach (var action in actions)
+            {
+                action.UpdateAvailability(
+                    isCurrentSeason: false,
+                    isOldSeason: false);
+            }
+
+            Assert.All(
+                actions.Where(action =>
+                    !action.CurrentSeasonOnly
+                    && !action.OldSeasonOnly),
+                action => Assert.True(action.IsVisible));
+        }
     }
 }

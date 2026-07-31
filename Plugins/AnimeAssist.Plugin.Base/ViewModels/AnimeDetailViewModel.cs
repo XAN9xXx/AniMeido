@@ -46,6 +46,9 @@ namespace AniMeido.Plugin.Base.ViewModels
             get;
         } = new(TrackingActionDescriptor.CreateDefaults());
 
+        public IReadOnlyList<TrackingActionDescriptor> VisibleTrackingActions =>
+            TrackingActions.Where(action => action.IsVisible).ToArray();
+
         public bool HasCurrentStatus =>
             CurrentStatus != AnimeTrackingStatus.None;
 
@@ -198,6 +201,8 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 action.UpdateAvailability(IsCurrentSeason, IsOldSeason);
             }
+
+            OnPropertyChanged(nameof(VisibleTrackingActions));
         }
 
         private async Task LoadStudiosAsync(int animeID)
