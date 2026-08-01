@@ -510,11 +510,24 @@ public sealed class ArchiveService
         {
             await using var existing = connection.CreateCommand();
             existing.Transaction = transaction;
-            existing.CommandText =
-                "SELECT Sha256 FROM screenshots WHERE ScreenshotId = @id";
+            existing.CommandText = """
+                SELECT Sha256, FilePath
+                FROM screenshots
+                WHERE ScreenshotId = @id
+                """;
             existing.Parameters.AddWithValue("@id", item.ScreenshotId);
-            var existingHash = await existing.ExecuteScalarAsync(
-                cancellationToken) as string;
+            string? existingHash = null;
+            string? existingPath = null;
+            await using (var existingReader =
+                await existing.ExecuteReaderAsync(cancellationToken))
+            {
+                if (await existingReader.ReadAsync(cancellationToken))
+                {
+                    existingHash = existingReader.GetString(0);
+                    existingPath = existingReader.GetString(1);
+                }
+            }
+
             if (existingHash is not null)
             {
                 if (!string.Equals(
@@ -524,6 +537,21 @@ public sealed class ArchiveService
                 {
                     throw new InvalidDataException(
                         $"截图 {item.ScreenshotId} 与本地同 ID 记录的哈希不同。");
+                }
+
+                if (!File.Exists(existingPath!)
+                    && File.Exists(item.FilePath))
+                {
+                    await using var repair = connection.CreateCommand();
+                    repair.Transaction = transaction;
+                    repair.CommandText = """
+                        UPDATE screenshots
+                        SET FilePath = @path
+                        WHERE ScreenshotId = @id
+                        """;
+                    repair.Parameters.AddWithValue("@path", item.FilePath);
+                    repair.Parameters.AddWithValue("@id", item.ScreenshotId);
+                    await repair.ExecuteNonQueryAsync(cancellationToken);
                 }
 
                 continue;

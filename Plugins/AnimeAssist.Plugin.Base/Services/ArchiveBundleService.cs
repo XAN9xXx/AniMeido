@@ -150,12 +150,7 @@ public sealed class ArchiveBundleService
         {
             throw new InvalidDataException("不支持此完整档案版本。");
         }
-        if (metadata.Screenshots
-            .GroupBy(item => item.Metadata.ScreenshotId, StringComparer.Ordinal)
-            .Any(group => group.Count() > 1))
-        {
-            throw new InvalidDataException("截图元数据包含重复 ID。");
-        }
+        ValidateBundleMetadata(metadata);
 
         _ = ExportService.Preview(dataJson)
             ?? throw new InvalidDataException("基础 JSON 数据无效。");
@@ -198,7 +193,10 @@ public sealed class ArchiveBundleService
             var imported = new List<AnimeScreenshot>();
             foreach (var item in metadata.Screenshots)
             {
-                if (existing.ContainsKey(item.Metadata.ScreenshotId))
+                if (existing.TryGetValue(
+                        item.Metadata.ScreenshotId,
+                        out var local)
+                    && local.FileExists)
                 {
                     continue;
                 }
@@ -214,16 +212,30 @@ public sealed class ArchiveBundleService
                     $"{item.Metadata.ScreenshotId}.png");
                 var temporaryPath = path + ".tmp";
                 var entry = GetRequiredEntry(archive, item.ArchivePath);
-                await using (var input = entry.Open())
-                await using (var output = new FileStream(
-                    temporaryPath,
-                    FileMode.Create,
-                    FileAccess.Write,
-                    FileShare.None))
+                try
                 {
-                    await input.CopyToAsync(output, cancellationToken);
+                    await using (var input = entry.Open())
+                    await using (var output = new FileStream(
+                        temporaryPath,
+                        FileMode.Create,
+                        FileAccess.Write,
+                        FileShare.None))
+                    {
+                        await input.CopyToAsync(
+                            output,
+                            cancellationToken);
+                    }
+
+                    File.Move(temporaryPath, path, overwrite: false);
                 }
-                File.Move(temporaryPath, path, overwrite: false);
+                finally
+                {
+                    if (File.Exists(temporaryPath))
+                    {
+                        File.Delete(temporaryPath);
+                    }
+                }
+
                 copiedFiles.Add(path);
                 imported.Add(item.Metadata with
                 {
@@ -309,7 +321,38 @@ public sealed class ArchiveBundleService
 
             var hash = line[..separator];
             var path = line[(separator + 2)..];
-            hashes.Add(path, hash);
+            if (!hash.All(Uri.IsHexDigit))
+            {
+                throw new InvalidDataException("SHA-256 清单格式无效。");
+            }
+
+            if (!hashes.TryAdd(path, hash))
+            {
+                throw new InvalidDataException(
+                    $"SHA-256 清单包含重复路径：{path}");
+            }
+        }
+
+        foreach (var requiredPath in new[] { "data.json", "screenshots.json" })
+        {
+            if (!hashes.ContainsKey(requiredPath))
+            {
+                throw new InvalidDataException(
+                    $"SHA-256 清单缺少 {requiredPath}。");
+            }
+        }
+
+        var archivedPaths = archive.Entries
+            .Where(entry => !string.Equals(
+                entry.FullName,
+                "sha256.txt",
+                StringComparison.Ordinal))
+            .Select(entry => entry.FullName)
+            .ToHashSet(StringComparer.Ordinal);
+        if (!archivedPaths.SetEquals(hashes.Keys))
+        {
+            throw new InvalidDataException(
+                "SHA-256 清单与 ZIP 文件列表不一致。");
         }
 
         foreach (var pair in hashes)
@@ -333,6 +376,7 @@ public sealed class ArchiveBundleService
 
     private static void ValidateEntryPaths(ZipArchive archive)
     {
+        var paths = new HashSet<string>(StringComparer.Ordinal);
         foreach (var entry in archive.Entries)
         {
             var path = entry.FullName.Replace('\\', '/');
@@ -342,6 +386,60 @@ public sealed class ArchiveBundleService
             {
                 throw new InvalidDataException(
                     $"ZIP 包含不安全路径：{entry.FullName}");
+            }
+
+            if (!paths.Add(entry.FullName))
+            {
+                throw new InvalidDataException(
+                    $"ZIP 包含重复路径：{entry.FullName}");
+            }
+        }
+    }
+
+    private static void ValidateBundleMetadata(
+        ArchiveBundleMetadata metadata)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var archivePaths = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in metadata.Screenshots)
+        {
+            var id = item.Metadata.ScreenshotId;
+            if (string.IsNullOrWhiteSpace(id)
+                || id is "." or ".."
+                || !string.Equals(
+                    id,
+                    Path.GetFileName(id),
+                    StringComparison.Ordinal)
+                || id.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            {
+                throw new InvalidDataException("截图元数据包含不安全 ID。");
+            }
+
+            if (!ids.Add(id))
+            {
+                throw new InvalidDataException("截图元数据包含重复 ID。");
+            }
+
+            var expectedPath = $"screenshots/{id}.png";
+            if (!string.Equals(
+                    item.ArchivePath,
+                    expectedPath,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"截图 {id} 的归档路径无效。");
+            }
+
+            if (!archivePaths.Add(item.ArchivePath))
+            {
+                throw new InvalidDataException("截图元数据包含重复归档路径。");
+            }
+
+            if (item.Metadata.Sha256.Length != 64
+                || !item.Metadata.Sha256.All(Uri.IsHexDigit))
+            {
+                throw new InvalidDataException(
+                    $"截图 {id} 的 SHA-256 无效。");
             }
         }
     }

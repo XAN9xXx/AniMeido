@@ -76,6 +76,39 @@ public sealed class ArchiveServiceTests : DbTestBase
     }
 
     [Fact]
+    public async Task ScreenshotImport_RepairsMissingFileForSameHash()
+    {
+        await RunProductionMigrationAsync();
+        var service = new ArchiveService(DbFactory);
+        var capturedAt = DateTimeOffset.UtcNow;
+        var original = CreateScreenshot("shot", "AAA", capturedAt);
+        await service.InsertScreenshotAsync(original);
+
+        var replacementPath = Path.GetTempFileName();
+        try
+        {
+            var replacement = CreateScreenshot(
+                "shot",
+                "AAA",
+                capturedAt) with
+            {
+                FilePath = replacementPath,
+                FileExists = true,
+            };
+            await service.ImportScreenshotsAsync([replacement]);
+
+            var restored = Assert.Single(
+                await service.GetScreenshotsAsync());
+            Assert.Equal(replacementPath, restored.FilePath);
+            Assert.True(restored.FileExists);
+        }
+        finally
+        {
+            File.Delete(replacementPath);
+        }
+    }
+
+    [Fact]
     public void ShortcutGate_DeduplicatesHoldAndConcurrentAction()
     {
         var gate = new AniMeido.App.Services.ShortcutInputGate();
