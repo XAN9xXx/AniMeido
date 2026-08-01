@@ -41,7 +41,13 @@ public sealed class BangumiSeasonPaginationTests : DbTestBase
         Assert.Equal(45, result.Select(anime => anime.ID).Distinct().Count());
         Assert.Equal(
             45,
-            await ReadCachedCountAsync("season:v2:2025:Spring"));
+            await ReadCachedCountAsync("season:v3:2025:Spring"));
+        Assert.Equal(0, handler.CalendarRequestCount);
+        Assert.All(
+            result,
+            anime => Assert.Equal(
+                AnimeMediaFormat.Movie,
+                anime.MediaFormat));
     }
 
     [Fact]
@@ -50,7 +56,7 @@ public sealed class BangumiSeasonPaginationTests : DbTestBase
         await CreateBaseTablesAsync();
         var cache = new CacheService(DbFactory);
         await cache.SetCacheAsync(
-            "season:v2:2025:Spring",
+            "season:v3:2025:Spring",
             "{invalid-json",
             TimeSpan.FromHours(1));
         var handler = new SeasonApiHandler(total: 3);
@@ -74,7 +80,47 @@ public sealed class BangumiSeasonPaginationTests : DbTestBase
         Assert.Equal([0], handler.RequestedOffsets);
         Assert.Equal(
             3,
-            await ReadCachedCountAsync("season:v2:2025:Spring"));
+            await ReadCachedCountAsync("season:v3:2025:Spring"));
+    }
+
+    [Theory]
+    [InlineData("TV", AnimeMediaFormat.Television)]
+    [InlineData("OVA", AnimeMediaFormat.Ova)]
+    [InlineData("剧场版", AnimeMediaFormat.Movie)]
+    [InlineData("Web", AnimeMediaFormat.Ona)]
+    [InlineData("未知", AnimeMediaFormat.Unknown)]
+    public void MapMediaFormat_UsesBangumiPlatform(
+        string platform,
+        AnimeMediaFormat expected)
+        => Assert.Equal(expected, BangumiDataSource.MapMediaFormat(platform));
+
+    [Fact]
+    public async Task CurrentBroadcastSchedule_UsesCalendarWithoutCatalogSearch()
+    {
+        await CreateBaseTablesAsync();
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var handler = new BroadcastApiHandler(today);
+        using var client = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://api.example.test"),
+        };
+        var dataSource = new BangumiDataSource(
+            NullLogger<BangumiDataSource>.Instance,
+            new BangumiApiClient(
+                new StubHttpClientFactory(client),
+                NullLogger<BangumiApiClient>.Instance),
+            new CacheService(DbFactory));
+
+        var result = await dataSource.GetCurrentBroadcastScheduleAsync(
+            CancellationToken.None);
+
+        var anime = Assert.Single(result);
+        Assert.Equal(9001, anime.ID);
+        Assert.Equal(
+            AnimeMediaFormat.Unknown,
+            anime.MediaFormat);
+        Assert.Equal(1, handler.CalendarRequestCount);
+        Assert.Equal(0, handler.SearchRequestCount);
     }
 
     private async Task SeedLegacyTruncatedCacheAsync()
@@ -119,6 +165,8 @@ public sealed class BangumiSeasonPaginationTests : DbTestBase
     {
         public List<int> RequestedOffsets { get; } = [];
 
+        public int CalendarRequestCount { get; private set; }
+
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
@@ -126,6 +174,7 @@ public sealed class BangumiSeasonPaginationTests : DbTestBase
             if (request.Method == HttpMethod.Get &&
                 request.RequestUri?.AbsolutePath == "/calendar")
             {
+                CalendarRequestCount++;
                 return JsonResponse("[]");
             }
 
@@ -147,6 +196,7 @@ public sealed class BangumiSeasonPaginationTests : DbTestBase
                     name_cn = (string?)null,
                     summary = (string?)null,
                     date = "2025-04-01",
+                    platform = "剧场版",
                     images = (object?)null,
                     meta_tags = Array.Empty<string>(),
                 });
@@ -173,6 +223,69 @@ public sealed class BangumiSeasonPaginationTests : DbTestBase
             return int.Parse(
                 pair[1],
                 System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        private static HttpResponseMessage JsonResponse(string json)
+            => new(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    json,
+                    Encoding.UTF8,
+                    "application/json"),
+            };
+    }
+
+    private sealed class BroadcastApiHandler(DateOnly airDate)
+        : HttpMessageHandler
+    {
+        public int CalendarRequestCount { get; private set; }
+
+        public int SearchRequestCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (request.RequestUri?.AbsolutePath == "/calendar")
+            {
+                CalendarRequestCount++;
+                var payload = new[]
+                {
+                    new
+                    {
+                        weekday = new
+                        {
+                            en = "Fri",
+                            cn = "星期五",
+                            ja = "金曜日",
+                            id = 5,
+                        },
+                        items = new[]
+                        {
+                            new
+                            {
+                                id = 9001,
+                                url = "https://bgm.tv/subject/9001",
+                                type = 2,
+                                name = "Calendar Anime",
+                                name_cn = "日历动画",
+                                summary = "",
+                                air_date = airDate.ToString("yyyy-MM-dd"),
+                                air_weekday = 5,
+                                images = (object?)null,
+                                rating = (object?)null,
+                            },
+                        },
+                    },
+                };
+                return Task.FromResult(JsonResponse(
+                    JsonSerializer.Serialize(payload)));
+            }
+
+            SearchRequestCount++;
+            return Task.FromResult(JsonResponse(
+                "{\"total\":0,\"limit\":20,\"offset\":0,\"data\":[]}"));
         }
 
         private static HttpResponseMessage JsonResponse(string json)

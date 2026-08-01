@@ -128,6 +128,28 @@ namespace AniMeido.Plugin.Base.Views
 
         private void InitializeComboBoxes()
         {
+            MediaFormatComboBox.Items.Add(new ComboBoxItem
+            {
+                Content = "全部形态",
+                Tag = "all",
+            });
+            foreach (var format in new[]
+            {
+                AnimeMediaFormat.Television,
+                AnimeMediaFormat.Movie,
+                AnimeMediaFormat.Ova,
+                AnimeMediaFormat.Ona,
+                AnimeMediaFormat.Unknown,
+            })
+            {
+                MediaFormatComboBox.Items.Add(new ComboBoxItem
+                {
+                    Content = AnimeReleaseClassifier.GetMediaFormatText(format),
+                    Tag = format,
+                });
+            }
+            MediaFormatComboBox.SelectedIndex = 0;
+
             var latestCompleted = GetLatestCompletedSeason(DateTime.Now);
             for (int y = EarliestSupportedYear;
                 y <= latestCompleted.Year;
@@ -343,11 +365,25 @@ namespace AniMeido.Plugin.Base.Views
             ApplyFilter(FilterBox.Text);
         }
 
+        private void OnMediaFormatSelectionChanged(
+            object sender,
+            SelectionChangedEventArgs e)
+        {
+            ApplyFilter(FilterBox.Text);
+        }
+
         private void ApplyFilter(string query)
         {
             var filtered = AnimeListPresentation.Filter(
                 _allAnime,
                 titleQuery: query);
+            if (MediaFormatComboBox.SelectedItem is ComboBoxItem
+                { Tag: AnimeMediaFormat format })
+            {
+                filtered = filtered
+                    .Where(anime => anime.MediaFormat == format)
+                    .ToArray();
+            }
             ViewModel.AnimeList.Clear();
             foreach (var anime in filtered)
             {

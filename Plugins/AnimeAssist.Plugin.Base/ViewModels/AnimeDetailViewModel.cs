@@ -30,6 +30,10 @@ namespace AniMeido.Plugin.Base.ViewModels
         [ObservableProperty]
         private bool _isOldSeason = false;
         [ObservableProperty]
+        private string _releasePhaseText = "日期未知";
+        [ObservableProperty]
+        private string _mediaFormatText = "其他动画";
+        [ObservableProperty]
         private string? _studiosText = null;
 
         public ObservableCollection<CharacterRole> Characters { get; private set; } = new();
@@ -105,16 +109,16 @@ namespace AniMeido.Plugin.Base.ViewModels
                     LoadCharactersAsync(animeID)
                 );
 
-                // 判断是当前季还是往季
-                IsCurrentSeason = false;
-                IsOldSeason = false;
-                if (AnimeDetail?.SeasonMonth > 0 && AnimeDetail.SeasonYear > 0)
-                {
-                    var currentSeason = SeasonHelper.GetCurrentSeason();
-                    var animeSeason = SeasonHelper.FromMonth(AnimeDetail.SeasonMonth);
-                    IsCurrentSeason = AnimeDetail.SeasonYear == currentSeason.year && animeSeason == currentSeason.season;
-                    IsOldSeason = !IsCurrentSeason;
-                }
+                var releasePhase = AnimeReleaseClassifier.Classify(
+                    AnimeDetail,
+                    DateOnly.FromDateTime(DateTime.Today));
+                IsCurrentSeason = releasePhase
+                    == AnimeReleasePhase.CurrentSeason;
+                IsOldSeason = releasePhase == AnimeReleasePhase.Past;
+                ReleasePhaseText = AnimeReleaseClassifier.GetPhaseText(
+                    releasePhase);
+                MediaFormatText = AnimeReleaseClassifier.GetMediaFormatText(
+                    AnimeDetail.MediaFormat);
 
                 // 加载详情后查询当前关注状态
                 var status = await _trackingService.GetStatusAsync(animeID);

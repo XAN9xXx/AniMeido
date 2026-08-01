@@ -102,11 +102,8 @@ public partial class TodayViewModel : ObservableObject
                 .Where(pair => pair.Value == AnimeTrackingStatus.Blocked)
                 .Select(pair => pair.Key)
                 .ToHashSet();
-            var (year, season) = SeasonHelper.GetCurrentSeason();
             var seasonal = AnimeListPresentation.Filter(
-                await _dataSource.GetAnimeBySeasonAsync(
-                    year,
-                    season,
+                await _dataSource.GetCurrentBroadcastScheduleAsync(
                     cancellationToken),
                 blockedIds);
             var today = AnimeListPresentation.ToBangumiWeekday(

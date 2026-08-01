@@ -16,9 +16,19 @@
     /// <param name="NameCn">番剧的译名。</param>
     /// <param name="Summary">番剧的简介。</param>
     /// <param name="Date">番剧的放送日期。</param>
+    /// <param name="Platform">Bangumi 维护的作品发行平台。</param>
     /// <param name="Images">番剧封面图片的多种尺寸信息。</param>
     /// <param name="MetaTags">番剧的元标签列表。</param>
     /// <param name="Rating">番剧的评分数据。</param>
-    internal record SubjectResponse(int Id, string Name, string? NameCn, string? Summary, string? Date, ImageInfo? Images, List<string>? MetaTags, SubjectRating? Rating = null);
+    internal record SubjectResponse(
+        int Id,
+        string Name,
+        string? NameCn,
+        string? Summary,
+        string? Date,
+        string? Platform,
+        ImageInfo? Images,
+        List<string>? MetaTags,
+        SubjectRating? Rating = null);
 
 }

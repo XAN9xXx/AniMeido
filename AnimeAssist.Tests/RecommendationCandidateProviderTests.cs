@@ -197,6 +197,10 @@ public class RecommendationCandidateProviderTests
             CancellationToken ct)
             => throw new NotSupportedException();
 
+        public Task<List<Anime>> GetCurrentBroadcastScheduleAsync(
+            CancellationToken ct)
+            => throw new NotSupportedException();
+
         public Task<Anime?> GetAnimeDetailAsync(
             int animeID,
             CancellationToken ct)
@@ -283,6 +287,10 @@ public class RecommendationCandidateProviderTests
             CancellationToken ct)
             => throw new NotSupportedException();
 
+        public Task<List<Anime>> GetCurrentBroadcastScheduleAsync(
+            CancellationToken ct)
+            => throw new NotSupportedException();
+
         public Task<List<CharacterRole>> GetCharacterRolesAsync(
             int animeID,
             CancellationToken ct)
@@ -365,6 +373,10 @@ public class RecommendationCandidateProviderTests
         public Task<List<Anime>> GetAnimeBySeasonAsync(
             int year,
             Season season,
+            CancellationToken ct)
+            => throw new NotSupportedException();
+
+        public Task<List<Anime>> GetCurrentBroadcastScheduleAsync(
             CancellationToken ct)
             => throw new NotSupportedException();
 

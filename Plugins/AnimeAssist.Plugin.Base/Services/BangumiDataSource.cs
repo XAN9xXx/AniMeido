@@ -17,7 +17,8 @@ namespace AniMeido.Plugin.Base.Services
         private const string FallbackTitle = "不好，标题走丢了Q^Q";
         private const string FallbackDescription = "No description available.";
         private const int SeasonSearchPageSize = 20;
-        private const int SeasonCacheVersion = 2;
+        private const int SeasonCacheVersion = 3;
+        private const int BroadcastCacheVersion = 1;
         private static readonly string? FallbackImageUrl = null;
         private static readonly IReadOnlyList<VoiceActor> FallbackCVs = Array.Empty<VoiceActor>();
         private static readonly IReadOnlyList<string> StudioFilter = new List<string> { "製作", "原作", "企画", "动画制作", "发行" }; // API中Type 2 代表参与制作的商业实体，此处仅筛选制作/原作。
@@ -280,9 +281,27 @@ namespace AniMeido.Plugin.Base.Services
                 resolvedSeasonMonth,
                 AlternateTitles: GetAlternateTitles(
                     item.NameCn,
-                    item.Name)
+                    item.Name),
+                MediaFormat: MapMediaFormat(item.Platform)
                 )
             { Score = item.Rating?.Score };
+        }
+
+        internal static AnimeMediaFormat MapMediaFormat(string? platform)
+        {
+            if (string.IsNullOrWhiteSpace(platform))
+            {
+                return AnimeMediaFormat.Unknown;
+            }
+
+            return platform.Trim().ToUpperInvariant() switch
+            {
+                "TV" => AnimeMediaFormat.Television,
+                "OVA" => AnimeMediaFormat.Ova,
+                "MOVIE" or "剧场版" or "劇場版" => AnimeMediaFormat.Movie,
+                "WEB" or "ONA" => AnimeMediaFormat.Ona,
+                _ => AnimeMediaFormat.Unknown,
+            };
         }
 
 
@@ -313,21 +332,6 @@ namespace AniMeido.Plugin.Base.Services
 
             try
             {
-                int seasonMonth = SeasonHelper.ToMonth(season);
-
-                // 优先使用 /calendar（适用于当前季度，实时放送数据）
-                var days = await FetchCalendarAsync(ct).ConfigureAwait(false);
-                List<Anime> animes = days.SelectMany(day => day.Items)
-                                        .Where(item => BelongsToSeason(item, year, season))
-                                        .Select(item => MapToAnime(item, year, seasonMonth))
-                                        .ToList();
-                if (animes.Count > 0)
-                {
-                    await _cacheService.SetCacheAsync(cacheKey, JsonSerializer.Serialize(animes, JsonOptions), TimeSpan.FromHours(24));
-                    return animes;
-                }
-
-                // /calendar 无数据（非当前季度），使用搜索 API 按放送日期范围精确筛选
                 var (airDateFrom, airDateTo) = GetSeasonDateRange(year, season);
                 var searchResult = await SearchBySeasonAsync(year, season, airDateFrom, airDateTo, ct);
                 if (searchResult.Count > 0)
@@ -357,6 +361,34 @@ namespace AniMeido.Plugin.Base.Services
                 }
                 throw;
             }
+        }
+
+        public async Task<List<Anime>> GetCurrentBroadcastScheduleAsync(
+            CancellationToken ct)
+        {
+            var (year, season) = SeasonHelper.GetCurrentSeason();
+            var cacheKey = $"broadcast:v{BroadcastCacheVersion}:{year}:{season}";
+            return await GetCacheAsync(
+                cacheKey,
+                TimeSpan.FromHours(12),
+                async () =>
+                {
+                    var seasonMonth = SeasonHelper.ToMonth(season);
+                    var days = await FetchCalendarAsync(ct)
+                        .ConfigureAwait(false);
+                    return days
+                        .SelectMany(day => day.Items)
+                        .Where(item => BelongsToSeason(
+                            item,
+                            year,
+                            season))
+                        .Select(item => MapToAnime(
+                            item,
+                            year,
+                            seasonMonth))
+                        .DistinctBy(item => item.ID)
+                        .ToList();
+                }) ?? [];
         }
 
         private async Task<List<Anime>?> ReadSeasonCacheAsync(

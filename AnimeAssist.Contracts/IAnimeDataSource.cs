@@ -14,6 +14,14 @@ namespace AniMeido.Contracts
         Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct);
 
         /// <summary>
+        /// 获取当前正在周期放送的动画日历。
+        /// </summary>
+        /// <param name="ct">取消令牌。</param>
+        /// <returns>具有星期放送信息的动画列表。</returns>
+        Task<List<Anime>> GetCurrentBroadcastScheduleAsync(
+            CancellationToken ct);
+
+        /// <summary>
         /// 获取某部特定番剧的详细信息。
         /// </summary>
         /// <param name="animeID">Bangumi 条目 ID。</param>

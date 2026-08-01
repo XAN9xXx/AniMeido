@@ -1,6 +1,7 @@
 ﻿using AniMeido.Contracts.DragDrop;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
+using AniMeido.Plugin.Base.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
@@ -40,6 +41,19 @@ namespace AniMeido.Plugin.Base.Views.Controls
             set => SetValue(ShowWeekdayBadgeProperty, value);
         }
 
+        public static readonly DependencyProperty ShowMediaFormatBadgeProperty =
+            DependencyProperty.Register(
+                nameof(ShowMediaFormatBadge),
+                typeof(bool),
+                typeof(AnimeCard),
+                new PropertyMetadata(false, OnShowMediaFormatBadgeChanged));
+
+        public bool ShowMediaFormatBadge
+        {
+            get => (bool)GetValue(ShowMediaFormatBadgeProperty);
+            set => SetValue(ShowMediaFormatBadgeProperty, value);
+        }
+
         private static readonly Uri PlaceholderUri = ImageCacheHelper.PlaceholderUri;
 
         public AnimeCard()
@@ -49,6 +63,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
             DataContextChanged += (s, e) =>
             {
                 UpdateWeekdayBadge();
+                UpdateMediaFormatBadge();
                 UpdateScoreBadge();
                 if (DataContext is Anime anime)
                 {
@@ -229,6 +244,28 @@ namespace AniMeido.Plugin.Base.Views.Controls
             {
                 WeekdayBadge.Visibility = Visibility.Collapsed;
             }
+        }
+
+        private static void OnShowMediaFormatBadgeChanged(
+            DependencyObject dependencyObject,
+            DependencyPropertyChangedEventArgs args)
+        {
+            _ = args;
+            ((AnimeCard)dependencyObject).UpdateMediaFormatBadge();
+        }
+
+        private void UpdateMediaFormatBadge()
+        {
+            if (!ShowMediaFormatBadge || DataContext is not Anime anime)
+            {
+                MediaFormatBadge.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            MediaFormatBadgeText.Text =
+                AnimeReleaseClassifier.GetMediaFormatText(
+                    anime.MediaFormat);
+            MediaFormatBadge.Visibility = Visibility.Visible;
         }
 
         private void UpdateScoreBadge()

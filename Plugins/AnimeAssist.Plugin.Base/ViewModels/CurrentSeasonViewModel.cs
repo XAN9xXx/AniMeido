@@ -63,13 +63,10 @@ namespace AniMeido.Plugin.Base.ViewModels
             AnimeList.Clear();
             WeekdayGroups.Clear();
             HasData = false;
-            var (year, season) = SeasonHelper.GetCurrentSeason();
             try
             {
-                var list = await _animeDataSource.GetAnimeBySeasonAsync(
-                    year,
-                    season,
-                    ct);
+                var list = await _animeDataSource
+                    .GetCurrentBroadcastScheduleAsync(ct);
                 // 一次性替换集合引用（单次 PropertyChanged），避免 N 次 Add 触发 N 次布局
                 AnimeList = new ObservableCollection<Anime>(list);
 

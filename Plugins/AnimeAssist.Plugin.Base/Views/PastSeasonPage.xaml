@@ -33,7 +33,7 @@
             <StackPanel Spacing="2">
                 <TextBlock Text="番剧库"
                            Style="{StaticResource AniMeidoPageTitleStyle}"/>
-                <TextBlock Text="按年份和季度回顾历季动画"
+                <TextBlock Text="按年份、季度与形态浏览全部动画"
                            Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
             </StackPanel>
             <!-- 搜索过滤 -->
@@ -57,7 +57,7 @@
             </Border>
             <!-- 年份季度选择器 (固定) -->
             <Border Style="{StaticResource AniMeidoToolbarStyle}">
-                <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="12">
+                <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="12">
                     <ComboBox x:Name="YearComboBox"
                               Header="年份"
                               Width="140"/>
@@ -65,7 +65,12 @@
                               Grid.Column="1"
                               Header="季度"
                               Width="140"/>
-                    <TextBlock Grid.Column="2"
+                    <ComboBox x:Name="MediaFormatComboBox"
+                              Grid.Column="2"
+                              Header="动画形态"
+                              Width="160"
+                              SelectionChanged="OnMediaFormatSelectionChanged"/>
+                    <TextBlock Grid.Column="3"
                                Text="选择季度后自动加载"
                                VerticalAlignment="Bottom"
                                Margin="0,0,0,8"
@@ -92,7 +97,7 @@
                                    FontSize="28"
                                    FontWeight="Bold"
                                    VerticalAlignment="Center"/>
-                        <TextBlock Text="部番剧"
+                        <TextBlock Text="部动画"
                                    FontSize="14"
                                    VerticalAlignment="Center"/>
                     </StackPanel>
@@ -127,7 +132,7 @@
                     </GridView.ItemContainerStyle>
                     <GridView.ItemTemplate>
                         <DataTemplate x:DataType="contracts:Anime">
-                            <controls:AnimeCard ShowWeekdayBadge="True"
+                            <controls:AnimeCard ShowMediaFormatBadge="True"
                                                 CardClicked="OnAnimeCardClicked"/>
                         </DataTemplate>
                     </GridView.ItemTemplate>

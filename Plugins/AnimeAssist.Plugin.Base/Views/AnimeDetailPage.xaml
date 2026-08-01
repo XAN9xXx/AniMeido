@@ -92,10 +92,22 @@
                     <Border Height="1"
                             Background="{ThemeResource DividerStrokeColorDefault}"/>
 
-                    <!-- 放送日期 -->
-                    <TextBlock Text="{Binding AnimeDetail.AirDate}"
-                               FontSize="14"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <!-- 发行信息 -->
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="8">
+                        <TextBlock Text="{Binding AnimeDetail.AirDate}"
+                                   FontSize="14"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock Text="{Binding MediaFormatText}"
+                                   FontSize="14"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock Text="·"
+                                   FontSize="14"
+                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                        <TextBlock Text="{Binding ReleasePhaseText}"
+                                   FontSize="14"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
 
                     <!-- 评分 -->
                     <TextBlock x:Name="DetailScore"

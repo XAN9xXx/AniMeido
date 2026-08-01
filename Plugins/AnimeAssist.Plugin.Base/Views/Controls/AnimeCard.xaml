@@ -65,6 +65,20 @@
                                FontWeight="Bold"/>
                 </Border>
 
+                <!-- 动画形态角标（番剧库使用，默认隐藏） -->
+                <Border x:Name="MediaFormatBadge"
+                        Background="{ThemeResource SystemAccentColor}"
+                        CornerRadius="0,0,10,0"
+                        Padding="8,4"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Top"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="MediaFormatBadgeText"
+                               Foreground="{ThemeResource AniMeidoBadgeTextBrush}"
+                               FontSize="12"
+                               FontWeight="Bold"/>
+                </Border>
+
                 <!-- 评分角标（封面右下角） -->
                 <Border x:Name="ScoreBadge"
                         Background="{ThemeResource SystemAccentColor}"
