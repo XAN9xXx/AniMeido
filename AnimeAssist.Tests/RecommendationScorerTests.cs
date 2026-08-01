@@ -226,6 +226,34 @@ public class RecommendationScorerTests
             id => Assert.Contains(result, item => item.Anime.ID == id));
     }
 
+    [Fact]
+    public void Rank_DoesNotReturnDuplicateAnimeIds()
+    {
+        var feature = Feature(
+            RecommendationFeatureKind.Tag,
+            "日常",
+            "日常");
+        var profile = new[]
+        {
+            new RecommendationFeatureProfile(
+                feature,
+                5,
+                null,
+                []),
+        };
+        var anime = Anime(1, new DateOnly(2026, 1, 1), 8);
+
+        var result = RecommendationScorer.Rank(
+            profile,
+            [
+                new RecommendationCandidate(anime, [feature], 0),
+                new RecommendationCandidate(anime, [feature], 0),
+            ],
+            new DateOnly(2026, 8, 1));
+
+        Assert.Single(result);
+    }
+
     private static RecommendationFeature Feature(
         RecommendationFeatureKind kind,
         string key,

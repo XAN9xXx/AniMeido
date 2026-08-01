@@ -150,7 +150,8 @@ public partial class RecommendationViewModel : ObservableObject
         {
             var result = await _recommendations.RefreshAsync(
                 cancellationToken,
-                preferNewBatch);
+                preferNewBatch,
+                preferNewBatch ? previousIds : null);
             if (generation != _refreshGeneration)
             {
                 return;

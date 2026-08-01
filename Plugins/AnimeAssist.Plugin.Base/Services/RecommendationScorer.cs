@@ -121,7 +121,8 @@ internal static class RecommendationScorer
             FeatureKeyComparer.Instance);
         var recentBoundary = today.AddYears(-3);
         var scored = new List<ScoredCandidate>();
-        foreach (var candidate in candidates)
+        foreach (var candidate in candidates.DistinctBy(
+            item => item.Anime.ID))
         {
             var contributions = candidate.Features
                 .DistinctBy(feature => (feature.Kind, feature.Key))

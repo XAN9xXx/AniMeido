@@ -89,24 +89,34 @@ public sealed class RecommendationService : IDisposable
 
     public async Task<RecommendationGeneration> RefreshAsync(
         CancellationToken cancellationToken = default,
-        bool preferNewBatch = false)
+        bool preferNewBatch = false,
+        IReadOnlySet<int>? displayedIds = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         await _refreshGate.WaitAsync(cancellationToken);
         try
         {
-            var previousIds = preferNewBatch
-                ? (await GetCachedSnapshotAsync(
+            var previousSnapshot = preferNewBatch
+                ? await GetCachedSnapshotAsync(
                     allowExpired: true,
-                    cancellationToken))?.Items
-                    .Select(item => item.Anime.ID)
-                    .ToHashSet()
+                    cancellationToken)
+                : null;
+            var previousIds = preferNewBatch
+                ? displayedIds is { Count: > 0 }
+                    ? displayedIds.ToHashSet()
+                    : previousSnapshot?.Items
+                        .Select(item => item.Anime.ID)
+                        .ToHashSet()
                 : null;
             var tracking = await _tracking.GetAllTrackingAsync();
             var hidden = await GetHiddenAnimeAsync(cancellationToken);
             var excluded = tracking.Select(item => item.AnimeId)
                 .Concat(hidden.Select(item => item.AnimeId))
                 .ToHashSet();
+            if (previousIds is not null)
+            {
+                excluded.UnionWith(previousIds);
+            }
             var preferences = await GetFeaturePreferencesAsync(
                 cancellationToken);
             var savedTags = await _savedTags.GetAllSavedTagsAsync();
@@ -151,6 +161,19 @@ public sealed class RecommendationService : IDisposable
                 items = await _candidates.GetPopularAsync(
                     excluded,
                     cancellationToken);
+            }
+
+            items = items
+                .DistinctBy(item => item.Anime.ID)
+                .Take(20)
+                .ToArray();
+            if (preferNewBatch
+                && items.Count == 0
+                && previousSnapshot is not null)
+            {
+                return new RecommendationGeneration(
+                    previousSnapshot,
+                    LastProfile);
             }
 
             var snapshot = new RecommendationSnapshot(
