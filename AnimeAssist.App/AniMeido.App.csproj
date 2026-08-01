@@ -63,6 +63,9 @@
     <ProjectReference Include="..\AnimeAssist.Contracts\AniMeido.Contracts.csproj" />
     <ProjectReference Include="..\AnimeAssist.PluginProtocol\AniMeido.PluginProtocol.csproj" />
     <ProjectReference Include="..\Plugins\AnimeAssist.Plugin.Base\AniMeido.Plugin.Base.csproj" />
+    <ProjectReference Include="..\AnimeAssist.PluginHost\AniMeido.PluginHost.csproj"
+                      ReferenceOutputAssembly="false"
+                      Private="false" />
   </ItemGroup>
   <ItemGroup>
     <Page Update="Views\SettingPage.xaml">
@@ -105,15 +108,7 @@
     <Copy SourceFiles="$(OutDir)$(TargetName).pri" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
   </Target>
 
-  <Target Name="BuildPluginHost" BeforeTargets="PrepareForBuild">
-    <MSBuild Projects="$(MSBuildProjectDirectory)\..\AnimeAssist.PluginHost\AniMeido.PluginHost.csproj"
-             Targets="Build"
-             Properties="Configuration=$(Configuration);Platform=$(Platform)" />
-  </Target>
-
-  <Target Name="CopyPluginHostOutput"
-          AfterTargets="Build"
-          DependsOnTargets="BuildPluginHost">
+  <Target Name="CopyPluginHostOutput" AfterTargets="Build">
     <ItemGroup>
       <PluginHostOutput Include="$(MSBuildProjectDirectory)\..\AnimeAssist.PluginHost\bin\$(Platform)\$(Configuration)\net8.0-windows10.0.19041.0\win-x64\**\*"
                         Exclude="**\*.pdb" />
