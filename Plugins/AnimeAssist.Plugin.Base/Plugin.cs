@@ -35,6 +35,10 @@ namespace AniMeido.Plugin.Base
                 {
                     PageType = typeof(Views.TodayPage)
                 },
+                new PluginNavigationItem("推荐", "\uE734", "AniMeido.Plugin.Base.Views.RecommendationPage")
+                {
+                    PageType = typeof(Views.RecommendationPage)
+                },
                 new PluginNavigationItem("档案馆", "\uE8F1", "AniMeido.Plugin.Base.Views.ArchivePage")
                 {
                     PageType = typeof(Views.ArchivePage)
@@ -80,6 +84,8 @@ namespace AniMeido.Plugin.Base
             services.AddSingleton<ArchiveService>();
             services.AddSingleton<ScreenshotArchiveService>();
             services.AddSingleton<ArchiveBundleService>();
+            services.AddSingleton<RecommendationCandidateProvider>();
+            services.AddSingleton<RecommendationService>();
             services.AddSingleton<ScreenshotShortcutAction>();
             services.AddSingleton<IGlobalShortcutAction>(provider =>
                 provider.GetRequiredService<ScreenshotShortcutAction>());

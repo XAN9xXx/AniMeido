@@ -45,7 +45,7 @@ namespace AniMeido.App.Services
                     await pragmaCmd.ExecuteNonQueryAsync();
                 }
                 await CreateTablesAsync(connection);
-                if (await GetSchemaVersionAsync(connection) is > 0 and < 5)
+                if (await GetSchemaVersionAsync(connection) is > 0 and < 6)
                 {
                     await BackupAsync(throwOnFailure: true);
                 }
@@ -398,6 +398,32 @@ namespace AniMeido.App.Services
                         """;
                     await cmd.ExecuteNonQueryAsync();
                     version = 5;
+                }
+                if (version < 6)
+                {
+                    cmd.CommandText = """
+                        CREATE TABLE IF NOT EXISTS
+                            recommendation_feature_preferences(
+                                FeatureKind INTEGER NOT NULL,
+                                FeatureKey TEXT NOT NULL COLLATE NOCASE,
+                                DisplayName TEXT NOT NULL,
+                                Adjustment INTEGER NOT NULL CHECK(
+                                    Adjustment IN (-1, 1)),
+                                UpdatedAt TEXT NOT NULL,
+                                PRIMARY KEY(FeatureKind, FeatureKey)
+                            );
+
+                        CREATE TABLE IF NOT EXISTS
+                            recommendation_hidden_anime(
+                                AnimeId INTEGER PRIMARY KEY,
+                                TitleSnapshot TEXT NOT NULL,
+                                HiddenAt TEXT NOT NULL
+                            );
+
+                        PRAGMA user_version = 6;
+                        """;
+                    await cmd.ExecuteNonQueryAsync();
+                    version = 6;
                 }
                 tx.Commit();
             }

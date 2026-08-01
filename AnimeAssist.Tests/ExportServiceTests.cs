@@ -163,6 +163,52 @@ namespace AniMeido.Tests
         }
 
         [Fact]
+        public async Task Export_And_Import_RestoresRecommendationFeedback()
+        {
+            await RunProductionMigrationAsync();
+            await using (var connection = await DbFactory.OpenAsync())
+            {
+                var command = connection.CreateCommand();
+                command.CommandText = """
+                    INSERT INTO recommendation_feature_preferences(
+                        FeatureKind, FeatureKey, DisplayName,
+                        Adjustment, UpdatedAt)
+                    VALUES(0, 'SCI-FI', '科幻', 1, '2026-08-01T00:00:00Z');
+                    INSERT INTO recommendation_hidden_anime(
+                        AnimeId, TitleSnapshot, HiddenAt)
+                    VALUES(42, '隐藏番剧', '2026-08-01T00:00:00Z');
+                    """;
+                await command.ExecuteNonQueryAsync();
+            }
+
+            var json = await CreateService().ExportAsync();
+            var importPaths = new MockAppDataPaths();
+            var importFactory = new SqliteConnectionFactory(importPaths);
+            await new AniMeido.App.Services.DatabaseService(
+                importFactory,
+                importPaths).InitializeAsync();
+            await new ExportService(
+                new TrackingService(importFactory),
+                new SavedTagService(importFactory),
+                importFactory).ImportAsync(json);
+
+            await using var imported = await importFactory.OpenAsync();
+            var check = imported.CreateCommand();
+            check.CommandText = """
+                SELECT DisplayName || ':' || Adjustment
+                FROM recommendation_feature_preferences
+                WHERE FeatureKind = 0 AND FeatureKey = 'SCI-FI'
+                """;
+            Assert.Equal("科幻:1", await check.ExecuteScalarAsync());
+            check.CommandText = """
+                SELECT TitleSnapshot FROM recommendation_hidden_anime
+                WHERE AnimeId = 42
+                """;
+            Assert.Equal("隐藏番剧", await check.ExecuteScalarAsync());
+            CleanupDbFile(importPaths.DatabasePath);
+        }
+
+        [Fact]
         public async Task Import_InvalidJson_ThrowsJsonException()
         {
             await RunProductionMigrationAsync();

@@ -25,8 +25,8 @@ namespace AniMeido.Plugin.Base.Services
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         };
 
-        public const int SchemaVersion = 4;
-        private static readonly IReadOnlyDictionary<string, string[]> P4TableColumns =
+        public const int SchemaVersion = 5;
+        private static readonly IReadOnlyDictionary<string, string[]> PersonalDataTableColumns =
             new Dictionary<string, string[]>(StringComparer.Ordinal)
             {
                 ["anime_plans"] =
@@ -89,6 +89,15 @@ namespace AniMeido.Plugin.Base.Services
                 [
                     "EventId", "AnimeId", "PreviousStatus", "NewStatus",
                     "ChangedAt",
+                ],
+                ["recommendation_feature_preferences"] =
+                [
+                    "FeatureKind", "FeatureKey", "DisplayName",
+                    "Adjustment", "UpdatedAt",
+                ],
+                ["recommendation_hidden_anime"] =
+                [
+                    "AnimeId", "TitleSnapshot", "HiddenAt",
                 ],
             };
 
@@ -318,7 +327,7 @@ namespace AniMeido.Plugin.Base.Services
             var result = new Dictionary<
                 string,
                 List<Dictionary<string, string?>>>(StringComparer.Ordinal);
-            foreach (var table in P4TableColumns)
+            foreach (var table in PersonalDataTableColumns)
             {
                 using var command = connection.CreateCommand();
                 command.CommandText =
@@ -355,7 +364,7 @@ namespace AniMeido.Plugin.Base.Services
                 List<Dictionary<string, string?>>> tables)
         {
             var importedCount = 0;
-            foreach (var table in P4TableColumns)
+            foreach (var table in PersonalDataTableColumns)
             {
                 if (!tables.TryGetValue(table.Key, out var rows)
                     || rows.Count == 0)

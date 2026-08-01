@@ -23,7 +23,7 @@ namespace AniMeido.Tests
             var cmd = conn.CreateCommand();
             cmd.CommandText = "PRAGMA user_version";
             var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            Assert.Equal(5, version);
+            Assert.Equal(6, version);
 
             // 检查所有表是否存在
             cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name";
@@ -51,6 +51,8 @@ namespace AniMeido.Tests
             Assert.Contains("screenshot_personal_tags", tables);
             Assert.Contains("manual_watch_events", tables);
             Assert.Contains("tracking_events", tables);
+            Assert.Contains("recommendation_feature_preferences", tables);
+            Assert.Contains("recommendation_hidden_anime", tables);
         }
 
         [Fact]
@@ -177,7 +179,7 @@ namespace AniMeido.Tests
             await verifyConn.OpenAsync();
             var versionCmd = verifyConn.CreateCommand();
             versionCmd.CommandText = "PRAGMA user_version";
-            Assert.Equal(5, Convert.ToInt32(await versionCmd.ExecuteScalarAsync()));
+            Assert.Equal(6, Convert.ToInt32(await versionCmd.ExecuteScalarAsync()));
 
             // 验证 Distinct TagName 被保留（"原创"只出现一次）
             var tagCmd = verifyConn.CreateCommand();
@@ -204,7 +206,7 @@ namespace AniMeido.Tests
             var cmd = conn.CreateCommand();
             cmd.CommandText = "PRAGMA user_version";
             var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            Assert.Equal(5, version);
+            Assert.Equal(6, version);
         }
 
         [Fact]
@@ -214,8 +216,8 @@ namespace AniMeido.Tests
                 new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString))
             {
                 await connection.OpenAsync();
-                var command = connection.CreateCommand();
-                command.CommandText = """
+                var setupCommand = connection.CreateCommand();
+                setupCommand.CommandText = """
                     CREATE TABLE tracking(
                         AnimeID INTEGER PRIMARY KEY,
                         Status INTEGER NOT NULL,
@@ -233,7 +235,7 @@ namespace AniMeido.Tests
                     VALUES(88, 5, '2026-07-01T00:00:00Z');
                     PRAGMA user_version = 4;
                     """;
-                await command.ExecuteNonQueryAsync();
+                await setupCommand.ExecuteNonQueryAsync();
             }
 
             await RunProductionMigrationAsync();
@@ -247,6 +249,46 @@ namespace AniMeido.Tests
             Assert.Equal(
                 5,
                 Convert.ToInt32(await statusCommand.ExecuteScalarAsync()));
+            Assert.NotEmpty(Directory.GetFiles(
+                Paths.BackupDirectory,
+                "AniMeido-*.db"));
+        }
+
+        [Fact]
+        public async Task Migration_FromV5ToV6_PreservesTrackingAndCreatesRecommendationTables()
+        {
+            await using (var connection =
+                new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString))
+            {
+                await connection.OpenAsync();
+                var command = connection.CreateCommand();
+                command.CommandText = """
+                    CREATE TABLE tracking(
+                        AnimeID INTEGER PRIMARY KEY,
+                        Status INTEGER NOT NULL,
+                        UpdatedAt TEXT NOT NULL);
+                    INSERT INTO tracking(AnimeID, Status, UpdatedAt)
+                    VALUES(96, 1, '2026-08-01T00:00:00Z');
+                    PRAGMA user_version = 5;
+                    """;
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await RunProductionMigrationAsync();
+
+            await using var verify =
+                new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString);
+            await verify.OpenAsync();
+            var verifyCommand = verify.CreateCommand();
+            verifyCommand.CommandText = "SELECT Status FROM tracking WHERE AnimeID = 96";
+            Assert.Equal(1, Convert.ToInt32(await verifyCommand.ExecuteScalarAsync()));
+            verifyCommand.CommandText = """
+                SELECT COUNT(*) FROM sqlite_master
+                WHERE type = 'table' AND name IN(
+                    'recommendation_feature_preferences',
+                    'recommendation_hidden_anime')
+                """;
+            Assert.Equal(2, Convert.ToInt32(await verifyCommand.ExecuteScalarAsync()));
             Assert.NotEmpty(Directory.GetFiles(
                 Paths.BackupDirectory,
                 "AniMeido-*.db"));

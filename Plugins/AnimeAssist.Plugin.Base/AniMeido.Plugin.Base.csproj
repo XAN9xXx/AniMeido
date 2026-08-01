@@ -60,6 +60,9 @@
     <Page Update="Views\ArchivePage.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
+    <Page Update="Views\RecommendationPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Update="Views\SmartListsPage.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
