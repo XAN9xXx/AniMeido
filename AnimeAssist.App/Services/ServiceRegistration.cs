@@ -1,4 +1,4 @@
-using AniMeido.Contracts;
+﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Playback;
 using AniMeido.Contracts.Notifications;
 using AniMeido.Contracts.Desktop;
