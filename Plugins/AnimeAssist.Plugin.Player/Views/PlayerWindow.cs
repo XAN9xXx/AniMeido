@@ -76,6 +76,7 @@ internal sealed class PlayerWindow : Window
     private PlayerExperienceSettings _experience = new();
     private IReadOnlyList<PlayerEpisodeGroup> _episodeGroups = [];
     private AppWindow? _appWindow;
+    private XamlRoot? _trackedXamlRoot;
     private readonly object _activeContextSync = new();
     private int _activeAnimeId;
     private string _activeAnimeTitle = string.Empty;
@@ -366,6 +367,7 @@ internal sealed class PlayerWindow : Window
         object sender,
         WindowActivatedEventArgs args)
     {
+        TrackDpiChanges();
         if (!_nativePlayerInitialized)
         {
             try
@@ -612,6 +614,26 @@ internal sealed class PlayerWindow : Window
         }
 #pragma warning restore CA1031
     }
+
+    private void TrackDpiChanges()
+    {
+        var xamlRoot = _root.XamlRoot;
+        if (xamlRoot is null || ReferenceEquals(xamlRoot, _trackedXamlRoot))
+        {
+            return;
+        }
+
+        if (_trackedXamlRoot is not null)
+        {
+            _trackedXamlRoot.Changed -= OnXamlRootChanged;
+        }
+
+        _trackedXamlRoot = xamlRoot;
+        _trackedXamlRoot.Changed += OnXamlRootChanged;
+    }
+
+    private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args)
+        => UpdateVideoBounds();
 
     private void OnEpisodeSelectionChanged(
         object sender,
@@ -1358,9 +1380,13 @@ internal sealed class PlayerWindow : Window
             _updatingControls = false;
         }
 
-        _appWindow?.Resize(new SizeInt32(
-            _experience.WindowWidth,
-            _experience.WindowHeight));
+        if (_appWindow is not null)
+        {
+            DpiWindowSizing.Resize(
+                this,
+                _experience.WindowWidth,
+                _experience.WindowHeight);
+        }
     }
 
     private async Task TryRecordRouteResultAsync(
@@ -1389,8 +1415,9 @@ internal sealed class PlayerWindow : Window
 
     private async Task PersistPreferencesAsync()
     {
-        var size = (!_isFullScreen ? _appWindow?.Size : null)
-            ?? new SizeInt32(
+        var size = !_isFullScreen && _appWindow is not null
+            ? DpiWindowSizing.ToLogicalSize(this, _appWindow.Size)
+            : new SizeInt32(
                 _experience.WindowWidth,
                 _experience.WindowHeight);
         await _experienceSettings.UpdatePreferencesAsync(
@@ -1640,6 +1667,11 @@ internal sealed class PlayerWindow : Window
         _mpv = null;
         _nativeVideoHost?.Dispose();
         _nativeVideoHost = null;
+        if (_trackedXamlRoot is not null)
+        {
+            _trackedXamlRoot.Changed -= OnXamlRootChanged;
+            _trackedXamlRoot = null;
+        }
         _webResolver.CloseBrowserWindow();
         _root.KeyDown -= OnRootKeyDown;
         Activated -= OnWindowActivated;
@@ -1651,7 +1683,7 @@ internal sealed class PlayerWindow : Window
         var windowHandle = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(windowHandle);
         _appWindow = AppWindow.GetFromWindowId(windowId);
-        _appWindow.Resize(new SizeInt32(1200, 780));
+        DpiWindowSizing.Resize(this, 1200, 780);
     }
 }
 

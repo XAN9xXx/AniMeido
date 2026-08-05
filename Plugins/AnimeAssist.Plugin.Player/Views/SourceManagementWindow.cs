@@ -765,8 +765,6 @@ internal sealed class SourceManagementWindow : Window
 
     private void ResizeWindow()
     {
-        var handle = WindowNative.GetWindowHandle(this);
-        var windowId = Win32Interop.GetWindowIdFromWindow(handle);
-        AppWindow.GetFromWindowId(windowId).Resize(new SizeInt32(840, 680));
+        DpiWindowSizing.Resize(this, 840, 680);
     }
 }

@@ -36,6 +36,7 @@ internal sealed class SourceVerificationWindow : Window
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private CoreWebView2Controller? _controller;
     private CoreWebView2? _webView;
+    private XamlRoot? _trackedXamlRoot;
     private bool _checking;
     private bool _closed;
 
@@ -62,6 +63,7 @@ internal sealed class SourceVerificationWindow : Window
     public async Task<bool> ShowAsync(CancellationToken cancellationToken)
     {
         Activate();
+        TrackDpiChanges();
         try
         {
             await InitializeBrowserAsync();
@@ -308,6 +310,24 @@ internal sealed class SourceVerificationWindow : Window
         => CloseWindow();
 
     private void OnRootSizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        TrackDpiChanges();
+        UpdateBrowserBounds();
+    }
+
+    private void TrackDpiChanges()
+    {
+        var xamlRoot = _root.XamlRoot;
+        if (xamlRoot is null || ReferenceEquals(xamlRoot, _trackedXamlRoot))
+        {
+            return;
+        }
+
+        _trackedXamlRoot = xamlRoot;
+        _trackedXamlRoot.Changed += OnXamlRootChanged;
+    }
+
+    private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args)
         => UpdateBrowserBounds();
 
     private void UpdateBrowserBounds()
@@ -338,6 +358,11 @@ internal sealed class SourceVerificationWindow : Window
         _lifetimeCancellation.Cancel();
         Closed -= OnClosed;
         _root.SizeChanged -= OnRootSizeChanged;
+        if (_trackedXamlRoot is not null)
+        {
+            _trackedXamlRoot.Changed -= OnXamlRootChanged;
+            _trackedXamlRoot = null;
+        }
         _completion.TrySetResult(false);
         if (_webView is not null)
         {
@@ -466,9 +491,7 @@ internal sealed class SourceVerificationWindow : Window
 
     private void ResizeWindow()
     {
-        var handle = WindowNative.GetWindowHandle(this);
-        var windowId = Win32Interop.GetWindowIdFromWindow(handle);
-        AppWindow.GetFromWindowId(windowId).Resize(new SizeInt32(1050, 760));
+        DpiWindowSizing.Resize(this, 1050, 760);
     }
 
     private static void TryCloseController(CoreWebView2Controller controller)

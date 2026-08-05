@@ -2,7 +2,7 @@
   "formatVersion": 2,
   "pluginId": "AniMeido.Plugin.Player",
   "displayName": "在线播放器",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "minAppVersion": "1.6.0",
   "entryAssembly": "AniMeido.Plugin.Player.dll",
   "activationEvents": [
