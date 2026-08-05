@@ -1,0 +1,37 @@
+{
+  "formatVersion": 2,
+  "pluginId": "AniMeido.Plugin.AI",
+  "displayName": "AI 工作台",
+  "version": "0.2.2",
+  "minAppVersion": "1.7.0",
+  "entryAssembly": "AniMeido.Plugin.AI.dll",
+  "activationEvents": [
+    "onCommand:AniMeido.Plugin.AI.open",
+    "onSettings:AniMeido.Plugin.AI.settings"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "id": "AniMeido.Plugin.AI.open",
+        "title": "AI 工作台",
+        "icon": "\uE945"
+      }
+    ],
+    "navigation": [
+      {
+        "command": "AniMeido.Plugin.AI.open"
+      }
+    ],
+    "settings": [
+      {
+        "id": "AniMeido.Plugin.AI.settings",
+        "title": "AI Provider 与隐私",
+        "icon": "\uE713"
+      }
+    ],
+    "capabilities": [
+      "personalAnimeData"
+    ]
+  },
+  "files": []
+}

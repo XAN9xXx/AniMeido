@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>AniMeido.Plugin.AI</RootNamespace>
+    <AssemblyName>AniMeido.Plugin.AI</AssemblyName>
+    <Title>AI 工作台</Title>
+    <Version>0.2.2</Version>
+    <PluginMinAppVersion>1.7.0</PluginMinAppVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWinUI>true</UseWinUI>
+    <Platforms>x64</Platforms>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <PluginPackageStage>$(BaseIntermediateOutputPath)plugin-package</PluginPackageStage>
+    <PluginPackageOutput>$(MSBuildProjectDirectory)\..\..\artifacts\plugins\$(AssemblyName)-$(Version).animeido-plugin</PluginPackageOutput>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\AnimeAssist.Contracts\AniMeido.Contracts.csproj"
+                      Private="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>AniMeido.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <Target Name="PackPlugin" DependsOnTargets="Build">
+    <ItemGroup>
+      <PluginManagedDependency Include="$(TargetDir)Microsoft.Data.Sqlite.dll" />
+      <PluginManagedDependency Include="$(TargetDir)SQLitePCLRaw*.dll" />
+      <PluginNativeDependency Include="$(TargetDir)runtimes\win-x64\native\e_sqlite3.dll" />
+    </ItemGroup>
+    <RemoveDir Directories="$(PluginPackageStage)" />
+    <MakeDir Directories="$(PluginPackageStage)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginPackageStage)" />
+    <Copy SourceFiles="@(PluginManagedDependency)"
+          DestinationFolder="$(PluginPackageStage)"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(PluginNativeDependency)"
+          DestinationFolder="$(PluginPackageStage)\runtimes\win-x64\native"
+          SkipUnchangedFiles="true" />
+    <Error Condition="!Exists('$(TargetDir)Microsoft.Data.Sqlite.dll')"
+           Text="AI 插件打包缺少 Microsoft.Data.Sqlite.dll。" />
+    <Delete Files="$(PluginPackageOutput)" />
+    <Exec Command="pwsh -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\Tools\pack-plugin.ps1&quot; -PluginDir &quot;$(PluginPackageStage)&quot; -PluginId &quot;$(AssemblyName)&quot; -DisplayName &quot;$(Title)&quot; -Version &quot;$(Version)&quot; -MinAppVersion &quot;$(PluginMinAppVersion)&quot; -EntryAssembly &quot;$(AssemblyName).dll&quot; -OutputPath &quot;$(PluginPackageOutput)&quot; -ManifestTemplatePath &quot;$(MSBuildProjectDirectory)\plugin.manifest.json&quot;" />
+    <Message Importance="high" Text="AI plugin package: $(PluginPackageOutput)" />
+  </Target>
+
+</Project>
