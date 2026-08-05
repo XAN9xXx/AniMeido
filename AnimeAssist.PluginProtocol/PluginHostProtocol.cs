@@ -2,8 +2,9 @@ namespace AniMeido.PluginProtocol;
 
 public static class PluginHostProtocol
 {
-    public const int Version = 4;
+    public const int Version = 5;
     public const string AnimePlaybackCapability = "animePlayback";
+    public const string PersonalAnimeDataCapability = "personalAnimeData";
     public const string AnimePlaybackActivationEvent = "onAnimePlayback";
     public const string StartupFinishedActivationEvent = "onStartupFinished";
     public const string CommandActivationPrefix = "onCommand:";
@@ -13,7 +14,8 @@ public static class PluginHostProtocol
 public sealed record PluginHostHandshakeRequest(
     int ProtocolVersion,
     string AppVersion,
-    string InstanceId);
+    string InstanceId,
+    string CallbackPipeName);
 
 public sealed record PluginHostHandshakeResponse(
     int ProtocolVersion,

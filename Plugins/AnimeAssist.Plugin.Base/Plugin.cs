@@ -2,6 +2,7 @@
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Contracts.Playback;
 using AniMeido.Contracts.Desktop;
+using AniMeido.Contracts.PersonalAnime;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AniMeido.Plugin.Base
@@ -15,7 +16,7 @@ namespace AniMeido.Plugin.Base
 
         public string DisplayName => "基础插件";
 
-        public string Version => "1.6.0";
+        public string Version => "1.7.0";
 
         public bool IsRequired => true;
 
@@ -86,6 +87,9 @@ namespace AniMeido.Plugin.Base
             services.AddSingleton<ArchiveBundleService>();
             services.AddSingleton<RecommendationCandidateProvider>();
             services.AddSingleton<RecommendationService>();
+            services.AddSingleton<PersonalAnimeDataGateway>();
+            services.AddSingleton<IPersonalAnimeDataGateway>(provider =>
+                provider.GetRequiredService<PersonalAnimeDataGateway>());
             services.AddSingleton<ScreenshotShortcutAction>();
             services.AddSingleton<IGlobalShortcutAction>(provider =>
                 provider.GetRequiredService<ScreenshotShortcutAction>());

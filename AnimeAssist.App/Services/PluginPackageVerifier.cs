@@ -174,10 +174,15 @@ internal sealed partial class PluginPackageVerifier
         var capabilities = new HashSet<string>(StringComparer.Ordinal);
         foreach (var capability in manifest.Contributions.Capabilities)
         {
-            if (!string.Equals(
+            var isSupported = string.Equals(
                     capability,
                     PluginHostProtocol.AnimePlaybackCapability,
                     StringComparison.Ordinal)
+                || string.Equals(
+                    capability,
+                    PluginHostProtocol.PersonalAnimeDataCapability,
+                    StringComparison.Ordinal);
+            if (!isSupported
                 || !capabilities.Add(capability))
             {
                 throw new PluginOperationException($"不支持的插件能力：{capability}");

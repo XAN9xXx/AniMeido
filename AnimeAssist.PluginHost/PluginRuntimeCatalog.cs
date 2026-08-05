@@ -1,6 +1,7 @@
 using AniMeido.Contracts;
 using AniMeido.Contracts.Playback;
 using AniMeido.Contracts.Plugins;
+using AniMeido.Contracts.PersonalAnime;
 using AniMeido.PluginProtocol;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
@@ -14,6 +15,7 @@ internal sealed class PluginRuntimeCatalog : IAsyncDisposable
 {
     private readonly DispatcherQueue _dispatcherQueue;
     private readonly PlaybackProgressEventQueue _playbackProgress;
+    private readonly IPersonalAnimeDataGateway _personalAnimeData;
     private readonly Dictionary<string, HostedPluginDescriptor> _descriptors =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ActivePlugin> _activePlugins =
@@ -24,10 +26,12 @@ internal sealed class PluginRuntimeCatalog : IAsyncDisposable
 
     public PluginRuntimeCatalog(
         DispatcherQueue dispatcherQueue,
-        PlaybackProgressEventQueue playbackProgress)
+        PlaybackProgressEventQueue playbackProgress,
+        IPersonalAnimeDataGateway personalAnimeData)
     {
         _dispatcherQueue = dispatcherQueue;
         _playbackProgress = playbackProgress;
+        _personalAnimeData = personalAnimeData;
     }
 
     public HostedPlaybackProgressEvent[] GetPlaybackProgressEvents()
@@ -187,6 +191,13 @@ internal sealed class PluginRuntimeCatalog : IAsyncDisposable
         try
         {
             var active = await ActivateAsync(pluginId);
+            var launcher = active.Services.GetService<IPluginCommandLauncher>();
+            if (launcher is not null)
+            {
+                await RunOnUiAsync(() => launcher.InvokeCommandAsync(commandId));
+                return;
+            }
+
             var navigationItem = active.Plugin
                 .GetNavigationItems()
                 .SingleOrDefault(item =>
@@ -283,6 +294,12 @@ internal sealed class PluginRuntimeCatalog : IAsyncDisposable
             var services = new ServiceCollection();
             services.AddSingleton<IAnimePlaybackProgressReporter>(
                 _playbackProgress);
+            if (descriptor.Manifest.Contributions.Capabilities.Contains(
+                PluginHostProtocol.PersonalAnimeDataCapability,
+                StringComparer.Ordinal))
+            {
+                services.AddSingleton(_personalAnimeData);
+            }
             await RunOnUiAsync(() => plugin.InitializeAsync(services));
             var provider = services.BuildServiceProvider();
             var active = new ActivePlugin(plugin, provider, loadContext);

@@ -7,4 +7,8 @@
     <Platforms>x64</Platforms>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\AnimeAssist.Contracts\AniMeido.Contracts.csproj" />
+  </ItemGroup>
+
 </Project>

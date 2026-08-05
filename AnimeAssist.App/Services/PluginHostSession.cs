@@ -1,4 +1,5 @@
 using AniMeido.Contracts.Playback;
+using AniMeido.Contracts.PersonalAnime;
 using AniMeido.PluginProtocol;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
@@ -12,11 +13,15 @@ internal sealed class PluginHostSession : IAsyncDisposable
     private readonly HostedPluginDescriptor _descriptor;
     private readonly string _hostPath;
     private readonly IAnimePlaybackProgressSink _playbackProgressSink;
+    private readonly IPersonalAnimeDataGateway _personalAnimeDataGateway;
     private readonly ILogger _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private Process? _process;
     private JsonPipeRpcClient? _rpc;
     private NamedPipeServerStream? _pipe;
+    private NamedPipeServerStream? _callbackPipe;
+    private CancellationTokenSource? _callbackServerCancellation;
+    private Task? _callbackServerTask;
     private CancellationTokenSource? _progressPumpCancellation;
     private Task? _progressPumpTask;
     private bool _intentionalStop;
@@ -26,11 +31,13 @@ internal sealed class PluginHostSession : IAsyncDisposable
         HostedPluginDescriptor descriptor,
         string hostPath,
         IAnimePlaybackProgressSink playbackProgressSink,
+        IPersonalAnimeDataGateway personalAnimeDataGateway,
         ILogger logger)
     {
         _descriptor = descriptor;
         _hostPath = hostPath;
         _playbackProgressSink = playbackProgressSink;
+        _personalAnimeDataGateway = personalAnimeDataGateway;
         _logger = logger;
     }
 
@@ -55,9 +62,13 @@ internal sealed class PluginHostSession : IAsyncDisposable
                 return CreateManifestSnapshot(_descriptor.Manifest);
             }
 
-            if (_process is not null || _rpc is not null || _pipe is not null)
+            if (_process is not null
+                || _rpc is not null
+                || _pipe is not null
+                || _callbackPipe is not null)
             {
                 await StopProgressPumpAsync();
+                await StopCallbackServerAsync();
                 CleanupConnection();
             }
 
@@ -184,8 +195,16 @@ internal sealed class PluginHostSession : IAsyncDisposable
 
         var pipeName =
             $"AniMeido.PluginHost.{Environment.ProcessId}.{Guid.NewGuid():N}";
+        var callbackPipeName =
+            $"AniMeido.PluginHost.Callback.{Environment.ProcessId}.{Guid.NewGuid():N}";
         _pipe = new NamedPipeServerStream(
             pipeName,
+            PipeDirection.InOut,
+            1,
+            PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+        _callbackPipe = new NamedPipeServerStream(
+            callbackPipeName,
             PipeDirection.InOut,
             1,
             PipeTransmissionMode.Byte,
@@ -193,7 +212,7 @@ internal sealed class PluginHostSession : IAsyncDisposable
         _process = Process.Start(new ProcessStartInfo
         {
             FileName = _hostPath,
-            Arguments = $"--pipe \"{pipeName}\"",
+            Arguments = $"--pipe \"{pipeName}\" --callback-pipe \"{callbackPipeName}\"",
             UseShellExecute = false,
             CreateNoWindow = true,
         }) ?? throw new InvalidOperationException("无法启动 PluginHost。");
@@ -203,7 +222,17 @@ internal sealed class PluginHostSession : IAsyncDisposable
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(15));
-        await _pipe.WaitForConnectionAsync(timeout.Token);
+        await Task.WhenAll(
+            _pipe.WaitForConnectionAsync(timeout.Token),
+            _callbackPipe.WaitForConnectionAsync(timeout.Token));
+
+        _callbackServerCancellation = new CancellationTokenSource();
+        var callbackTarget = new PersonalAnimeCallbackRpcTarget(
+            _personalAnimeDataGateway);
+        _callbackServerTask = new JsonPipeRpcServer(
+            _callbackPipe,
+            callbackTarget.DispatchAsync).RunAsync(
+                _callbackServerCancellation.Token);
 
         _rpc = new JsonPipeRpcClient(_pipe);
         var appVersion = typeof(PluginHostSession).Assembly
@@ -215,7 +244,8 @@ internal sealed class PluginHostSession : IAsyncDisposable
             [new PluginHostHandshakeRequest(
                 PluginHostProtocol.Version,
                 appVersion,
-                Guid.NewGuid().ToString("N"))],
+                Guid.NewGuid().ToString("N"),
+                callbackPipeName)],
             timeout.Token);
         var snapshot = await _rpc.InvokeAsync<PluginHostSnapshot>(
             PluginHostRpcTargetNames.InitializeAsync,
@@ -273,6 +303,7 @@ internal sealed class PluginHostSession : IAsyncDisposable
         }
         finally
         {
+            await StopCallbackServerAsync();
             CleanupConnection();
             _intentionalStop = false;
         }
@@ -310,6 +341,7 @@ internal sealed class PluginHostSession : IAsyncDisposable
 
             var exitCode = exitedProcess.ExitCode;
             await StopProgressPumpAsync();
+            await StopCallbackServerAsync();
             CleanupConnection();
             Exited?.Invoke(
                 this,
@@ -335,6 +367,8 @@ internal sealed class PluginHostSession : IAsyncDisposable
         _rpc = null;
         _pipe?.Dispose();
         _pipe = null;
+        _callbackPipe?.Dispose();
+        _callbackPipe = null;
     }
 
     private void StartProgressPump()
@@ -344,6 +378,37 @@ internal sealed class PluginHostSession : IAsyncDisposable
         _progressPumpCancellation = new CancellationTokenSource();
         _progressPumpTask = PumpPlaybackProgressAsync(
             _progressPumpCancellation.Token);
+    }
+
+    private async Task StopCallbackServerAsync()
+    {
+        var cancellation = _callbackServerCancellation;
+        var task = _callbackServerTask;
+        _callbackServerCancellation = null;
+        _callbackServerTask = null;
+        if (cancellation is null)
+        {
+            return;
+        }
+
+        cancellation.Cancel();
+        try
+        {
+            if (task is not null)
+            {
+                await task;
+            }
+        }
+        catch (Exception ex) when (
+            ex is OperationCanceledException
+                or IOException
+                or ObjectDisposedException)
+        {
+        }
+        finally
+        {
+            cancellation.Dispose();
+        }
     }
 
     private async Task StopProgressPumpAsync()

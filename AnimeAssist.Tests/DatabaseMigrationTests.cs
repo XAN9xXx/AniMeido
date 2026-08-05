@@ -23,7 +23,7 @@ namespace AniMeido.Tests
             var cmd = conn.CreateCommand();
             cmd.CommandText = "PRAGMA user_version";
             var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            Assert.Equal(6, version);
+            Assert.Equal(7, version);
 
             // 检查所有表是否存在
             cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name";
@@ -53,6 +53,7 @@ namespace AniMeido.Tests
             Assert.Contains("tracking_events", tables);
             Assert.Contains("recommendation_feature_preferences", tables);
             Assert.Contains("recommendation_hidden_anime", tables);
+            Assert.Contains("external_change_receipts", tables);
         }
 
         [Fact]
@@ -289,6 +290,47 @@ namespace AniMeido.Tests
                     'recommendation_hidden_anime')
                 """;
             Assert.Equal(2, Convert.ToInt32(await verifyCommand.ExecuteScalarAsync()));
+            Assert.NotEmpty(Directory.GetFiles(
+                Paths.BackupDirectory,
+                "AniMeido-*.db"));
+        }
+
+        [Fact]
+        public async Task Migration_FromV6ToV7_PreservesTrackingAndCreatesReceipts()
+        {
+            await using (var connection =
+                new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString))
+            {
+                await connection.OpenAsync();
+                var command = connection.CreateCommand();
+                command.CommandText = """
+                    CREATE TABLE tracking(
+                        AnimeID INTEGER PRIMARY KEY,
+                        Status INTEGER NOT NULL,
+                        UpdatedAt TEXT NOT NULL);
+                    INSERT INTO tracking(AnimeID, Status, UpdatedAt)
+                    VALUES(622206, 3, '2026-08-01T00:00:00Z');
+                    PRAGMA user_version = 6;
+                    """;
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await RunProductionMigrationAsync();
+
+            await using var verify =
+                new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString);
+            await verify.OpenAsync();
+            var verifyCommand = verify.CreateCommand();
+            verifyCommand.CommandText = "PRAGMA user_version";
+            Assert.Equal(7, Convert.ToInt32(await verifyCommand.ExecuteScalarAsync()));
+            verifyCommand.CommandText =
+                "SELECT Status FROM tracking WHERE AnimeID = 622206";
+            Assert.Equal(3, Convert.ToInt32(await verifyCommand.ExecuteScalarAsync()));
+            verifyCommand.CommandText = """
+                SELECT COUNT(*) FROM sqlite_master
+                WHERE type = 'table' AND name = 'external_change_receipts'
+                """;
+            Assert.Equal(1, Convert.ToInt32(await verifyCommand.ExecuteScalarAsync()));
             Assert.NotEmpty(Directory.GetFiles(
                 Paths.BackupDirectory,
                 "AniMeido-*.db"));

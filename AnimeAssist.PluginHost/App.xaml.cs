@@ -20,35 +20,50 @@ public partial class App : Application
     {
         var pipeName = CommandLineOptions.GetPipeName(
             Environment.GetCommandLineArgs());
-        if (string.IsNullOrWhiteSpace(pipeName))
+        var callbackPipeName = CommandLineOptions.GetCallbackPipeName(
+            Environment.GetCommandLineArgs());
+        if (string.IsNullOrWhiteSpace(pipeName)
+            || string.IsNullOrWhiteSpace(callbackPipeName))
         {
             Exit();
             return;
         }
 
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
-        _catalog = new PluginRuntimeCatalog(
-            _dispatcherQueue,
-            new PlaybackProgressEventQueue());
-        _ = ConnectAsync(pipeName, _catalog);
+        _ = ConnectAsync(pipeName, callbackPipeName);
     }
 
     private async Task ConnectAsync(
         string pipeName,
-        PluginRuntimeCatalog catalog)
+        string callbackPipeName)
     {
+        PluginRuntimeCatalog? catalog = null;
         try
         {
-            var pipe = new NamedPipeClientStream(
+            using var pipe = new NamedPipeClientStream(
                 ".",
                 pipeName,
                 PipeDirection.InOut,
                 PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+            var callbackPipe = new NamedPipeClientStream(
+                ".",
+                callbackPipeName,
+                PipeDirection.InOut,
+                PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
             using var timeout = new CancellationTokenSource(
                 TimeSpan.FromSeconds(15));
-            await pipe.ConnectAsync(timeout.Token);
+            await Task.WhenAll(
+                pipe.ConnectAsync(timeout.Token),
+                callbackPipe.ConnectAsync(timeout.Token));
 
-            var target = new PluginHostRpcTarget(catalog);
+            using var callbackClient = new JsonPipeRpcClient(callbackPipe);
+            catalog = new PluginRuntimeCatalog(
+                _dispatcherQueue!,
+                new PlaybackProgressEventQueue(),
+                new HostedPersonalAnimeDataGateway(callbackClient));
+            _catalog = catalog;
+
+            var target = new PluginHostRpcTarget(catalog, callbackPipeName);
             var server = new JsonPipeRpcServer(
                 pipe,
                 target.DispatchAsync,
@@ -64,23 +79,30 @@ public partial class App : Application
         }
         finally
         {
-            await RunOnUiAsync(async () =>
+            if (catalog is not null)
             {
-                try
+                await RunOnUiAsync(async () =>
                 {
-                    await catalog.DisposeAsync();
-                }
+                    try
+                    {
+                        await catalog.DisposeAsync();
+                    }
 #pragma warning disable CA1031 // The host must exit even if a plugin cleanup path fails.
-                catch (Exception ex)
-                {
-                    HostLog.Write($"Plugin cleanup failed: {ex}");
-                }
+                    catch (Exception ex)
+                    {
+                        HostLog.Write($"Plugin cleanup failed: {ex}");
+                    }
 #pragma warning restore CA1031
-                finally
-                {
-                    Exit();
-                }
-            });
+                    finally
+                    {
+                        Exit();
+                    }
+                });
+            }
+            else
+            {
+                Exit();
+            }
         }
     }
 
@@ -130,6 +152,22 @@ internal static class CommandLineOptions
         for (var index = 0; index < args.Count - 1; index++)
         {
             if (string.Equals(args[index], "--pipe", StringComparison.Ordinal))
+            {
+                return args[index + 1];
+            }
+        }
+
+        return null;
+    }
+
+    public static string? GetCallbackPipeName(IReadOnlyList<string> args)
+    {
+        for (var index = 0; index < args.Count - 1; index++)
+        {
+            if (string.Equals(
+                args[index],
+                "--callback-pipe",
+                StringComparison.Ordinal))
             {
                 return args[index + 1];
             }

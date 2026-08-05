@@ -6,10 +6,16 @@ namespace AniMeido.PluginHost;
 public sealed class PluginHostRpcTarget
 {
     private readonly PluginRuntimeCatalog _catalog;
+    private readonly string _callbackPipeName;
     private int _shutdownRequested;
 
-    internal PluginHostRpcTarget(PluginRuntimeCatalog catalog)
-        => _catalog = catalog;
+    internal PluginHostRpcTarget(
+        PluginRuntimeCatalog catalog,
+        string callbackPipeName)
+    {
+        _catalog = catalog;
+        _callbackPipeName = callbackPipeName;
+    }
 
     internal bool ShutdownRequested =>
         Volatile.Read(ref _shutdownRequested) != 0;
@@ -67,6 +73,14 @@ public sealed class PluginHostRpcTarget
         {
             throw new InvalidOperationException(
                 $"IPC 协议版本不兼容：App={request.ProtocolVersion}, Host={PluginHostProtocol.Version}。");
+        }
+
+        if (!string.Equals(
+            request.CallbackPipeName,
+            _callbackPipeName,
+            StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("回调管道身份不匹配。");
         }
 
         var version = typeof(PluginHostRpcTarget).Assembly

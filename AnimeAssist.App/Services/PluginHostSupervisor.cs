@@ -1,4 +1,5 @@
 using AniMeido.Contracts.Playback;
+using AniMeido.Contracts.PersonalAnime;
 using AniMeido.PluginProtocol;
 using Microsoft.Extensions.Logging;
 
@@ -10,6 +11,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
     private readonly PluginContributionRegistry _contributions;
     private readonly HostedAnimePlaybackLauncher _playbackLauncher;
     private readonly IAnimePlaybackProgressSink _playbackProgressSink;
+    private readonly IPersonalAnimeDataGateway _personalAnimeDataGateway;
     private readonly ILogger<PluginHostSupervisor> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _sessionsSync = new();
@@ -26,12 +28,14 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         PluginContributionRegistry contributions,
         HostedAnimePlaybackLauncher playbackLauncher,
         IAnimePlaybackProgressSink playbackProgressSink,
+        IPersonalAnimeDataGateway personalAnimeDataGateway,
         ILogger<PluginHostSupervisor> logger)
     {
         _packageManager = packageManager;
         _contributions = contributions;
         _playbackLauncher = playbackLauncher;
         _playbackProgressSink = playbackProgressSink;
+        _personalAnimeDataGateway = personalAnimeDataGateway;
         _logger = logger;
         _contributions.CommandInvoker = InvokeCommandAsync;
         _contributions.SettingsInvoker = OpenSettingsAsync;
@@ -292,6 +296,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
                 descriptor,
                 ResolveHostPath(),
                 _playbackProgressSink,
+                _personalAnimeDataGateway,
                 _logger);
             session.Exited += OnSessionExited;
             _sessions.Add(descriptor.Manifest.PluginId, session);

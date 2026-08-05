@@ -178,6 +178,33 @@ public sealed class PluginPackageManagerTests : IDisposable
     }
 
     [Fact]
+    public void ValidateManifest_PersonalAnimeDataCapability_IsAccepted()
+    {
+        var verifier = new PluginPackageVerifier(new Version(1, 7, 0));
+        var manifest = CreateManifest("1.0.0");
+        manifest.Contributions.Capabilities.Add(
+            PluginHostProtocol.PersonalAnimeDataCapability);
+
+        verifier.ValidateManifest(manifest);
+    }
+
+    [Fact]
+    public void ValidateManifest_UnknownCapability_IsRejected()
+    {
+        var verifier = new PluginPackageVerifier(new Version(1, 7, 0));
+        var manifest = CreateManifest("1.0.0");
+        manifest.Contributions.Capabilities.Add("arbitraryCapability");
+
+        var exception = Assert.Throws<PluginOperationException>(
+            () => verifier.ValidateManifest(manifest));
+
+        Assert.Contains(
+            "不支持的插件能力",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ValidateManifest_SettingsContribution_IsAccepted()
     {
         var verifier = new PluginPackageVerifier(new Version(1, 6, 0));

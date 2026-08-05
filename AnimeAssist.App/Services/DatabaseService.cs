@@ -45,7 +45,7 @@ namespace AniMeido.App.Services
                     await pragmaCmd.ExecuteNonQueryAsync();
                 }
                 await CreateTablesAsync(connection);
-                if (await GetSchemaVersionAsync(connection) is > 0 and < 6)
+                if (await GetSchemaVersionAsync(connection) is > 0 and < 7)
                 {
                     await BackupAsync(throwOnFailure: true);
                 }
@@ -424,6 +424,25 @@ namespace AniMeido.App.Services
                         """;
                     await cmd.ExecuteNonQueryAsync();
                     version = 6;
+                }
+                if (version < 7)
+                {
+                    cmd.CommandText = """
+                        CREATE TABLE IF NOT EXISTS external_change_receipts(
+                            ChangeId TEXT PRIMARY KEY,
+                            SourceId TEXT NOT NULL,
+                            PayloadHash TEXT NOT NULL,
+                            Result TEXT NOT NULL,
+                            AppliedAt TEXT NOT NULL
+                        );
+                        CREATE INDEX IF NOT EXISTS
+                            IX_external_change_receipts_source_time
+                            ON external_change_receipts(SourceId, AppliedAt);
+
+                        PRAGMA user_version = 7;
+                        """;
+                    await cmd.ExecuteNonQueryAsync();
+                    version = 7;
                 }
                 tx.Commit();
             }

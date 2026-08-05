@@ -5,6 +5,19 @@ namespace AniMeido.Tests;
 
 public sealed class PluginHostLifecycleTests
 {
+    [Fact]
+    public void ProtocolV5_HandshakeIncludesDedicatedCallbackPipe()
+    {
+        var request = new PluginHostHandshakeRequest(
+            PluginHostProtocol.Version,
+            "1.7.0",
+            "test-instance",
+            "AniMeido-callback-test");
+
+        Assert.Equal(5, PluginHostProtocol.Version);
+        Assert.Equal("AniMeido-callback-test", request.CallbackPipeName);
+    }
+
     [Theory]
     [InlineData(0, true)]
     [InlineData(1, false)]
