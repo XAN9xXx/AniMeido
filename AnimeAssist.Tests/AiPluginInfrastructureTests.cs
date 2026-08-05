@@ -98,6 +98,81 @@ public sealed class AiPluginInfrastructureTests : IDisposable
     }
 
     [Fact]
+    public async Task ConversationStore_AddTurnPersistsBothMessagesAtomically()
+    {
+        var store = new ConversationStore(new AiPluginPaths(_root));
+        var conversation = await store.CreateConversationAsync(
+            AiTaskKind.CompareAnime,
+            "测试会话",
+            AiSettings.Default with { Model = "test-model" });
+        var createdAt = DateTimeOffset.UtcNow;
+
+        await store.AddTurnAsync(
+            new AiMessage(
+                "user-1",
+                conversation.ConversationId,
+                "user",
+                "问题",
+                createdAt,
+                0,
+                0,
+                string.Empty),
+            new AiMessage(
+                "assistant-1",
+                conversation.ConversationId,
+                "assistant",
+                "回答",
+                createdAt.AddMilliseconds(1),
+                3,
+                2,
+                string.Empty));
+
+        var messages = await store.GetMessagesAsync(conversation.ConversationId);
+
+        Assert.Collection(
+            messages,
+            message => Assert.Equal("user", message.Role),
+            message => Assert.Equal("assistant", message.Role));
+    }
+
+    [Fact]
+    public async Task ConversationStore_AddTurnRejectsDifferentConversations()
+    {
+        var store = new ConversationStore(new AiPluginPaths(_root));
+        var first = await store.CreateConversationAsync(
+            AiTaskKind.CompareAnime,
+            "会话一",
+            AiSettings.Default with { Model = "test-model" });
+        var second = await store.CreateConversationAsync(
+            AiTaskKind.CompareAnime,
+            "会话二",
+            AiSettings.Default with { Model = "test-model" });
+
+        await Assert.ThrowsAsync<ArgumentException>(() => store.AddTurnAsync(
+            new AiMessage(
+                "user-1",
+                first.ConversationId,
+                "user",
+                "问题",
+                DateTimeOffset.UtcNow,
+                0,
+                0,
+                string.Empty),
+            new AiMessage(
+                "assistant-1",
+                second.ConversationId,
+                "assistant",
+                "回答",
+                DateTimeOffset.UtcNow,
+                0,
+                0,
+                string.Empty)));
+
+        Assert.Empty(await store.GetMessagesAsync(first.ConversationId));
+        Assert.Empty(await store.GetMessagesAsync(second.ConversationId));
+    }
+
+    [Fact]
     public async Task DpapiSecretStore_RoundTripsForCurrentUser()
     {
         var store = new DpapiSecretStore(new AiPluginPaths(_root));

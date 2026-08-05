@@ -175,12 +175,43 @@ internal sealed class ConversationStore
     public async Task AddMessageAsync(
         AiMessage message,
         CancellationToken cancellationToken = default)
+        => await AddMessagesAsync([message], cancellationToken);
+
+    public async Task AddTurnAsync(
+        AiMessage userMessage,
+        AiMessage assistantMessage,
+        CancellationToken cancellationToken = default)
     {
+        if (!string.Equals(
+                userMessage.ConversationId,
+                assistantMessage.ConversationId,
+                StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "同一轮消息必须属于同一个会话。",
+                nameof(assistantMessage));
+        }
+
+        await AddMessagesAsync(
+            [userMessage, assistantMessage],
+            cancellationToken);
+    }
+
+    private async Task AddMessagesAsync(
+        IReadOnlyList<AiMessage> messages,
+        CancellationToken cancellationToken)
+    {
+        if (messages.Count == 0)
+        {
+            return;
+        }
+
         await using var connection = await OpenAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(
             cancellationToken);
-        await using (var command = connection.CreateCommand())
+        foreach (var message in messages)
         {
+            await using var command = connection.CreateCommand();
             command.Transaction = (SqliteTransaction)transaction;
             command.CommandText = """
                 INSERT INTO ai_messages(
@@ -193,6 +224,7 @@ internal sealed class ConversationStore
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
+        var latestMessage = messages.MaxBy(message => message.CreatedAt)!;
         await using (var update = connection.CreateCommand())
         {
             update.Transaction = (SqliteTransaction)transaction;
@@ -200,10 +232,12 @@ internal sealed class ConversationStore
                 UPDATE ai_conversations SET UpdatedAt = @updated
                 WHERE ConversationId = @id
                 """;
-            update.Parameters.AddWithValue("@id", message.ConversationId);
+            update.Parameters.AddWithValue(
+                "@id",
+                latestMessage.ConversationId);
             update.Parameters.AddWithValue(
                 "@updated",
-                message.CreatedAt.ToUniversalTime().ToString("O"));
+                latestMessage.CreatedAt.ToUniversalTime().ToString("O"));
             await update.ExecuteNonQueryAsync(cancellationToken);
         }
 

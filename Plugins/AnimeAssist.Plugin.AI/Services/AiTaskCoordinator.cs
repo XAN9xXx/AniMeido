@@ -228,7 +228,6 @@ internal sealed class AiTaskCoordinator
             0,
             0,
             string.Empty);
-        await _conversations.AddMessageAsync(user, cancellationToken);
         AiProviderResult result;
         try
         {
@@ -243,8 +242,7 @@ internal sealed class AiTaskCoordinator
             throw new TimeoutException(
                 $"Provider 请求超过 {settings.TimeoutSeconds} 秒。可在设置中调整超时。");
         }
-        await _conversations.AddMessageAsync(
-            new AiMessage(
+        var assistant = new AiMessage(
                 Guid.NewGuid().ToString("N"),
                 current.ConversationId,
                 "assistant",
@@ -256,7 +254,10 @@ internal sealed class AiTaskCoordinator
                 {
                     summary = result.ToolSummary,
                     proposedChanges = result.ProposedChanges,
-                }, JsonOptions)),
+                }, JsonOptions));
+        await _conversations.AddTurnAsync(
+            user,
+            assistant,
             cancellationToken);
         return result;
     }
