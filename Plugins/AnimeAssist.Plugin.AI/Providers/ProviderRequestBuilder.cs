@@ -9,15 +9,57 @@ internal static class ProviderRequestBuilder
     private static readonly JsonSerializerOptions JsonOptions = new(
         JsonSerializerDefaults.Web);
 
-    public static string BuildUserText(AiProviderRequest request)
+    public static IReadOnlyList<object> BuildRoleMessages(
+        AiProviderRequest request,
+        bool includeSystem)
     {
-        var builder = new StringBuilder();
-        foreach (var message in request.Messages)
+        var messages = new List<object>();
+        if (includeSystem)
         {
-            builder.Append(message.Role).Append(": ")
-                .AppendLine(message.Body);
+            messages.Add(new
+            {
+                role = "system",
+                content = request.SystemPrompt,
+            });
         }
 
+        messages.AddRange(request.Messages
+            .Where(message => message.Role is "user" or "assistant")
+            .Select(message => (object)new
+            {
+                role = message.Role,
+                content = message.Body,
+            }));
+        messages.Add(new
+        {
+            role = "user",
+            content = BuildCurrentUserText(request),
+        });
+        return messages;
+    }
+
+    public static IReadOnlyList<object> BuildGeminiContents(
+        AiProviderRequest request)
+    {
+        var contents = request.Messages
+            .Where(message => message.Role is "user" or "assistant")
+            .Select(message => (object)new
+            {
+                role = message.Role == "assistant" ? "model" : "user",
+                parts = new[] { new { text = message.Body } },
+            })
+            .ToList();
+        contents.Add(new
+        {
+            role = "user",
+            parts = new[] { new { text = BuildCurrentUserText(request) } },
+        });
+        return contents;
+    }
+
+    private static string BuildCurrentUserText(AiProviderRequest request)
+    {
+        var builder = new StringBuilder();
         builder.AppendLine("当前授权数据快照：");
         builder.AppendLine(JsonSerializer.Serialize(request.Snapshot, JsonOptions));
         builder.AppendLine("本轮用户请求：");

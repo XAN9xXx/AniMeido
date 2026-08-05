@@ -43,6 +43,96 @@ public sealed class AiPluginInfrastructureTests : IDisposable
     }
 
     [Fact]
+    public void RequestBuilder_PreservesConversationRoles()
+    {
+        var request = CreateProviderRequest(AiProviderKind.OpenAI) with
+        {
+            Messages =
+            [
+                new AiMessage(
+                    "message-1",
+                    "conversation-1",
+                    "user",
+                    "第一问",
+                    DateTimeOffset.UtcNow,
+                    0,
+                    0,
+                    string.Empty),
+                new AiMessage(
+                    "message-2",
+                    "conversation-1",
+                    "assistant",
+                    "第一答",
+                    DateTimeOffset.UtcNow,
+                    0,
+                    0,
+                    string.Empty),
+            ],
+            UserMessage = "第二问",
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            ProviderRequestBuilder.BuildRoleMessages(
+                request,
+                includeSystem: true));
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        var messages = document.RootElement.EnumerateArray().ToArray();
+
+        Assert.Equal(
+            new string?[] { "system", "user", "assistant", "user" },
+            messages.Select(item => item.GetProperty("role").GetString()));
+        Assert.Equal("第一问", messages[1].GetProperty("content").GetString());
+        Assert.Equal("第一答", messages[2].GetProperty("content").GetString());
+        Assert.Contains(
+            "第二问",
+            messages[3].GetProperty("content").GetString(),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "当前授权数据快照",
+            messages[3].GetProperty("content").GetString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RequestBuilder_MapsAssistantRoleForGemini()
+    {
+        var request = CreateProviderRequest(AiProviderKind.Gemini) with
+        {
+            Messages =
+            [
+                new AiMessage(
+                    "message-1",
+                    "conversation-1",
+                    "user",
+                    "第一问",
+                    DateTimeOffset.UtcNow,
+                    0,
+                    0,
+                    string.Empty),
+                new AiMessage(
+                    "message-2",
+                    "conversation-1",
+                    "assistant",
+                    "第一答",
+                    DateTimeOffset.UtcNow,
+                    0,
+                    0,
+                    string.Empty),
+            ],
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            ProviderRequestBuilder.BuildGeminiContents(request));
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        var roles = document.RootElement
+            .EnumerateArray()
+            .Select(item => item.GetProperty("role").GetString())
+            .ToArray();
+
+        Assert.Equal(new string?[] { "user", "model", "user" }, roles);
+    }
+
+    [Fact]
     public void TaskCoordinator_RestoresPersistedChangeProposals()
     {
         var message = new AiMessage(

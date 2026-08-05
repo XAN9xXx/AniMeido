@@ -55,17 +55,7 @@ internal sealed class GeminiProviderAdapter(HttpClient httpClient) :
             {
                 parts = new[] { new { text = request.SystemPrompt } },
             },
-            contents = new[]
-            {
-                new
-                {
-                    role = "user",
-                    parts = new[]
-                    {
-                        new { text = ProviderRequestBuilder.BuildUserText(request) },
-                    },
-                },
-            },
+            contents = ProviderRequestBuilder.BuildGeminiContents(request),
             tools = declarations,
             generationConfig = new
             {

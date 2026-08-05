@@ -44,14 +44,9 @@ internal sealed class AnthropicProviderAdapter(HttpClient httpClient) :
             system = request.SystemPrompt,
             max_tokens = request.Settings.MaximumOutputTokens,
             stream = true,
-            messages = new[]
-            {
-                new
-                {
-                    role = "user",
-                    content = ProviderRequestBuilder.BuildUserText(request),
-                },
-            },
+            messages = ProviderRequestBuilder.BuildRoleMessages(
+                request,
+                includeSystem: false),
             tools,
         });
         using var response = await SendHttpAsync(
@@ -136,14 +131,10 @@ internal sealed class AnthropicProviderAdapter(HttpClient httpClient) :
         using var timeout = CreateRequestTimeout(
             request.Settings,
             cancellationToken);
-        var messages = new List<object>
-        {
-            new
-            {
-                role = "user",
-                content = ProviderRequestBuilder.BuildUserText(request),
-            },
-        };
+        var messages = ProviderRequestBuilder.BuildRoleMessages(
+                request,
+                includeSystem: false)
+            .ToList();
         var tools = new object[]
         {
             ProviderRequestBuilder.ChangeTool(),

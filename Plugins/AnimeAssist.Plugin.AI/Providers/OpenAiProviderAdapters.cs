@@ -48,7 +48,9 @@ internal sealed class OpenAiProviderAdapter(HttpClient httpClient) :
         {
             model = request.Settings.Model,
             instructions = request.SystemPrompt,
-            input = ProviderRequestBuilder.BuildUserText(request),
+            input = ProviderRequestBuilder.BuildRoleMessages(
+                request,
+                includeSystem: false),
             max_output_tokens = request.Settings.MaximumOutputTokens,
             stream = true,
             tools,
@@ -180,11 +182,9 @@ internal sealed class OpenAiCompatibleProviderAdapter(HttpClient httpClient) :
             model = request.Settings.Model,
             stream = true,
             max_tokens = request.Settings.MaximumOutputTokens,
-            messages = new object[]
-            {
-                new { role = "system", content = request.SystemPrompt },
-                new { role = "user", content = ProviderRequestBuilder.BuildUserText(request) },
-            },
+            messages = ProviderRequestBuilder.BuildRoleMessages(
+                request,
+                includeSystem: true),
             tools = new[]
             {
                 new
