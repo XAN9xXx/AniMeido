@@ -13,7 +13,7 @@ internal sealed class AiSettingsWindow : Window
     private readonly DpapiSecretStore _secretStore;
     private readonly AiProviderRouter _router;
     private readonly ComboBox _provider = new();
-    private readonly TextBox _model = new();
+    private readonly AutoSuggestBox _model = new();
     private readonly TextBox _baseUrl = new();
     private readonly PasswordBox _apiKey = new();
     private readonly ToggleSwitch _webTools = new();
@@ -48,7 +48,7 @@ internal sealed class AiSettingsWindow : Window
 
         _provider.SelectionChanged += OnProviderChanged;
         _baseUrl.PlaceholderText = "请填写 Provider 官方 Base URL";
-        _model.PlaceholderText = "模型 ID";
+        _model.PlaceholderText = "输入模型 ID，或先连接获取模型列表";
         _apiKey.PlaceholderText = "仅使用 DPAPI 保存到当前 Windows 用户";
         _webTools.Header = "允许厂商联网工具";
         _webTools.OffContent = "关闭（默认）";
@@ -172,6 +172,8 @@ internal sealed class AiSettingsWindow : Window
         }
 
         _baseUrl.Text = string.Empty;
+        _model.Text = string.Empty;
+        _model.ItemsSource = null;
         _baseUrl.PlaceholderText = "请从 Provider 官方文档复制 Base URL";
 
         _apiKey.Password = _secretStore.LoadApiKey(
@@ -208,15 +210,28 @@ internal sealed class AiSettingsWindow : Window
     {
         try
         {
-            var settings = ReadSettings();
+            var settings = ReadSettings(requireModel: false);
             _status.Text = "正在连接…";
             var models = await _router.Get(settings.Provider).GetModelsAsync(
                 settings,
                 _apiKey.Password,
                 CancellationToken.None);
-            _status.Text = models.Count == 0
-                ? "连接成功，但端点未返回模型列表；可以手工填写模型 ID。"
-                : $"连接成功。可用模型示例：{string.Join("、", models.Take(8))}";
+            var choices = models
+                .Where(model => !string.IsNullOrWhiteSpace(model))
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+            _model.ItemsSource = choices;
+            if (choices.Length == 0)
+            {
+                _status.Text = "连接成功，但端点未返回模型列表；请手工填写模型 ID。";
+            }
+            else
+            {
+                _status.Text = $"连接成功，已加载 {choices.Length} 个模型；请选择或继续手工输入。";
+                _model.Focus(FocusState.Programmatic);
+                _model.IsSuggestionListOpen = true;
+            }
         }
         catch (Exception ex) when (
             ex is HttpRequestException
@@ -230,18 +245,20 @@ internal sealed class AiSettingsWindow : Window
         }
     }
 
-    private AiSettings ReadSettings()
+    private AiSettings ReadSettings(bool requireModel = true)
     {
         if (_provider.SelectedItem is not ComboBoxItem { Tag: AiProviderKind kind })
         {
             throw new InvalidOperationException("请选择 Provider。");
         }
 
-        if (string.IsNullOrWhiteSpace(_model.Text)
+        if ((requireModel && string.IsNullOrWhiteSpace(_model.Text))
             || string.IsNullOrWhiteSpace(_baseUrl.Text)
             || string.IsNullOrWhiteSpace(_apiKey.Password))
         {
-            throw new InvalidOperationException("模型、Base URL 和 API Key 均不能为空。");
+            throw new InvalidOperationException(requireModel
+                ? "模型、Base URL 和 API Key 均不能为空。"
+                : "Base URL 和 API Key 均不能为空。");
         }
 
         var baseUrlText = _baseUrl.Text.Trim().TrimEnd('/');
@@ -259,7 +276,7 @@ internal sealed class AiSettingsWindow : Window
         return new AiSettings(
             AiSettings.CurrentSchemaVersion,
             kind,
-            _model.Text,
+            requireModel ? _model.Text : "connection-test",
             baseUrlText,
             _webTools.IsOn,
             (int)_timeout.Value,

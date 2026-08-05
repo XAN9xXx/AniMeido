@@ -6,7 +6,7 @@
     <RootNamespace>AniMeido.Plugin.AI</RootNamespace>
     <AssemblyName>AniMeido.Plugin.AI</AssemblyName>
     <Title>AI 工作台</Title>
-    <Version>0.2.3</Version>
+    <Version>0.2.4</Version>
     <PluginMinAppVersion>1.7.0</PluginMinAppVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
