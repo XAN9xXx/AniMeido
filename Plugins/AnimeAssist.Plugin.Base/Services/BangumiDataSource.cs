@@ -2,6 +2,7 @@
 using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models.Bangumi;
 using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.Services
@@ -14,6 +15,7 @@ namespace AniMeido.Plugin.Base.Services
         private readonly BangumiApiClient _apiClient;
         private readonly ILogger<BangumiDataSource> _logger;
         private readonly CacheService _cacheService;
+        private readonly ConcurrentDictionary<string, SemaphoreSlim> _cacheMissGates = new();
         private const string FallbackTitle = "不好，标题走丢了Q^Q";
         private const string FallbackDescription = "No description available.";
         private const int SeasonSearchPageSize = 20;
@@ -108,41 +110,69 @@ namespace AniMeido.Plugin.Base.Services
                 }
             }
 
-            T? data;
+            var cacheMissGate = _cacheMissGates.GetOrAdd(
+                cacheKey,
+                _ => new SemaphoreSlim(1, 1));
+            await cacheMissGate.WaitAsync();
             try
             {
-                data = await fetchFunc();
-            }
-            catch (Exception ex) when (IsNetworkError(ex))
-            {
-                // 网络失败时尝试返回过期缓存降级
-                _logger.LogWarning("Network request failed for cache key {Key}: {Msg}", cacheKey, ex.Message);
-                var stale = await _cacheService.GetCacheAllowExpiredAsync(cacheKey);
-                if (stale != null)
+                // 另一个调用可能已在等待期间填充缓存。
+                cached = await _cacheService.GetCacheAsync(cacheKey);
+                if (cached is not null)
                 {
                     try
                     {
-                        var staleResult = JsonSerializer.Deserialize<T>(stale, JsonOptions);
-                        if (staleResult != null)
-                        {
-                            _logger.LogInformation("Returning stale cache for {Key}", cacheKey);
-                            return staleResult;
-                        }
+                        var result = JsonSerializer.Deserialize<T>(cached, JsonOptions);
+                        if (result is not null)
+                            return result;
                     }
-                    catch (JsonException jex)
+                    catch (JsonException ex)
                     {
-                        _logger.LogWarning(jex, "Stale cache corrupted for {Key}, falling back to network error", cacheKey);
+                        _logger.LogWarning(ex, "Corrupted cache entry for {Key}, removing", cacheKey);
+                        await _cacheService.RemoveCacheAsync(cacheKey);
                     }
                 }
-                throw; // 没有过期缓存可用，继续保持原异常向上传播
-            }
 
-            if (data != null)
-            {
-                var json = JsonSerializer.Serialize(data, JsonOptions);
-                await _cacheService.SetCacheAsync(cacheKey, json, expiration);
+                T? data;
+                try
+                {
+                    data = await fetchFunc();
+                }
+                catch (Exception ex) when (IsNetworkError(ex))
+                {
+                    // 网络失败时尝试返回过期缓存降级
+                    _logger.LogWarning("Network request failed for cache key {Key}: {Msg}", cacheKey, ex.Message);
+                    var stale = await _cacheService.GetCacheAllowExpiredAsync(cacheKey);
+                    if (stale != null)
+                    {
+                        try
+                        {
+                            var staleResult = JsonSerializer.Deserialize<T>(stale, JsonOptions);
+                            if (staleResult != null)
+                            {
+                                _logger.LogInformation("Returning stale cache for {Key}", cacheKey);
+                                return staleResult;
+                            }
+                        }
+                        catch (JsonException jex)
+                        {
+                            _logger.LogWarning(jex, "Stale cache corrupted for {Key}, falling back to network error", cacheKey);
+                        }
+                    }
+                    throw; // 没有过期缓存可用，继续保持原异常向上传播
+                }
+
+                if (data != null)
+                {
+                    var json = JsonSerializer.Serialize(data, JsonOptions);
+                    await _cacheService.SetCacheAsync(cacheKey, json, expiration);
+                }
+                return data;
             }
-            return data;
+            finally
+            {
+                cacheMissGate.Release();
+            }
         }
 
 

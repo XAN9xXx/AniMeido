@@ -51,11 +51,11 @@
         </Border>
 
         <!-- 结果列表 -->
-        <ScrollViewer Grid.Row="2"
-                      Margin="0,12,0,0">
-            <GridView x:Name="ResultGrid"
+        <GridView x:Name="ResultGrid"
+                      Grid.Row="2"
+                      Margin="0,12,0,0"
                       SelectionMode="None"
-                      ScrollViewer.VerticalScrollBarVisibility="Hidden"
+                      ScrollViewer.VerticalScrollBarVisibility="Auto"
                       ScrollViewer.HorizontalScrollMode="Disabled"
                       Padding="0,0,0,8">
                 <GridView.ItemsPanel>
@@ -79,8 +79,7 @@
                         <controls:AnimeCard CardClicked="OnAnimeCardClicked"/>
                     </DataTemplate>
                 </GridView.ItemTemplate>
-            </GridView>
-        </ScrollViewer>
+        </GridView>
 
         <!-- 翻页栏 -->
         <Border Grid.Row="3"

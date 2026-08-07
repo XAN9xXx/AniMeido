@@ -231,9 +231,9 @@ namespace AniMeido.Plugin.Base.Views
                 if (i > 0)
                     await Task.Delay(50, cancellationToken);
 
+                var container = WeekdayRepeater.TryGetElement(index)
+                    ?? WeekdayRepeater.GetOrCreateElement(index);
                 WeekdayRepeater.UpdateLayout();
-
-                var container = WeekdayRepeater.ContainerFromIndex(index) as UIElement;
                 if (container is not null
                     && RootScrollViewer.Content is UIElement scrollContent)
                 {

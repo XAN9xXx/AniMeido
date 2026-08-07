@@ -31,6 +31,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
 
         private int _coverLoadVersion;      // 封面加载版本号，防止旧异步任务更新新卡片
         private int _currentAnimeId;        // 当前显示番剧 ID，用于 DataContextChanged 快速判断
+        private CancellationTokenSource? _coverLoadCancellation;
         public static readonly DependencyProperty ShowWeekdayBadgeProperty =
             DependencyProperty.Register(nameof(ShowWeekdayBadge), typeof(bool), typeof(AnimeCard),
                 new PropertyMetadata(false, OnShowWeekdayBadgeChanged));
@@ -62,6 +63,9 @@ namespace AniMeido.Plugin.Base.Views.Controls
 
             DataContextChanged += (s, e) =>
             {
+                _coverLoadCancellation?.Cancel();
+                _coverLoadCancellation?.Dispose();
+                _coverLoadCancellation = new CancellationTokenSource();
                 UpdateWeekdayBadge();
                 UpdateMediaFormatBadge();
                 UpdateScoreBadge();
@@ -82,12 +86,16 @@ namespace AniMeido.Plugin.Base.Views.Controls
                         // 指定解码宽度 300（应对 2x 缩放），避免全分辨率解码
                         var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
                         bmp.DecodePixelWidth = 300;
-                        bmp.UriSource = ImageCacheHelper.GetImageUri(anime.ID, anime.CoverURL);
+                        bmp.UriSource = ImageCacheHelper.HasLocalCache(anime.ID)
+                            ? ImageCacheHelper.GetImageUri(anime.ID, anime.CoverURL)
+                            : PlaceholderUri;
                         CoverImage.Source = bmp;
 
                         // 后台下载缓存，成功后热更新当前卡片封面
                         if (!ImageCacheHelper.HasLocalCache(anime.ID))
-                            _ = CacheAndUpdateAsync(anime);
+                            _ = CacheAndUpdateAsync(
+                                anime,
+                                _coverLoadCancellation.Token);
                     }
                 }
             };
@@ -118,12 +126,24 @@ namespace AniMeido.Plugin.Base.Views.Controls
         /// <summary>
         /// 后台下载缓存，成功后热更新当前卡片封面（不需要等 GridView 回收）。
         /// </summary>
-        private async Task CacheAndUpdateAsync(Anime anime)
+        private async Task CacheAndUpdateAsync(
+            Anime anime,
+            CancellationToken cancellationToken)
         {
             var version = _coverLoadVersion;
 
-            if (!await ImageCacheHelper.CacheImageAsync(anime.ID, anime.CoverURL!))
+            try
+            {
+                if (!await ImageCacheHelper.CacheImageAsync(anime.ID, anime.CoverURL!)
+                    .WaitAsync(cancellationToken))
+                {
+                    return;
+                }
+            }
+            catch (OperationCanceledException)
+            {
                 return;
+            }
 
             // 缓存下载完成，检查版本号防止更新到已复用的卡片
             DispatcherQueue.TryEnqueue(() =>
@@ -147,6 +167,8 @@ namespace AniMeido.Plugin.Base.Views.Controls
             if (DataContext is Anime anime && !string.IsNullOrEmpty(anime.CoverURL))
             {
                 var version = _coverLoadVersion;
+                var cancellationToken = _coverLoadCancellation?.Token
+                    ?? CancellationToken.None;
 
                 bool success = false;
                 for (int retry = 0; retry < 3; retry++)
@@ -154,15 +176,30 @@ namespace AniMeido.Plugin.Base.Views.Controls
                     // 检查卡片是否已被回收复用
                     if (_coverLoadVersion != version) return;
 
-                    if (await ImageCacheHelper.CacheImageAsync(anime.ID, anime.CoverURL))
+                    try
                     {
-                        success = true;
-                        break;
+                        if (await ImageCacheHelper.CacheImageAsync(anime.ID, anime.CoverURL)
+                            .WaitAsync(cancellationToken))
+                        {
+                            success = true;
+                            break;
+                        }
+                        await Task.Delay(3000, cancellationToken);
                     }
-                    await Task.Delay(3000);
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
                 }
 
-                await Task.Delay(500);
+                try
+                {
+                    await Task.Delay(500, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
 
                 dispatcher.TryEnqueue(() =>
                 {

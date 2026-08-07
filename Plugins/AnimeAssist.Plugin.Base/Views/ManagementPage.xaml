@@ -164,16 +164,24 @@
                 </ListView.ItemTemplate>
             </ListView>
 
-            <ScrollViewer
+            <Grid
                 x:Name="StatusPanel"
-                Padding="0,0,8,0">
-                <StackPanel>
+                Padding="0,0,8,0"
+                RowDefinitions="Auto,*">
                     <TextBlock
                         Margin="0,0,0,12"
                         Style="{StaticResource AniMeidoSectionTitleStyle}"
                         Text="{x:Bind ViewModel.SelectedSection.Header, Mode=OneWay}"/>
-                    <ItemsControl ItemsSource="{x:Bind ViewModel.SelectedSection.Items, Mode=OneWay}">
-                        <ItemsControl.ItemTemplate>
+                    <ListView Grid.Row="1"
+                              ItemsSource="{x:Bind ViewModel.SelectedSection.Items, Mode=OneWay}"
+                              SelectionMode="None">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                <Setter Property="Padding" Value="0"/>
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.ItemTemplate>
                             <DataTemplate x:DataType="contracts:Anime">
                                 <Border
                                     Margin="0,0,0,10"
@@ -228,15 +236,17 @@
                                     </Grid>
                                 </Border>
                             </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                        </ListView.ItemTemplate>
+                    </ListView>
                     <TextBlock
+                        Grid.Row="1"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
                         Margin="0,12,0,0"
                         Foreground="{ThemeResource AniMeidoMutedTextBrush}"
                         Text="{x:Bind ViewModel.SelectedSection.EmptyMessage, Mode=OneWay}"
                         Visibility="{x:Bind local:ManagementPage.EmptyVisibility(ViewModel.SelectedSection.HasItems), Mode=OneWay}"/>
-                </StackPanel>
-            </ScrollViewer>
+            </Grid>
 
             <ScrollViewer
                 x:Name="TagPanel"

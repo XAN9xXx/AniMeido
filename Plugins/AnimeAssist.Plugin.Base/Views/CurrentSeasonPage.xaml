@@ -52,7 +52,7 @@
         <!-- 内容区域：加载完成时可见 -->
         <ScrollViewer Grid.Row="1"
                       x:Name="RootScrollViewer">
-            <StackPanel>
+            <Grid>
 
                 <StackPanel x:Name="EmptyState"
                             Visibility="Collapsed"
@@ -70,12 +70,14 @@
                 </StackPanel>
 
                 <!-- 按星期分组展示当季番剧 -->
-                <ItemsControl x:Name="WeekdayRepeater"
-                              ItemsSource="{x:Bind ViewModel.WeekdayGroups}">
-                    <ItemsControl.ItemTemplate>
+                <ItemsRepeater x:Name="WeekdayRepeater"
+                               ItemsSource="{x:Bind ViewModel.WeekdayGroups}">
+                    <ItemsRepeater.Layout>
+                        <StackLayout Spacing="12"/>
+                    </ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate>
                         <DataTemplate x:DataType="vm:WeekdayGroup">
                             <Border Style="{StaticResource AniMeidoContentCardStyle}"
-                                    Margin="0,0,0,12"
                                     Padding="16">
                                 <StackPanel>
                                     <TextBlock Text="{x:Bind WeekdayName}"
@@ -109,9 +111,9 @@
                                 </StackPanel>
                             </Border>
                         </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </StackPanel>
+                    </ItemsRepeater.ItemTemplate>
+                </ItemsRepeater>
+            </Grid>
         </ScrollViewer>
 
         <!-- 加载/重试覆盖层：加载中或出错时覆盖内容区域 -->

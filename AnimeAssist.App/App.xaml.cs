@@ -69,13 +69,18 @@ namespace AniMeido.App
             var provider = services.BuildServiceProvider();
             _serviceProvider = provider;
             Services = provider;
-            await provider
+            var notificationInitialization = provider
                 .GetRequiredService<WindowsAppNotificationService>()
                 .InitializeAsync();
-            await DatabaseStartup.InitializeAsync(provider);
-            _desktopSettings = await provider
+            var databaseInitialization = DatabaseStartup.InitializeAsync(provider);
+            var desktopSettingsLoad = provider
                 .GetRequiredService<DesktopSettingsStore>()
                 .LoadAsync();
+            await Task.WhenAll(
+                notificationInitialization,
+                databaseInitialization,
+                desktopSettingsLoad);
+            _desktopSettings = await desktopSettingsLoad;
 
             // 创建主窗口
             var contributionRegistry =

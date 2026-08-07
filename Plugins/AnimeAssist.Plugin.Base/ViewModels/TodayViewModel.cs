@@ -33,6 +33,8 @@ public sealed record TodayPlanEntry(
 
 public partial class TodayViewModel : ObservableObject
 {
+    private static readonly SemaphoreSlim LegacyPlanGate = new(1, 1);
+    private static bool _legacyPlansInitialized;
     private readonly IAnimeDataSource _dataSource;
     private readonly TrackingService _tracking;
     private readonly ActionCenterService _actionCenter;
@@ -94,7 +96,12 @@ public partial class TodayViewModel : ObservableObject
         ErrorMessage = null;
         try
         {
-            var trackingRows = await _tracking.GetAllTrackingAsync();
+            var trackingTask = _tracking.GetAllTrackingAsync();
+            var scheduleTask = _dataSource.GetCurrentBroadcastScheduleAsync(
+                cancellationToken);
+            await Task.WhenAll(trackingTask, scheduleTask);
+
+            var trackingRows = await trackingTask;
             var statusById = trackingRows.ToDictionary(
                 row => row.AnimeId,
                 row => row.Status);
@@ -103,8 +110,7 @@ public partial class TodayViewModel : ObservableObject
                 .Select(pair => pair.Key)
                 .ToHashSet();
             var seasonal = AnimeListPresentation.Filter(
-                await _dataSource.GetCurrentBroadcastScheduleAsync(
-                    cancellationToken),
+                await scheduleTask,
                 blockedIds);
             var today = AnimeListPresentation.ToBangumiWeekday(
                 DateTime.Today.DayOfWeek);
@@ -120,15 +126,32 @@ public partial class TodayViewModel : ObservableObject
             PersonalBroadcasts = new ObservableCollection<Anime>(
                 AllBroadcasts.Where(item => personalIds.Contains(item.ID)));
 
-            await EnsureLegacyPlansAsync(
+            await EnsureLegacyPlansOnceAsync(
                 trackingRows,
                 seasonal,
                 cancellationToken);
-            var plans = await _actionCenter.GetPlansAsync(
+            var plansTask = _actionCenter.GetPlansAsync(
                 cancellationToken: cancellationToken);
-            var reminders = await _actionCenter.GetRemindersAsync(
+            var remindersTask = _actionCenter.GetRemindersAsync(
                 state: PlanReminderState.Pending,
                 cancellationToken: cancellationToken);
+            var browseTask = LoadBrowseHistoryAsync(
+                blockedIds,
+                cancellationToken);
+            var playbackTask = IsPlaybackAvailable
+                ? LoadPlaybackActivityAsync(
+                    statusById,
+                    seasonal,
+                    cancellationToken)
+                : Task.CompletedTask;
+
+            await Task.WhenAll(
+                plansTask,
+                remindersTask,
+                browseTask,
+                playbackTask);
+            var plans = await plansTask;
+            var reminders = await remindersTask;
             var reminderCountByAnime = reminders
                 .GroupBy(item => item.AnimeId)
                 .ToDictionary(group => group.Key, group => group.Count());
@@ -142,16 +165,7 @@ public partial class TodayViewModel : ObservableObject
                         reminderCountByAnime.GetValueOrDefault(
                             plan.AnimeId)))));
 
-            await LoadBrowseHistoryAsync(blockedIds, cancellationToken);
-
-            if (IsPlaybackAvailable)
-            {
-                await LoadPlaybackActivityAsync(
-                    statusById,
-                    seasonal,
-                    cancellationToken);
-            }
-            else
+            if (!IsPlaybackAvailable)
             {
                 ContinueWatching.Clear();
                 RecentActivity.Clear();
@@ -226,36 +240,19 @@ public partial class TodayViewModel : ObservableObject
         var records = await _browseHistory.GetHistoryAsync(
             8,
             cancellationToken);
+        var visibleRecords = records
+            .Where(record => !blockedIds.Contains(record.AnimeId))
+            .ToList();
+        var resolved = (await ResolveAnimeAsync(
+                visibleRecords.Select(record => record.AnimeId).ToList(),
+                new Dictionary<int, Anime>(),
+                cancellationToken))
+            .ToDictionary(anime => anime.ID);
         var entries = new List<TodayBrowseEntry>();
-        foreach (var record in records)
+        foreach (var record in visibleRecords)
         {
-            if (blockedIds.Contains(record.AnimeId))
-            {
-                continue;
-            }
-
-            Anime? anime = null;
-            try
-            {
-                anime = await _dataSource.GetAnimeDetailAsync(
-                    record.AnimeId,
-                    cancellationToken);
-            }
-            catch (HttpRequestException)
-            {
-            }
-            catch (InvalidOperationException)
-            {
-            }
-            catch (System.Text.Json.JsonException)
-            {
-            }
-            catch (TaskCanceledException)
-                when (!cancellationToken.IsCancellationRequested)
-            {
-            }
-
-            anime ??= new Anime(
+            var anime = resolved.GetValueOrDefault(record.AnimeId)
+                ?? new Anime(
                 record.AnimeId,
                 record.Title ?? $"#{record.AnimeId}",
                 null,
@@ -307,14 +304,16 @@ public partial class TodayViewModel : ObservableObject
             .Where(pair => statusById.GetValueOrDefault(pair.Key)
                 != AnimeTrackingStatus.Blocked)
             .ToDictionary();
+        var recentProgress = visibleProgress.Values
+            .OrderByDescending(item => item.LastWatchedAt)
+            .Take(8)
+            .ToList();
         var recentAnime = await ResolveAnimeAsync(
-            visibleProgress.Keys.ToList(),
+            recentProgress.Select(item => item.AnimeId).ToList(),
             seasonalById,
             cancellationToken);
         RecentActivity = new ObservableCollection<TodayAnimeEntry>(
-            visibleProgress.Values
-                .OrderByDescending(item => item.LastWatchedAt)
-                .Take(8)
+            recentProgress
                 .Join(
                     recentAnime,
                     item => item.AnimeId,
@@ -325,7 +324,7 @@ public partial class TodayViewModel : ObservableObject
                             + $"{item.LastWatchedAt.LocalDateTime:g}")));
     }
 
-    private async Task EnsureLegacyPlansAsync(
+    private async Task EnsureLegacyPlansOnceAsync(
         IReadOnlyList<(
             int AnimeId,
             AnimeTrackingStatus Status,
@@ -333,26 +332,46 @@ public partial class TodayViewModel : ObservableObject
         IReadOnlyList<Anime> seasonal,
         CancellationToken cancellationToken)
     {
-        var currentPlans = await _actionCenter.GetPlansAsync(
-            includeArchived: true,
-            cancellationToken);
-        var planIds = currentPlans.Select(item => item.AnimeId).ToHashSet();
-        var seasonalById = seasonal.ToDictionary(item => item.ID);
-        foreach (var row in tracking.Where(row =>
-            row.Status == AnimeTrackingStatus.PlanToWatch
-            && !planIds.Contains(row.AnimeId)))
+        if (_legacyPlansInitialized)
+            return;
+
+        await LegacyPlanGate.WaitAsync(cancellationToken);
+        try
         {
-            var anime = seasonalById.GetValueOrDefault(row.AnimeId)
-                ?? await _dataSource.GetAnimeDetailAsync(
-                    row.AnimeId,
-                    cancellationToken);
-            await _actionCenter.UpsertPlanAsync(
-                row.AnimeId,
-                anime?.Title ?? $"Bangumi #{row.AnimeId}",
-                AnimePlanPriority.Normal,
-                targetStartDate: null,
-                sortOrder: 0,
+            if (_legacyPlansInitialized)
+                return;
+
+            var currentPlans = await _actionCenter.GetPlansAsync(
+                includeArchived: true,
                 cancellationToken);
+            var planIds = currentPlans.Select(item => item.AnimeId).ToHashSet();
+            var rows = tracking.Where(row =>
+                    row.Status == AnimeTrackingStatus.PlanToWatch
+                    && !planIds.Contains(row.AnimeId))
+                .ToList();
+            var seasonalById = seasonal.ToDictionary(item => item.ID);
+            var resolved = (await ResolveAnimeAsync(
+                    rows.Select(row => row.AnimeId).ToList(),
+                    seasonalById,
+                    cancellationToken))
+                .ToDictionary(anime => anime.ID);
+            foreach (var row in rows)
+            {
+                await _actionCenter.UpsertPlanAsync(
+                    row.AnimeId,
+                    resolved.GetValueOrDefault(row.AnimeId)?.Title
+                        ?? $"Bangumi #{row.AnimeId}",
+                    AnimePlanPriority.Normal,
+                    targetStartDate: null,
+                    sortOrder: 0,
+                    cancellationToken);
+            }
+
+            _legacyPlansInitialized = true;
+        }
+        finally
+        {
+            LegacyPlanGate.Release();
         }
     }
 
@@ -361,25 +380,45 @@ public partial class TodayViewModel : ObservableObject
         IReadOnlyDictionary<int, Anime> seasonal,
         CancellationToken cancellationToken)
     {
-        var result = new List<Anime>();
-        foreach (var animeId in animeIds)
+        var distinctIds = animeIds.Distinct().ToList();
+        var result = new Anime?[distinctIds.Count];
+        await Parallel.ForEachAsync(
+            Enumerable.Range(0, distinctIds.Count),
+            new ParallelOptions
+            {
+                CancellationToken = cancellationToken,
+                MaxDegreeOfParallelism = 4,
+            },
+            async (index, token) =>
         {
+            var animeId = distinctIds[index];
             if (seasonal.TryGetValue(animeId, out var anime))
             {
-                result.Add(anime);
-                continue;
+                result[index] = anime;
+                return;
             }
 
-            var detail = await _dataSource.GetAnimeDetailAsync(
-                animeId,
-                cancellationToken);
-            if (detail is not null)
+            try
             {
-                result.Add(detail);
+                result[index] = await _dataSource.GetAnimeDetailAsync(
+                    animeId,
+                    token);
             }
-        }
+            catch (Exception ex) when (
+                ex is HttpRequestException
+                or InvalidOperationException
+                or System.Text.Json.JsonException
+                or TaskCanceledException)
+            {
+                if (ex is OperationCanceledException
+                    && token.IsCancellationRequested)
+                {
+                    throw;
+                }
+            }
+        });
 
-        return result;
+        return result.OfType<Anime>().ToList();
     }
 
     private static string BuildPlanSubtitle(

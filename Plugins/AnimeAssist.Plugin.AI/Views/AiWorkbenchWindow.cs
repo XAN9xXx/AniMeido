@@ -6,7 +6,6 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using System.Text;
 using Windows.Graphics;
 
 namespace AniMeido.Plugin.AI.Views;
@@ -764,8 +763,28 @@ internal sealed class AiWorkbenchWindow : Window
         }
 
         AddMessage("user", userText);
-        var streamed = new StringBuilder();
+        var streamed = new StreamingTextBatcher();
         var output = AddMessage("assistant", "正在生成…");
+        output.Text = string.Empty;
+        var finalTextApplied = false;
+        var streamFlushTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(50),
+        };
+        void FlushStreamedText()
+        {
+            var chunk = streamed.Drain();
+            if (chunk.Length == 0)
+                return;
+            output.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
+            {
+                Text = chunk,
+            });
+            ScrollToBottom();
+        }
+        EventHandler<object>? flushHandler = (_, _) => FlushStreamedText();
+        streamFlushTimer.Tick += flushHandler;
+        streamFlushTimer.Start();
         _sendCancellation?.Dispose();
         _sendCancellation = new CancellationTokenSource();
         _isSending = true;
@@ -774,8 +793,6 @@ internal sealed class AiWorkbenchWindow : Window
         var progress = new Progress<string>(delta =>
         {
             streamed.Append(delta);
-            output.Text = streamed.ToString();
-            ScrollToBottom();
         });
         try
         {
@@ -784,7 +801,9 @@ internal sealed class AiWorkbenchWindow : Window
                 userText,
                 progress,
                 _sendCancellation.Token);
+            streamFlushTimer.Stop();
             output.Text = result.Text;
+            finalTextApplied = true;
             ShowProposals(result.ProposedChanges);
             if (result.ProposedChanges.Count > 0)
             {
@@ -796,6 +815,10 @@ internal sealed class AiWorkbenchWindow : Window
         }
         catch
         {
+            if (!finalTextApplied)
+            {
+                FlushStreamedText();
+            }
             if (streamed.Length == 0)
             {
                 output.Text = "本轮生成未完成。你可以修改消息后重试。";
@@ -805,6 +828,12 @@ internal sealed class AiWorkbenchWindow : Window
         }
         finally
         {
+            streamFlushTimer.Stop();
+            streamFlushTimer.Tick -= flushHandler;
+            if (!finalTextApplied)
+            {
+                FlushStreamedText();
+            }
             _isSending = false;
             UpdateCommandState();
             ScrollToBottom();

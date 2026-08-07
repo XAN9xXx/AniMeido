@@ -79,9 +79,11 @@
             </Border>
         </StackPanel>
         <!-- 内容区域 -->
-        <ScrollViewer x:Name="RootScrollViewer"
-                      Grid.Row="1">
-            <StackPanel>
+        <Grid Grid.Row="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
 
                 <!-- 统计信息 -->
                 <Border x:Name="StatsCard"
@@ -105,6 +107,7 @@
 
                 <!-- 空状态提示 -->
                 <StackPanel x:Name="EmptyState"
+                            Grid.Row="1"
                             Visibility="Collapsed"
                             HorizontalAlignment="Center"
                             Margin="0,40,0,0">
@@ -118,8 +121,10 @@
 
                 <!-- 番剧网格 -->
                 <GridView x:Name="AnimeGridView"
+                          Grid.Row="1"
                           ItemsSource="{x:Bind ViewModel.AnimeList, Mode=OneWay}"
-                          SelectionMode="None">
+                          SelectionMode="None"
+                          ScrollViewer.VerticalScrollBarVisibility="Auto">
                     <GridView.ItemContainerStyle>
                         <Style TargetType="GridViewItem">
                             <Setter Property="UseSystemFocusVisuals"
@@ -138,8 +143,7 @@
                     </GridView.ItemTemplate>
                 </GridView>
 
-            </StackPanel>
-        </ScrollViewer>
+        </Grid>
 
         <!-- 加载/重试覆盖层 -->
         <Grid Grid.Row="1"

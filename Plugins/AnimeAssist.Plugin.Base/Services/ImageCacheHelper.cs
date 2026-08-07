@@ -14,7 +14,10 @@ namespace AniMeido.Plugin.Base.Services
         private static readonly SemaphoreSlim DownloadThrottle = new(4, 4);
         private static readonly HttpClient SharedHttpClient = new() { Timeout = TimeSpan.FromSeconds(15) };
         private static readonly ConcurrentDictionary<int, byte> _cachedIds = new();
+        private static readonly ConcurrentDictionary<int, Lazy<Task<bool>>> InFlightDownloads = new();
         private static readonly SemaphoreSlim _evictionLock = new(1, 1);
+        private static readonly object EvictionScheduleLock = new();
+        private static CancellationTokenSource? _evictionDelayCancellation;
 
         /// <summary>图片缓存大小上限（MB）。超过时淘汰最旧文件。</summary>
         public const int MaxCacheSizeMB = 500;
@@ -48,16 +51,6 @@ namespace AniMeido.Plugin.Base.Services
             PlaceholderPath = placeholderPath;
             PlaceholderUri = new Uri(placeholderPath);
 
-            // 启动时预热缓存列表
-            if (Directory.Exists(CacheDir))
-            {
-                foreach (var f in Directory.GetFiles(CacheDir, "*.jpg"))
-                {
-                    var name = Path.GetFileNameWithoutExtension(f);
-                    if (int.TryParse(name, out var id))
-                        _cachedIds.TryAdd(id, 0);
-                }
-            }
         }
 
         /// <summary>获取本地缓存路径（不保证文件存在）。</summary>
@@ -67,14 +60,15 @@ namespace AniMeido.Plugin.Base.Services
         /// <summary>检查本地是否有已缓存的图片（同时验证文件真实存在）。</summary>
         public static bool HasLocalCache(int animeId)
         {
-            if (!_cachedIds.ContainsKey(animeId))
-                return false;
-
             var path = GetLocalPath(animeId);
             if (File.Exists(path))
             {
                 var info = new FileInfo(path);
-                return info.Length > 0;
+                if (info.Length > 0)
+                {
+                    _cachedIds.TryAdd(animeId, 0);
+                    return true;
+                }
             }
 
             // 缓存标记存在但文件已被删除，清理标记
@@ -85,14 +79,9 @@ namespace AniMeido.Plugin.Base.Services
         /// <summary>获取用于 Image.Source 的 URI。不保证本地缓存文件存在。</summary>
         public static Uri GetImageUri(int animeId, string? originalUrl)
         {
-            if (_cachedIds.ContainsKey(animeId))
+            if (HasLocalCache(animeId))
             {
-                var localPath = GetLocalPath(animeId);
-                if (File.Exists(localPath))
-                    return new Uri(localPath);
-
-                // 缓存文件已被删除，清理标记并回退到远程 URL
-                _cachedIds.TryRemove(animeId, out _);
+                return new Uri(GetLocalPath(animeId));
             }
 
             if (!string.IsNullOrEmpty(originalUrl) && TryCreateValidImageUri(originalUrl, out var uri))
@@ -124,12 +113,34 @@ namespace AniMeido.Plugin.Base.Services
         /// </summary>
         public static async Task<bool> CacheImageAsync(int animeId, string url)
         {
-            if (_cachedIds.ContainsKey(animeId)) return true;
+            if (HasLocalCache(animeId))
+                return true;
 
-            await DownloadThrottle.WaitAsync();
+            var download = InFlightDownloads.GetOrAdd(
+                animeId,
+                _ => new Lazy<Task<bool>>(
+                    () => DownloadImageAsync(animeId, url),
+                    LazyThreadSafetyMode.ExecutionAndPublication));
+
             try
             {
-                if (_cachedIds.ContainsKey(animeId)) return true;
+                return await download.Value.ConfigureAwait(false);
+            }
+            finally
+            {
+                InFlightDownloads.TryRemove(
+                    new KeyValuePair<int, Lazy<Task<bool>>>(animeId, download));
+            }
+        }
+
+        private static async Task<bool> DownloadImageAsync(int animeId, string url)
+        {
+
+            await DownloadThrottle.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (HasLocalCache(animeId))
+                    return true;
 
                 // 校验 URL（与 GetImageUri 共享同一逻辑）
                 if (!TryCreateValidImageUri(url, out var uri))
@@ -184,8 +195,7 @@ namespace AniMeido.Plugin.Base.Services
 
                 _cachedIds.TryAdd(animeId, 0);
 
-                // 触发淘汰检查
-                _ = EvictIfNeededAsync();
+                ScheduleEviction();
                 return true;
             }
             catch (HttpRequestException)
@@ -291,6 +301,45 @@ namespace AniMeido.Plugin.Base.Services
             finally
             {
                 _evictionLock.Release();
+            }
+        }
+
+        private static void ScheduleEviction()
+        {
+            CancellationTokenSource delayCancellation;
+            lock (EvictionScheduleLock)
+            {
+                _evictionDelayCancellation?.Cancel();
+                _evictionDelayCancellation?.Dispose();
+                delayCancellation = new CancellationTokenSource();
+                _evictionDelayCancellation = delayCancellation;
+            }
+
+            _ = RunScheduledEvictionAsync(delayCancellation);
+        }
+
+        private static async Task RunScheduledEvictionAsync(
+            CancellationTokenSource delayCancellation)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), delayCancellation.Token)
+                    .ConfigureAwait(false);
+                await EvictIfNeededAsync().ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                lock (EvictionScheduleLock)
+                {
+                    if (ReferenceEquals(_evictionDelayCancellation, delayCancellation))
+                    {
+                        _evictionDelayCancellation = null;
+                        delayCancellation.Dispose();
+                    }
+                }
             }
         }
     }

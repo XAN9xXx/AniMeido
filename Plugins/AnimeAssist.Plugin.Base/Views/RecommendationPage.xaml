@@ -73,8 +73,10 @@
         </Grid>
 
         <Grid Grid.Row="3">
-            <ScrollViewer x:Name="RecommendationsPanel">
-                <StackPanel Spacing="16" Padding="0,0,4,4">
+            <Grid x:Name="RecommendationsPanel"
+                  RowDefinitions="Auto,Auto,*"
+                  RowSpacing="16"
+                  Padding="0,0,4,4">
                     <Border x:Name="ColdStartPanel"
                             Style="{StaticResource AniMeidoCardStyle}"
                             Visibility="{x:Bind ViewModel.IsColdStart, Mode=OneWay}">
@@ -118,7 +120,8 @@
                         </Grid>
                     </Border>
 
-                    <Border Style="{StaticResource AniMeidoCardStyle}">
+                    <Border Grid.Row="1"
+                            Style="{StaticResource AniMeidoCardStyle}">
                         <StackPanel Spacing="4">
                             <TextBlock Text="推荐流"
                                        Style="{StaticResource AniMeidoSectionTitleStyle}"/>
@@ -127,7 +130,8 @@
                         </StackPanel>
                     </Border>
 
-                    <ListView ItemsSource="{x:Bind ViewModel.Items, Mode=OneWay}"
+                    <ListView Grid.Row="2"
+                              ItemsSource="{x:Bind ViewModel.Items, Mode=OneWay}"
                               SelectionMode="None"
                               IsItemClickEnabled="False">
                         <ListView.ItemContainerStyle>
@@ -189,11 +193,13 @@
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
-                </StackPanel>
-            </ScrollViewer>
+            </Grid>
 
-            <ScrollViewer x:Name="ProfilePanel" Visibility="Collapsed">
-                <StackPanel Spacing="16" Padding="0,0,4,4">
+            <Grid x:Name="ProfilePanel"
+                  Visibility="Collapsed"
+                  RowDefinitions="Auto,*"
+                  RowSpacing="16"
+                  Padding="0,0,4,4">
                     <Border Style="{StaticResource AniMeidoCardStyle}">
                         <Grid ColumnDefinitions="*,Auto">
                             <StackPanel Spacing="4">
@@ -208,7 +214,8 @@
                                     Click="OnClearPreferencesClick"/>
                         </Grid>
                     </Border>
-                    <ListView ItemsSource="{x:Bind ViewModel.Profile, Mode=OneWay}"
+                    <ListView Grid.Row="1"
+                              ItemsSource="{x:Bind ViewModel.Profile, Mode=OneWay}"
                               SelectionMode="None">
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem">
@@ -236,11 +243,13 @@
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
-                </StackPanel>
-            </ScrollViewer>
+            </Grid>
 
-            <ScrollViewer x:Name="HiddenPanel" Visibility="Collapsed">
-                <StackPanel Spacing="16" Padding="0,0,4,4">
+            <Grid x:Name="HiddenPanel"
+                  Visibility="Collapsed"
+                  RowDefinitions="Auto,*"
+                  RowSpacing="16"
+                  Padding="0,0,4,4">
                     <Border Style="{StaticResource AniMeidoCardStyle}">
                         <Grid ColumnDefinitions="*,Auto">
                             <StackPanel Spacing="4">
@@ -254,7 +263,8 @@
                                     Click="OnClearHiddenClick"/>
                         </Grid>
                     </Border>
-                    <ListView ItemsSource="{x:Bind ViewModel.HiddenAnime, Mode=OneWay}"
+                    <ListView Grid.Row="1"
+                              ItemsSource="{x:Bind ViewModel.HiddenAnime, Mode=OneWay}"
                               SelectionMode="None">
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem">
@@ -277,8 +287,7 @@
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
-                </StackPanel>
-            </ScrollViewer>
+            </Grid>
         </Grid>
     </Grid>
 </Page>

@@ -415,7 +415,6 @@ internal sealed class PlayerWindow : Window
         player.FileLoaded += OnMpvFileLoaded;
         player.PlaybackEnded += OnMpvPlaybackEnded;
         player.PlaybackFailed += OnMpvPlaybackFailed;
-        _playbackTimer.Start();
         UpdateVideoBounds();
     }
 
@@ -428,6 +427,8 @@ internal sealed class PlayerWindow : Window
         {
             return;
         }
+
+        _playbackTimer.Start();
 
         if (_session.Episode is { } episode)
         {
@@ -448,6 +449,7 @@ internal sealed class PlayerWindow : Window
         {
             if (!_isClosing)
             {
+                _playbackTimer.Stop();
                 _reachedEnd = true;
                 ReportProgressIfEligible(reachedNaturalEnd: true);
                 SetPlaybackState(
@@ -470,6 +472,7 @@ internal sealed class PlayerWindow : Window
             return;
         }
 
+        _playbackTimer.Stop();
         _session.ClearResolvedMedia();
         await TryRecordRouteResultAsync(
             _session.AnimeContext.AnimeId,
