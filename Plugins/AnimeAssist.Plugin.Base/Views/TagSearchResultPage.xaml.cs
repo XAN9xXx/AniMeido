@@ -92,9 +92,15 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task LoadBlockedIdsAsync()
         {
+            var searchVersion = _searchVersion;
             try
             {
-                _blockedIds = await _tracking.GetBlockedAnimeIdsAsync();
+                var blockedIds = await _tracking.GetBlockedAnimeIdsAsync();
+                if (searchVersion != _searchVersion)
+                {
+                    return;
+                }
+                _blockedIds = blockedIds;
                 // 如果数据已经加载完成，重新过滤
                 if (_rawData != null)
                 {
@@ -171,6 +177,10 @@ namespace AniMeido.Plugin.Base.Views
             _searchCts = new CancellationTokenSource();
             var token = _searchCts.Token;
             var version = Interlocked.Increment(ref _searchVersion);
+            _rawData = null;
+            _allData = null;
+            _animeSource.Clear();
+            PaginationBar.Visibility = Visibility.Collapsed;
 
             var cacheKey = $"tag_search:{_currentTag}:{_yearFrom}:{_yearTo}";
 
@@ -186,7 +196,7 @@ namespace AniMeido.Plugin.Base.Views
                         var deserialized = JsonSerializer.Deserialize<List<Anime>>(
                             cached,
                             JsonOptions);
-                        if (deserialized != null && deserialized.Count > 0)
+                        if (deserialized != null)
                         {
                             _rawData = deserialized;
                             ApplyPresentation();
@@ -212,9 +222,12 @@ namespace AniMeido.Plugin.Base.Views
             if ((_yearTo - _yearFrom) > maxYearSpan)
             {
                 if (version == _searchVersion)
+                {
                     ResultCount.Text = $"年份跨度超过 {maxYearSpan} 年，请缩小搜索范围";
-                LoadingOverlay.Visibility = Visibility.Collapsed;
-                LoadingRing.IsActive = false;
+                    PaginationBar.Visibility = Visibility.Collapsed;
+                    LoadingOverlay.Visibility = Visibility.Collapsed;
+                    LoadingRing.IsActive = false;
+                }
                 return;
             }
 
@@ -237,7 +250,7 @@ namespace AniMeido.Plugin.Base.Views
                 _rawData = allResults;
                 ApplyPresentation();
 
-                if (_cacheService != null && allResults.Count > 0)
+                if (_cacheService != null)
                 {
                     // 缓存原始搜索结果（不含屏蔽过滤），展示时再应用当前屏蔽列表
                     var json = JsonSerializer.Serialize(allResults, JsonOptions);
@@ -253,25 +266,34 @@ namespace AniMeido.Plugin.Base.Views
             catch (HttpRequestException ex)
             {
                 if (version == _searchVersion)
+                {
                     ResultCount.Text = $"搜索失败：{ex.Message}";
-                PaginationBar.Visibility = Visibility.Collapsed;
+                    ClearResults();
+                }
             }
             catch (BangumiApiException ex)
             {
                 if (version == _searchVersion)
+                {
                     ResultCount.Text = $"数据源请求失败：{ex.Message}";
-                PaginationBar.Visibility = Visibility.Collapsed;
+                    ClearResults();
+                }
             }
             catch (OperationCanceledException)
             {
                 // 被新请求取消时静默返回，不更新 UI
-                PaginationBar.Visibility = Visibility.Collapsed;
+                if (version == _searchVersion)
+                {
+                    PaginationBar.Visibility = Visibility.Collapsed;
+                }
             }
             catch (JsonException ex)
             {
                 if (version == _searchVersion)
+                {
                     ResultCount.Text = $"搜索结果解析失败：{ex.Message}";
-                PaginationBar.Visibility = Visibility.Collapsed;
+                    ClearResults();
+                }
             }
             finally
             {
@@ -342,7 +364,12 @@ namespace AniMeido.Plugin.Base.Views
             var from = (int)((ComboBoxItem)YearFromCombo.SelectedItem).Tag;
             var to = (int)((ComboBoxItem)YearToCombo.SelectedItem).Tag;
 
-            if (from > to) return;
+            if (from > to)
+            {
+                ResultCount.Text = "起始年份不能晚于结束年份";
+                ClearResults();
+                return;
+            }
 
             _yearFrom = from;
             _yearTo = to;
@@ -394,6 +421,14 @@ namespace AniMeido.Plugin.Base.Views
             _allData = SortLocally(AnimeListPresentation.Filter(
                 _rawData ?? [],
                 _blockedIds).ToList());
+        }
+
+        private void ClearResults()
+        {
+            _rawData = null;
+            _allData = null;
+            _animeSource.Clear();
+            PaginationBar.Visibility = Visibility.Collapsed;
         }
 
         private void OnPrevPage(object sender, RoutedEventArgs e)

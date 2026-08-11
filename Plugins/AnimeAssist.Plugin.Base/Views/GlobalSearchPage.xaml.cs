@@ -7,7 +7,6 @@ using AniMeido.Plugin.Base.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
 using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.Views
@@ -25,6 +24,7 @@ namespace AniMeido.Plugin.Base.Views
         private HashSet<int> _blockedIds = new();
         private CancellationTokenSource? _searchCts;
         private int _searchVersion;
+        private IReadOnlyList<Anime> _rawPageResults = [];
 
         public GlobalSearchPage(DragDropService dragDropService, IAnimeDataSource dataSource, TrackingService trackingService, IPluginNavigator pluginNavigator)
         {
@@ -55,19 +55,29 @@ namespace AniMeido.Plugin.Base.Views
 
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
         {
+            Interlocked.Increment(ref _searchVersion);
+            _searchCts?.Cancel();
+            _searchCts?.Dispose();
+            _searchCts = null;
             _dropHostRegistration?.Dispose();
             _dropHostRegistration = null;
         }
 
         private async Task LoadBlockedIdsAsync()
         {
+            var searchVersion = _searchVersion;
             try
             {
-                _blockedIds = await _tracking.GetBlockedAnimeIdsAsync();
-                if (ResultGrid.ItemsSource is IEnumerable<Anime> current)
+                var blockedIds = await _tracking.GetBlockedAnimeIdsAsync();
+                if (searchVersion != _searchVersion)
+                {
+                    return;
+                }
+                _blockedIds = blockedIds;
+                if (_rawPageResults.Count > 0)
                 {
                     ResultGrid.ItemsSource = AnimeListPresentation.Filter(
-                        current,
+                        _rawPageResults,
                         _blockedIds);
                 }
             }
@@ -108,6 +118,7 @@ namespace AniMeido.Plugin.Base.Views
             _searchCts = new CancellationTokenSource();
             var token = _searchCts.Token;
             var version = Interlocked.Increment(ref _searchVersion);
+            var keyword = _currentKeyword ?? string.Empty;
 
             LoadingOverlay.Visibility = Visibility.Visible;
             LoadingRing.IsActive = true;
@@ -117,7 +128,10 @@ namespace AniMeido.Plugin.Base.Views
             try
             {
                 await LoadBlockedIdsAsync();
-                var (results, total) = await _dataSource.SearchByKeywordAsync(_currentKeyword ?? string.Empty, offset, token);
+                var (results, total) = await _dataSource.SearchByKeywordAsync(
+                    keyword,
+                    offset,
+                    token);
 
                 // 如果已有更新的搜索，丢弃此结果
                 if (version != _searchVersion || token.IsCancellationRequested)
@@ -125,6 +139,7 @@ namespace AniMeido.Plugin.Base.Views
 
                 _currentOffset = offset;
                 _totalResults = total;
+                _rawPageResults = results;
 
                 var filtered = AnimeListPresentation.Filter(
                     results,
@@ -134,7 +149,9 @@ namespace AniMeido.Plugin.Base.Views
                 var currentPage = (offset / PageSize) + 1;
                 var totalPages = Math.Max(1, (int)Math.Ceiling((double)total / PageSize));
                 var totalDisplay = total >= 1000 ? $"{total}+" : total.ToString();
-                ResultCount.Text = $"找到 {totalDisplay} 部番剧 · 第 {currentPage}/{totalPages} 页";
+                ResultCount.Text = filtered.Count == results.Count
+                    ? $"找到 {totalDisplay} 部番剧 · 第 {currentPage}/{totalPages} 页"
+                    : $"源返回 {totalDisplay} 部番剧 · 本页显示 {filtered.Count} 部 · 第 {currentPage}/{totalPages} 页";
                 PageInfo.Text = $"{currentPage} / {totalPages}";
 
                 PrevButton.IsEnabled = offset > 0;
@@ -146,18 +163,29 @@ namespace AniMeido.Plugin.Base.Views
                     ResultCount.Text = "未找到相关番剧";
                     PaginationBar.Visibility = Visibility.Collapsed;
                 }
+                else if (filtered.Count == 0)
+                {
+                    ResultCount.Text = "本页结果均已屏蔽，可继续查看其他页";
+                }
             }
             catch (HttpRequestException ex)
             {
                 if (version == _searchVersion)
+                {
                     ResultCount.Text = $"搜索失败：{ex.Message}";
+                    ClearSearchResults();
+                }
             }
             catch (BangumiApiException ex)
             {
                 if (version == _searchVersion)
+                {
                     ResultCount.Text = $"数据源请求失败：{ex.Message}";
+                    ClearSearchResults();
+                }
             }
-            catch (TaskCanceledException)
+            catch (OperationCanceledException)
+                when (token.IsCancellationRequested)
             {
                 // 被新请求取消时静默返回，不更新 UI
             }
@@ -166,7 +194,7 @@ namespace AniMeido.Plugin.Base.Views
                 if (version == _searchVersion)
                 {
                     ResultCount.Text = $"搜索结果解析失败：{ex.Message}";
-                    PaginationBar.Visibility = Visibility.Collapsed;
+                    ClearSearchResults();
                 }
             }
             finally
@@ -177,6 +205,14 @@ namespace AniMeido.Plugin.Base.Views
                     LoadingRing.IsActive = false;
                 }
             }
+        }
+
+        private void ClearSearchResults()
+        {
+            _rawPageResults = [];
+            ResultGrid.ItemsSource = null;
+            PaginationBar.Visibility = Visibility.Collapsed;
+            _totalResults = 0;
         }
 
         private void OnPrevPage(object sender, RoutedEventArgs e)
@@ -202,22 +238,5 @@ namespace AniMeido.Plugin.Base.Views
 
 
 
-        private static List<T> FindAllElements<T>(DependencyObject parent) where T : DependencyObject
-        {
-            var r = new List<T>();
-            FindAllRecursive(parent, r);
-            return r;
-        }
-
-        private static void FindAllRecursive<T>(DependencyObject p, List<T> r) where T : DependencyObject
-        {
-            int c = VisualTreeHelper.GetChildrenCount(p);
-            for (int i = 0; i < c; i++)
-            {
-                var ch = VisualTreeHelper.GetChild(p, i);
-                if (ch is T t) r.Add(t);
-                FindAllRecursive(ch, r);
-            }
-        }
     }
 }
