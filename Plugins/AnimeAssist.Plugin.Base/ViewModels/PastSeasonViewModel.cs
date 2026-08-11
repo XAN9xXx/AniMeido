@@ -22,6 +22,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         private bool _isError = false;
         [ObservableProperty]
         private int _totalCount = 0;
+        public IReadOnlyList<Anime> LoadedAnime { get; private set; } = [];
         IAnimeDataSource _animeDataSource;
         int _lastYear;
         Season _lastSeason;
@@ -48,6 +49,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             IsError = false;
             ErrorMessage = null;
             AnimeList.Clear();
+            LoadedAnime = [];
             TotalCount = 0;
             HasData = false;
 
@@ -57,8 +59,9 @@ namespace AniMeido.Plugin.Base.ViewModels
                     year,
                     season,
                     ct);
+                LoadedAnime = list.ToArray();
                 // 一次性替换集合引用（单次 PropertyChanged），避免 N 次 Add 触发 N 次布局
-                AnimeList = new ObservableCollection<Anime>(list);
+                AnimeList = new ObservableCollection<Anime>(LoadedAnime);
 
                 // 更新统计信息
                 TotalCount = list.Count;

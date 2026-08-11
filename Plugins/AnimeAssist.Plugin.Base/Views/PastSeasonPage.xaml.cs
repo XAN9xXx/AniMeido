@@ -57,13 +57,7 @@ namespace AniMeido.Plugin.Base.Views
                         {
                             StatsCard.Visibility = Visibility.Visible;
                             TotalCountText.Text = ViewModel.TotalCount.ToString();
-                            // 数据加载完成后保存原始列表、显示过滤框
-                            _allAnime.Clear();
-                            _allAnime.AddRange(AnimeListPresentation.Filter(
-                                ViewModel.AnimeList,
-                                _blockedIds));
                             FilterCard.Visibility = Visibility.Visible;
-                            FilterBox.Text = "";
                         }
                         else
                         {
@@ -258,6 +252,9 @@ namespace AniMeido.Plugin.Base.Views
 
             // 如果已有更新的请求，丢弃此结果（此时 IsLoading 可能已被旧请求设为 false）
             if (version != _loadVersion) return;
+            _allAnime.Clear();
+            _allAnime.AddRange(ViewModel.LoadedAnime);
+            ApplyFilter(FilterBox.Text);
             UpdateViewState();
 
             // 数据加载完成，隐藏覆盖层
@@ -297,13 +294,9 @@ namespace AniMeido.Plugin.Base.Views
             {
                 await _dragDrop.ReloadConfigAsync();
                 _blockedIds = await _tracking.GetBlockedAnimeIdsAsync();
-                // 无论数据是否已加载，都重新从原始数据过滤一次
-                if (ViewModel.AnimeList.Count > 0)
+                // 原始季度数据独立于当前显示结果，返回页面时仅重新应用可见性规则。
+                if (_allAnime.Count > 0)
                 {
-                    _allAnime.Clear();
-                    _allAnime.AddRange(AnimeListPresentation.Filter(
-                        ViewModel.AnimeList,
-                        _blockedIds));
                     ApplyFilter(FilterBox.Text);
                 }
             }
@@ -376,6 +369,7 @@ namespace AniMeido.Plugin.Base.Views
         {
             var filtered = AnimeListPresentation.Filter(
                 _allAnime,
+                _blockedIds,
                 titleQuery: query);
             if (MediaFormatComboBox.SelectedItem is ComboBoxItem
                 { Tag: AnimeMediaFormat format })
