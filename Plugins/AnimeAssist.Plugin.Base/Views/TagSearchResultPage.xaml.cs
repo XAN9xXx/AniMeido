@@ -35,6 +35,7 @@ namespace AniMeido.Plugin.Base.Views
         private int _yearTo;
 
         // 全量数据（当前年份区间）
+        private List<Anime>? _rawData;
         private List<Anime>? _allData;
         private int _currentOffset;
 
@@ -83,6 +84,10 @@ namespace AniMeido.Plugin.Base.Views
         {
             _dropHostRegistration?.Dispose();
             _dropHostRegistration = null;
+            _searchCts?.Cancel();
+            _searchCts?.Dispose();
+            _searchCts = null;
+            Interlocked.Increment(ref _searchVersion);
         }
 
         private async Task LoadBlockedIdsAsync()
@@ -91,11 +96,9 @@ namespace AniMeido.Plugin.Base.Views
             {
                 _blockedIds = await _tracking.GetBlockedAnimeIdsAsync();
                 // 如果数据已经加载完成，重新过滤
-                if (_allData != null && _allData.Count > 0)
+                if (_rawData != null)
                 {
-                    _allData = AnimeListPresentation.Filter(
-                        _allData,
-                        _blockedIds).ToList();
+                    ApplyPresentation();
                     ShowPage(0);
                 }
             }
@@ -117,6 +120,8 @@ namespace AniMeido.Plugin.Base.Views
                 _sortDescending = true;
                 SortOrderToggle.IsChecked = true;
                 _currentOffset = 0;
+                _rawData = null;
+                _allData = null;
                 _animeSource.Clear();
 
                 _isInitializing = true;
@@ -135,6 +140,8 @@ namespace AniMeido.Plugin.Base.Views
         private void InitYearComboBoxes()
         {
             var currentYear = DateTime.Now.Year;
+            YearFromCombo.Items.Clear();
+            YearToCombo.Items.Clear();
 
             for (int y = currentYear; y >= YearStart; y--)
             {
@@ -170,19 +177,26 @@ namespace AniMeido.Plugin.Base.Views
             if (_cacheService != null)
             {
                 var cached = await _cacheService.GetCacheAsync(cacheKey);
+                token.ThrowIfCancellationRequested();
+                if (version != _searchVersion) return;
                 if (cached != null)
                 {
-                    var deserialized = JsonSerializer.Deserialize<List<Anime>>(cached, JsonOptions);
-                    if (deserialized != null && deserialized.Count > 0)
+                    try
                     {
-                        if (version != _searchVersion) return;
-                        // 缓存的是原始数据，展示时应用当前屏蔽列表
-                        _allData = AnimeListPresentation.Filter(
-                            deserialized,
-                            _blockedIds).ToList();
-                        _allData = SortLocally(_allData);
-                        ShowPage(0);
-                        return;
+                        var deserialized = JsonSerializer.Deserialize<List<Anime>>(
+                            cached,
+                            JsonOptions);
+                        if (deserialized != null && deserialized.Count > 0)
+                        {
+                            _rawData = deserialized;
+                            ApplyPresentation();
+                            ShowPage(0);
+                            return;
+                        }
+                    }
+                    catch (JsonException)
+                    {
+                        await _cacheService.RemoveCacheAsync(cacheKey);
                     }
                 }
             }
@@ -217,9 +231,10 @@ namespace AniMeido.Plugin.Base.Views
                     await LoadYearDataAsync(y, allResults, seenIds, token);
                 }
 
-                _allData = AnimeListPresentation.Filter(
-                    allResults,
-                    _blockedIds).ToList();
+                token.ThrowIfCancellationRequested();
+                if (version != _searchVersion) return;
+                _rawData = allResults;
+                ApplyPresentation();
 
                 if (_cacheService != null && allResults.Count > 0)
                 {
@@ -228,7 +243,6 @@ namespace AniMeido.Plugin.Base.Views
                     await _cacheService.SetCacheAsync(cacheKey, json, TimeSpan.FromHours(6));
                 }
 
-                _allData = SortLocally(_allData);
                 ShowPage(0);
             }
             catch (HttpRequestException ex)
@@ -243,7 +257,7 @@ namespace AniMeido.Plugin.Base.Views
                     ResultCount.Text = $"数据源请求失败：{ex.Message}";
                 PaginationBar.Visibility = Visibility.Collapsed;
             }
-            catch (TaskCanceledException)
+            catch (OperationCanceledException)
             {
                 // 被新请求取消时静默返回，不更新 UI
                 PaginationBar.Visibility = Visibility.Collapsed;
@@ -368,6 +382,13 @@ namespace AniMeido.Plugin.Base.Views
             return _sortDescending
                 ? sorted.Reverse().ToList()
                 : sorted.ToList();
+        }
+
+        private void ApplyPresentation()
+        {
+            _allData = SortLocally(AnimeListPresentation.Filter(
+                _rawData ?? [],
+                _blockedIds).ToList());
         }
 
         private void OnPrevPage(object sender, RoutedEventArgs e)
