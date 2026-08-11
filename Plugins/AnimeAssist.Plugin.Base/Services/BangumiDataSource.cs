@@ -2,7 +2,6 @@
 using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models.Bangumi;
 using Microsoft.Extensions.Logging;
-using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.Services
@@ -15,7 +14,8 @@ namespace AniMeido.Plugin.Base.Services
         private readonly BangumiApiClient _apiClient;
         private readonly ILogger<BangumiDataSource> _logger;
         private readonly CacheService _cacheService;
-        private readonly ConcurrentDictionary<string, SemaphoreSlim> _cacheMissGates = new();
+        private readonly Dictionary<string, CacheMissGate> _cacheMissGates = [];
+        private readonly object _cacheMissGateLock = new();
         private const string FallbackTitle = "不好，标题走丢了Q^Q";
         private const string FallbackDescription = "No description available.";
         private const int SeasonSearchPageSize = 20;
@@ -91,8 +91,13 @@ namespace AniMeido.Plugin.Base.Services
             return result;
         }
 
-        private async Task<T?> GetCacheAsync<T>(string cacheKey, TimeSpan expiration, Func<Task<T?>> fetchFunc) where T : class
+        private async Task<T?> GetCacheAsync<T>(
+            string cacheKey,
+            TimeSpan expiration,
+            Func<Task<T?>> fetchFunc,
+            CancellationToken cancellationToken) where T : class
         {
+            cancellationToken.ThrowIfCancellationRequested();
             // 尝试从缓存读取
             var cached = await _cacheService.GetCacheAsync(cacheKey);
             if (cached != null)
@@ -110,12 +115,13 @@ namespace AniMeido.Plugin.Base.Services
                 }
             }
 
-            var cacheMissGate = _cacheMissGates.GetOrAdd(
-                cacheKey,
-                _ => new SemaphoreSlim(1, 1));
-            await cacheMissGate.WaitAsync();
+            var cacheMissGate = AcquireCacheMissGate(cacheKey);
+            var enteredGate = false;
             try
             {
+                await cacheMissGate.Semaphore.WaitAsync(cancellationToken);
+                enteredGate = true;
+
                 // 另一个调用可能已在等待期间填充缓存。
                 cached = await _cacheService.GetCacheAsync(cacheKey);
                 if (cached is not null)
@@ -138,7 +144,9 @@ namespace AniMeido.Plugin.Base.Services
                 {
                     data = await fetchFunc();
                 }
-                catch (Exception ex) when (IsNetworkError(ex))
+                catch (Exception ex) when (
+                    !cancellationToken.IsCancellationRequested
+                    && IsNetworkError(ex))
                 {
                     // 网络失败时尝试返回过期缓存降级
                     _logger.LogWarning("Network request failed for cache key {Key}: {Msg}", cacheKey, ex.Message);
@@ -171,8 +179,52 @@ namespace AniMeido.Plugin.Base.Services
             }
             finally
             {
-                cacheMissGate.Release();
+                if (enteredGate)
+                {
+                    cacheMissGate.Semaphore.Release();
+                }
+
+                ReleaseCacheMissGate(cacheKey, cacheMissGate);
             }
+        }
+
+        private CacheMissGate AcquireCacheMissGate(string cacheKey)
+        {
+            lock (_cacheMissGateLock)
+            {
+                if (!_cacheMissGates.TryGetValue(cacheKey, out var gate))
+                {
+                    gate = new CacheMissGate();
+                    _cacheMissGates.Add(cacheKey, gate);
+                }
+
+                gate.LeaseCount++;
+                return gate;
+            }
+        }
+
+        private void ReleaseCacheMissGate(
+            string cacheKey,
+            CacheMissGate gate)
+        {
+            lock (_cacheMissGateLock)
+            {
+                gate.LeaseCount--;
+                if (gate.LeaseCount != 0)
+                {
+                    return;
+                }
+
+                _cacheMissGates.Remove(cacheKey);
+                gate.Semaphore.Dispose();
+            }
+        }
+
+        private sealed class CacheMissGate
+        {
+            public SemaphoreSlim Semaphore { get; } = new(1, 1);
+
+            public int LeaseCount { get; set; }
         }
 
 
@@ -373,7 +425,9 @@ namespace AniMeido.Plugin.Base.Services
                 return [];
             }
 #pragma warning disable CA1031 // 网络异常应使用 stale cache 降级
-            catch (Exception ex) when (IsNetworkError(ex))
+            catch (Exception ex) when (
+                !ct.IsCancellationRequested
+                && IsNetworkError(ex))
             {
                 // 网络失败时尝试返回过期缓存降级
                 _logger.LogWarning("Network request failed for season {Year}/{Season}: {Msg}", year, season, ex.Message);
@@ -418,7 +472,8 @@ namespace AniMeido.Plugin.Base.Services
                             seasonMonth))
                         .DistinctBy(item => item.ID)
                         .ToList();
-                }) ?? [];
+                },
+                ct) ?? [];
         }
 
         private async Task<List<Anime>?> ReadSeasonCacheAsync(
@@ -539,7 +594,8 @@ namespace AniMeido.Plugin.Base.Services
                 {
                     var result = await _apiClient.GetJsonAsync<SubjectResponse>($"/v0/subjects/{animeID}", ct).ConfigureAwait(false);
                     return result != null ? MapFromSubject(result) : null;
-                });
+                },
+                ct);
         }
 
         /// <summary>
@@ -558,7 +614,8 @@ namespace AniMeido.Plugin.Base.Services
                     return result.Where(person => person.Type == 2 && StudioFilter.Contains(person.Relation))
                         .Select(person => new Studio(person.Id, person.Name, ResolveImageUrl(person.Images?.Grid)))
                         .ToList();
-                }) ?? [];
+                },
+                ct) ?? [];
         }
 
         /// <summary>
@@ -575,7 +632,8 @@ namespace AniMeido.Plugin.Base.Services
                     var result = await _apiClient.GetJsonAsync<SubjectResponse>($"/v0/subjects/{animeID}", ct).ConfigureAwait(false);
                     if (result is null) return new List<Tag>();
                     return result.MetaTags?.Select(tag => new Tag(tag)).ToList() ?? [];
-                }) ?? [];
+                },
+                ct) ?? [];
         }
 
         /// <summary>
@@ -596,7 +654,8 @@ namespace AniMeido.Plugin.Base.Services
                         .SelectMany(cvs => cvs)
                         .DistinctBy(v => v.VoiceActorId)
                         .ToList();
-                }) ?? [];
+                },
+                ct) ?? [];
         }
 
         /// <summary>
@@ -614,7 +673,8 @@ namespace AniMeido.Plugin.Base.Services
                     if (result is null) return new List<CharacterRole>();
                     var sorted = result.OrderBy(c => GetCharacterPriority(c.Relation)).ToList();
                     return sorted.Select(MapToCharacterRole).ToList();
-                }) ?? [];
+                },
+                ct) ?? [];
         }
 
         /// <summary>
@@ -638,7 +698,8 @@ namespace AniMeido.Plugin.Base.Services
                         .Where(s => s.Type == 2) // 仅动画
                         .Select(s => new PersonWork(s.Id, ResolveTitle(s.NameCn, s.Name), s.Staff, ResolveImageUrl(s.Image)))
                         .ToList();
-                }) ?? [];
+                },
+                ct) ?? [];
         }
 
         /// <summary>
