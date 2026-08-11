@@ -31,6 +31,8 @@ public partial class SmartListsViewModel : ObservableObject
     private readonly IAnimeDataSource _dataSource;
     private CancellationTokenSource? _evaluationCancellation;
     private int _evaluationVersion;
+    private int _loadVersion;
+    private bool _suppressSelectedEvaluation;
 
     [ObservableProperty]
     private ObservableCollection<SmartListDefinition> _definitions = [];
@@ -125,15 +127,23 @@ public partial class SmartListsViewModel : ObservableObject
         }
     }
 
+    public void ReportError(string message)
+        => ErrorMessage = message;
+
     [RelayCommand]
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
+        var loadVersion = Interlocked.Increment(ref _loadVersion);
         IsLoading = true;
         ErrorMessage = null;
         try
         {
             var definitions = await _actionCenter.GetSmartListsAsync(
                 cancellationToken);
+            if (loadVersion != _loadVersion)
+            {
+                return;
+            }
             Definitions = new ObservableCollection<SmartListDefinition>(
                 definitions.Where(definition =>
                     IsPlaybackAvailable
@@ -143,6 +153,10 @@ public partial class SmartListsViewModel : ObservableObject
                 await EvaluateAsync(cancellationToken);
             }
         }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+        }
         catch (Exception ex) when (
             ex is InvalidOperationException
             or System.Text.Json.JsonException)
@@ -151,7 +165,10 @@ public partial class SmartListsViewModel : ObservableObject
         }
         finally
         {
-            IsLoading = false;
+            if (loadVersion == _loadVersion)
+            {
+                IsLoading = false;
+            }
         }
     }
 
@@ -188,9 +205,16 @@ public partial class SmartListsViewModel : ObservableObject
             await _actionCenter.SaveSmartListAsync(
                 definition,
                 cancellationToken);
-            SelectedDefinition = definition;
+            _suppressSelectedEvaluation = true;
+            try
+            {
+                SelectedDefinition = definition;
+            }
+            finally
+            {
+                _suppressSelectedEvaluation = false;
+            }
             await LoadAsync(cancellationToken);
-            await EvaluateAsync(cancellationToken);
         }
         catch (Exception ex) when (
             ex is InvalidDataException
@@ -228,13 +252,13 @@ public partial class SmartListsViewModel : ObservableObject
         _evaluationCancellation = evaluationCancellation;
         var evaluationVersion = ++_evaluationVersion;
         var evaluationToken = evaluationCancellation.Token;
-        var definition = SelectedDefinition ?? new SmartListDefinition(
-            "preview",
-            Name,
+        var definition = new SmartListDefinition(
+            SelectedDefinition?.Id ?? "preview",
+            string.IsNullOrWhiteSpace(Name) ? "未命名智能列表" : Name.Trim(),
             SmartListEvaluator.SchemaVersion,
             BuildRules(),
             new SmartListSort(SortField, SortDescending),
-            DateTimeOffset.UtcNow,
+            SelectedDefinition?.CreatedAt ?? DateTimeOffset.UtcNow,
             DateTimeOffset.UtcNow);
         IReadOnlyList<SmartListCandidate> candidates;
         try
@@ -282,7 +306,10 @@ public partial class SmartListsViewModel : ObservableObject
             editors.Count == 0
                 ? [new SmartConditionEditor()]
                 : editors);
-        _ = EvaluateSelectedDefinitionAsync();
+        if (!_suppressSelectedEvaluation)
+        {
+            _ = EvaluateSelectedDefinitionAsync();
+        }
     }
 
     private async Task EvaluateSelectedDefinitionAsync()
@@ -364,47 +391,62 @@ public partial class SmartListsViewModel : ObservableObject
             },
             async (item, token) =>
             {
-                var anime = await _dataSource.GetAnimeDetailAsync(
-                    item.animeId,
-                    token);
-                if (anime is null)
+                try
                 {
-                    return;
-                }
+                    var anime = await _dataSource.GetAnimeDetailAsync(
+                        item.animeId,
+                        token);
+                    if (anime is null)
+                    {
+                        return;
+                    }
 
-                var tags = await _dataSource.GetTagsAsync(
-                    item.animeId,
-                    token);
-                var hasTracking = trackingById.TryGetValue(
-                    item.animeId,
-                    out var trackingRow);
-                planById.TryGetValue(item.animeId, out var plan);
-                progress.TryGetValue(item.animeId, out var snapshot);
-                var targetDate = plan?.TargetStartDate;
-                candidates[item.index] = new SmartListCandidate(
-                    item.animeId,
-                    anime.Title,
-                    hasTracking ? (int)trackingRow.Status : null,
-                    snapshot?.CurrentEpisode ?? 0,
-                    snapshot is not null
-                        && snapshot.DurationSeconds > 0
-                        && snapshot.PositionSeconds
-                            / snapshot.DurationSeconds < 0.9,
-                    plan is null ? null : (int)plan.Priority,
-                    targetDate,
-                    targetDate is not null
-                        && targetDate < DateOnly.FromDateTime(DateTime.Today)
-                        && plan?.ArchivedAt is null,
-                    anime.Weekday,
-                    anime.AirDate,
-                    tags.Select(tag => tag.Name).ToList(),
-                    snapshot?.LastWatchedAt,
-                    hasTracking
-                        && DateTimeOffset.TryParse(
-                            trackingRow.UpdatedAt,
-                            out var updated)
-                            ? updated
-                            : null);
+                    var tags = await _dataSource.GetTagsAsync(
+                        item.animeId,
+                        token);
+                    var hasTracking = trackingById.TryGetValue(
+                        item.animeId,
+                        out var trackingRow);
+                    planById.TryGetValue(item.animeId, out var plan);
+                    progress.TryGetValue(item.animeId, out var snapshot);
+                    var targetDate = plan?.TargetStartDate;
+                    candidates[item.index] = new SmartListCandidate(
+                        item.animeId,
+                        anime.Title,
+                        hasTracking ? (int)trackingRow.Status : null,
+                        snapshot?.CurrentEpisode ?? 0,
+                        snapshot is not null
+                            && snapshot.DurationSeconds > 0
+                            && snapshot.PositionSeconds
+                                / snapshot.DurationSeconds < 0.9,
+                        plan is null ? null : (int)plan.Priority,
+                        targetDate,
+                        targetDate is not null
+                            && targetDate < DateOnly.FromDateTime(DateTime.Today)
+                            && plan?.ArchivedAt is null,
+                        anime.Weekday,
+                        anime.AirDate,
+                        tags.Select(tag => tag.Name).ToList(),
+                        snapshot?.LastWatchedAt,
+                        hasTracking
+                            && DateTimeOffset.TryParse(
+                                trackingRow.UpdatedAt,
+                                out var updated)
+                                ? updated
+                                : null);
+                }
+                catch (OperationCanceledException)
+                    when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (
+                    ex is BangumiApiException
+                        or HttpRequestException
+                        or System.Text.Json.JsonException)
+                {
+                    // 单个候选失败时保留其余可用结果。
+                }
             });
 
         return candidates.OfType<SmartListCandidate>().ToList();
