@@ -87,12 +87,18 @@ namespace AniMeido.Plugin.Base.Services
         {
             var client = _httpFactory.CreateClient("BangumiAPI");
             var jsonBody = JsonSerializer.Serialize(body, JsonOptions);
-            var content = new StringContent(jsonBody, System.Text.Encoding.UTF8, "application/json");
+            using var content = new StringContent(
+                jsonBody,
+                System.Text.Encoding.UTF8,
+                "application/json");
 
             string? json;
             try
             {
-                var response = await client.PostAsync(url, content, ct).ConfigureAwait(false);
+                using var response = await client.PostAsync(
+                    url,
+                    content,
+                    ct).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
                 json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             }
