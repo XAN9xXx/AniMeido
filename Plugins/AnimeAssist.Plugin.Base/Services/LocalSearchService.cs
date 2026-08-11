@@ -1,7 +1,7 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Exceptions;
-using System.Text.Json;
+using System.Collections.Concurrent;
 
 namespace AniMeido.Plugin.Base.Services
 {
@@ -13,20 +13,12 @@ namespace AniMeido.Plugin.Base.Services
     {
         private readonly TrackingService _tracking;
         private readonly IAnimeDataSource _dataSource;
-        private readonly CacheService _cacheService;
-        private static readonly JsonSerializerOptions JsonOptions = new()
-        {
-            PropertyNameCaseInsensitive = true,
-            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
-        };
-
-
-
-        internal LocalSearchService(TrackingService tracking, IAnimeDataSource dataSource, CacheService cacheService)
+        internal LocalSearchService(
+            TrackingService tracking,
+            IAnimeDataSource dataSource)
         {
             _tracking = tracking;
             _dataSource = dataSource;
-            _cacheService = cacheService;
         }
 
 
@@ -42,8 +34,6 @@ namespace AniMeido.Plugin.Base.Services
                 return new List<SearchResult>();
 
             query = query.Trim();
-            var results = new List<SearchResult>();
-
             // 收集所有已标记的 ID
             var allStatuses = new[]
             {
@@ -57,28 +47,47 @@ namespace AniMeido.Plugin.Base.Services
 
             var idsByStatus =
                 await _tracking.GetAnimeIdsGroupedByStatusAsync();
+            var statusById = allStatuses
+                .SelectMany(status =>
+                    (idsByStatus.GetValueOrDefault(status) ?? [])
+                        .Select(id => (id, status)))
+                .GroupBy(item => item.id)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.First().status);
             var trackedIds = allStatuses
                 .SelectMany(status =>
                     idsByStatus.GetValueOrDefault(status) ?? [])
                 .Distinct()
                 .ToList();
 
-            // 为每个 ID 获取详情并匹配
-            foreach (var id in trackedIds)
-            {
-                if (ct.IsCancellationRequested) break;
-
-                var anime = await TryGetAnimeAsync(id, ct);
-                if (anime == null) continue;
-
-                if (MatchesQuery(anime, query))
+            var matches = new ConcurrentBag<(int Index, SearchResult Result)>();
+            await Parallel.ForEachAsync(
+                trackedIds.Select((id, index) => (id, index)),
+                new ParallelOptions
                 {
-                    var status = await _tracking.GetStatusAsync(id);
-                    results.Add(new SearchResult(anime, status ?? AnimeTrackingStatus.None));
-                }
-            }
+                    MaxDegreeOfParallelism = 4,
+                    CancellationToken = ct,
+                },
+                async (item, cancellationToken) =>
+                {
+                    var anime = await TryGetAnimeAsync(
+                        item.id,
+                        cancellationToken);
+                    if (anime is not null && MatchesQuery(anime, query))
+                    {
+                        matches.Add((
+                            item.index,
+                            new SearchResult(
+                                anime,
+                                statusById.GetValueOrDefault(item.id))));
+                    }
+                });
 
-            return results;
+            return matches
+                .OrderBy(item => item.Index)
+                .Select(item => item.Result)
+                .ToList();
         }
 
 
@@ -100,6 +109,11 @@ namespace AniMeido.Plugin.Base.Services
             catch (BangumiApiException)
             {
                 return null;
+            }
+            catch (OperationCanceledException)
+                when (ct.IsCancellationRequested)
+            {
+                throw;
             }
             catch (TaskCanceledException)
             {

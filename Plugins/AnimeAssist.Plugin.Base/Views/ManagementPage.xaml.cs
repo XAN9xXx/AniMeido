@@ -15,6 +15,7 @@ namespace AniMeido.Plugin.Base.Views
         private readonly IPluginNavigator _pluginNavigator;
         private readonly ObservableCollection<SearchResult> _searchResults = [];
         private CancellationTokenSource? _searchCancellation;
+        private int _searchVersion;
         private bool _tagMode;
 
         public ManagementViewModel ViewModel { get; }
@@ -35,6 +36,7 @@ namespace AniMeido.Plugin.Base.Views
             DataContext = ViewModel;
             InitializeComponent();
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+            Unloaded += OnPageUnloaded;
         }
 
         public static Visibility EmptyVisibility(bool hasItems) =>
@@ -183,6 +185,11 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task PerformSearchAsync()
         {
+            _searchCancellation?.Cancel();
+            _searchCancellation?.Dispose();
+            _searchCancellation = new();
+            var cancellationToken = _searchCancellation.Token;
+            var searchVersion = Interlocked.Increment(ref _searchVersion);
             var query = SearchBox.Text;
             if (string.IsNullOrWhiteSpace(query))
             {
@@ -190,9 +197,6 @@ namespace AniMeido.Plugin.Base.Views
                 return;
             }
 
-            _searchCancellation?.Cancel();
-            _searchCancellation = new();
-            var cancellationToken = _searchCancellation.Token;
             ShowSearchResults();
             SearchResultCount.Text = "搜索中…";
             _searchResults.Clear();
@@ -202,6 +206,12 @@ namespace AniMeido.Plugin.Base.Views
                 var results = await _searchService.SearchTrackedAsync(
                     query,
                     cancellationToken);
+                if (searchVersion != _searchVersion
+                    || cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+
                 SearchResultCount.Text = $"搜索结果：共 {results.Count} 条";
                 foreach (var result in results)
                 {
@@ -218,6 +228,14 @@ namespace AniMeido.Plugin.Base.Views
                 _searchResults.Clear();
             }
 #pragma warning restore CA1031
+        }
+
+        private void OnPageUnloaded(object sender, RoutedEventArgs e)
+        {
+            Interlocked.Increment(ref _searchVersion);
+            _searchCancellation?.Cancel();
+            _searchCancellation?.Dispose();
+            _searchCancellation = null;
         }
 
         private void ShowSearchResults()

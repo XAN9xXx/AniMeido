@@ -99,8 +99,7 @@ namespace AniMeido.Plugin.Base
             services.AddSingleton<LocalSearchService>(sp =>
                 new LocalSearchService(
                     sp.GetRequiredService<TrackingService>(),
-                    sp.GetRequiredService<IAnimeDataSource>(),
-                    sp.GetRequiredService<CacheService>()));
+                    sp.GetRequiredService<IAnimeDataSource>()));
             return Task.CompletedTask;
         }
     }
