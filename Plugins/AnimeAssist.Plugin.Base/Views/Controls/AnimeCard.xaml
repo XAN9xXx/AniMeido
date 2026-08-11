@@ -34,8 +34,7 @@
                         <Image x:Name="CoverImage"
                                Height="200"
                                Stretch="UniformToFill"
-                               HorizontalAlignment="Center"
-                               ImageFailed="OnCoverImageFailed"/>
+                               HorizontalAlignment="Center"/>
                     </Border>
                     <!-- 封面重试加载环 -->
                     <Grid x:Name="RetryOverlay"

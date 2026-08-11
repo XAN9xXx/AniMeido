@@ -1,9 +1,9 @@
 using AniMeido.Plugin.Base.Models;
+using AniMeido.Plugin.Base.Services;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
 using System.Runtime.InteropServices;
 using Windows.Graphics;
 using WinRT.Interop;
@@ -17,6 +17,7 @@ internal sealed class CaptureFeedbackWindow : Window
     private const nint WsExNoActivate = 0x08000000;
     private const nint WsExTopmost = 0x00000008;
     private readonly Action _clicked;
+    private Image? _previewImage;
     private readonly DispatcherTimer _timer = new()
     {
         Interval = TimeSpan.FromSeconds(3),
@@ -38,16 +39,20 @@ internal sealed class CaptureFeedbackWindow : Window
         };
         if (screenshot is not null)
         {
+            _previewImage = new Image
+            {
+                Stretch = Stretch.UniformToFill,
+            };
+            ManagedImageLoader.ConfigureLocal(
+                _previewImage,
+                screenshot.FilePath,
+                120);
             panel.Children.Add(new Border
             {
                 Width = 120,
                 Height = 68,
                 CornerRadius = new CornerRadius(8),
-                Child = new Image
-                {
-                    Stretch = Stretch.UniformToFill,
-                    Source = new BitmapImage(new Uri(screenshot.FilePath)),
-                },
+                Child = _previewImage,
             });
         }
 
@@ -95,7 +100,15 @@ internal sealed class CaptureFeedbackWindow : Window
             _timer.Stop();
             Close();
         };
-        Closed += (_, _) => _timer.Stop();
+        Closed += (_, _) =>
+        {
+            _timer.Stop();
+            if (_previewImage is not null)
+            {
+                ManagedImageLoader.Cancel(_previewImage);
+                _previewImage = null;
+            }
+        };
     }
 
     public void ShowWithoutActivation()

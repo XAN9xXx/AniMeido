@@ -436,7 +436,8 @@
                                     Style="{StaticResource AniMeidoCardStyle}"
                                     Padding="0">
                                 <StackPanel>
-                                    <Image Source="{Binding FilePath}"
+                                    <Image Loaded="OnScreenshotImageLoaded"
+                                           DataContextChanged="OnScreenshotImageDataContextChanged"
                                            Width="260"
                                            Height="146"
                                            Stretch="UniformToFill"/>

@@ -8,7 +8,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.UI;
 using System.Text.Json;
 
@@ -348,18 +347,17 @@ namespace AniMeido.Plugin.Base.Views
         private void UpdateCoverImage()
         {
             var anime = ViewModel.AnimeDetail;
-            if (anime == null) return;
-
-            if (!string.IsNullOrEmpty(anime.CoverURL))
+            if (anime is null)
             {
-                var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
-                bmp.DecodePixelWidth = 300;
-                bmp.UriSource = ImageCacheHelper.GetImageUri(anime.ID, anime.CoverURL);
-                DetailCoverImage.Source = bmp;
-
-                if (!ImageCacheHelper.HasLocalCache(anime.ID))
-                    _ = ImageCacheHelper.CacheImageAsync(anime.ID, anime.CoverURL);
+                ManagedImageLoader.Cancel(DetailCoverImage);
+                return;
             }
+
+            ManagedImageLoader.ConfigureCover(
+                DetailCoverImage,
+                anime.ID,
+                anime.CoverURL,
+                300);
         }
 
         private void UpdateScore()
@@ -411,29 +409,24 @@ namespace AniMeido.Plugin.Base.Views
         private Border CreateCharacterCard(CharacterRole character)
         {
             // 角色头像
+            var avatarImage = new Image
+            {
+                Width = 64,
+                Height = 64,
+                Stretch = Microsoft.UI.Xaml.Media.Stretch.UniformToFill,
+            };
+            ManagedImageLoader.ConfigureAvatar(
+                avatarImage,
+                character.CharacterImage,
+                64);
             var avatarBorder = new Border
             {
                 Width = 64,
                 Height = 64,
                 CornerRadius = new CornerRadius(32),
                 Background = new SolidColorBrush(Color.FromArgb(30, 128, 128, 128)),
-                Child = new Image
-                {
-                    Width = 64,
-                    Height = 64,
-                    Stretch = Microsoft.UI.Xaml.Media.Stretch.UniformToFill,
-                    Source = ImageCacheHelper.TryCreateValidImageUri(character.CharacterImage ?? "", out var charUri)
-                        ? new BitmapImage(charUri) { DecodePixelWidth = 128 }
-                        : new BitmapImage(ImageCacheHelper.PlaceholderUri),
-                }
+                Child = avatarImage,
             };
-            if (avatarBorder.Child is Image img)
-            {
-                img.ImageFailed += (s, e) =>
-                {
-                    img.Source = new BitmapImage(ImageCacheHelper.PlaceholderUri);
-                };
-            }
 
             // 角色名
             var nameText = new TextBlock
@@ -523,11 +516,6 @@ namespace AniMeido.Plugin.Base.Views
             };
 
             return card;
-        }
-
-        private void OnDetailCoverImageFailed(object sender, ExceptionRoutedEventArgs e)
-        {
-            DetailCoverImage.Source = new BitmapImage(ImageCacheHelper.PlaceholderUri);
         }
 
         // ======== Bangumi 标签 ========

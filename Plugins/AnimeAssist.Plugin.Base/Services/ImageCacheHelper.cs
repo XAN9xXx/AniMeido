@@ -1,344 +1,589 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
+using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 
-namespace AniMeido.Plugin.Base.Services
+namespace AniMeido.Plugin.Base.Services;
+
+internal readonly record struct ImageCacheKey(string Category, string Value)
 {
-    /// <summary>
-    /// 番剧封面图本地缓存辅助类。
-    /// 图片保存在 %AppData%/AniMeido/cache/images/{animeId}.jpg。
-    /// 下载时校验 URL scheme、Content-Type 和单文件大小上限。
-    /// 当总大小超过 MaxCacheSizeMB 时，自动淘汰最旧的文件。
-    /// </summary>
-    internal static class ImageCacheHelper
+    public static ImageCacheKey Cover(int animeId) => new("cover", animeId.ToString());
+
+    public static ImageCacheKey Avatar(string url) => new("avatar", NormalizeUrl(url));
+
+    private static string NormalizeUrl(string url)
     {
-        private static readonly string CacheDir;
-        private static readonly SemaphoreSlim DownloadThrottle = new(4, 4);
-        private static readonly HttpClient SharedHttpClient = new() { Timeout = TimeSpan.FromSeconds(15) };
-        private static readonly ConcurrentDictionary<int, byte> _cachedIds = new();
-        private static readonly ConcurrentDictionary<int, Lazy<Task<bool>>> InFlightDownloads = new();
-        private static readonly SemaphoreSlim _evictionLock = new(1, 1);
-        private static readonly object EvictionScheduleLock = new();
-        private static CancellationTokenSource? _evictionDelayCancellation;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return url.Trim();
 
-        /// <summary>图片缓存大小上限（MB）。超过时淘汰最旧文件。</summary>
-        public const int MaxCacheSizeMB = 500;
+        return uri.GetComponents(
+            UriComponents.SchemeAndServer | UriComponents.PathAndQuery,
+            UriFormat.UriEscaped);
+    }
+}
 
-        /// <summary>单张图片最大字节数（5 MB）。</summary>
-        private const long MaxImageBytes = 5 * 1024 * 1024;
+internal enum ImageDownloadStatus
+{
+    Success,
+    Failed,
+    Cancelled,
+}
 
-        /// <summary>占位图 URI</summary>
-        public static readonly Uri PlaceholderUri;
+internal readonly record struct ImageDownloadResult(
+    ImageDownloadStatus Status,
+    string? LocalPath)
+{
+    public bool IsSuccess => Status == ImageDownloadStatus.Success;
+}
 
-        /// <summary>占位图本地文件路径（非打包分发可用）。</summary>
-        public static readonly string PlaceholderPath;
+/// <summary>
+/// Coordinates bounded, shared and cancellation-aware image downloads.
+/// </summary>
+internal sealed class ImageDownloadCoordinator
+{
+    private const long MaxImageBytes = 5 * 1024 * 1024;
+    private readonly string _cacheRoot;
+    private readonly HttpClient _httpClient;
+    private readonly SemaphoreSlim _downloadThrottle;
+    private readonly TimeSpan _retryDelay;
+    private readonly TimeSpan _failureCooldown;
+    private readonly Func<Uri, bool> _uriValidator;
+    private readonly ConcurrentDictionary<ImageCacheKey, DownloadOperation> _operations = [];
+    private readonly ConcurrentDictionary<ImageCacheKey, DateTimeOffset> _failures = [];
+    private int _cacheGeneration;
 
-        /// <summary>允许下载图片的可信 Host 列表。</summary>
-        private static readonly HashSet<string> AllowedImageHosts = new(StringComparer.OrdinalIgnoreCase)
+    public ImageDownloadCoordinator(
+        string cacheRoot,
+        HttpClient httpClient,
+        int maxConcurrency = 4,
+        TimeSpan? retryDelay = null,
+        TimeSpan? failureCooldown = null,
+        Func<Uri, bool>? uriValidator = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxConcurrency, 1);
+        _cacheRoot = cacheRoot;
+        _httpClient = httpClient;
+        _downloadThrottle = new SemaphoreSlim(maxConcurrency, maxConcurrency);
+        _retryDelay = retryDelay ?? TimeSpan.FromSeconds(1);
+        _failureCooldown = failureCooldown ?? TimeSpan.FromSeconds(30);
+        _uriValidator = uriValidator ?? (_ => true);
+        Directory.CreateDirectory(_cacheRoot);
+        Directory.CreateDirectory(Path.Combine(_cacheRoot, "avatars"));
+    }
+
+    public string GetLocalPath(ImageCacheKey key) => key.Category switch
+    {
+        "cover" => Path.Combine(_cacheRoot, $"{key.Value}.jpg"),
+        "avatar" => Path.Combine(
+            _cacheRoot,
+            "avatars",
+            $"{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key.Value)))}.img"),
+        _ => throw new ArgumentOutOfRangeException(nameof(key)),
+    };
+
+    public bool HasLocalCache(ImageCacheKey key)
+    {
+        var path = GetLocalPath(key);
+        try
         {
-            "bgm-proxy.animeido.com",
-            "lain.bgm.tv",
-        };
-
-        static ImageCacheHelper()
-        {
-            // 使用 AppData 路径，确保可写且不被升级覆盖
-            var appData = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "AniMeido", "cache", "images");
-            CacheDir = appData;
-            Directory.CreateDirectory(CacheDir);
-
-            var placeholderPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Placeholder_cover.png");
-            PlaceholderPath = placeholderPath;
-            PlaceholderUri = new Uri(placeholderPath);
-
+            return File.Exists(path) && new FileInfo(path).Length > 0;
         }
-
-        /// <summary>获取本地缓存路径（不保证文件存在）。</summary>
-        public static string GetLocalPath(int animeId)
-            => Path.Combine(CacheDir, $"{animeId}.jpg");
-
-        /// <summary>检查本地是否有已缓存的图片（同时验证文件真实存在）。</summary>
-        public static bool HasLocalCache(int animeId)
+        catch (IOException)
         {
-            var path = GetLocalPath(animeId);
-            if (File.Exists(path))
-            {
-                var info = new FileInfo(path);
-                if (info.Length > 0)
-                {
-                    _cachedIds.TryAdd(animeId, 0);
-                    return true;
-                }
-            }
-
-            // 缓存标记存在但文件已被删除，清理标记
-            _cachedIds.TryRemove(animeId, out _);
             return false;
         }
+    }
 
-        /// <summary>获取用于 Image.Source 的 URI。不保证本地缓存文件存在。</summary>
-        public static Uri GetImageUri(int animeId, string? originalUrl)
+    public async Task<ImageDownloadResult> GetOrDownloadAsync(
+        ImageCacheKey key,
+        string url,
+        CancellationToken cancellationToken = default)
+    {
+        if (HasLocalCache(key))
+            return new(ImageDownloadStatus.Success, GetLocalPath(key));
+
+        if (_failures.TryGetValue(key, out var failedUntil))
         {
-            if (HasLocalCache(animeId))
+            if (failedUntil > DateTimeOffset.UtcNow)
+                return new(ImageDownloadStatus.Failed, null);
+            _failures.TryRemove(key, out _);
+        }
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var operation = _operations.GetOrAdd(
+                key,
+                static (cacheKey, state) => new DownloadOperation(
+                    token => state.Owner.DownloadWithRetryAsync(
+                        cacheKey,
+                        state.Url,
+                        state.Owner.CacheGeneration,
+                        token)),
+                (Owner: this, Url: url));
+
+            if (!operation.TryAcquire())
             {
-                return new Uri(GetLocalPath(animeId));
+                _operations.TryRemove(
+                    new KeyValuePair<ImageCacheKey, DownloadOperation>(key, operation));
+                continue;
             }
-
-            if (!string.IsNullOrEmpty(originalUrl) && TryCreateValidImageUri(originalUrl, out var uri))
-                return uri;
-
-            return PlaceholderUri;
-        }
-
-        /// <summary>
-        /// 校验并创建合法的图片 URI。与 CacheImageAsync 共享同一校验逻辑。
-        /// </summary>
-        public static bool TryCreateValidImageUri(string url, out Uri uri)
-        {
-            uri = null!;
-            if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed))
-                return false;
-            if (parsed.Scheme != Uri.UriSchemeHttps)
-                return false;
-            if (!AllowedImageHosts.Contains(parsed.Host))
-                return false;
-            uri = parsed;
-            return true;
-        }
-
-        /// <summary>
-        /// 从网络 URL 下载图片并保存到本地缓存。
-        /// 校验 URL scheme、Content-Type 和大小上限。
-        /// 使用流式下载，避免一次性读入大文件到内存。
-        /// </summary>
-        public static async Task<bool> CacheImageAsync(int animeId, string url)
-        {
-            if (HasLocalCache(animeId))
-                return true;
-
-            var download = InFlightDownloads.GetOrAdd(
-                animeId,
-                _ => new Lazy<Task<bool>>(
-                    () => DownloadImageAsync(animeId, url),
-                    LazyThreadSafetyMode.ExecutionAndPublication));
 
             try
             {
-                return await download.Value.ConfigureAwait(false);
+                ImageDownloadResult result;
+                try
+                {
+                    result = await operation.GetTask().WaitAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    result = new(ImageDownloadStatus.Cancelled, null);
+                }
+                if (result.Status == ImageDownloadStatus.Failed)
+                    _failures[key] = DateTimeOffset.UtcNow + _failureCooldown;
+                return result;
             }
             finally
             {
-                InFlightDownloads.TryRemove(
-                    new KeyValuePair<int, Lazy<Task<bool>>>(animeId, download));
+                if (operation.Release())
+                {
+                    _operations.TryRemove(
+                        new KeyValuePair<ImageCacheKey, DownloadOperation>(key, operation));
+                    operation.Cancel();
+                }
+                else if (operation.IsCompleted)
+                {
+                    _operations.TryRemove(
+                        new KeyValuePair<ImageCacheKey, DownloadOperation>(key, operation));
+                }
             }
         }
+    }
 
-        private static async Task<bool> DownloadImageAsync(int animeId, string url)
+    public void Invalidate(ImageCacheKey key)
+    {
+        _failures.TryRemove(key, out _);
+        TryDelete(GetLocalPath(key));
+    }
+
+    public void ClearAll()
+    {
+        Interlocked.Increment(ref _cacheGeneration);
+        _failures.Clear();
+        foreach (var pair in _operations.ToArray())
         {
+            if (_operations.TryRemove(pair))
+                pair.Value.Cancel();
+        }
 
-            await DownloadThrottle.WaitAsync().ConfigureAwait(false);
+        if (!Directory.Exists(_cacheRoot))
+            return;
+
+        foreach (var path in EnumerateCacheFiles())
+            TryDelete(path);
+    }
+
+    public (int Count, double SizeMB) GetCacheStats()
+    {
+        long bytes = 0;
+        int count = 0;
+        foreach (var path in EnumerateCacheFiles())
+        {
             try
             {
-                if (HasLocalCache(animeId))
-                    return true;
-
-                // 校验 URL（与 GetImageUri 共享同一逻辑）
-                if (!TryCreateValidImageUri(url, out var uri))
-                    return false;
-
-                // 流式下载：先读 headers 校验 Content-Type 和 Content-Length
-                using var response = await SharedHttpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead)
-                    .ConfigureAwait(false);
-                response.EnsureSuccessStatusCode();
-
-                // 校验 Content-Type
-                var contentType = response.Content.Headers.ContentType?.MediaType;
-                if (contentType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) != true)
-                    return false;
-
-                // 校验 Content-Length
-                if (response.Content.Headers.ContentLength > MaxImageBytes)
-                    return false;
-
-                // 流式读取到临时文件，累计字节数并强制上限
-                var localPath = GetLocalPath(animeId);
-                var tempPath = localPath + ".tmp";
-                try
-                {
-                    using var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-                    using var fileStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
-                    var buffer = new byte[81920];
-                    long totalRead = 0;
-                    int bytesRead;
-                    while ((bytesRead = await stream.ReadAsync(buffer)) > 0)
-                    {
-                        totalRead += bytesRead;
-                        if (totalRead > MaxImageBytes)
-                        {
-                            fileStream.Close();
-                            TryDelete(tempPath);
-                            return false;
-                        }
-                        await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead));
-                    }
-                }
-                catch
-                {
-                    TryDelete(tempPath);
-                    throw;
-                }
-
-                // 原子重命名
-                if (File.Exists(localPath))
-                    TryDelete(localPath);
-                File.Move(tempPath, localPath);
-
-                _cachedIds.TryAdd(animeId, 0);
-
-                ScheduleEviction();
-                return true;
-            }
-            catch (HttpRequestException)
-            {
-                return false;
-            }
-            catch (TaskCanceledException)
-            {
-                return false;
+                bytes += new FileInfo(path).Length;
+                count++;
             }
             catch (IOException)
             {
-                return false;
-            }
-            finally
-            {
-                DownloadThrottle.Release();
             }
         }
+        return (count, bytes / 1024d / 1024d);
+    }
 
-        /// <summary>清除所有缓存的图片文件。</summary>
-        public static void ClearAll()
+    public async Task EvictIfNeededAsync(long maxBytes)
+    {
+        var files = EnumerateCacheFiles()
+            .Select(path => new FileInfo(path))
+            .Where(info => info.Exists)
+            .OrderBy(info => info.LastWriteTimeUtc)
+            .ToArray();
+        var totalBytes = files.Sum(info => info.Length);
+        if (totalBytes <= maxBytes)
+            return;
+
+        var targetBytes = (long)(maxBytes * 0.8);
+        foreach (var info in files)
         {
-            _cachedIds.Clear();
-            if (!Directory.Exists(CacheDir)) return;
-            foreach (var file in Directory.GetFiles(CacheDir, "*.jpg"))
-            {
-                TryDelete(file);
-            }
-        }
-
-        /// <summary>获取图片缓存统计信息。</summary>
-        public static (int count, double sizeMB) GetCacheStats()
-        {
-            if (!Directory.Exists(CacheDir))
-                return (0, 0);
-
-            var files = Directory.GetFiles(CacheDir, "*.jpg");
-            long totalBytes = 0;
-            foreach (var file in files)
-            {
-                try { totalBytes += new FileInfo(file).Length; } catch (IOException) { }
-            }
-            return (files.Length, totalBytes / 1024.0 / 1024.0);
-        }
-
-        // ---- 私有辅助 ----
-
-        private static void TryDelete(string path)
-        {
-            try { if (File.Exists(path)) File.Delete(path); } catch (IOException) { }
-        }
-
-        /// <summary>
-        /// 检查当前图片缓存总大小，超过 MaxCacheSizeMB 时淘汰最旧文件。
-        /// 使用独立锁防止并发淘汰。
-        /// </summary>
-        private static async Task EvictIfNeededAsync()
-        {
-            if (!await _evictionLock.WaitAsync(0))
-                return;
-
+            if (totalBytes <= targetBytes)
+                break;
             try
             {
-                var files = Directory.GetFiles(CacheDir, "*.jpg");
-                long totalBytes = 0;
-                var fileInfos = new List<(FileInfo info, string path)>(files.Length);
+                File.Delete(info.FullName);
+                totalBytes -= info.Length;
+            }
+            catch (IOException)
+            {
+            }
+            await Task.Yield();
+        }
+    }
 
-                foreach (var f in files)
+    internal int CacheGeneration => Volatile.Read(ref _cacheGeneration);
+
+    private async Task<ImageDownloadResult> DownloadWithRetryAsync(
+        ImageCacheKey key,
+        string url,
+        int generation,
+        CancellationToken cancellationToken)
+    {
+        var first = await DownloadOnceAsync(key, url, generation, cancellationToken)
+            .ConfigureAwait(false);
+        if (first != DownloadAttemptResult.TransientFailure)
+            return ToResult(first, key);
+
+        await Task.Delay(_retryDelay, cancellationToken).ConfigureAwait(false);
+        var second = await DownloadOnceAsync(key, url, generation, cancellationToken)
+            .ConfigureAwait(false);
+        return ToResult(second, key);
+    }
+
+    private async Task<DownloadAttemptResult> DownloadOnceAsync(
+        ImageCacheKey key,
+        string url,
+        int generation,
+        CancellationToken cancellationToken)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            || uri.Scheme != Uri.UriSchemeHttps
+            || !_uriValidator(uri))
+        {
+            return DownloadAttemptResult.TerminalFailure;
+        }
+
+        await _downloadThrottle.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (HasLocalCache(key))
+                return DownloadAttemptResult.Success;
+
+            using var response = await _httpClient.GetAsync(
+                uri,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return response.StatusCode == HttpStatusCode.RequestTimeout
+                    || response.StatusCode == HttpStatusCode.TooManyRequests
+                    || (int)response.StatusCode >= 500
+                    ? DownloadAttemptResult.TransientFailure
+                    : DownloadAttemptResult.TerminalFailure;
+            }
+
+            var contentType = response.Content.Headers.ContentType?.MediaType;
+            if (contentType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) != true
+                || response.Content.Headers.ContentLength > MaxImageBytes)
+            {
+                return DownloadAttemptResult.TerminalFailure;
+            }
+
+            var localPath = GetLocalPath(key);
+            Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
+            var tempPath = $"{localPath}.tmp.{Guid.NewGuid():N}";
+            try
+            {
+                long totalRead = 0;
                 {
-                    try
+                    await using var source = await response.Content
+                        .ReadAsStreamAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                    await using var destination = new FileStream(
+                        tempPath,
+                        FileMode.CreateNew,
+                        FileAccess.Write,
+                        FileShare.None,
+                        81920,
+                        FileOptions.Asynchronous | FileOptions.SequentialScan);
+                    var buffer = new byte[81920];
+                    int read;
+                    while ((read = await source.ReadAsync(buffer, cancellationToken)
+                        .ConfigureAwait(false)) > 0)
                     {
-                        var fi = new FileInfo(f);
-                        totalBytes += fi.Length;
-                        fileInfos.Add((fi, f));
+                        totalRead += read;
+                        if (totalRead > MaxImageBytes)
+                            return DownloadAttemptResult.TerminalFailure;
+                        await destination.WriteAsync(
+                            buffer.AsMemory(0, read),
+                            cancellationToken).ConfigureAwait(false);
                     }
-                    catch (IOException) { }
+
+                    await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
                 }
 
-                var maxBytes = MaxCacheSizeMB * 1024L * 1024L;
-                if (totalBytes <= maxBytes)
-                    return;
-
-                fileInfos.Sort((a, b) => a.info.LastWriteTimeUtc.CompareTo(b.info.LastWriteTimeUtc));
-
-                var targetBytes = (long)(maxBytes * 0.8);
-                foreach (var (info, path) in fileInfos)
-                {
-                    if (totalBytes <= targetBytes)
-                        break;
-
-                    try
-                    {
-                        var idStr = Path.GetFileNameWithoutExtension(path);
-                        File.Delete(path);
-                        totalBytes -= info.Length;
-                        if (int.TryParse(idStr, out var id))
-                            _cachedIds.TryRemove(id, out _);
-                    }
-                    catch (IOException) { }
-                }
+                if (totalRead == 0)
+                    return DownloadAttemptResult.TerminalFailure;
+                if (generation != CacheGeneration)
+                    return DownloadAttemptResult.Cancelled;
+                File.Move(tempPath, localPath, overwrite: true);
+                return DownloadAttemptResult.Success;
             }
             finally
             {
-                _evictionLock.Release();
+                TryDelete(tempPath);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return DownloadAttemptResult.Cancelled;
+        }
+        catch (TaskCanceledException)
+        {
+            return DownloadAttemptResult.TransientFailure;
+        }
+        catch (HttpRequestException)
+        {
+            return DownloadAttemptResult.TransientFailure;
+        }
+        catch (IOException)
+        {
+            return DownloadAttemptResult.TransientFailure;
+        }
+        finally
+        {
+            _downloadThrottle.Release();
+        }
+    }
+
+    private ImageDownloadResult ToResult(
+        DownloadAttemptResult result,
+        ImageCacheKey key)
+    {
+        return result switch
+        {
+            DownloadAttemptResult.Success => new(
+                ImageDownloadStatus.Success,
+                GetLocalPath(key)),
+            DownloadAttemptResult.Cancelled => new(ImageDownloadStatus.Cancelled, null),
+            _ => new(ImageDownloadStatus.Failed, null),
+        };
+    }
+
+    private IEnumerable<string> EnumerateCacheFiles()
+    {
+        if (!Directory.Exists(_cacheRoot))
+            return [];
+        return Directory.EnumerateFiles(_cacheRoot, "*", SearchOption.AllDirectories)
+            .Where(path => !Path.GetFileName(path).Contains(".tmp.", StringComparison.Ordinal));
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch (IOException)
+        {
+        }
+    }
+
+    private enum DownloadAttemptResult
+    {
+        Success,
+        TransientFailure,
+        TerminalFailure,
+        Cancelled,
+    }
+
+    private sealed class DownloadOperation
+    {
+        private readonly Func<CancellationToken, Task<ImageDownloadResult>> _factory;
+        private readonly CancellationTokenSource _cancellation = new();
+        private readonly object _gate = new();
+        private Task<ImageDownloadResult>? _task;
+        private int _subscribers;
+        private bool _accepting = true;
+
+        public DownloadOperation(Func<CancellationToken, Task<ImageDownloadResult>> factory)
+            => _factory = factory;
+
+        public bool IsCompleted
+        {
+            get
+            {
+                lock (_gate)
+                    return _task?.IsCompleted == true;
             }
         }
 
-        private static void ScheduleEviction()
+        public bool TryAcquire()
         {
-            CancellationTokenSource delayCancellation;
+            lock (_gate)
+            {
+                if (!_accepting)
+                    return false;
+                _subscribers++;
+                return true;
+            }
+        }
+
+        public Task<ImageDownloadResult> GetTask()
+        {
+            lock (_gate)
+                return _task ??= _factory(_cancellation.Token);
+        }
+
+        public bool Release()
+        {
+            lock (_gate)
+            {
+                _subscribers--;
+                if (_subscribers != 0 || _task?.IsCompleted == true)
+                    return false;
+                _accepting = false;
+                return true;
+            }
+        }
+
+        public void Cancel()
+        {
+            lock (_gate)
+                _accepting = false;
+            _cancellation.Cancel();
+        }
+    }
+}
+
+/// <summary>BasePlugin image cache facade used by XAML-created controls.</summary>
+internal static class ImageCacheHelper
+{
+    private static readonly string CacheDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "AniMeido", "cache", "images");
+    private static readonly HashSet<string> AllowedImageHosts = new(
+        StringComparer.OrdinalIgnoreCase)
+    {
+        "bgm-proxy.animeido.com",
+        "lain.bgm.tv",
+    };
+    private static readonly HttpClient SharedHttpClient = new()
+    {
+        Timeout = TimeSpan.FromSeconds(15),
+    };
+    private static readonly ImageDownloadCoordinator Coordinator = new(
+        CacheDir,
+        SharedHttpClient,
+        uriValidator: uri => AllowedImageHosts.Contains(uri.Host));
+    private static readonly SemaphoreSlim EvictionLock = new(1, 1);
+    private static readonly object EvictionScheduleLock = new();
+    private static CancellationTokenSource? _evictionDelayCancellation;
+
+    public const int MaxCacheSizeMB = 500;
+    public static readonly string PlaceholderPath = Path.Combine(
+        AppContext.BaseDirectory,
+        "Assets",
+        "Placeholder_cover.png");
+    public static readonly Uri PlaceholderUri = new(PlaceholderPath);
+
+    public static string GetLocalPath(int animeId)
+        => Coordinator.GetLocalPath(ImageCacheKey.Cover(animeId));
+
+    public static string GetAvatarLocalPath(string url)
+        => Coordinator.GetLocalPath(ImageCacheKey.Avatar(url));
+
+    public static bool HasLocalCache(int animeId)
+        => Coordinator.HasLocalCache(ImageCacheKey.Cover(animeId));
+
+    public static bool HasAvatarCache(string url)
+        => Coordinator.HasLocalCache(ImageCacheKey.Avatar(url));
+
+    public static async Task<bool> CacheImageAsync(
+        int animeId,
+        string url,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await Coordinator.GetOrDownloadAsync(
+            ImageCacheKey.Cover(animeId),
+            url,
+            cancellationToken).ConfigureAwait(false);
+        if (result.IsSuccess)
+            ScheduleEviction();
+        return result.IsSuccess;
+    }
+
+    public static async Task<bool> CacheAvatarAsync(
+        string url,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await Coordinator.GetOrDownloadAsync(
+            ImageCacheKey.Avatar(url),
+            url,
+            cancellationToken).ConfigureAwait(false);
+        if (result.IsSuccess)
+            ScheduleEviction();
+        return result.IsSuccess;
+    }
+
+    public static void InvalidateCover(int animeId)
+        => Coordinator.Invalidate(ImageCacheKey.Cover(animeId));
+
+    public static void InvalidateAvatar(string url)
+        => Coordinator.Invalidate(ImageCacheKey.Avatar(url));
+
+    public static void ClearAll() => Coordinator.ClearAll();
+
+    public static (int count, double sizeMB) GetCacheStats()
+    {
+        var stats = Coordinator.GetCacheStats();
+        return (stats.Count, stats.SizeMB);
+    }
+
+    private static void ScheduleEviction()
+    {
+        CancellationTokenSource delayCancellation;
+        lock (EvictionScheduleLock)
+        {
+            _evictionDelayCancellation?.Cancel();
+            _evictionDelayCancellation?.Dispose();
+            delayCancellation = new CancellationTokenSource();
+            _evictionDelayCancellation = delayCancellation;
+        }
+        _ = RunScheduledEvictionAsync(delayCancellation);
+    }
+
+    private static async Task RunScheduledEvictionAsync(
+        CancellationTokenSource delayCancellation)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2), delayCancellation.Token)
+                .ConfigureAwait(false);
+            if (!await EvictionLock.WaitAsync(0).ConfigureAwait(false))
+                return;
+            try
+            {
+                await Coordinator.EvictIfNeededAsync(MaxCacheSizeMB * 1024L * 1024L)
+                    .ConfigureAwait(false);
+            }
+            finally
+            {
+                EvictionLock.Release();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
             lock (EvictionScheduleLock)
             {
-                _evictionDelayCancellation?.Cancel();
-                _evictionDelayCancellation?.Dispose();
-                delayCancellation = new CancellationTokenSource();
-                _evictionDelayCancellation = delayCancellation;
-            }
-
-            _ = RunScheduledEvictionAsync(delayCancellation);
-        }
-
-        private static async Task RunScheduledEvictionAsync(
-            CancellationTokenSource delayCancellation)
-        {
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(2), delayCancellation.Token)
-                    .ConfigureAwait(false);
-                await EvictIfNeededAsync().ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            finally
-            {
-                lock (EvictionScheduleLock)
+                if (ReferenceEquals(_evictionDelayCancellation, delayCancellation))
                 {
-                    if (ReferenceEquals(_evictionDelayCancellation, delayCancellation))
-                    {
-                        _evictionDelayCancellation = null;
-                        delayCancellation.Dispose();
-                    }
+                    _evictionDelayCancellation = null;
+                    delayCancellation.Dispose();
                 }
             }
         }

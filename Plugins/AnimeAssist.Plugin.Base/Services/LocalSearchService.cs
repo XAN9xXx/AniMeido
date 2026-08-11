@@ -1,6 +1,5 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
-using Microsoft.UI.Xaml.Media.Imaging;
 using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.Services
@@ -129,8 +128,6 @@ namespace AniMeido.Plugin.Base.Services
     {
         public Anime Anime { get; }
         public AnimeTrackingStatus TrackingStatus { get; }
-
-        public BitmapImage CoverImage => new BitmapImage(ImageCacheHelper.GetImageUri(Anime.ID, Anime.CoverURL)) { DecodePixelWidth = 128 };
 
         public string StatusLabel => TrackingStatus switch
         {

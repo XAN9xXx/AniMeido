@@ -132,7 +132,8 @@
                                 <Image
                                     Width="64"
                                     Height="90"
-                                    Source="{x:Bind CoverImage}"
+                                    Loaded="OnManagedCoverLoaded"
+                                    DataContextChanged="OnManagedCoverDataContextChanged"
                                     Stretch="UniformToFill"/>
                                 <StackPanel Grid.Column="1" Spacing="4">
                                     <TextBlock
@@ -197,7 +198,8 @@
                                             Background="{ThemeResource SolidBackgroundFillColorTertiary}"
                                             CornerRadius="10,0,0,10">
                                             <Image
-                                                Source="{x:Bind local:ManagementPage.GetCoverSource(ID, CoverURL)}"
+                                                Loaded="OnManagedCoverLoaded"
+                                                DataContextChanged="OnManagedCoverDataContextChanged"
                                                 Stretch="UniformToFill"/>
                                         </Border>
                                         <StackPanel
@@ -314,7 +316,8 @@
                                         <Image
                                             Width="40"
                                             Height="48"
-                                            Source="{x:Bind local:ManagementPage.GetCoverSource(ID, CoverURL)}"
+                                            Loaded="OnManagedCoverLoaded"
+                                            DataContextChanged="OnManagedCoverDataContextChanged"
                                             Stretch="UniformToFill"/>
                                         <TextBlock
                                             Grid.Column="1"

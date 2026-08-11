@@ -38,6 +38,25 @@ public sealed partial class ArchivePage : Page, INavigationAware
         ShowPanel("archives");
     }
 
+    private void OnScreenshotImageLoaded(object sender, RoutedEventArgs e)
+        => ConfigureScreenshotImage(sender as Image);
+
+    private void OnScreenshotImageDataContextChanged(
+        FrameworkElement sender,
+        DataContextChangedEventArgs args)
+    {
+        _ = args;
+        ConfigureScreenshotImage(sender as Image);
+    }
+
+    private static void ConfigureScreenshotImage(Image? image)
+    {
+        if (image?.DataContext is AnimeScreenshot screenshot)
+            ManagedImageLoader.ConfigureLocal(image, screenshot.FilePath, 260);
+        else if (image is not null)
+            ManagedImageLoader.Cancel(image);
+    }
+
     public async Task OnNavigatedToAsync(object? parameter)
     {
         _requestedScreenshotId = parameter as string;

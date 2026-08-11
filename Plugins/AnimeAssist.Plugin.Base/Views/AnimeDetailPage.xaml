@@ -45,9 +45,7 @@
                         Style="{StaticResource AniMeidoCardStyle}"
                         Padding="0">
                     <Image x:Name="DetailCoverImage"
-                           Source="{Binding AnimeDetail.CoverURL}"
-                           Stretch="Uniform"
-                           ImageFailed="OnDetailCoverImageFailed"/>
+                           Stretch="Uniform"/>
                 </Border>
 
                 <!-- 右列：信息 -->

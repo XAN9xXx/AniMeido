@@ -6,7 +6,6 @@ using AniMeido.Plugin.Base.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace AniMeido.Plugin.Base.Views
 {
@@ -38,16 +37,45 @@ namespace AniMeido.Plugin.Base.Views
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         }
 
-        public static Microsoft.UI.Xaml.Media.ImageSource GetCoverSource(
-            int animeId,
-            string? coverUrl) =>
-            new BitmapImage(ImageCacheHelper.GetImageUri(animeId, coverUrl))
-            {
-                DecodePixelWidth = 128,
-            };
-
         public static Visibility EmptyVisibility(bool hasItems) =>
             hasItems ? Visibility.Collapsed : Visibility.Visible;
+
+        private void OnManagedCoverLoaded(object sender, RoutedEventArgs e)
+            => ConfigureManagedCover(sender as Image);
+
+        private void OnManagedCoverDataContextChanged(
+            FrameworkElement sender,
+            DataContextChangedEventArgs args)
+        {
+            _ = args;
+            ConfigureManagedCover(sender as Image);
+        }
+
+        private static void ConfigureManagedCover(Image? image)
+        {
+            if (image is null)
+                return;
+
+            var anime = image.DataContext switch
+            {
+                SearchResult result => result.Anime,
+                Anime value => value,
+                _ => null,
+            };
+            if (anime is null)
+            {
+                ManagedImageLoader.Cancel(image);
+                return;
+            }
+
+            ManagedImageLoader.ConfigureCover(
+                image,
+                anime.ID,
+                anime.CoverURL,
+                image.Width > 0 && !double.IsNaN(image.Width)
+                    ? image.Width
+                    : 64);
+        }
 
         private async void OnPageLoaded(object sender, RoutedEventArgs e)
         {
