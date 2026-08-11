@@ -91,7 +91,12 @@ namespace AniMeido.Plugin.Base.Views
             // 返回已缓存页面时重新读取屏蔽状态，移除刚屏蔽的条目。
             _ = LoadDragConfigAndBlockedAsync();
 
-            // 等待开屏淡出完成后，自动跳转到今日星期分组
+            if (_hasAutoScrolledOnce)
+            {
+                return;
+            }
+
+            // 首次启动时等待开屏淡出，再滚动到今日星期分组。
             _autoScrollCts?.Cancel();
             _autoScrollCts?.Dispose();
             _autoScrollCts = new CancellationTokenSource();
@@ -113,6 +118,11 @@ namespace AniMeido.Plugin.Base.Views
         {
             try
             {
+                if (_hasAutoScrolledOnce)
+                {
+                    return;
+                }
+
                 // 等待数据加载完成或失败（含超时兜底）
                 if (!ViewModel.HasData && !ViewModel.IsError)
                 {
@@ -139,6 +149,12 @@ namespace AniMeido.Plugin.Base.Views
                 // 如果数据加载失败，不执行自动滚动
                 if (ViewModel.IsError || !ViewModel.HasData)
                     return;
+
+                // 另一个页面实例可能已在数据等待期间完成了定位。
+                if (_hasAutoScrolledOnce)
+                {
+                    return;
+                }
 
                 // 等待开屏淡出完成（固定等待），开屏动画至少 2 秒显示 + 1.6 秒淡出
                 await Task.Delay(3600, cancellationToken);
