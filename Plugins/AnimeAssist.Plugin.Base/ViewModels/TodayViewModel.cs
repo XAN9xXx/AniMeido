@@ -41,6 +41,7 @@ public partial class TodayViewModel : ObservableObject
     private readonly ActionCenterService _actionCenter;
     private readonly PlanReminderCoordinator _reminders;
     private readonly BrowseHistoryService _browseHistory;
+    private int _loadVersion;
 
     [ObservableProperty]
     private ObservableCollection<Anime> _personalBroadcasts = [];
@@ -93,6 +94,7 @@ public partial class TodayViewModel : ObservableObject
     [RelayCommand]
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
+        var loadVersion = Interlocked.Increment(ref _loadVersion);
         IsLoading = true;
         ErrorMessage = null;
         try
@@ -100,9 +102,10 @@ public partial class TodayViewModel : ObservableObject
             var trackingTask = _tracking.GetAllTrackingAsync();
             var scheduleTask = _dataSource.GetCurrentBroadcastScheduleAsync(
                 cancellationToken);
-            await Task.WhenAll(trackingTask, scheduleTask);
-
             var trackingRows = await trackingTask;
+            if (!IsCurrentLoad(loadVersion, cancellationToken))
+                return;
+
             var statusById = trackingRows.ToDictionary(
                 row => row.AnimeId,
                 row => row.Status);
@@ -110,9 +113,54 @@ public partial class TodayViewModel : ObservableObject
                 .Where(pair => pair.Value == AnimeTrackingStatus.Blocked)
                 .Select(pair => pair.Key)
                 .ToHashSet();
-            var seasonal = AnimeListPresentation.Filter(
-                await scheduleTask,
-                blockedIds);
+            var plansTask = _actionCenter.GetPlansAsync(
+                cancellationToken: cancellationToken);
+            var remindersTask = _actionCenter.GetRemindersAsync(
+                state: PlanReminderState.Pending,
+                cancellationToken: cancellationToken);
+            var browseTask = LoadBrowseHistoryAsync(
+                blockedIds,
+                loadVersion,
+                cancellationToken);
+            await Task.WhenAll(plansTask, remindersTask);
+            if (!IsCurrentLoad(loadVersion, cancellationToken))
+                return;
+
+            var plans = await plansTask;
+            var reminders = await remindersTask;
+            var reminderCountByAnime = reminders
+                .GroupBy(item => item.AnimeId)
+                .ToDictionary(group => group.Key, group => group.Count());
+            Plans = new ObservableCollection<TodayPlanEntry>(
+                plans
+                    .Where(plan => !blockedIds.Contains(plan.AnimeId))
+                    .Select(plan => new TodayPlanEntry(
+                    plan,
+                    BuildPlanSubtitle(
+                     plan,
+                     reminderCountByAnime.GetValueOrDefault(
+                         plan.AnimeId)))));
+
+            IReadOnlyList<Anime> seasonal;
+            try
+            {
+                seasonal = AnimeListPresentation.Filter(
+                    await scheduleTask,
+                    blockedIds);
+            }
+            catch (Exception ex) when (
+                ex is HttpRequestException
+                or BangumiApiException
+                or InvalidOperationException
+                or System.Text.Json.JsonException)
+            {
+                seasonal = [];
+                ErrorMessage = $"放送数据加载失败：{ex.Message}";
+            }
+
+            if (!IsCurrentLoad(loadVersion, cancellationToken))
+                return;
+
             var today = AnimeListPresentation.ToBangumiWeekday(
                 DateTime.Today.DayOfWeek);
             AllBroadcasts = new ObservableCollection<Anime>(
@@ -131,40 +179,16 @@ public partial class TodayViewModel : ObservableObject
                 trackingRows,
                 seasonal,
                 cancellationToken);
-            var plansTask = _actionCenter.GetPlansAsync(
-                cancellationToken: cancellationToken);
-            var remindersTask = _actionCenter.GetRemindersAsync(
-                state: PlanReminderState.Pending,
-                cancellationToken: cancellationToken);
-            var browseTask = LoadBrowseHistoryAsync(
-                blockedIds,
-                cancellationToken);
             var playbackTask = IsPlaybackAvailable
                 ? LoadPlaybackActivityAsync(
                     statusById,
                     seasonal,
+                    loadVersion,
                     cancellationToken)
                 : Task.CompletedTask;
-
-            await Task.WhenAll(
-                plansTask,
-                remindersTask,
-                browseTask,
-                playbackTask);
-            var plans = await plansTask;
-            var reminders = await remindersTask;
-            var reminderCountByAnime = reminders
-                .GroupBy(item => item.AnimeId)
-                .ToDictionary(group => group.Key, group => group.Count());
-            Plans = new ObservableCollection<TodayPlanEntry>(
-                plans
-                    .Where(plan => !blockedIds.Contains(plan.AnimeId))
-                    .Select(plan => new TodayPlanEntry(
-                    plan,
-                    BuildPlanSubtitle(
-                        plan,
-                        reminderCountByAnime.GetValueOrDefault(
-                            plan.AnimeId)))));
+            await Task.WhenAll(browseTask, playbackTask);
+            if (!IsCurrentLoad(loadVersion, cancellationToken))
+                return;
 
             if (!IsPlaybackAvailable)
             {
@@ -198,7 +222,8 @@ public partial class TodayViewModel : ObservableObject
         }
         finally
         {
-            IsLoading = false;
+            if (loadVersion == _loadVersion)
+                IsLoading = false;
         }
     }
 
@@ -237,6 +262,7 @@ public partial class TodayViewModel : ObservableObject
 
     private async Task LoadBrowseHistoryAsync(
         IReadOnlySet<int> blockedIds,
+        int loadVersion,
         CancellationToken cancellationToken)
     {
         var records = await _browseHistory.GetHistoryAsync(
@@ -270,12 +296,14 @@ public partial class TodayViewModel : ObservableObject
                     + $"浏览 {record.ViewCount} 次"));
         }
 
-        RecentBrowsed = new(entries);
+        if (IsCurrentLoad(loadVersion, cancellationToken))
+            RecentBrowsed = new(entries);
     }
 
     private async Task LoadPlaybackActivityAsync(
         IReadOnlyDictionary<int, AnimeTrackingStatus> statusById,
         IReadOnlyList<Anime> seasonal,
+        int loadVersion,
         CancellationToken cancellationToken)
     {
         var progress = await _actionCenter.GetProgressAsync(
@@ -289,7 +317,7 @@ public partial class TodayViewModel : ObservableObject
             watchingIds,
             seasonalById,
             cancellationToken);
-        ContinueWatching = new ObservableCollection<TodayAnimeEntry>(
+        var continueWatching = new ObservableCollection<TodayAnimeEntry>(
             watchingAnime.Select(anime =>
             {
                 progress.TryGetValue(anime.ID, out var snapshot);
@@ -314,7 +342,7 @@ public partial class TodayViewModel : ObservableObject
             recentProgress.Select(item => item.AnimeId).ToList(),
             seasonalById,
             cancellationToken);
-        RecentActivity = new ObservableCollection<TodayAnimeEntry>(
+        var recentActivity = new ObservableCollection<TodayAnimeEntry>(
             recentProgress
                 .Join(
                     recentAnime,
@@ -324,7 +352,18 @@ public partial class TodayViewModel : ObservableObject
                         anime,
                         $"第 {item.CurrentEpisode} 集 · "
                             + $"{item.LastWatchedAt.LocalDateTime:g}")));
+        if (IsCurrentLoad(loadVersion, cancellationToken))
+        {
+            ContinueWatching = continueWatching;
+            RecentActivity = recentActivity;
+        }
     }
+
+    private bool IsCurrentLoad(
+        int loadVersion,
+        CancellationToken cancellationToken)
+        => !cancellationToken.IsCancellationRequested
+            && loadVersion == _loadVersion;
 
     private async Task EnsureLegacyPlansOnceAsync(
         IReadOnlyList<(

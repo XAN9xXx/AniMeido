@@ -16,6 +16,7 @@ public sealed partial class TodayPage : Page, INavigationAware
     private readonly IPluginNavigator _navigator;
     private readonly IAnimePlaybackLauncher _playbackLauncher;
     private bool _isPlaybackAvailabilitySubscribed;
+    private CancellationTokenSource? _loadCancellation;
 
     public TodayPage(
         IAnimeDataSource dataSource,
@@ -94,6 +95,7 @@ public sealed partial class TodayPage : Page, INavigationAware
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        _loadCancellation?.Cancel();
         if (!_isPlaybackAvailabilitySubscribed)
         {
             return;
@@ -111,12 +113,12 @@ public sealed partial class TodayPage : Page, INavigationAware
         {
             ViewModel.IsPlaybackAvailable =
                 _playbackLauncher.IsAvailable;
-            await ViewModel.LoadAsync();
+            await ReloadAsync();
         });
 
     public async Task OnNavigatedToAsync(object? parameter)
     {
-        await ViewModel.LoadAsync();
+        await ReloadAsync();
         if (parameter is int animeId)
         {
             PlanList.SelectedItem = ViewModel.Plans.FirstOrDefault(
@@ -129,7 +131,15 @@ public sealed partial class TodayPage : Page, INavigationAware
     }
 
     private async void OnRefreshClick(object sender, RoutedEventArgs e)
-        => await ViewModel.LoadAsync();
+        => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loadCancellation?.Cancel();
+        _loadCancellation?.Dispose();
+        _loadCancellation = new CancellationTokenSource();
+        await ViewModel.LoadAsync(_loadCancellation.Token);
+    }
 
     private void OnAnimeCardClicked(
         object? sender,
