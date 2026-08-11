@@ -15,6 +15,7 @@ namespace AniMeido.App.Views
         private readonly PluginHostSupervisor _pluginHostSupervisor;
         private readonly DesktopSettingsStore _desktopSettings;
         private bool _loadingDesktopSettings;
+        private bool _isStatusSubscribed;
 
         public AppSettingsPage(
             UpdateService updateService,
@@ -29,7 +30,6 @@ namespace AniMeido.App.Views
             InitializeComponent();
             Loaded += OnPageLoaded;
             Unloaded += OnPageUnloaded;
-            _pluginHostSupervisor.StatusChanged += OnPluginHostStatusChanged;
 
             var current = App.ThemeService.GetCurrentTheme();
             ThemeCombo.SelectedIndex = current switch
@@ -70,18 +70,31 @@ namespace AniMeido.App.Views
 
         private async void OnPageLoaded(object sender, RoutedEventArgs e)
         {
-            Loaded -= OnPageLoaded;
+            if (!_isStatusSubscribed)
+            {
+                _pluginHostSupervisor.StatusChanged += OnPluginHostStatusChanged;
+                _isStatusSubscribed = true;
+            }
+
             try
             {
                 _loadingDesktopSettings = true;
                 KeepInTrayToggle.IsOn = (await _desktopSettings.LoadAsync())
                     .KeepInTrayOnClose;
-                _loadingDesktopSettings = false;
                 await RefreshInstalledPluginsAsync();
             }
-            catch (PluginOperationException ex)
+            catch (Exception ex) when (
+                ex is PluginOperationException
+                    or IOException
+                    or UnauthorizedAccessException
+                    or JsonException
+                    or InvalidOperationException)
             {
-                await ShowPluginMessageAsync("无法读取插件状态", ex.Message);
+                await ShowPluginMessageAsync("无法读取设置", ex.Message);
+            }
+            finally
+            {
+                _loadingDesktopSettings = false;
             }
         }
 
@@ -253,6 +266,10 @@ namespace AniMeido.App.Views
         {
             var hasActiveUi = await _pluginHostSupervisor
                 .HasActivePluginUiAsync();
+            if (!IsLoaded)
+            {
+                return false;
+            }
             if (hasActiveUi || forcePrompt)
             {
                 var confirmation = new ContentDialog
@@ -298,15 +315,30 @@ namespace AniMeido.App.Views
             object? sender,
             EventArgs e)
             => DispatcherQueue.TryEnqueue(() =>
-                PluginHostStatusText.Text =
-                    $"插件宿主：{_pluginHostSupervisor.StatusText}");
+            {
+                if (IsLoaded)
+                {
+                    PluginHostStatusText.Text =
+                        $"插件宿主：{_pluginHostSupervisor.StatusText}";
+                }
+            });
 
         private void OnPageUnloaded(object sender, RoutedEventArgs e)
-            => _pluginHostSupervisor.StatusChanged -=
-                OnPluginHostStatusChanged;
+        {
+            if (_isStatusSubscribed)
+            {
+                _pluginHostSupervisor.StatusChanged -=
+                    OnPluginHostStatusChanged;
+                _isStatusSubscribed = false;
+            }
+        }
 
         private async Task ShowPluginMessageAsync(string title, string message)
         {
+            if (!IsLoaded || XamlRoot is null)
+            {
+                return;
+            }
             var dialog = new ContentDialog
             {
                 Title = title,

@@ -11,6 +11,7 @@ public sealed partial class SettingPage : Page
     private readonly PluginContributionRegistry _contributions;
     private bool _isLoaded;
     private bool _suppressSelectionChanged;
+    private string? _currentTargetId;
 
     public SettingPage(
         PageFactory pageFactory,
@@ -47,7 +48,13 @@ public sealed partial class SettingPage : Page
     }
 
     private void OnContributionsChanged(object? sender, EventArgs args)
-        => DispatcherQueue.TryEnqueue(RebuildNavigation);
+        => DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_isLoaded)
+            {
+                RebuildNavigation();
+            }
+        });
 
     private void RebuildNavigation()
     {
@@ -161,6 +168,17 @@ public sealed partial class SettingPage : Page
 
     private void ShowTarget(SettingsTarget target)
     {
+        if (target.PageType is not null
+            && string.Equals(
+                _currentTargetId,
+                target.Id,
+                StringComparison.Ordinal)
+            && SettingsFrame.Content is not null)
+        {
+            return;
+        }
+
+        _currentTargetId = target.Id;
         if (target.PageType is not null)
         {
             SettingsFrame.Content = _pageFactory.CreatePage(target.PageType);

@@ -19,6 +19,9 @@ namespace AniMeido.Plugin.Base.Views
         private string? _dragAction;
         private string? _activeZoneId;
         private string? _resizeEdge;
+        private readonly SemaphoreSlim _saveGate = new(1, 1);
+        private int _changeVersion;
+        private int _saveVersion;
         private double _dragOffsetX, _dragOffsetY;
         private double _dragStartX, _dragStartY, _dragStartW, _dragStartH;
 
@@ -33,10 +36,16 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task LoadAsync()
         {
+            var changeVersion = _changeVersion;
             try
             {
                 _suppressEvents = true;
-                _dragZones = await _tracking.LoadDragZoneConfigAsync();
+                var dragZones = await _tracking.LoadDragZoneConfigAsync();
+                if (changeVersion != _changeVersion)
+                {
+                    return;
+                }
+                _dragZones = dragZones;
                 RebuildAll();
                 _suppressEvents = false;
             }
@@ -402,7 +411,7 @@ namespace AniMeido.Plugin.Base.Views
                 _resizeEdge = null;
                 _activeZoneId = null;
                 ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Arrow);
-                _ = SaveAsync();
+                _ = QueueSaveAsync();
             }
         }
 
@@ -435,7 +444,7 @@ namespace AniMeido.Plugin.Base.Views
                     if (item != null)
                         item.ActionIndex = (int)config.Action;
                 }
-                _ = SaveAsync();
+                _ = QueueSaveAsync();
             }
         }
 
@@ -465,7 +474,7 @@ namespace AniMeido.Plugin.Base.Views
                 _zoneVisuals.Remove(id);
             }
             PopulateConfigPanel();
-            _ = SaveAsync();
+            _ = QueueSaveAsync();
         }
 
         // ======== 添加区域 ========
@@ -504,7 +513,7 @@ namespace AniMeido.Plugin.Base.Views
             }
 
             PopulateConfigPanel();
-            _ = SaveAsync();
+            _ = QueueSaveAsync();
         }
 
         // ======== 配置面板事件 ========
@@ -519,7 +528,7 @@ namespace AniMeido.Plugin.Base.Views
 
             config.Action = (DragAction)combo.SelectedIndex;
             UpdateSingleZone(id);
-            _ = SaveAsync();
+            _ = QueueSaveAsync();
         }
 
         // ======== 重置 ========
@@ -530,16 +539,24 @@ namespace AniMeido.Plugin.Base.Views
             _dragZones = DragZoneConfig.GetDefaults();
             RebuildAll();
             _suppressEvents = false;
-            await SaveAsync();
+            await QueueSaveAsync();
         }
 
         // ======== 保存 ========
 
-        private async Task SaveAsync()
+        private async Task QueueSaveAsync()
         {
+            Interlocked.Increment(ref _changeVersion);
+            var saveVersion = Interlocked.Increment(ref _saveVersion);
+            var snapshot = _dragZones.Select(CloneConfig).ToList();
+            await _saveGate.WaitAsync();
             try
             {
-                await _tracking.SaveDragZoneConfigAsync(_dragZones);
+                if (saveVersion != _saveVersion)
+                {
+                    return;
+                }
+                await _tracking.SaveDragZoneConfigAsync(snapshot);
             }
 #pragma warning disable CA1031 // 拖放配置保存失败不阻塞操作
             catch (Exception ex)
@@ -547,7 +564,23 @@ namespace AniMeido.Plugin.Base.Views
                 System.Diagnostics.Debug.WriteLine($"[DragZoneSettings] SaveAsync failed: {ex.Message}");
             }
 #pragma warning restore CA1031
+            finally
+            {
+                _saveGate.Release();
+            }
         }
+
+        private static DragZoneConfig CloneConfig(DragZoneConfig config)
+            => new()
+            {
+                Id = config.Id,
+                Label = config.Label,
+                XPercent = config.XPercent,
+                YPercent = config.YPercent,
+                WidthPercent = config.WidthPercent,
+                HeightPercent = config.HeightPercent,
+                Action = config.Action,
+            };
 
         // ======== 辅助方法 ========
 

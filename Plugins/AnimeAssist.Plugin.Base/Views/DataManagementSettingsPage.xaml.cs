@@ -139,6 +139,10 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task ShowMessageAsync(string title, string content)
         {
+            if (!IsLoaded || XamlRoot is null)
+            {
+                return;
+            }
             var dialog = new ContentDialog
             {
                 Title = title,
@@ -198,6 +202,14 @@ namespace AniMeido.Plugin.Base.Views
             {
                 await _cacheService.ClearAllCacheAsync();
                 await UpdateCacheInfoAsync();
+            }
+            catch (Exception ex) when (
+                ex is IOException
+                    or UnauthorizedAccessException
+                    or InvalidOperationException
+                    or Microsoft.Data.Sqlite.SqliteException)
+            {
+                await ShowMessageAsync("清理失败", ex.Message);
             }
             finally
             {
