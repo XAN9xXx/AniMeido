@@ -48,12 +48,14 @@
                 </Grid>
             </Border>
 
-            <ScrollViewer Grid.Column="1">
-                <StackPanel Spacing="16" Padding="0,0,4,4">
+            <Grid Grid.Column="1"
+                  RowDefinitions="Auto,Auto,*"
+                  RowSpacing="16">
                 <InfoBar x:Name="ErrorInfoBar"
                          Severity="Error"
                          IsClosable="True"/>
-                    <Border Style="{StaticResource AniMeidoContentCardStyle}">
+                    <Border Grid.Row="1"
+                            Style="{StaticResource AniMeidoContentCardStyle}">
                         <StackPanel Spacing="12">
                             <TextBlock Text="规则编辑器"
                                        Style="{StaticResource AniMeidoSectionTitleStyle}"/>
@@ -122,11 +124,13 @@
                         </StackPanel>
                     </Border>
 
-                    <Border Style="{StaticResource AniMeidoContentCardStyle}">
-                        <StackPanel Spacing="12">
+                    <Border Grid.Row="2"
+                            Style="{StaticResource AniMeidoContentCardStyle}">
+                        <Grid RowDefinitions="Auto,*" RowSpacing="12">
                             <TextBlock Text="预览结果"
                                        Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                            <ListView ItemsSource="{x:Bind ViewModel.Results}"
+                            <ListView Grid.Row="1"
+                                      ItemsSource="{x:Bind ViewModel.Results}"
                                       IsItemClickEnabled="True"
                                       ItemClick="OnResultClick"
                                       ItemContainerStyle="{StaticResource AniMeidoListItemStyle}">
@@ -141,10 +145,9 @@
                                     </DataTemplate>
                                 </ListView.ItemTemplate>
                             </ListView>
-                        </StackPanel>
+                        </Grid>
                     </Border>
-                </StackPanel>
-            </ScrollViewer>
+            </Grid>
         </Grid>
     </Grid>
 </Page>

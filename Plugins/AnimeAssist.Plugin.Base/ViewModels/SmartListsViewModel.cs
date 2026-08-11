@@ -325,7 +325,18 @@ public partial class SmartListsViewModel : ObservableObject
     private async Task<IReadOnlyList<SmartListCandidate>>
         BuildCandidatesAsync(CancellationToken cancellationToken)
     {
-        var tracking = await _tracking.GetAllTrackingAsync();
+        var trackingTask = _tracking.GetAllTrackingAsync();
+        var plansTask = _actionCenter.GetPlansAsync(
+            includeArchived: true,
+            cancellationToken);
+        Task<IReadOnlyDictionary<int, AnimeProgressSnapshot>> progressTask =
+            IsPlaybackAvailable
+                ? _actionCenter.GetProgressAsync(cancellationToken)
+                : Task.FromResult<IReadOnlyDictionary<int, AnimeProgressSnapshot>>(
+                    new Dictionary<int, AnimeProgressSnapshot>());
+
+        await Task.WhenAll(trackingTask, plansTask, progressTask);
+        var tracking = await trackingTask;
         var blockedIds = tracking
             .Where(item => item.Status == AnimeTrackingStatus.Blocked)
             .Select(item => item.AnimeId)
@@ -333,13 +344,9 @@ public partial class SmartListsViewModel : ObservableObject
         tracking = tracking
             .Where(item => !blockedIds.Contains(item.AnimeId))
             .ToList();
-        var plans = await _actionCenter.GetPlansAsync(
-            includeArchived: true,
-            cancellationToken);
-        IReadOnlyDictionary<int, AnimeProgressSnapshot> progress =
-            IsPlaybackAvailable
-                ? await _actionCenter.GetProgressAsync(cancellationToken)
-                : new Dictionary<int, AnimeProgressSnapshot>();
+        var plans = await plansTask;
+        var progress = await progressTask;
+        var trackingById = tracking.ToDictionary(item => item.AnimeId);
         var planById = plans.ToDictionary(item => item.AnimeId);
         var ids = tracking.Select(item => item.AnimeId)
             .Concat(plans.Select(item => item.AnimeId))
@@ -347,55 +354,60 @@ public partial class SmartListsViewModel : ObservableObject
             .Where(animeId => !blockedIds.Contains(animeId))
             .Distinct()
             .ToList();
-        var candidates = new List<SmartListCandidate>();
-        foreach (var animeId in ids)
-        {
-            var anime = await _dataSource.GetAnimeDetailAsync(
-                animeId,
-                cancellationToken);
-            if (anime is null)
+        var candidates = new SmartListCandidate?[ids.Count];
+        await Parallel.ForEachAsync(
+            ids.Select((animeId, index) => (animeId, index)),
+            new ParallelOptions
             {
-                continue;
-            }
+                CancellationToken = cancellationToken,
+                MaxDegreeOfParallelism = 4,
+            },
+            async (item, token) =>
+            {
+                var anime = await _dataSource.GetAnimeDetailAsync(
+                    item.animeId,
+                    token);
+                if (anime is null)
+                {
+                    return;
+                }
 
-            var tags = await _dataSource.GetTagsAsync(
-                animeId,
-                cancellationToken);
-            var trackingRow = tracking.FirstOrDefault(
-                item => item.AnimeId == animeId);
-            planById.TryGetValue(animeId, out var plan);
-            progress.TryGetValue(animeId, out var snapshot);
-            var targetDate = plan?.TargetStartDate;
-            candidates.Add(new SmartListCandidate(
-                animeId,
-                anime.Title,
-                trackingRow.AnimeId == 0
-                    ? null
-                    : (int)trackingRow.Status,
-                snapshot?.CurrentEpisode ?? 0,
-                snapshot is not null
-                    && snapshot.DurationSeconds > 0
-                    && snapshot.PositionSeconds
-                        / snapshot.DurationSeconds < 0.9,
-                plan is null ? null : (int)plan.Priority,
-                targetDate,
-                targetDate is not null
-                    && targetDate < DateOnly.FromDateTime(DateTime.Today)
-                    && plan?.ArchivedAt is null,
-                anime.Weekday,
-                anime.AirDate,
-                tags.Select(item => item.Name).ToList(),
-                snapshot?.LastWatchedAt,
-                trackingRow.AnimeId == 0
-                    ? null
-                    : DateTimeOffset.TryParse(
-                        trackingRow.UpdatedAt,
-                        out var updated)
-                        ? updated
-                        : null));
-        }
+                var tags = await _dataSource.GetTagsAsync(
+                    item.animeId,
+                    token);
+                var hasTracking = trackingById.TryGetValue(
+                    item.animeId,
+                    out var trackingRow);
+                planById.TryGetValue(item.animeId, out var plan);
+                progress.TryGetValue(item.animeId, out var snapshot);
+                var targetDate = plan?.TargetStartDate;
+                candidates[item.index] = new SmartListCandidate(
+                    item.animeId,
+                    anime.Title,
+                    hasTracking ? (int)trackingRow.Status : null,
+                    snapshot?.CurrentEpisode ?? 0,
+                    snapshot is not null
+                        && snapshot.DurationSeconds > 0
+                        && snapshot.PositionSeconds
+                            / snapshot.DurationSeconds < 0.9,
+                    plan is null ? null : (int)plan.Priority,
+                    targetDate,
+                    targetDate is not null
+                        && targetDate < DateOnly.FromDateTime(DateTime.Today)
+                        && plan?.ArchivedAt is null,
+                    anime.Weekday,
+                    anime.AirDate,
+                    tags.Select(tag => tag.Name).ToList(),
+                    snapshot?.LastWatchedAt,
+                    hasTracking
+                        && DateTimeOffset.TryParse(
+                            trackingRow.UpdatedAt,
+                            out var updated)
+                            ? updated
+                            : null);
+            });
 
-        return candidates;
+        return candidates.OfType<SmartListCandidate>().ToList();
     }
 
     private static SmartListCondition ToCondition(
