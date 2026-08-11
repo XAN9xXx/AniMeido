@@ -89,27 +89,56 @@ public sealed class ArchiveService
             LEFT JOIN tracking t ON t.AnimeId = a.AnimeId
             ORDER BY a.UpdatedAt DESC
             """;
-        var results = new List<ArchiveListItem>();
-        await using var reader = await command.ExecuteReaderAsync(
-            cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
+        var rows = new List<(
+            AnimeArchive Archive,
+            int EntryCount,
+            int ScreenshotCount,
+            AniMeido.Contracts.Models.AnimeTrackingStatus? Status)>();
+        await using (var reader = await command.ExecuteReaderAsync(
+            cancellationToken))
         {
-            var archive = ReadArchive(reader);
-            var tags = await GetAnimeTagsAsync(
-                archive.AnimeId,
-                cancellationToken);
-            results.Add(new ArchiveListItem(
-                archive,
-                tags,
-                reader.GetInt32(7),
-                reader.GetInt32(8),
-                reader.IsDBNull(6)
-                    ? null
-                    : (AniMeido.Contracts.Models.AnimeTrackingStatus)
-                        reader.GetInt32(6)));
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                rows.Add((
+                    ReadArchive(reader),
+                    reader.GetInt32(7),
+                    reader.GetInt32(8),
+                    reader.IsDBNull(6)
+                        ? null
+                        : (AniMeido.Contracts.Models.AnimeTrackingStatus)
+                            reader.GetInt32(6)));
+            }
         }
 
-        return results;
+        var tagsByAnime = new Dictionary<int, List<string>>();
+        await using var tagCommand = connection.CreateCommand();
+        tagCommand.CommandText = """
+            SELECT at.AnimeId, t.Name
+            FROM anime_personal_tags at
+            JOIN personal_tags t ON t.TagId = at.TagId
+            ORDER BY at.AnimeId, t.Name COLLATE NOCASE
+            """;
+        await using var tagReader = await tagCommand.ExecuteReaderAsync(
+            cancellationToken);
+        while (await tagReader.ReadAsync(cancellationToken))
+        {
+            var animeId = tagReader.GetInt32(0);
+            if (!tagsByAnime.TryGetValue(animeId, out var tags))
+            {
+                tags = [];
+                tagsByAnime.Add(animeId, tags);
+            }
+
+            tags.Add(tagReader.GetString(1));
+        }
+
+        return rows.Select(row => new ArchiveListItem(
+                row.Archive,
+                tagsByAnime.GetValueOrDefault(row.Archive.AnimeId) ?? [],
+                row.EntryCount,
+                row.ScreenshotCount,
+                row.Status))
+            .ToList();
     }
 
     public async Task<IReadOnlyList<string>> GetAnimeTagsAsync(
@@ -729,6 +758,41 @@ public sealed class ArchiveService
         return tags;
     }
 
+    public async Task<IReadOnlyDictionary<string, IReadOnlyList<string>>>
+        GetAllScreenshotTagsAsync(
+            CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _dbFactory.OpenAsync(
+            cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT st.ScreenshotId, t.Name
+            FROM screenshot_personal_tags st
+            JOIN personal_tags t ON t.TagId = st.TagId
+            ORDER BY st.ScreenshotId, t.Name COLLATE NOCASE
+            """;
+        var mutable = new Dictionary<string, List<string>>(
+            StringComparer.Ordinal);
+        await using var reader = await command.ExecuteReaderAsync(
+            cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var screenshotId = reader.GetString(0);
+            if (!mutable.TryGetValue(screenshotId, out var tags))
+            {
+                tags = [];
+                mutable.Add(screenshotId, tags);
+            }
+
+            tags.Add(reader.GetString(1));
+        }
+
+        return mutable.ToDictionary(
+            pair => pair.Key,
+            pair => (IReadOnlyList<string>)pair.Value,
+            StringComparer.Ordinal);
+    }
+
     public async Task<int> RemoveMissingScreenshotRecordsAsync(
         CancellationToken cancellationToken = default)
     {
@@ -819,56 +883,86 @@ public sealed class ArchiveService
         static string DateFilter(string column) =>
             $"(@start IS NULL OR ({column} >= @start AND {column} < @end))";
 
-        async Task<int> CountAsync(string sql)
-        {
-            await using var command = connection.CreateCommand();
-            command.CommandText = sql;
-            command.Parameters.AddWithValue(
-                "@start",
-                start is null ? DBNull.Value : start.Value.ToString("O"));
-            command.Parameters.AddWithValue(
-                "@end",
-                end is null ? DBNull.Value : end.Value.ToString("O"));
-            return Convert.ToInt32(
-                await command.ExecuteScalarAsync(cancellationToken),
-                CultureInfo.InvariantCulture);
-        }
-
-        var archiveCount = await CountAsync(
-            $"SELECT COUNT(*) FROM anime_archives WHERE {DateFilter("CreatedAt")}");
-        var ratedCount = await CountAsync(
-            $"SELECT COUNT(*) FROM anime_archives WHERE PersonalRating IS NOT NULL AND {DateFilter("UpdatedAt")}");
-        var entryCount = await CountAsync(
-            $"SELECT COUNT(*) FROM archive_entries WHERE {DateFilter("OccurredAt")}");
-        var screenshotCount = await CountAsync(
-            $"SELECT COUNT(*) FROM screenshots WHERE {DateFilter("CapturedAt")}");
-        var trackingChangeCount = await CountAsync(
-            $"SELECT COUNT(*) FROM tracking_events WHERE {DateFilter("ChangedAt")}");
-        var completedFromPlayer = await CountAsync(
-            $"SELECT COUNT(*) FROM watch_sessions WHERE IsCompleted = 1 AND {DateFilter("ObservedAt")}");
-        var completedManual = await CountAsync(
-            $"SELECT COALESCE(SUM(EpisodeTo - EpisodeFrom + 1), 0) FROM manual_watch_events WHERE {DateFilter("OccurredAt")}");
-        var estimatedPlayerMinutes = await CountAsync(
-            $"SELECT COALESCE(SUM(DurationSeconds) / 60, 0) FROM watch_sessions WHERE IsCompleted = 1 AND {DateFilter("ObservedAt")}");
-        var manualMinutes = await CountAsync(
-            $"SELECT COALESCE(SUM(DurationMinutes), 0) FROM manual_watch_events WHERE {DateFilter("OccurredAt")}");
-
-        await using var firstCommand = connection.CreateCommand();
-        firstCommand.CommandText = """
-            SELECT MIN(Value) FROM (
-                SELECT MIN(CreatedAt) Value FROM anime_archives
-                UNION ALL SELECT MIN(OccurredAt) FROM archive_entries
-                UNION ALL SELECT MIN(ObservedAt) FROM watch_sessions
-                UNION ALL SELECT MIN(OccurredAt) FROM manual_watch_events
-                UNION ALL SELECT MIN(CapturedAt) FROM screenshots
-                UNION ALL SELECT MIN(ChangedAt) FROM tracking_events
-            )
+        await using var summaryCommand = connection.CreateCommand();
+        summaryCommand.CommandText = $"""
+            SELECT
+                (SELECT COUNT(*) FROM anime_archives
+                 WHERE {DateFilter("CreatedAt")}),
+                (SELECT COUNT(*) FROM anime_archives
+                 WHERE PersonalRating IS NOT NULL
+                   AND {DateFilter("UpdatedAt")}),
+                (SELECT COUNT(*) FROM archive_entries
+                 WHERE {DateFilter("OccurredAt")}),
+                (SELECT COUNT(*) FROM screenshots
+                 WHERE {DateFilter("CapturedAt")}),
+                (SELECT COUNT(*) FROM tracking_events
+                 WHERE {DateFilter("ChangedAt")}),
+                (SELECT COUNT(*) FROM watch_sessions
+                 WHERE IsCompleted = 1
+                   AND {DateFilter("ObservedAt")}),
+                (SELECT COALESCE(SUM(EpisodeTo - EpisodeFrom + 1), 0)
+                 FROM manual_watch_events
+                 WHERE {DateFilter("OccurredAt")}),
+                (SELECT COALESCE(SUM(DurationSeconds) / 60, 0)
+                 FROM watch_sessions
+                 WHERE IsCompleted = 1
+                   AND {DateFilter("ObservedAt")}),
+                (SELECT COALESCE(SUM(DurationMinutes), 0)
+                 FROM manual_watch_events
+                 WHERE {DateFilter("OccurredAt")}),
+                (SELECT MIN(Value) FROM (
+                    SELECT MIN(CreatedAt) Value FROM anime_archives
+                    UNION ALL SELECT MIN(OccurredAt) FROM archive_entries
+                    UNION ALL SELECT MIN(ObservedAt) FROM watch_sessions
+                    UNION ALL SELECT MIN(OccurredAt) FROM manual_watch_events
+                    UNION ALL SELECT MIN(CapturedAt) FROM screenshots
+                    UNION ALL SELECT MIN(ChangedAt) FROM tracking_events
+                ))
             """;
-        var first = await firstCommand.ExecuteScalarAsync(cancellationToken);
+        summaryCommand.Parameters.AddWithValue(
+            "@start",
+            start is null ? DBNull.Value : start.Value.ToString("O"));
+        summaryCommand.Parameters.AddWithValue(
+            "@end",
+            end is null ? DBNull.Value : end.Value.ToString("O"));
+        await using var summaryReader = await summaryCommand.ExecuteReaderAsync(
+            cancellationToken);
+        await summaryReader.ReadAsync(cancellationToken);
+        var archiveCount = Convert.ToInt32(
+            summaryReader.GetValue(0),
+            CultureInfo.InvariantCulture);
+        var ratedCount = Convert.ToInt32(
+            summaryReader.GetValue(1),
+            CultureInfo.InvariantCulture);
+        var entryCount = Convert.ToInt32(
+            summaryReader.GetValue(2),
+            CultureInfo.InvariantCulture);
+        var screenshotCount = Convert.ToInt32(
+            summaryReader.GetValue(3),
+            CultureInfo.InvariantCulture);
+        var trackingChangeCount = Convert.ToInt32(
+            summaryReader.GetValue(4),
+            CultureInfo.InvariantCulture);
+        var completedFromPlayer = Convert.ToInt32(
+            summaryReader.GetValue(5),
+            CultureInfo.InvariantCulture);
+        var completedManual = Convert.ToInt32(
+            summaryReader.GetValue(6),
+            CultureInfo.InvariantCulture);
+        var estimatedPlayerMinutes = Convert.ToInt32(
+            summaryReader.GetValue(7),
+            CultureInfo.InvariantCulture);
+        var manualMinutes = Convert.ToInt32(
+            summaryReader.GetValue(8),
+            CultureInfo.InvariantCulture);
+        var first = summaryReader.IsDBNull(9)
+            ? null
+            : summaryReader.GetValue(9);
         DateTimeOffset? recordingStartedAt = first is string firstText
             && !string.IsNullOrWhiteSpace(firstText)
             ? ParseTimestamp(firstText)
             : null;
+        await summaryReader.DisposeAsync();
 
         var tagCounts = new Dictionary<string, int>(
             StringComparer.OrdinalIgnoreCase);

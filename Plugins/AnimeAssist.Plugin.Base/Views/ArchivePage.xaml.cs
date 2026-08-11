@@ -91,10 +91,10 @@ public sealed partial class ArchivePage : Page, INavigationAware
     {
         try
         {
-            _allArchives = await _archive.GetArchiveListAsync();
-            ApplyArchiveFilter();
-            await ReloadScreenshotsAsync();
-            await LoadStatisticsAsync();
+            await Task.WhenAll(
+                ReloadArchivesAsync(),
+                ReloadScreenshotsAsync(),
+                LoadStatisticsAsync());
             StatusInfoBar.IsOpen = false;
         }
         catch (Exception ex) when (
@@ -106,6 +106,12 @@ public sealed partial class ArchivePage : Page, INavigationAware
         }
     }
 
+    private async Task ReloadArchivesAsync()
+    {
+        _allArchives = await _archive.GetArchiveListAsync();
+        ApplyArchiveFilter();
+    }
+
     private async Task LoadStatisticsAsync()
     {
         var statistics = await _archive.GetStatisticsAsync();
@@ -115,13 +121,17 @@ public sealed partial class ArchivePage : Page, INavigationAware
 
     private async Task ReloadScreenshotsAsync()
     {
-        _allScreenshots = await _archive.GetScreenshotsAsync();
+        var screenshotsTask = _archive.GetScreenshotsAsync();
+        var tagsTask = _archive.GetAllScreenshotTagsAsync();
+        await Task.WhenAll(screenshotsTask, tagsTask);
+        _allScreenshots = await screenshotsTask;
+        var tagsByScreenshot = await tagsTask;
         _screenshotTags.Clear();
         foreach (var screenshot in _allScreenshots)
         {
             _screenshotTags[screenshot.ScreenshotId] =
-                await _archive.GetScreenshotTagsAsync(
-                    screenshot.ScreenshotId);
+                tagsByScreenshot.GetValueOrDefault(
+                    screenshot.ScreenshotId) ?? [];
         }
 
         ApplyScreenshotFilter();
@@ -330,7 +340,9 @@ public sealed partial class ArchivePage : Page, INavigationAware
             await _archive.SetAnimeTagsAsync(
                 _selectedArchive.Archive.AnimeId,
                 SplitTags(TagsBox.Text));
-            await LoadAsync();
+            await Task.WhenAll(
+                ReloadArchivesAsync(),
+                LoadStatisticsAsync());
             ArchiveList.SelectedItem = ArchiveList.Items
                 .OfType<ArchiveListItem>()
                 .FirstOrDefault(item =>
