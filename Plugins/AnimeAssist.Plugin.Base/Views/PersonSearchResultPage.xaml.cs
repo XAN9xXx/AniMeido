@@ -3,10 +3,10 @@ using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
-using AniMeido.Plugin.Base.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using System.Collections.ObjectModel;
 using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.Views
@@ -18,6 +18,8 @@ namespace AniMeido.Plugin.Base.Views
         private readonly IPluginNavigator _pluginNavigator;
         private readonly DragDropService _dragDrop;
         private CancellationTokenSource? _loadCts;
+        private readonly ObservableCollection<Anime> _results = [];
+        private int _loadVersion;
 
         private IDisposable? _dropHostRegistration;
 
@@ -28,23 +30,29 @@ namespace AniMeido.Plugin.Base.Views
             _dragDrop = dragDropService;
             _pluginNavigator = pluginNavigator;
             InitializeComponent();
+            ResultGrid.ItemsSource = _results;
         }
 
         public async Task OnNavigatedToAsync(object? parameter)
         {
             // 取消上一轮加载
             _loadCts?.Cancel();
+            _loadCts?.Dispose();
             _loadCts = new CancellationTokenSource();
             var token = _loadCts.Token;
+            var loadVersion = Interlocked.Increment(ref _loadVersion);
 
             if (parameter is (int personId, string personName))
             {
                 TitleBlock.Text = $"声优作品：{personName}";
-                await LoadAsync(personId, token);
+                await LoadAsync(personId, loadVersion, token);
             }
         }
 
-        private async Task LoadAsync(int personId, CancellationToken cancellationToken)
+        private async Task LoadAsync(
+            int personId,
+            int loadVersion,
+            CancellationToken cancellationToken)
         {
             if (_dataSource == null) return;
 
@@ -55,67 +63,41 @@ namespace AniMeido.Plugin.Base.Views
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var works = await _dataSource.GetPersonWorksAsync(personId, cancellationToken);
-                ResultCount.Text = $"参与 {works.Count} 部作品";
-
-                // 并行获取每个作品的详细信息（最多同时 4 个请求）
-                var semaphore = new SemaphoreSlim(4);
-                var tasks = works
-                    .Where(w => w.ID > 0)
-                    .Select(async w =>
-                    {
-                        await semaphore.WaitAsync(cancellationToken);
-                        try
-                        {
-                            cancellationToken.ThrowIfCancellationRequested();
-                            var detail = await _dataSource.GetAnimeDetailAsync(w.ID, cancellationToken);
-                            return detail;
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            throw;
-                        }
-                        catch (HttpRequestException)
-                        {
-                            // 单个作品网络请求失败时，用基础信息创建 Anime
-                            return new Anime(
-                                w.ID, w.Title, null, Array.Empty<VoiceActor>(),
-                                null, w.CoverURL, w.Staff ?? "", 0, 0, null, null);
-                        }
-                        catch (BangumiApiException)
-                        {
-                            return new Anime(
-                                w.ID, w.Title, null, Array.Empty<VoiceActor>(),
-                                null, w.CoverURL, w.Staff ?? "", 0, 0, null, null);
-                        }
-                        catch (JsonException)
-                        {
-                            // 单个作品解析失败时，用基础信息创建 Anime
-                            return new Anime(
-                                w.ID, w.Title, null, Array.Empty<VoiceActor>(),
-                                null, w.CoverURL, w.Staff ?? "", 0, 0, null, null);
-                        }
-                        finally
-                        {
-                            semaphore.Release();
-                        }
-                    });
-
-                var animes = (await Task.WhenAll(tasks))
-                    .Where(a => a != null)
-                    .Cast<Anime>()
+                var visibleWorks = works
+                    .Where(work => work.ID > 0)
+                    .DistinctBy(work => work.ID)
                     .ToList();
-
-                if (cancellationToken.IsCancellationRequested) return;
-
                 var blocked = await _tracking.GetBlockedAnimeIdsAsync();
-                ResultGrid.ItemsSource = AnimeListPresentation.Filter(
-                    animes,
-                    blocked);
+                if (!IsCurrentLoad(loadVersion, cancellationToken))
+                    return;
 
-                if (animes.Count == 0)
+                _results.Clear();
+                LoadingOverlay.Visibility = Visibility.Collapsed;
+                LoadingRing.IsActive = false;
+                ResultCount.Text = $"正在加载 0/{visibleWorks.Count} 部作品";
+                var processedCount = 0;
+                foreach (var batch in visibleWorks.Chunk(4))
                 {
-                    ResultCount.Text = "未找到相关作品";
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var loaded = await Task.WhenAll(batch.Select(work =>
+                        LoadWorkAsync(work, cancellationToken)));
+                    if (!IsCurrentLoad(loadVersion, cancellationToken))
+                        return;
+
+                    foreach (var anime in loaded)
+                    {
+                        if (anime is not null && !blocked.Contains(anime.ID))
+                            _results.Add(anime);
+                    }
+
+                    processedCount += batch.Length;
+                    ResultCount.Text =
+                        $"正在加载 {processedCount}/{visibleWorks.Count} 部作品";
                 }
+
+                ResultCount.Text = _results.Count == 0
+                    ? "未找到相关作品"
+                    : $"参与 {visibleWorks.Count} 部作品 · 显示 {_results.Count} 部";
             }
             catch (OperationCanceledException)
             {
@@ -135,10 +117,54 @@ namespace AniMeido.Plugin.Base.Views
             }
             finally
             {
-                LoadingOverlay.Visibility = Visibility.Collapsed;
-                LoadingRing.IsActive = false;
+                if (loadVersion == _loadVersion)
+                {
+                    LoadingOverlay.Visibility = Visibility.Collapsed;
+                    LoadingRing.IsActive = false;
+                }
             }
         }
+
+        private async Task<Anime?> LoadWorkAsync(
+            PersonWork work,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                return await _dataSource.GetAnimeDetailAsync(
+                    work.ID,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (
+                ex is HttpRequestException
+                or BangumiApiException
+                or JsonException)
+            {
+                return new Anime(
+                    work.ID,
+                    work.Title,
+                    null,
+                    [],
+                    null,
+                    work.CoverURL,
+                    work.Staff ?? string.Empty,
+                    0,
+                    0,
+                    null,
+                    null);
+            }
+        }
+
+        private bool IsCurrentLoad(
+            int loadVersion,
+            CancellationToken cancellationToken)
+            => !cancellationToken.IsCancellationRequested
+                && loadVersion == _loadVersion;
 
         // ======== 拖放 ========
 
@@ -164,11 +190,10 @@ namespace AniMeido.Plugin.Base.Views
             try
             {
                 var blocked = await _tracking.GetBlockedAnimeIdsAsync();
-                if (ResultGrid.ItemsSource is IEnumerable<Anime> current)
+                for (var index = _results.Count - 1; index >= 0; index--)
                 {
-                    ResultGrid.ItemsSource = AnimeListPresentation.Filter(
-                        current,
-                        blocked);
+                    if (blocked.Contains(_results[index].ID))
+                        _results.RemoveAt(index);
                 }
             }
 #pragma warning disable CA1031 // 可见性刷新失败不应清空已有结果
@@ -182,6 +207,10 @@ namespace AniMeido.Plugin.Base.Views
 
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
         {
+            Interlocked.Increment(ref _loadVersion);
+            _loadCts?.Cancel();
+            _loadCts?.Dispose();
+            _loadCts = null;
             _dropHostRegistration?.Dispose();
             _dropHostRegistration = null;
         }
