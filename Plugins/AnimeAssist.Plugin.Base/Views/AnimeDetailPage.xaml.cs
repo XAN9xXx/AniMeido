@@ -1,6 +1,7 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using AniMeido.Contracts.Playback;
+using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
 using CommunityToolkit.Mvvm.Input;
@@ -530,6 +531,10 @@ namespace AniMeido.Plugin.Base.Views
                 bangumiTags = await _dataSource.GetTagsAsync(_currentAnimeId, CancellationToken.None);
             }
             catch (HttpRequestException)
+            {
+                return;
+            }
+            catch (BangumiApiException)
             {
                 return;
             }

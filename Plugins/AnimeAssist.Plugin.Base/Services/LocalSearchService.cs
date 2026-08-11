@@ -1,5 +1,6 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Exceptions;
 using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.Services
@@ -93,6 +94,10 @@ namespace AniMeido.Plugin.Base.Services
                 return await _dataSource.GetAnimeDetailAsync(animeId, ct);
             }
             catch (HttpRequestException)
+            {
+                return null;
+            }
+            catch (BangumiApiException)
             {
                 return null;
             }

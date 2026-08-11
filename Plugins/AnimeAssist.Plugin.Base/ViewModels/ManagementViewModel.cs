@@ -187,6 +187,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         private async Task LoadTagsAsync()
         {
             IsTagLoading = true;
+            ClearError();
             try
             {
                 var tags = await _savedTagService.GetAllSavedTagsAsync();
@@ -250,6 +251,11 @@ namespace AniMeido.Plugin.Base.ViewModels
                 {
                     TagAnimeList.Add(anime);
                 }
+            }
+            catch (Exception ex) when (HandleLoadException(
+                ex,
+                CancellationToken.None))
+            {
             }
             finally
             {

@@ -1,5 +1,6 @@
 using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -189,6 +190,7 @@ public partial class TodayViewModel : ObservableObject
         }
         catch (Exception ex) when (
             ex is HttpRequestException
+            or BangumiApiException
             or InvalidOperationException
             or System.Text.Json.JsonException)
         {

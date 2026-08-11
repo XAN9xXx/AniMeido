@@ -1,5 +1,6 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
@@ -234,6 +235,12 @@ namespace AniMeido.Plugin.Base.Views
             {
                 if (version == _searchVersion)
                     ResultCount.Text = $"搜索失败：{ex.Message}";
+                PaginationBar.Visibility = Visibility.Collapsed;
+            }
+            catch (BangumiApiException ex)
+            {
+                if (version == _searchVersion)
+                    ResultCount.Text = $"数据源请求失败：{ex.Message}";
                 PaginationBar.Visibility = Visibility.Collapsed;
             }
             catch (TaskCanceledException)

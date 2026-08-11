@@ -1,5 +1,6 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
@@ -80,6 +81,12 @@ namespace AniMeido.Plugin.Base.Views
                                 w.ID, w.Title, null, Array.Empty<VoiceActor>(),
                                 null, w.CoverURL, w.Staff ?? "", 0, 0, null, null);
                         }
+                        catch (BangumiApiException)
+                        {
+                            return new Anime(
+                                w.ID, w.Title, null, Array.Empty<VoiceActor>(),
+                                null, w.CoverURL, w.Staff ?? "", 0, 0, null, null);
+                        }
                         catch (JsonException)
                         {
                             // 单个作品解析失败时，用基础信息创建 Anime
@@ -117,6 +124,10 @@ namespace AniMeido.Plugin.Base.Views
             catch (HttpRequestException ex)
             {
                 ResultCount.Text = $"加载失败：{ex.Message}";
+            }
+            catch (BangumiApiException ex)
+            {
+                ResultCount.Text = $"数据源请求失败：{ex.Message}";
             }
             catch (JsonException ex)
             {
