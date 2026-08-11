@@ -2,7 +2,6 @@
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Exceptions;
 using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
 using System.Text.Json;
 using System.Collections.ObjectModel;
 
@@ -23,9 +22,8 @@ namespace AniMeido.Plugin.Base.ViewModels
         [ObservableProperty]
         private int _totalCount = 0;
         public IReadOnlyList<Anime> LoadedAnime { get; private set; } = [];
-        IAnimeDataSource _animeDataSource;
-        int _lastYear;
-        Season _lastSeason;
+        private readonly IAnimeDataSource _animeDataSource;
+        private int _loadVersion;
 
 
 
@@ -43,8 +41,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         /// <param name="season">要加载的季度</param>
         public async Task LoadPastSeasonAnimeAsync(int year, Season season, CancellationToken ct = default)
         {
-            _lastYear = year;
-            _lastSeason = season;
+            var version = Interlocked.Increment(ref _loadVersion);
             IsLoading = true;
             IsError = false;
             ErrorMessage = null;
@@ -59,6 +56,9 @@ namespace AniMeido.Plugin.Base.ViewModels
                     year,
                     season,
                     ct);
+                if (!IsCurrentLoad(version, ct))
+                    return;
+
                 LoadedAnime = list.ToArray();
                 // 一次性替换集合引用（单次 PropertyChanged），避免 N 次 Add 触发 N 次布局
                 AnimeList = new ObservableCollection<Anime>(LoadedAnime);
@@ -69,12 +69,18 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
             catch (HttpRequestException ex)
             {
+                if (!IsCurrentLoad(version, ct))
+                    return;
+
                 ErrorMessage = $"网络请求失败：{ex.Message}";
                 HasData = false;
                 IsError = true;
             }
             catch (BangumiApiException ex)
             {
+                if (!IsCurrentLoad(version, ct))
+                    return;
+
                 ErrorMessage = $"数据源请求失败：{ex.Message}";
                 HasData = false;
                 IsError = true;
@@ -86,6 +92,9 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
             catch (TaskCanceledException)
             {
+                if (!IsCurrentLoad(version, ct))
+                    return;
+
                 // HTTP 超时或其他网络层取消，作为错误处理
                 ErrorMessage = "网络请求超时，请检查网络后重试";
                 HasData = false;
@@ -93,6 +102,9 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
             catch (Exception ex) when (ex is InvalidOperationException or JsonException)
             {
+                if (!IsCurrentLoad(version, ct))
+                    return;
+
                 ErrorMessage = $"数据解析失败：{ex.Message}";
                 HasData = false;
                 IsError = true;
@@ -100,16 +112,12 @@ namespace AniMeido.Plugin.Base.ViewModels
             finally
             {
                 // 取消的请求不修改 IsLoading，新请求已设置自己的状态
-                if (!ct.IsCancellationRequested)
+                if (version == Volatile.Read(ref _loadVersion))
                     IsLoading = false;
             }
         }
 
-        // 点击重试时尝试加载相同时段的数据
-        [RelayCommand]
-        private void RetryLoad()
-        {
-            _ = LoadPastSeasonAnimeAsync(_lastYear, _lastSeason);
-        }
+        private bool IsCurrentLoad(int version, CancellationToken ct) =>
+            version == Volatile.Read(ref _loadVersion) && !ct.IsCancellationRequested;
     }
 }

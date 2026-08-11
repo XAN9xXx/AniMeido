@@ -112,11 +112,11 @@ namespace AniMeido.Plugin.Base.Views
             }
         }
 
-        private void OnLoadingOverlayTapped(object sender, TappedRoutedEventArgs e)
+        private async void OnLoadingOverlayTapped(object sender, TappedRoutedEventArgs e)
         {
             if (ViewModel.IsError)
             {
-                ViewModel.RetryLoadCommand.Execute(null);
+                await LoadSelectedSeasonAsync();
             }
         }
 
@@ -245,10 +245,11 @@ namespace AniMeido.Plugin.Base.Views
             // 取消上一轮请求
             _loadCts?.Cancel();
             _loadCts?.Dispose();
-            _loadCts = new CancellationTokenSource();
+            var loadCts = new CancellationTokenSource();
+            _loadCts = loadCts;
             var version = Interlocked.Increment(ref _loadVersion);
 
-            await ViewModel.LoadPastSeasonAnimeAsync(year, season, _loadCts.Token);
+            await ViewModel.LoadPastSeasonAnimeAsync(year, season, loadCts.Token);
 
             // 如果已有更新的请求，丢弃此结果（此时 IsLoading 可能已被旧请求设为 false）
             if (version != _loadVersion) return;
@@ -262,7 +263,7 @@ namespace AniMeido.Plugin.Base.Views
             LoadingRing.IsActive = false;
         }
 
-        private void OnYearSelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void OnYearSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (YearComboBox.SelectedItem is not int year) return;
             RebuildSeasonItems(year);
@@ -270,7 +271,7 @@ namespace AniMeido.Plugin.Base.Views
             // 年份变更后立即加载新季度数据
             if (SeasonComboBox.SelectedItem is ComboBoxItem item && item.Tag is Season season)
             {
-                _ = LoadSeasonAsync(year, season);
+                await LoadSeasonAsync(year, season);
             }
         }
 
@@ -281,6 +282,17 @@ namespace AniMeido.Plugin.Base.Views
             if (YearComboBox.SelectedItem is not int year) return;
             if (SeasonComboBox.SelectedItem is not ComboBoxItem item || item.Tag is not Season season) return;
             await LoadSeasonAsync(year, season);
+        }
+
+        private Task LoadSelectedSeasonAsync()
+        {
+            if (YearComboBox.SelectedItem is int year &&
+                SeasonComboBox.SelectedItem is ComboBoxItem { Tag: Season season })
+            {
+                return LoadSeasonAsync(year, season);
+            }
+
+            return Task.CompletedTask;
         }
 
         private void OnAnimeCardClicked(object? sender, Views.Controls.AnimeCardClickedEventArgs e)
@@ -329,12 +341,20 @@ namespace AniMeido.Plugin.Base.Views
 
             // 返回已缓存页面时重新读取屏蔽状态，移除刚屏蔽的条目。
             _ = LoadDragConfigAndBlockedAsync();
+            if (ViewModel.IsLoading)
+            {
+                _ = LoadSelectedSeasonAsync();
+            }
         }
 
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
         {
             _dropHostRegistration?.Dispose();
             _dropHostRegistration = null;
+            Interlocked.Increment(ref _loadVersion);
+            _loadCts?.Cancel();
+            _loadCts?.Dispose();
+            _loadCts = null;
         }
 
 
