@@ -47,11 +47,8 @@ namespace AniMeido.Plugin.Base.Views
             DataContext = ViewModel;
             InitializeComponent();
             UpdatePlaybackAvailability();
-            if (_playbackLauncher is not null)
-            {
-                Loaded += OnPageLoaded;
-                Unloaded += OnPageUnloaded;
-            }
+            Loaded += OnPageLoaded;
+            Unloaded += OnPageUnloaded;
 
             ViewModel.PropertyChanged += (s, e) =>
             {
@@ -236,6 +233,8 @@ namespace AniMeido.Plugin.Base.Views
         private void OnPageUnloaded(object sender, RoutedEventArgs e)
         {
             _navigationLoadCancellation?.Cancel();
+            _navigationLoadCancellation?.Dispose();
+            _navigationLoadCancellation = null;
             ViewModel.LoadDetailCommand.Cancel();
             if (_playbackLauncher is not null
                 && _isPlaybackAvailabilitySubscribed)
@@ -279,8 +278,27 @@ namespace AniMeido.Plugin.Base.Views
             if (_browseRecorded || _currentAnimeId <= 0) return;
             _browseRecorded = true;
 
+            var animeId = _currentAnimeId;
             var title = ViewModel.AnimeDetail?.Title ?? $"#{_currentAnimeId}";
-            _ = _browseHistory.RecordAsync(_currentAnimeId, title);
+            _ = RecordBrowseHistoryAsync(animeId, title);
+        }
+
+        private async Task RecordBrowseHistoryAsync(int animeId, string title)
+        {
+            try
+            {
+                await _browseHistory.RecordAsync(animeId, title);
+            }
+            catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException
+                or IOException
+                or UnauthorizedAccessException
+                or InvalidOperationException)
+            {
+                if (animeId == _currentAnimeId)
+                {
+                    _browseRecorded = false;
+                }
+            }
         }
 
         private void UpdateOverlayState()
@@ -591,7 +609,21 @@ namespace AniMeido.Plugin.Base.Views
                 return;
             }
 
-            var allSavedTags = await _savedTagService!.GetAllSavedTagsAsync();
+            List<string> allSavedTags;
+            try
+            {
+                allSavedTags = await _savedTagService!.GetAllSavedTagsAsync();
+            }
+            catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException
+                or IOException
+                or UnauthorizedAccessException
+                or InvalidOperationException)
+            {
+                allSavedTags = [];
+                ErrorInfoBar.Message = $"收藏标签加载失败：{ex.Message}";
+                ErrorInfoBar.IsOpen = true;
+            }
+
             if (cancellationToken.IsCancellationRequested
                 || animeId != _currentAnimeId)
             {
@@ -648,6 +680,7 @@ namespace AniMeido.Plugin.Base.Views
             };
 
             textBlock.Foreground = isSaved ? whiteBrush : unsavedFg;
+            var updateInProgress = false;
 
             // 左键 → 跳转搜索结果页
             border.Tapped += (s, e) =>
@@ -661,10 +694,18 @@ namespace AniMeido.Plugin.Base.Views
             // 右键 → 切换收藏状态
             border.RightTapped += async (s, e) =>
             {
-                if (s is Border b && b.Tag is string name)
+                e.Handled = true;
+                if (updateInProgress
+                    || s is not Border b
+                    || b.Tag is not string name)
+                {
+                    return;
+                }
+
+                updateInProgress = true;
+                try
                 {
                     var isCurrentlySaved = _savedTagNames.Contains(name);
-
                     if (isCurrentlySaved)
                     {
                         await _savedTagService!.RemoveTagAsync(name);
@@ -681,6 +722,18 @@ namespace AniMeido.Plugin.Base.Views
                         if (b.Child is TextBlock tb)
                             tb.Foreground = whiteBrush;
                     }
+                }
+                catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException
+                    or IOException
+                    or UnauthorizedAccessException
+                    or InvalidOperationException)
+                {
+                    ErrorInfoBar.Message = $"收藏标签更新失败：{ex.Message}";
+                    ErrorInfoBar.IsOpen = true;
+                }
+                finally
+                {
+                    updateInProgress = false;
                 }
             };
 
