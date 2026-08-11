@@ -96,6 +96,8 @@ public sealed partial class TodayPage : Page, INavigationAware
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _loadCancellation?.Cancel();
+        _loadCancellation?.Dispose();
+        _loadCancellation = null;
         if (!_isPlaybackAvailabilitySubscribed)
         {
             return;
@@ -109,11 +111,11 @@ public sealed partial class TodayPage : Page, INavigationAware
     private void OnPlaybackAvailabilityChanged(
         object? sender,
         EventArgs e)
-        => DispatcherQueue.TryEnqueue(async () =>
+        => DispatcherQueue.TryEnqueue(() =>
         {
             ViewModel.IsPlaybackAvailable =
                 _playbackLauncher.IsAvailable;
-            await ReloadAsync();
+            _ = ReloadSafelyAsync();
         });
 
     public async Task OnNavigatedToAsync(object? parameter)
@@ -131,7 +133,24 @@ public sealed partial class TodayPage : Page, INavigationAware
     }
 
     private async void OnRefreshClick(object sender, RoutedEventArgs e)
-        => await ReloadAsync();
+        => await ReloadSafelyAsync();
+
+    private async Task ReloadSafelyAsync()
+    {
+        try
+        {
+            await ReloadAsync();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+#pragma warning disable CA1031 // UI 事件边界将恢复性错误转换为页面提示。
+        catch (Exception ex)
+        {
+            ShowNotification($"今天页刷新失败：{ex.Message}");
+        }
+#pragma warning restore CA1031
+    }
 
     private async Task ReloadAsync()
     {
@@ -262,7 +281,7 @@ public sealed partial class TodayPage : Page, INavigationAware
         {
             await _reminders.RescheduleAnimeAsync(updated);
         }
-        await ViewModel.LoadAsync();
+        await ReloadSafelyAsync();
     }
 
     private async void OnAddReminderClick(
@@ -365,7 +384,7 @@ public sealed partial class TodayPage : Page, INavigationAware
         }
 
         await _actionCenter.StartPlanAsync(entry.Plan.AnimeId);
-        await ViewModel.LoadAsync();
+        await ReloadSafelyAsync();
     }
 
     private async void OnManageRemindersClick(
@@ -410,7 +429,7 @@ public sealed partial class TodayPage : Page, INavigationAware
             && list.SelectedItem is ReminderChoice choice)
         {
             await _reminders.RemoveReminderAsync(choice.Reminder);
-            await ViewModel.LoadAsync();
+            await ReloadSafelyAsync();
         }
     }
 

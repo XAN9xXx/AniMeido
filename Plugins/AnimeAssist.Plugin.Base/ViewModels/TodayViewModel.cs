@@ -95,6 +95,7 @@ public partial class TodayViewModel : ObservableObject
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
         var loadVersion = Interlocked.Increment(ref _loadVersion);
+        OnPropertyChanged(nameof(TodayLabel));
         IsLoading = true;
         ErrorMessage = null;
         try
