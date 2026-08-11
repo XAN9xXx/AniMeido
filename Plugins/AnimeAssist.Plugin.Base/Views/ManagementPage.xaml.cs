@@ -15,6 +15,7 @@ namespace AniMeido.Plugin.Base.Views
         private readonly IPluginNavigator _pluginNavigator;
         private readonly ObservableCollection<SearchResult> _searchResults = [];
         private CancellationTokenSource? _searchCancellation;
+        private CancellationTokenSource? _sectionCancellation;
         private int _searchVersion;
         private bool _tagMode;
 
@@ -98,7 +99,12 @@ namespace AniMeido.Plugin.Base.Views
             SearchResultPanel.Visibility = Visibility.Collapsed;
             TagPanel.Visibility = Visibility.Collapsed;
             StatusPanel.Visibility = Visibility.Visible;
-            await ViewModel.SelectSectionAsync(section);
+            _sectionCancellation?.Cancel();
+            _sectionCancellation?.Dispose();
+            _sectionCancellation = new CancellationTokenSource();
+            await ViewModel.SelectSectionAsync(
+                section,
+                _sectionCancellation.Token);
         }
 
         private void OnTagNavigationClick(object sender, RoutedEventArgs e)
@@ -233,6 +239,10 @@ namespace AniMeido.Plugin.Base.Views
         private void OnPageUnloaded(object sender, RoutedEventArgs e)
         {
             Interlocked.Increment(ref _searchVersion);
+            _sectionCancellation?.Cancel();
+            _sectionCancellation?.Dispose();
+            _sectionCancellation = null;
+            ViewModel.CancelPendingLoads();
             _searchCancellation?.Cancel();
             _searchCancellation?.Dispose();
             _searchCancellation = null;

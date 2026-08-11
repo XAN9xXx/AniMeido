@@ -303,6 +303,8 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+                    <TextBlock Text="{x:Bind ViewModel.TagResultSummary, Mode=OneWay}"
+                               Foreground="{ThemeResource AniMeidoMutedTextBrush}"/>
                     <ItemsControl ItemsSource="{x:Bind ViewModel.TagAnimeList, Mode=OneWay}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="contracts:Anime">

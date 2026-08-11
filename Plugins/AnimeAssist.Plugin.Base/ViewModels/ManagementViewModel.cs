@@ -20,6 +20,11 @@ namespace AniMeido.Plugin.Base.ViewModels
         private readonly Dictionary<AnimeTrackingStatus, IReadOnlyList<int>>
             _statusIdsCache = [];
         private readonly HashSet<AnimeTrackingStatus> _loadedSections = [];
+        private CancellationTokenSource? _sectionCancellation;
+        private CancellationTokenSource? _tagCancellation;
+        private int _loadVersion;
+        private int _sectionLoadVersion;
+        private int _tagLoadVersion;
 
         [ObservableProperty]
         private TrackingStatusSection _selectedSection = null!;
@@ -45,6 +50,9 @@ namespace AniMeido.Plugin.Base.ViewModels
         [ObservableProperty]
         private bool _hasTags;
 
+        [ObservableProperty]
+        private string? _tagResultSummary;
+
         public ObservableCollection<TrackingStatusSection> StatusSections { get; }
 
         public ManagementViewModel(
@@ -65,6 +73,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         [RelayCommand]
         private async Task LoadDataAsync(CancellationToken cancellationToken = default)
         {
+            var loadVersion = Interlocked.Increment(ref _loadVersion);
             IsLoading = true;
             ClearError();
             _loadedSections.Clear();
@@ -80,6 +89,11 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 var idsByStatus =
                     await _trackingService.GetAnimeIdsGroupedByStatusAsync();
+                if (loadVersion != _loadVersion
+                    || cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
                 foreach (var section in StatusSections)
                 {
                     var ids = idsByStatus.GetValueOrDefault(section.Status) ?? [];
@@ -87,7 +101,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                     section.Count = ids.Count;
                 }
 
-                await LoadSectionCoreAsync(
+                await SelectSectionAsync(
                     SelectedSection,
                     cancellationToken);
             }
@@ -98,7 +112,10 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
             finally
             {
-                IsLoading = false;
+                if (loadVersion == _loadVersion)
+                {
+                    IsLoading = false;
+                }
             }
         }
 
@@ -106,6 +123,13 @@ namespace AniMeido.Plugin.Base.ViewModels
             TrackingStatusSection section,
             CancellationToken cancellationToken = default)
         {
+            _sectionCancellation?.Cancel();
+            _sectionCancellation?.Dispose();
+            _sectionCancellation = CancellationTokenSource
+                .CreateLinkedTokenSource(cancellationToken);
+            var sectionToken = _sectionCancellation.Token;
+            var sectionLoadVersion = Interlocked.Increment(
+                ref _sectionLoadVersion);
             SelectedSection = section;
             if (_loadedSections.Contains(section.Status))
             {
@@ -116,45 +140,53 @@ namespace AniMeido.Plugin.Base.ViewModels
             ClearError();
             try
             {
-                await LoadSectionCoreAsync(section, cancellationToken);
+                var details = await LoadSectionDetailsAsync(
+                    section,
+                    sectionToken);
+                if (sectionLoadVersion != _sectionLoadVersion
+                    || sectionToken.IsCancellationRequested)
+                {
+                    return;
+                }
+                section.Items.Clear();
+                foreach (var anime in details)
+                {
+                    section.Items.Add(anime);
+                }
+                _loadedSections.Add(section.Status);
             }
             catch (Exception ex) when (HandleLoadException(
                 ex,
-                cancellationToken))
+                sectionToken))
             {
             }
             finally
             {
-                IsLoading = false;
+                if (sectionLoadVersion == _sectionLoadVersion)
+                {
+                    IsLoading = false;
+                }
             }
         }
 
-        private async Task LoadSectionCoreAsync(
+        private async Task<IReadOnlyList<Anime>> LoadSectionDetailsAsync(
             TrackingStatusSection section,
             CancellationToken cancellationToken)
         {
             if (_loadedSections.Contains(section.Status))
             {
-                return;
+                return section.Items.ToList();
             }
 
             if (!_statusIdsCache.TryGetValue(section.Status, out var ids) ||
                 ids.Count == 0)
             {
-                _loadedSections.Add(section.Status);
-                return;
+                return [];
             }
 
-            var details = await LoadAnimeDetailsConcurrentAsync(
+            return await LoadAnimeDetailsConcurrentAsync(
                 ids,
                 cancellationToken);
-            section.Items.Clear();
-            foreach (var anime in details)
-            {
-                section.Items.Add(anime);
-            }
-
-            _loadedSections.Add(section.Status);
         }
 
         [RelayCommand]
@@ -184,13 +216,15 @@ namespace AniMeido.Plugin.Base.ViewModels
         }
 
         [RelayCommand]
-        private async Task LoadTagsAsync()
+        private async Task LoadTagsAsync(
+            CancellationToken cancellationToken = default)
         {
             IsTagLoading = true;
             ClearError();
             try
             {
                 var tags = await _savedTagService.GetAllSavedTagsAsync();
+                cancellationToken.ThrowIfCancellationRequested();
                 TagList.Clear();
                 foreach (var name in tags)
                 {
@@ -199,6 +233,12 @@ namespace AniMeido.Plugin.Base.ViewModels
 
                 HasTags = TagList.Count > 0;
                 TagAnimeList.Clear();
+                TagResultSummary = null;
+            }
+            catch (Exception ex) when (HandleLoadException(
+                ex,
+                cancellationToken))
+            {
             }
             finally
             {
@@ -207,8 +247,16 @@ namespace AniMeido.Plugin.Base.ViewModels
         }
 
         [RelayCommand]
-        private async Task ToggleTagAsync(TagItem tag)
+        private async Task ToggleTagAsync(
+            TagItem tag,
+            CancellationToken cancellationToken = default)
         {
+            _tagCancellation?.Cancel();
+            _tagCancellation?.Dispose();
+            _tagCancellation = CancellationTokenSource
+                .CreateLinkedTokenSource(cancellationToken);
+            var tagToken = _tagCancellation.Token;
+            var tagLoadVersion = Interlocked.Increment(ref _tagLoadVersion);
             for (var i = TagList.Count - 1; i >= 0; i--)
             {
                 var item = TagList[i];
@@ -231,6 +279,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             if (!expanded)
             {
                 TagAnimeList.Clear();
+                TagResultSummary = null;
                 return;
             }
 
@@ -238,34 +287,50 @@ namespace AniMeido.Plugin.Base.ViewModels
             try
             {
                 TagAnimeList.Clear();
-                var (results, _) = await _animeDataSource.SearchByTagAsync(
+                var (results, total) = await _animeDataSource.SearchByTagAsync(
                     tag.TagName,
                     0,
                     "rank",
-                    CancellationToken.None);
+                    tagToken);
                 var blocked =
                     await _trackingService.GetBlockedAnimeIdsAsync();
+                var currentIndex = FindTagIndex(tag.TagName);
+                if (tagLoadVersion != _tagLoadVersion
+                    || tagToken.IsCancellationRequested
+                    || currentIndex < 0
+                    || !TagList[currentIndex].IsExpanded)
+                {
+                    return;
+                }
+                TagAnimeList.Clear();
                 foreach (var anime in results
                     .Where(item => !blocked.Contains(item.ID))
                     .Take(20))
                 {
                     TagAnimeList.Add(anime);
                 }
+                TagResultSummary = total > TagAnimeList.Count
+                    ? $"显示前 {TagAnimeList.Count} 部，共 {total} 部"
+                    : $"共 {TagAnimeList.Count} 部";
             }
             catch (Exception ex) when (HandleLoadException(
                 ex,
-                CancellationToken.None))
+                tagToken))
             {
             }
             finally
             {
-                IsTagLoading = false;
+                if (tagLoadVersion == _tagLoadVersion)
+                {
+                    IsTagLoading = false;
+                }
             }
         }
 
         [RelayCommand]
         private async Task DeleteTagAsync(TagItem tag)
         {
+            await _savedTagService.RemoveTagAsync(tag.TagName);
             var index = FindTagIndex(tag.TagName);
             if (index >= 0)
             {
@@ -273,8 +338,24 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
 
             TagAnimeList.Clear();
+            TagResultSummary = null;
             HasTags = TagList.Count > 0;
-            await _savedTagService.RemoveTagAsync(tag.TagName);
+        }
+
+        public void CancelPendingLoads()
+        {
+            Interlocked.Increment(ref _loadVersion);
+            Interlocked.Increment(ref _sectionLoadVersion);
+            Interlocked.Increment(ref _tagLoadVersion);
+            _sectionCancellation?.Cancel();
+            _sectionCancellation?.Dispose();
+            _sectionCancellation = null;
+            _tagCancellation?.Cancel();
+            _tagCancellation?.Dispose();
+            _tagCancellation = null;
+            LoadDataCommand.Cancel();
+            LoadTagsCommand.Cancel();
+            ToggleTagCommand.Cancel();
         }
 
         private int FindTagIndex(string tagName)
@@ -296,7 +377,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         {
             switch (exception)
             {
-                case TaskCanceledException
+                case OperationCanceledException
                     when cancellationToken.IsCancellationRequested:
                     return true;
                 case TaskCanceledException:
