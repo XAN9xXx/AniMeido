@@ -119,5 +119,10 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         private bool IsCurrentLoad(int version, CancellationToken ct) =>
             version == Volatile.Read(ref _loadVersion) && !ct.IsCancellationRequested;
+
+        internal void ReplaceVisibleAnime(IEnumerable<Anime> anime)
+        {
+            AnimeList = new ObservableCollection<Anime>(anime);
+        }
     }
 }

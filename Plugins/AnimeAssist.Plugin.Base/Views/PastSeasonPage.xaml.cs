@@ -58,19 +58,6 @@ namespace AniMeido.Plugin.Base.Views
                     case nameof(PastSeasonViewModel.HasData):
                         UpdateViewState();
                         break;
-
-                    case nameof(PastSeasonViewModel.TotalCount):
-                        if (ViewModel.TotalCount > 0)
-                        {
-                            StatsCard.Visibility = Visibility.Visible;
-                            TotalCountText.Text = ViewModel.TotalCount.ToString();
-                            FilterCard.Visibility = Visibility.Visible;
-                        }
-                        else
-                        {
-                            StatsCard.Visibility = Visibility.Collapsed;
-                        }
-                        break;
                 }
             };
 
@@ -88,9 +75,12 @@ namespace AniMeido.Plugin.Base.Views
             else
             {
                 ErrorInfoBar.IsOpen = false;
-                EmptyState.Visibility = !ViewModel.IsLoading && !ViewModel.HasData
+                EmptyState.Visibility = !ViewModel.IsLoading && ViewModel.AnimeList.Count == 0
                     ? Visibility.Visible
                     : Visibility.Collapsed;
+                EmptyStateText.Text = ViewModel.HasData
+                    ? "没有符合当前筛选条件的动画"
+                    : "该季度暂无番剧数据";
             }
         }
 
@@ -251,6 +241,11 @@ namespace AniMeido.Plugin.Base.Views
             LoadingRing.Visibility = Visibility.Visible;
             LoadingFailedImage.Visibility = Visibility.Collapsed;
             LoadingHint.Text = "加载中…";
+            SetFilterControlsEnabled(false);
+            _allAnime.Clear();
+            ViewModel.ReplaceVisibleAnime([]);
+            StatsCard.Visibility = Visibility.Collapsed;
+            FilterCard.Visibility = Visibility.Collapsed;
 
             // 取消上一轮请求
             _loadCts?.Cancel();
@@ -274,11 +269,18 @@ namespace AniMeido.Plugin.Base.Views
             _allAnime.Clear();
             _allAnime.AddRange(ViewModel.LoadedAnime);
             ApplyFilter(FilterBox.Text);
+            FilterCard.Visibility = ViewModel.HasData
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            StatsCard.Visibility = ViewModel.HasData
+                ? Visibility.Visible
+                : Visibility.Collapsed;
             UpdateViewState();
 
             // 数据加载完成，隐藏覆盖层
             LoadingOverlay.Visibility = Visibility.Collapsed;
             LoadingRing.IsActive = false;
+            SetFilterControlsEnabled(true);
         }
 
         private async void OnYearSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -326,6 +328,7 @@ namespace AniMeido.Plugin.Base.Views
                 ErrorInfoBar.IsOpen = true;
                 LoadingOverlay.Visibility = Visibility.Collapsed;
                 LoadingRing.IsActive = false;
+                SetFilterControlsEnabled(true);
             }
 #pragma warning restore CA1031
         }
@@ -433,11 +436,16 @@ namespace AniMeido.Plugin.Base.Views
                     .Where(anime => anime.MediaFormat == format)
                     .ToArray();
             }
-            ViewModel.AnimeList.Clear();
-            foreach (var anime in filtered)
-            {
-                ViewModel.AnimeList.Add(anime);
-            }
+            ViewModel.ReplaceVisibleAnime(filtered);
+            TotalCountText.Text = filtered.Count.ToString();
+            UpdateViewState();
+        }
+
+        private void SetFilterControlsEnabled(bool enabled)
+        {
+            FilterBox.IsEnabled = enabled;
+            MediaFormatComboBox.IsEnabled = enabled;
+            RefreshButton.IsEnabled = enabled;
         }
     }
 }

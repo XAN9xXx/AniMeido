@@ -97,7 +97,7 @@
                         Visibility="Collapsed">
                     <StackPanel Orientation="Horizontal"
                                 Spacing="6">
-                        <TextBlock Text="本季度共"
+                        <TextBlock Text="当前显示"
                                    FontSize="14"
                                    VerticalAlignment="Center"/>
                         <TextBlock x:Name="TotalCountText"
@@ -118,7 +118,8 @@
                             Margin="0,40,0,0">
                     <FontIcon Glyph="&#xE11A;"
                               Style="{StaticResource AniMeidoEmptyStateIconStyle}"/>
-                    <TextBlock Text="该季度暂无番剧数据"
+                    <TextBlock x:Name="EmptyStateText"
+                               Text="该季度暂无番剧数据"
                                FontWeight="SemiBold"
                                HorizontalAlignment="Center"
                                Margin="0,12,0,0"/>
