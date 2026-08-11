@@ -6,7 +6,6 @@ using AniMeido.Plugin.Base.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
 
 namespace AniMeido.Plugin.Base.Views
 {
@@ -113,7 +112,7 @@ namespace AniMeido.Plugin.Base.Views
         {
             if (ViewModel.IsError)
             {
-                await LoadSelectedSeasonAsync();
+                await LoadSelectedSeasonSafelyAsync();
             }
         }
 
@@ -157,12 +156,6 @@ namespace AniMeido.Plugin.Base.Views
             YearComboBox.SelectionChanged += OnYearSelectionChanged;
             SeasonComboBox.SelectionChanged += OnSeasonSelectionChanged;
 
-            // 触发初始加载
-            if (YearComboBox.SelectedItem is int year &&
-                SeasonComboBox.SelectedItem is ComboBoxItem item && item.Tag is Season season)
-            {
-                _ = LoadSeasonAsync(year, season);
-            }
         }
 
         internal static (int Year, Season Season) GetLatestCompletedSeason(
@@ -291,7 +284,7 @@ namespace AniMeido.Plugin.Base.Views
             // 年份变更后立即加载新季度数据
             if (SeasonComboBox.SelectedItem is ComboBoxItem item && item.Tag is Season season)
             {
-                await LoadSeasonAsync(year, season);
+                await LoadSeasonSafelyAsync(year, season);
             }
         }
 
@@ -301,25 +294,50 @@ namespace AniMeido.Plugin.Base.Views
             if (_isRebuilding) return;
             if (YearComboBox.SelectedItem is not int year) return;
             if (SeasonComboBox.SelectedItem is not ComboBoxItem item || item.Tag is not Season season) return;
-            await LoadSeasonAsync(year, season);
+            await LoadSeasonSafelyAsync(year, season);
         }
 
-        private Task LoadSelectedSeasonAsync(bool forceRefresh = false)
+        private Task LoadSelectedSeasonSafelyAsync(bool forceRefresh = false)
         {
-            if (YearComboBox.SelectedItem is int year &&
-                SeasonComboBox.SelectedItem is ComboBoxItem { Tag: Season season })
+            if (YearComboBox.SelectedItem is int year
+                && SeasonComboBox.SelectedItem is ComboBoxItem
+                    { Tag: Season season })
             {
-                return LoadSeasonAsync(year, season, forceRefresh);
+                return LoadSeasonSafelyAsync(year, season, forceRefresh);
             }
 
             return Task.CompletedTask;
+        }
+
+        private async Task LoadSeasonSafelyAsync(
+            int year,
+            Season season,
+            bool forceRefresh = false)
+        {
+            try
+            {
+                await LoadSeasonAsync(year, season, forceRefresh);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+#pragma warning disable CA1031 // UI 事件边界统一显示加载失败，避免 async void 终止进程。
+            catch (Exception ex)
+            {
+                ErrorInfoBar.Message = $"加载失败：{ex.Message}";
+                ErrorInfoBar.IsOpen = true;
+                LoadingOverlay.Visibility = Visibility.Collapsed;
+                LoadingRing.IsActive = false;
+                SetFilterControlsEnabled(true);
+            }
+#pragma warning restore CA1031
         }
 
         private async void OnRefreshClick(object sender, RoutedEventArgs e)
         {
             try
             {
-                await LoadSelectedSeasonAsync(forceRefresh: true);
+                await LoadSelectedSeasonSafelyAsync(forceRefresh: true);
             }
 #pragma warning disable CA1031 // UI 边界统一显示刷新失败，避免异常终止进程
             catch (Exception ex)
@@ -379,9 +397,9 @@ namespace AniMeido.Plugin.Base.Views
 
             // 返回已缓存页面时重新读取屏蔽状态，移除刚屏蔽的条目。
             _ = LoadDragConfigAndBlockedAsync();
-            if (ViewModel.IsLoading)
+            if (!ViewModel.IsLoading && _allAnime.Count == 0)
             {
-                _ = LoadSelectedSeasonAsync();
+                _ = LoadSelectedSeasonSafelyAsync();
             }
         }
 
@@ -393,20 +411,6 @@ namespace AniMeido.Plugin.Base.Views
             _loadCts?.Cancel();
             _loadCts?.Dispose();
             _loadCts = null;
-        }
-
-
-        private static T? FindChild<T>(DependencyObject parent) where T : DependencyObject
-        {
-            int count = VisualTreeHelper.GetChildrenCount(parent);
-            for (int i = 0; i < count; i++)
-            {
-                var child = VisualTreeHelper.GetChild(parent, i);
-                if (child is T typed) return typed;
-                var result = FindChild<T>(child);
-                if (result != null) return result;
-            }
-            return null;
         }
 
         // ======== 即时过滤 ========

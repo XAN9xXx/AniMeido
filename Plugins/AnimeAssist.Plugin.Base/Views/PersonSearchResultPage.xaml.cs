@@ -105,15 +105,18 @@ namespace AniMeido.Plugin.Base.Views
             }
             catch (HttpRequestException ex)
             {
-                ResultCount.Text = $"加载失败：{ex.Message}";
+                if (IsCurrentLoad(loadVersion, cancellationToken))
+                    ResultCount.Text = $"加载失败：{ex.Message}";
             }
             catch (BangumiApiException ex)
             {
-                ResultCount.Text = $"数据源请求失败：{ex.Message}";
+                if (IsCurrentLoad(loadVersion, cancellationToken))
+                    ResultCount.Text = $"数据源请求失败：{ex.Message}";
             }
             catch (JsonException ex)
             {
-                ResultCount.Text = $"数据解析失败：{ex.Message}";
+                if (IsCurrentLoad(loadVersion, cancellationToken))
+                    ResultCount.Text = $"数据解析失败：{ex.Message}";
             }
             finally
             {
@@ -187,14 +190,24 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task RemoveBlockedResultsAsync()
         {
+            var loadVersion = _loadVersion;
             try
             {
                 var blocked = await _tracking.GetBlockedAnimeIdsAsync();
+                if (loadVersion != _loadVersion)
+                {
+                    return;
+                }
+
                 for (var index = _results.Count - 1; index >= 0; index--)
                 {
                     if (blocked.Contains(_results[index].ID))
                         _results.RemoveAt(index);
                 }
+
+                ResultCount.Text = _results.Count == 0
+                    ? "未找到相关作品"
+                    : $"显示 {_results.Count} 部作品";
             }
 #pragma warning disable CA1031 // 可见性刷新失败不应清空已有结果
             catch (Exception ex)
