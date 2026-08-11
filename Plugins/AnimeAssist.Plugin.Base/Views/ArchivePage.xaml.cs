@@ -23,6 +23,12 @@ public sealed partial class ArchivePage : Page, INavigationAware
     private ArchiveListItem? _selectedArchive;
     private string? _requestedScreenshotId;
     private int? _requestedAnimeId;
+    private CancellationTokenSource? _loadCancellation;
+    private CancellationTokenSource? _selectionCancellation;
+    private CancellationTokenSource? _reviewCancellation;
+    private int _loadVersion;
+    private int _selectionVersion;
+    private int _reviewVersion;
 
     public ArchivePage(
         ArchiveService archive,
@@ -36,6 +42,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         StatusFilter.SelectedIndex = 0;
         ReviewYear.Value = DateTime.Now.Year;
         ShowPanel("archives");
+        Unloaded += OnPageUnloaded;
     }
 
     private void OnScreenshotImageLoaded(object sender, RoutedEventArgs e)
@@ -89,41 +96,88 @@ public sealed partial class ArchivePage : Page, INavigationAware
 
     private async Task LoadAsync()
     {
+        _loadCancellation?.Cancel();
+        _loadCancellation?.Dispose();
+        _loadCancellation = new CancellationTokenSource();
+        var cancellationToken = _loadCancellation.Token;
+        var loadVersion = Interlocked.Increment(ref _loadVersion);
         try
         {
             await Task.WhenAll(
-                ReloadArchivesAsync(),
-                ReloadScreenshotsAsync(),
-                LoadStatisticsAsync());
-            StatusInfoBar.IsOpen = false;
+                ReloadArchivesAsync(loadVersion, cancellationToken),
+                ReloadScreenshotsAsync(loadVersion, cancellationToken),
+                LoadStatisticsAsync(loadVersion, cancellationToken),
+                LoadReviewAsync(cancellationToken));
+            if (loadVersion == _loadVersion)
+            {
+                StatusInfoBar.IsOpen = false;
+            }
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
         }
         catch (Exception ex) when (
             ex is InvalidOperationException
                 or IOException
                 or Microsoft.Data.Sqlite.SqliteException)
         {
-            ShowStatus(ex.Message, InfoBarSeverity.Error);
+            if (loadVersion == _loadVersion)
+            {
+                ShowStatus(ex.Message, InfoBarSeverity.Error);
+            }
         }
     }
 
-    private async Task ReloadArchivesAsync()
+    private async Task ReloadArchivesAsync(
+        int loadVersion,
+        CancellationToken cancellationToken)
     {
-        _allArchives = await _archive.GetArchiveListAsync();
+        var archives = await _archive.GetArchiveListAsync(cancellationToken);
+        if (loadVersion != _loadVersion)
+        {
+            return;
+        }
+        _allArchives = archives;
         ApplyArchiveFilter();
+    }
+
+    private Task ReloadArchivesAsync()
+        => ReloadArchivesAsync(_loadVersion, CancellationToken.None);
+
+    private async Task LoadStatisticsAsync(
+        int loadVersion,
+        CancellationToken cancellationToken)
+    {
+        var statistics = await _archive.GetStatisticsAsync(
+            cancellationToken: cancellationToken);
+        if (loadVersion != _loadVersion)
+        {
+            return;
+        }
+        StatisticsText.Text = FormatStatistics(statistics);
     }
 
     private async Task LoadStatisticsAsync()
     {
-        var statistics = await _archive.GetStatisticsAsync();
-        StatisticsText.Text = FormatStatistics(statistics);
-        await LoadReviewAsync();
+        var loadVersion = _loadVersion;
+        await Task.WhenAll(
+            LoadStatisticsAsync(loadVersion, CancellationToken.None),
+            LoadReviewAsync());
     }
 
-    private async Task ReloadScreenshotsAsync()
+    private async Task ReloadScreenshotsAsync(
+        int loadVersion,
+        CancellationToken cancellationToken)
     {
-        var screenshotsTask = _archive.GetScreenshotsAsync();
-        var tagsTask = _archive.GetAllScreenshotTagsAsync();
+        var screenshotsTask = _archive.GetScreenshotsAsync(
+            cancellationToken: cancellationToken);
+        var tagsTask = _archive.GetAllScreenshotTagsAsync(cancellationToken);
         await Task.WhenAll(screenshotsTask, tagsTask);
+        if (loadVersion != _loadVersion)
+        {
+            return;
+        }
         _allScreenshots = await screenshotsTask;
         var tagsByScreenshot = await tagsTask;
         _screenshotTags.Clear();
@@ -136,6 +190,9 @@ public sealed partial class ArchivePage : Page, INavigationAware
 
         ApplyScreenshotFilter();
     }
+
+    private Task ReloadScreenshotsAsync()
+        => ReloadScreenshotsAsync(_loadVersion, CancellationToken.None);
 
     private void ApplyScreenshotFilter()
     {
@@ -175,13 +232,32 @@ public sealed partial class ArchivePage : Page, INavigationAware
         NumberBoxValueChangedEventArgs args)
         => ApplyScreenshotFilter();
 
-    private async Task LoadReviewAsync()
+    private async Task LoadReviewAsync(
+        CancellationToken parentCancellationToken = default)
     {
+        _reviewCancellation?.Cancel();
+        _reviewCancellation?.Dispose();
+        _reviewCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            parentCancellationToken);
+        var cancellationToken = _reviewCancellation.Token;
+        var reviewVersion = Interlocked.Increment(ref _reviewVersion);
         var year = double.IsNaN(ReviewYear.Value)
             ? DateTime.Now.Year
             : (int)ReviewYear.Value;
-        var statistics = await _archive.GetStatisticsAsync(year);
-        ReviewText.Text = FormatStatistics(statistics);
+        try
+        {
+            var statistics = await _archive.GetStatisticsAsync(
+                year,
+                cancellationToken);
+            if (reviewVersion == _reviewVersion)
+            {
+                ReviewText.Text = FormatStatistics(statistics);
+            }
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+        }
     }
 
     private static string FormatStatistics(ArchiveStatistics statistics)
@@ -291,8 +367,14 @@ public sealed partial class ArchivePage : Page, INavigationAware
         object sender,
         SelectionChangedEventArgs e)
     {
-        _selectedArchive = ArchiveList.SelectedItem as ArchiveListItem;
-        if (_selectedArchive is null)
+        _selectionCancellation?.Cancel();
+        _selectionCancellation?.Dispose();
+        _selectionCancellation = new CancellationTokenSource();
+        var cancellationToken = _selectionCancellation.Token;
+        var selectionVersion = Interlocked.Increment(ref _selectionVersion);
+        var selectedArchive = ArchiveList.SelectedItem as ArchiveListItem;
+        _selectedArchive = selectedArchive;
+        if (selectedArchive is null)
         {
             ArchiveSelectionEmptyState.Visibility = Visibility.Visible;
             ArchiveDetailPanel.Visibility = Visibility.Collapsed;
@@ -304,16 +386,34 @@ public sealed partial class ArchivePage : Page, INavigationAware
 
         ArchiveSelectionEmptyState.Visibility = Visibility.Collapsed;
         ArchiveDetailPanel.Visibility = Visibility.Visible;
-        ArchiveTitle.Text = _selectedArchive.Archive.TitleSnapshot;
+        ArchiveTitle.Text = selectedArchive.Archive.TitleSnapshot;
         RatingBox.Value =
-            _selectedArchive.Archive.PersonalRating ?? double.NaN;
-        SummaryBox.Text = _selectedArchive.Archive.SummaryNote;
-        TagsBox.Text = string.Join(", ", _selectedArchive.Tags);
-        EntryList.ItemsSource = await _archive.GetEntriesAsync(
-            _selectedArchive.Archive.AnimeId);
-        WatchHistoryList.ItemsSource = await _archive.GetWatchHistoryAsync(
-            _selectedArchive.Archive.AnimeId);
-        UpdateEntryActions();
+            selectedArchive.Archive.PersonalRating ?? double.NaN;
+        SummaryBox.Text = selectedArchive.Archive.SummaryNote;
+        TagsBox.Text = string.Join(", ", selectedArchive.Tags);
+        try
+        {
+            var entriesTask = _archive.GetEntriesAsync(
+                selectedArchive.Archive.AnimeId,
+                cancellationToken);
+            var historyTask = _archive.GetWatchHistoryAsync(
+                selectedArchive.Archive.AnimeId,
+                cancellationToken);
+            await Task.WhenAll(entriesTask, historyTask);
+            if (selectionVersion != _selectionVersion
+                || _selectedArchive?.Archive.AnimeId
+                    != selectedArchive.Archive.AnimeId)
+            {
+                return;
+            }
+            EntryList.ItemsSource = await entriesTask;
+            WatchHistoryList.ItemsSource = await historyTask;
+            UpdateEntryActions();
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+        }
     }
 
     private async void OnSaveArchiveClick(
@@ -597,6 +697,22 @@ public sealed partial class ArchivePage : Page, INavigationAware
         NumberBox sender,
         NumberBoxValueChangedEventArgs args)
         => await LoadReviewAsync();
+
+    private void OnPageUnloaded(object sender, RoutedEventArgs e)
+    {
+        Interlocked.Increment(ref _loadVersion);
+        Interlocked.Increment(ref _selectionVersion);
+        Interlocked.Increment(ref _reviewVersion);
+        _loadCancellation?.Cancel();
+        _loadCancellation?.Dispose();
+        _loadCancellation = null;
+        _selectionCancellation?.Cancel();
+        _selectionCancellation?.Dispose();
+        _selectionCancellation = null;
+        _reviewCancellation?.Cancel();
+        _reviewCancellation?.Dispose();
+        _reviewCancellation = null;
+    }
 
     private async void OnExportReviewClick(
         object sender,
