@@ -422,17 +422,12 @@ namespace AniMeido.Plugin.Base.Services
                 var cacheGeneration = _cacheService.CaptureGeneration();
                 var (airDateFrom, airDateTo) = GetSeasonDateRange(year, season);
                 var searchResult = await SearchBySeasonAsync(year, season, airDateFrom, airDateTo, ct);
-                if (searchResult.Count > 0)
-                {
-                    await _cacheService.SetCacheAsync(
-                        cacheKey,
-                        JsonSerializer.Serialize(searchResult, JsonOptions),
-                        TimeSpan.FromHours(12),
-                        cacheGeneration);
-                    return searchResult;
-                }
-
-                return [];
+                await _cacheService.SetCacheAsync(
+                    cacheKey,
+                    JsonSerializer.Serialize(searchResult, JsonOptions),
+                    TimeSpan.FromHours(12),
+                    cacheGeneration);
+                return searchResult;
             }
 #pragma warning disable CA1031 // 网络异常应使用 stale cache 降级
             catch (Exception ex) when (
@@ -585,7 +580,7 @@ namespace AniMeido.Plugin.Base.Services
                 }
 
                 offset += result.Data.Count;
-                if (offset >= result.Total || result.Data.Count < SeasonSearchPageSize)
+                if (offset >= result.Total)
                 {
                     break;
                 }
