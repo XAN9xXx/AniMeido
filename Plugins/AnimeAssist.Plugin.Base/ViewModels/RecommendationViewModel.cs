@@ -27,6 +27,7 @@ public partial class RecommendationViewModel : ObservableObject
     ];
 
     private readonly RecommendationService _recommendations;
+    private int _loadGeneration;
     private int _refreshGeneration;
     private int _onboardingTagOffset;
 
@@ -102,6 +103,9 @@ public partial class RecommendationViewModel : ObservableObject
 
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
+        var generation = Interlocked.Increment(ref _loadGeneration);
+        Interlocked.Increment(ref _refreshGeneration);
+        IsRefreshing = false;
         IsBusy = true;
         ClearMessage();
         try
@@ -113,12 +117,22 @@ public partial class RecommendationViewModel : ObservableObject
                 .GetCachedSnapshotAsync(
                     allowExpired: true,
                     cancellationToken);
+            if (!IsCurrentLoad(generation, cancellationToken))
+            {
+                return;
+            }
+
             if (snapshot is not null)
             {
                 ApplySnapshot(snapshot);
             }
 
-            await LoadPersonalDataAsync(cancellationToken);
+            await LoadPersonalDataAsync(generation, cancellationToken);
+            if (!IsCurrentLoad(generation, cancellationToken))
+            {
+                return;
+            }
+
             if (validSnapshot is null)
             {
                 await RefreshAsync(cancellationToken);
@@ -130,11 +144,17 @@ public partial class RecommendationViewModel : ObservableObject
         }
         catch (Exception ex) when (IsExpectedFailure(ex))
         {
-            ShowError($"推荐加载失败：{ex.Message}");
+            if (generation == _loadGeneration)
+            {
+                ShowError($"推荐加载失败：{ex.Message}");
+            }
         }
         finally
         {
-            IsBusy = false;
+            if (generation == _loadGeneration)
+            {
+                IsBusy = false;
+            }
         }
     }
 
@@ -287,9 +307,18 @@ public partial class RecommendationViewModel : ObservableObject
     }
 
     private async Task LoadPersonalDataAsync(
+        int generation,
         CancellationToken cancellationToken)
     {
-        await LoadHiddenAsync(cancellationToken);
+        var hidden = await _recommendations.GetHiddenAnimeAsync(
+            cancellationToken);
+        if (!IsCurrentLoad(generation, cancellationToken))
+        {
+            return;
+        }
+
+        HiddenAnime = new(hidden);
+        OnPropertyChanged(nameof(HasHiddenAnime));
         if (_recommendations.LastProfile.Count > 0)
         {
             Profile = new(_recommendations.LastProfile.OrderByDescending(
@@ -299,6 +328,11 @@ public partial class RecommendationViewModel : ObservableObject
         {
             var preferences = await _recommendations
                 .GetFeaturePreferencesAsync(cancellationToken);
+            if (!IsCurrentLoad(generation, cancellationToken))
+            {
+                return;
+            }
+
             Profile = new(preferences.Select(item =>
                 new RecommendationFeatureProfile(
                     new RecommendationFeature(
@@ -312,6 +346,12 @@ public partial class RecommendationViewModel : ObservableObject
 
         OnPropertyChanged(nameof(IsColdStart));
     }
+
+    private bool IsCurrentLoad(
+        int generation,
+        CancellationToken cancellationToken)
+        => generation == _loadGeneration
+            && !cancellationToken.IsCancellationRequested;
 
     private async Task LoadHiddenAsync(CancellationToken cancellationToken)
     {

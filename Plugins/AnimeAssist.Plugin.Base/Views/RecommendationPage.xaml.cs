@@ -12,6 +12,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
 {
     private readonly IPluginNavigator _navigator;
     private CancellationTokenSource? _navigationCancellation;
+    private bool _isActionRunning;
 
     public RecommendationPage(
         RecommendationService recommendations,
@@ -36,7 +37,11 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
-        => _navigationCancellation?.Cancel();
+    {
+        _navigationCancellation?.Cancel();
+        _navigationCancellation?.Dispose();
+        _navigationCancellation = null;
+    }
 
     private async void OnRefreshClick(object sender, RoutedEventArgs e)
         => await RunActionAsync(() => ViewModel.RefreshAsync(
@@ -292,11 +297,18 @@ public sealed partial class RecommendationPage : Page, INavigationAware
 
     private async Task RunActionAsync(Func<Task> action)
     {
+        if (_isActionRunning)
+        {
+            return;
+        }
+
+        _isActionRunning = true;
+        var cancellationToken = CurrentToken;
         try
         {
             await action();
         }
-        catch (OperationCanceledException) when (CurrentToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
 #pragma warning disable CA1031 // UI 边界将可恢复错误转为页面提示，避免 async void 终止进程。
@@ -305,5 +317,9 @@ public sealed partial class RecommendationPage : Page, INavigationAware
             ViewModel.ReportError(ex.Message);
         }
 #pragma warning restore CA1031
+        finally
+        {
+            _isActionRunning = false;
+        }
     }
 }
