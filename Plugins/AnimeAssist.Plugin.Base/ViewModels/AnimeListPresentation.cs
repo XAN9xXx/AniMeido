@@ -35,6 +35,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 .OrderBy(group => group.Key ?? 99)
                 .Select(group => new WeekdayGroup
                 {
+                    Weekday = group.Key,
                     WeekdayName = GetWeekdayName(group.Key),
                     Items = new ObservableCollection<Anime>(group),
                 })

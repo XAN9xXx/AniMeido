@@ -60,7 +60,8 @@
                             Margin="0,40,0,0">
                     <FontIcon Glyph="&#xE11A;"
                               Style="{StaticResource AniMeidoEmptyStateIconStyle}"/>
-                    <TextBlock Text="当季暂无新番数据"
+                    <TextBlock x:Name="EmptyStateText"
+                               Text="当季暂无新番数据"
                                FontWeight="SemiBold"
                                HorizontalAlignment="Center"
                                Margin="0,12,0,0"/>

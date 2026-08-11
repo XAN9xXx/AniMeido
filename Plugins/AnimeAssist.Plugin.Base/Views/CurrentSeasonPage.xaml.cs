@@ -91,6 +91,13 @@ namespace AniMeido.Plugin.Base.Views
             // 返回已缓存页面时重新读取屏蔽状态，移除刚屏蔽的条目。
             _ = LoadDragConfigAndBlockedAsync();
 
+            if (!ViewModel.LoadSeasonalAnimeCommand.IsRunning
+                && !ViewModel.HasData
+                && !ViewModel.IsError)
+            {
+                ViewModel.LoadSeasonalAnimeCommand.Execute(null);
+            }
+
             if (_hasAutoScrolledOnce)
             {
                 return;
@@ -105,6 +112,7 @@ namespace AniMeido.Plugin.Base.Views
 
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
         {
+            ViewModel.LoadSeasonalAnimeCommand.Cancel();
             _autoScrollCts?.Cancel();
             _autoScrollCts?.Dispose();
             _autoScrollCts = null;
@@ -162,12 +170,19 @@ namespace AniMeido.Plugin.Base.Views
                 // 执行自动跳转
                 if (!_hasAutoScrolledOnce && ViewModel.WeekdayGroups.Count > 0)
                 {
-                    int todayIndex = DateTime.Now.DayOfWeek switch
+                    var today = DateTime.Now.DayOfWeek switch
                     {
-                        DayOfWeek.Sunday => 6,
-                        _ => (int)DateTime.Now.DayOfWeek - 1
+                        DayOfWeek.Sunday => 7,
+                        _ => (int)DateTime.Now.DayOfWeek,
                     };
-                    if (await DelayedScrollToGroupAsync(
+                    var todayIndex = ViewModel.WeekdayGroups
+                        .Select((group, index) => (group, index))
+                        .Where(item => item.group.Weekday == today)
+                        .Select(item => item.index)
+                        .DefaultIfEmpty(-1)
+                        .First();
+                    if (todayIndex >= 0
+                        && await DelayedScrollToGroupAsync(
                             todayIndex,
                             cancellationToken))
                     {
@@ -198,7 +213,12 @@ namespace AniMeido.Plugin.Base.Views
             else
             {
                 ErrorInfoBar.IsOpen = false;
-                EmptyState.Visibility = !ViewModel.IsLoading && !ViewModel.HasData
+                var hasVisibleResults = ViewModel.WeekdayGroups.Count > 0;
+                EmptyStateText.Text = ViewModel.HasData
+                    ? "没有符合当前筛选条件的番剧"
+                    : "当季暂无新番数据";
+                EmptyState.Visibility = !ViewModel.IsLoading
+                    && !hasVisibleResults
                     ? Visibility.Visible
                     : Visibility.Collapsed;
             }
@@ -395,12 +415,12 @@ namespace AniMeido.Plugin.Base.Views
                 _allAnime,
                 titleQuery: query);
             ViewModel.WeekdayGroups.Clear();
-            ViewModel.HasData = filtered.Count > 0;
             foreach (var group in
                 AnimeListPresentation.GroupByWeekday(filtered))
             {
                 ViewModel.WeekdayGroups.Add(group);
             }
+            UpdateViewState();
         }
     }
 }
