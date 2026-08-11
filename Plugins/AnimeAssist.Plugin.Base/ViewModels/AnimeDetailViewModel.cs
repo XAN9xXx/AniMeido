@@ -44,6 +44,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         private int _lastAnimeID;
         private readonly IAnimeDataSource _animeDataSource;
         private readonly TrackingService _trackingService;
+        private int _loadVersion;
 
         public ObservableCollection<TrackingActionDescriptor> TrackingActions
         {
@@ -80,19 +81,30 @@ namespace AniMeido.Plugin.Base.ViewModels
         /// 加载番剧详情页面数据
         /// </summary>
         /// <param name="animeID">番剧的唯一标识符</param>
-        [RelayCommand]
+        [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task LoadDetailAsync(int animeID, CancellationToken ct = default)
         {
+            var loadVersion = Interlocked.Increment(ref _loadVersion);
             IsLoading = true;
             IsError = false;
             ErrorMessage = null;
             HasData = false;
             AnimeDetail = null;
+            StudiosText = null;
+            Characters.Clear();
             _lastAnimeID = animeID;
             try
             {
-                AnimeDetail = await _animeDataSource.GetAnimeDetailAsync(animeID, ct);
-                if (AnimeDetail is null)
+                var animeDetail = await _animeDataSource.GetAnimeDetailAsync(
+                    animeID,
+                    ct);
+                if (!IsCurrentLoad(loadVersion, ct))
+                {
+                    return;
+                }
+
+                AnimeDetail = animeDetail;
+                if (animeDetail is null)
                 {
                     HasData = false;
                     IsError = true;
@@ -105,12 +117,16 @@ namespace AniMeido.Plugin.Base.ViewModels
 
                 // 并行加载 Studio 和角色
                 await Task.WhenAll(
-                    LoadStudiosAsync(animeID),
-                    LoadCharactersAsync(animeID)
+                    LoadStudiosAsync(animeID, loadVersion, ct),
+                    LoadCharactersAsync(animeID, loadVersion, ct)
                 );
+                if (!IsCurrentLoad(loadVersion, ct))
+                {
+                    return;
+                }
 
                 var releasePhase = AnimeReleaseClassifier.Classify(
-                    AnimeDetail,
+                    animeDetail,
                     DateOnly.FromDateTime(DateTime.Today));
                 IsCurrentSeason = releasePhase
                     == AnimeReleasePhase.CurrentSeason;
@@ -118,10 +134,15 @@ namespace AniMeido.Plugin.Base.ViewModels
                 ReleasePhaseText = AnimeReleaseClassifier.GetPhaseText(
                     releasePhase);
                 MediaFormatText = AnimeReleaseClassifier.GetMediaFormatText(
-                    AnimeDetail.MediaFormat);
+                    animeDetail.MediaFormat);
 
                 // 加载详情后查询当前关注状态
                 var status = await _trackingService.GetStatusAsync(animeID);
+                if (!IsCurrentLoad(loadVersion, ct))
+                {
+                    return;
+                }
+
                 CurrentStatus = status ?? AnimeTrackingStatus.None;
             }
             catch (HttpRequestException ex)
@@ -152,7 +173,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
             finally
             {
-                if (!ct.IsCancellationRequested)
+                if (loadVersion == _loadVersion)
                     IsLoading = false;
             }
         }
@@ -209,11 +230,21 @@ namespace AniMeido.Plugin.Base.ViewModels
             OnPropertyChanged(nameof(VisibleTrackingActions));
         }
 
-        private async Task LoadStudiosAsync(int animeID)
+        private async Task LoadStudiosAsync(
+            int animeID,
+            int loadVersion,
+            CancellationToken cancellationToken)
         {
             try
             {
-                var studios = await _animeDataSource.GetStudioAsync(animeID, CancellationToken.None);
+                var studios = await _animeDataSource.GetStudioAsync(
+                    animeID,
+                    cancellationToken);
+                if (!IsCurrentLoad(loadVersion, cancellationToken))
+                {
+                    return;
+                }
+
                 StudiosText = studios.Count > 0
                     ? $"制作/原作：{string.Join("、", studios.Select(s => s.Name))}"
                     : null;
@@ -226,13 +257,27 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 // Studio 解析失败不阻塞详情
             }
+            catch (BangumiApiException)
+            {
+                // Studio 数据源失败不阻塞详情
+            }
         }
 
-        private async Task LoadCharactersAsync(int animeID)
+        private async Task LoadCharactersAsync(
+            int animeID,
+            int loadVersion,
+            CancellationToken cancellationToken)
         {
             try
             {
-                var characters = await _animeDataSource.GetCharacterRolesAsync(animeID, CancellationToken.None);
+                var characters = await _animeDataSource.GetCharacterRolesAsync(
+                    animeID,
+                    cancellationToken);
+                if (!IsCurrentLoad(loadVersion, cancellationToken))
+                {
+                    return;
+                }
+
                 Characters.Clear();
                 foreach (var c in characters)
                     Characters.Add(c);
@@ -245,6 +290,16 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 // 角色解析失败不阻塞详情
             }
+            catch (BangumiApiException)
+            {
+                // 角色数据源失败不阻塞详情
+            }
         }
+
+        private bool IsCurrentLoad(
+            int loadVersion,
+            CancellationToken cancellationToken)
+            => !cancellationToken.IsCancellationRequested
+                && loadVersion == _loadVersion;
     }
 }

@@ -25,6 +25,8 @@ namespace AniMeido.Plugin.Base.Views
         private readonly ArchiveService _archive;
         private int _currentAnimeId;
         private readonly HashSet<string> _savedTagNames = new();
+        private CancellationTokenSource? _navigationLoadCancellation;
+        private bool _isPlaybackAvailabilitySubscribed;
 
         public AnimeDetailPage(
             IAnimeDataSource dataSource,
@@ -47,7 +49,7 @@ namespace AniMeido.Plugin.Base.Views
             UpdatePlaybackAvailability();
             if (_playbackLauncher is not null)
             {
-                _playbackLauncher.AvailabilityChanged += OnPlaybackAvailabilityChanged;
+                Loaded += OnPageLoaded;
                 Unloaded += OnPageUnloaded;
             }
 
@@ -217,11 +219,29 @@ namespace AniMeido.Plugin.Base.Views
         private void OnPlaybackAvailabilityChanged(object? sender, EventArgs e)
             => DispatcherQueue.TryEnqueue(UpdatePlaybackAvailability);
 
+        private void OnPageLoaded(object sender, RoutedEventArgs e)
+        {
+            if (_playbackLauncher is null
+                || _isPlaybackAvailabilitySubscribed)
+            {
+                return;
+            }
+
+            _playbackLauncher.AvailabilityChanged +=
+                OnPlaybackAvailabilityChanged;
+            _isPlaybackAvailabilitySubscribed = true;
+            UpdatePlaybackAvailability();
+        }
+
         private void OnPageUnloaded(object sender, RoutedEventArgs e)
         {
-            if (_playbackLauncher is not null)
+            _navigationLoadCancellation?.Cancel();
+            ViewModel.LoadDetailCommand.Cancel();
+            if (_playbackLauncher is not null
+                && _isPlaybackAvailabilitySubscribed)
             {
                 _playbackLauncher.AvailabilityChanged -= OnPlaybackAvailabilityChanged;
+                _isPlaybackAvailabilitySubscribed = false;
             }
         }
 
@@ -230,15 +250,26 @@ namespace AniMeido.Plugin.Base.Views
                 ? Visibility.Visible
                 : Visibility.Collapsed;
 
-        public Task OnNavigatedToAsync(object? parameter)
+        public async Task OnNavigatedToAsync(object? parameter)
         {
             if (parameter is int animeID && animeID > 0)
             {
+                _navigationLoadCancellation?.Cancel();
+                _navigationLoadCancellation?.Dispose();
+                _navigationLoadCancellation = new CancellationTokenSource();
+                var cancellationToken = _navigationLoadCancellation.Token;
+
+                ViewModel.LoadDetailCommand.Cancel();
                 _currentAnimeId = animeID;
-                ViewModel.LoadDetailCommand.Execute(animeID);
-                _ = LoadBangumiTagsAsync();
+                _browseRecorded = false;
+                _savedTagNames.Clear();
+                TagContainer.Children.Clear();
+                TagContainer.Visibility = Visibility.Collapsed;
+
+                await Task.WhenAll(
+                    ViewModel.LoadDetailCommand.ExecuteAsync(animeID),
+                    LoadBangumiTagsAsync(animeID, cancellationToken));
             }
-            return Task.CompletedTask;
         }
 
         private bool _browseRecorded;
@@ -521,14 +552,18 @@ namespace AniMeido.Plugin.Base.Views
 
         // ======== Bangumi 标签 ========
 
-        private async Task LoadBangumiTagsAsync()
+        private async Task LoadBangumiTagsAsync(
+            int animeId,
+            CancellationToken cancellationToken)
         {
-            if (_dataSource == null || _currentAnimeId <= 0) return;
+            if (_dataSource == null || animeId <= 0) return;
 
             List<AniMeido.Contracts.Models.Tag>? bangumiTags;
             try
             {
-                bangumiTags = await _dataSource.GetTagsAsync(_currentAnimeId, CancellationToken.None);
+                bangumiTags = await _dataSource.GetTagsAsync(
+                    animeId,
+                    cancellationToken);
             }
             catch (HttpRequestException)
             {
@@ -542,10 +577,26 @@ namespace AniMeido.Plugin.Base.Views
             {
                 return;
             }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
 
-            if (bangumiTags == null || bangumiTags.Count == 0) return;
+            if (bangumiTags == null
+                || bangumiTags.Count == 0
+                || cancellationToken.IsCancellationRequested
+                || animeId != _currentAnimeId)
+            {
+                return;
+            }
 
             var allSavedTags = await _savedTagService!.GetAllSavedTagsAsync();
+            if (cancellationToken.IsCancellationRequested
+                || animeId != _currentAnimeId)
+            {
+                return;
+            }
             var savedSet = new HashSet<string>(allSavedTags);
             _savedTagNames.Clear();
             foreach (var t in savedSet) _savedTagNames.Add(t);
