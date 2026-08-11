@@ -96,6 +96,7 @@ public sealed class RecommendationService : IDisposable
         await _refreshGate.WaitAsync(cancellationToken);
         try
         {
+            var cacheGeneration = _cache.CaptureGeneration();
             var previousSnapshot = preferNewBatch
                 ? await GetCachedSnapshotAsync(
                     allowExpired: true,
@@ -184,7 +185,8 @@ public sealed class RecommendationService : IDisposable
             await _cache.SetCacheAsync(
                 SnapshotCacheKey,
                 JsonSerializer.Serialize(snapshot, JsonOptions),
-                SnapshotRetention);
+                SnapshotRetention,
+                cacheGeneration);
             return new RecommendationGeneration(snapshot, LastProfile);
         }
         finally

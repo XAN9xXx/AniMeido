@@ -139,6 +139,7 @@ namespace AniMeido.Plugin.Base.Services
                     }
                 }
 
+                var cacheGeneration = _cacheService.CaptureGeneration();
                 T? data;
                 try
                 {
@@ -173,7 +174,11 @@ namespace AniMeido.Plugin.Base.Services
                 if (data != null)
                 {
                     var json = JsonSerializer.Serialize(data, JsonOptions);
-                    await _cacheService.SetCacheAsync(cacheKey, json, expiration);
+                    await _cacheService.SetCacheAsync(
+                        cacheKey,
+                        json,
+                        expiration,
+                        cacheGeneration);
                 }
                 return data;
             }
@@ -414,11 +419,16 @@ namespace AniMeido.Plugin.Base.Services
 
             try
             {
+                var cacheGeneration = _cacheService.CaptureGeneration();
                 var (airDateFrom, airDateTo) = GetSeasonDateRange(year, season);
                 var searchResult = await SearchBySeasonAsync(year, season, airDateFrom, airDateTo, ct);
                 if (searchResult.Count > 0)
                 {
-                    await _cacheService.SetCacheAsync(cacheKey, JsonSerializer.Serialize(searchResult, JsonOptions), TimeSpan.FromHours(12));
+                    await _cacheService.SetCacheAsync(
+                        cacheKey,
+                        JsonSerializer.Serialize(searchResult, JsonOptions),
+                        TimeSpan.FromHours(12),
+                        cacheGeneration);
                     return searchResult;
                 }
 

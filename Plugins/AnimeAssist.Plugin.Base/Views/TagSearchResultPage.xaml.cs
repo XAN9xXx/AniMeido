@@ -220,6 +220,7 @@ namespace AniMeido.Plugin.Base.Views
 
             try
             {
+                var cacheGeneration = _cacheService?.CaptureGeneration() ?? 0;
                 var allResults = new List<Anime>();
                 var seenIds = new HashSet<int>();
                 var yearCount = _yearTo - _yearFrom + 1;
@@ -240,7 +241,11 @@ namespace AniMeido.Plugin.Base.Views
                 {
                     // 缓存原始搜索结果（不含屏蔽过滤），展示时再应用当前屏蔽列表
                     var json = JsonSerializer.Serialize(allResults, JsonOptions);
-                    await _cacheService.SetCacheAsync(cacheKey, json, TimeSpan.FromHours(6));
+                    await _cacheService.SetCacheAsync(
+                        cacheKey,
+                        json,
+                        TimeSpan.FromHours(6),
+                        cacheGeneration);
                 }
 
                 ShowPage(0);

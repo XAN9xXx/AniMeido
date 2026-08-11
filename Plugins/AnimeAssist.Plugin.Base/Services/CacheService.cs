@@ -14,6 +14,9 @@ namespace AniMeido.Plugin.Base.Services
     public class CacheService
     {
         private readonly SqliteConnectionFactory _dbFactory;
+        private readonly SemaphoreSlim _mutationGate = new(1, 1);
+        private long _generation;
+        private volatile bool _isClearing;
 
         // 内存缓存：key → (json数据, 过期UTC)
         private readonly ConcurrentDictionary<string, (string data, DateTime expiresAt)> _memoryCache = new();
@@ -26,24 +29,54 @@ namespace AniMeido.Plugin.Base.Services
         }
 
         public async Task SetCacheAsync(string key, string data, TimeSpan expiration)
+            => await SetCacheAsync(
+                key,
+                data,
+                expiration,
+                CaptureGeneration());
+
+        internal long CaptureGeneration()
+            => Interlocked.Read(ref _generation);
+
+        internal async Task SetCacheAsync(
+            string key,
+            string data,
+            TimeSpan expiration,
+            long expectedGeneration)
         {
-            var expiresAt = DateTime.UtcNow.Add(expiration);
+            await _mutationGate.WaitAsync();
+            try
+            {
+                if (expectedGeneration != CaptureGeneration())
+                {
+                    return;
+                }
 
-            // 先写入 SQLite（每次使用独立连接）
-            using var connection = await _dbFactory.OpenAsync();
-            using var command = connection.CreateCommand();
-            command.CommandText = """
-                INSERT OR REPLACE INTO cache (CacheKey, Data, ExpiresAt)
-                VALUES (@key, @data, @expiresAt)
-                """;
-            command.Parameters.AddWithValue("@key", key);
-            command.Parameters.AddWithValue("@data", data);
-            command.Parameters.AddWithValue("@expiresAt", expiresAt.ToString("O"));
+                var expiresAt = DateTime.UtcNow.Add(expiration);
 
-            await command.ExecuteNonQueryAsync();
+                // 先写入 SQLite（每次使用独立连接）
+                using var connection = await _dbFactory.OpenAsync();
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    INSERT OR REPLACE INTO cache (CacheKey, Data, ExpiresAt)
+                    VALUES (@key, @data, @expiresAt)
+                    """;
+                command.Parameters.AddWithValue("@key", key);
+                command.Parameters.AddWithValue("@data", data);
+                command.Parameters.AddWithValue(
+                    "@expiresAt",
+                    expiresAt.ToString("O"));
 
-            // 再写入内存缓存
-            _memoryCache[key] = (data, expiresAt);
+                await command.ExecuteNonQueryAsync();
+
+                // 再写入内存缓存。ClearAllCacheAsync 与本段互斥，
+                // 因而清空操作返回后不会被旧请求重新填充。
+                _memoryCache[key] = (data, expiresAt);
+            }
+            finally
+            {
+                _mutationGate.Release();
+            }
         }
 
         public Task<string?> GetCacheAsync(string key)
@@ -79,13 +112,21 @@ namespace AniMeido.Plugin.Base.Services
         /// </summary>
         public async Task RemoveCacheAsync(string key)
         {
-            _memoryCache.TryRemove(key, out _);
+            await _mutationGate.WaitAsync();
+            try
+            {
+                _memoryCache.TryRemove(key, out _);
 
-            using var connection = await _dbFactory.OpenAsync();
-            using var command = connection.CreateCommand();
-            command.CommandText = "DELETE FROM cache WHERE CacheKey = @key";
-            command.Parameters.AddWithValue("@key", key);
-            await command.ExecuteNonQueryAsync();
+                using var connection = await _dbFactory.OpenAsync();
+                using var command = connection.CreateCommand();
+                command.CommandText = "DELETE FROM cache WHERE CacheKey = @key";
+                command.Parameters.AddWithValue("@key", key);
+                await command.ExecuteNonQueryAsync();
+            }
+            finally
+            {
+                _mutationGate.Release();
+            }
         }
 
         /// <summary>
@@ -93,14 +134,25 @@ namespace AniMeido.Plugin.Base.Services
         /// </summary>
         public async Task ClearAllCacheAsync()
         {
-            _memoryCache.Clear();
+            await _mutationGate.WaitAsync();
+            try
+            {
+                _isClearing = true;
+                Interlocked.Increment(ref _generation);
+                _memoryCache.Clear();
 
-            using var connection = await _dbFactory.OpenAsync();
-            using var command = connection.CreateCommand();
-            command.CommandText = "DELETE FROM cache";
-            await command.ExecuteNonQueryAsync();
+                using var connection = await _dbFactory.OpenAsync();
+                using var command = connection.CreateCommand();
+                command.CommandText = "DELETE FROM cache";
+                await command.ExecuteNonQueryAsync();
 
-            ImageCacheHelper.ClearAll();
+                ImageCacheHelper.ClearAll();
+            }
+            finally
+            {
+                _isClearing = false;
+                _mutationGate.Release();
+            }
         }
 
         /// <summary>
@@ -158,6 +210,13 @@ namespace AniMeido.Plugin.Base.Services
 
         private async Task<string?> GetFromSqliteAsync(string key, bool onlyValid)
         {
+            var expectedGeneration = CaptureGeneration();
+            await WaitForClearAsync();
+            if (expectedGeneration != CaptureGeneration())
+            {
+                return null;
+            }
+
             using var connection = await _dbFactory.OpenAsync();
             using var command = connection.CreateCommand();
             command.CommandText = onlyValid
@@ -178,6 +237,11 @@ namespace AniMeido.Plugin.Base.Services
             using var reader = await command.ExecuteReaderAsync();
             if (await reader.ReadAsync())
             {
+                if (expectedGeneration != CaptureGeneration())
+                {
+                    return null;
+                }
+
                 var data = reader.GetString(0);
                 var expiresAtStr = reader.GetString(1);
                 if (DateTime.TryParse(expiresAtStr, out var expiresAt))
@@ -188,6 +252,17 @@ namespace AniMeido.Plugin.Base.Services
                 return data;
             }
             return null;
+        }
+
+        private async Task WaitForClearAsync()
+        {
+            if (!_isClearing)
+            {
+                return;
+            }
+
+            await _mutationGate.WaitAsync();
+            _mutationGate.Release();
         }
     }
 }
