@@ -15,6 +15,7 @@ namespace AniMeido.Plugin.Base.Views
         private const int EarliestSupportedYear = 1900;
         private readonly PastSeasonViewModel _viewModel;
         public PastSeasonViewModel ViewModel => _viewModel;
+        private readonly CacheService _cacheService;
         private readonly List<Anime> _allAnime = new();
         private HashSet<int> _blockedIds = new();
         private DragDropService _dragDrop;
@@ -24,9 +25,15 @@ namespace AniMeido.Plugin.Base.Views
         private int _loadVersion;
         private bool _isRebuilding; // 防止 ComboBox 重建期间事件穿透
 
-        public PastSeasonPage(IAnimeDataSource dataSource, DragDropService dragDropService, TrackingService trackingService, IPluginNavigator pluginNavigator)
+        public PastSeasonPage(
+            IAnimeDataSource dataSource,
+            CacheService cacheService,
+            DragDropService dragDropService,
+            TrackingService trackingService,
+            IPluginNavigator pluginNavigator)
         {
             _viewModel = new PastSeasonViewModel(dataSource);
+            _cacheService = cacheService;
             _dragDrop = dragDropService;
             _tracking = trackingService;
             _pluginNavigator = pluginNavigator;
@@ -233,7 +240,10 @@ namespace AniMeido.Plugin.Base.Views
             _isRebuilding = false;
         }
 
-        private async Task LoadSeasonAsync(int year, Season season)
+        private async Task LoadSeasonAsync(
+            int year,
+            Season season,
+            bool forceRefresh = false)
         {
             // 立即显示加载覆盖层（不依赖 PropertyChanged 的异步回调延迟）
             LoadingOverlay.Visibility = Visibility.Visible;
@@ -248,6 +258,14 @@ namespace AniMeido.Plugin.Base.Views
             var loadCts = new CancellationTokenSource();
             _loadCts = loadCts;
             var version = Interlocked.Increment(ref _loadVersion);
+
+            if (forceRefresh)
+            {
+                await _cacheService.RemoveCacheAsync(
+                    BangumiDataSource.GetSeasonCacheKey(year, season));
+                if (version != _loadVersion)
+                    return;
+            }
 
             await ViewModel.LoadPastSeasonAnimeAsync(year, season, loadCts.Token);
 
@@ -284,15 +302,32 @@ namespace AniMeido.Plugin.Base.Views
             await LoadSeasonAsync(year, season);
         }
 
-        private Task LoadSelectedSeasonAsync()
+        private Task LoadSelectedSeasonAsync(bool forceRefresh = false)
         {
             if (YearComboBox.SelectedItem is int year &&
                 SeasonComboBox.SelectedItem is ComboBoxItem { Tag: Season season })
             {
-                return LoadSeasonAsync(year, season);
+                return LoadSeasonAsync(year, season, forceRefresh);
             }
 
             return Task.CompletedTask;
+        }
+
+        private async void OnRefreshClick(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                await LoadSelectedSeasonAsync(forceRefresh: true);
+            }
+#pragma warning disable CA1031 // UI 边界统一显示刷新失败，避免异常终止进程
+            catch (Exception ex)
+            {
+                ErrorInfoBar.Message = $"刷新失败：{ex.Message}";
+                ErrorInfoBar.IsOpen = true;
+                LoadingOverlay.Visibility = Visibility.Collapsed;
+                LoadingRing.IsActive = false;
+            }
+#pragma warning restore CA1031
         }
 
         private void OnAnimeCardClicked(object? sender, Views.Controls.AnimeCardClickedEventArgs e)

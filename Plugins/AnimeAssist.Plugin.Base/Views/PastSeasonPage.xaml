@@ -57,7 +57,7 @@
             </Border>
             <!-- 年份季度选择器 (固定) -->
             <Border Style="{StaticResource AniMeidoToolbarStyle}">
-                <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="12">
+                <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*" ColumnSpacing="12">
                     <ComboBox x:Name="YearComboBox"
                               Header="年份"
                               Width="140"/>
@@ -70,7 +70,12 @@
                               Header="动画形态"
                               Width="160"
                               SelectionChanged="OnMediaFormatSelectionChanged"/>
-                    <TextBlock Grid.Column="3"
+                    <Button x:Name="RefreshButton"
+                            Grid.Column="3"
+                            Content="刷新当前季度"
+                            Click="OnRefreshClick"
+                            VerticalAlignment="Bottom"/>
+                    <TextBlock Grid.Column="4"
                                Text="选择季度后自动加载"
                                VerticalAlignment="Bottom"
                                Margin="0,0,0,8"

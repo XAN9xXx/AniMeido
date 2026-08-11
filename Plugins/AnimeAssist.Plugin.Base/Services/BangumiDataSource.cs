@@ -408,7 +408,7 @@ namespace AniMeido.Plugin.Base.Services
 
             // 缓存版本属于查询语义的一部分。v1 的往季结果最多只有 40 条，
             // 使用新键可避免修复后继续命中已截断的旧缓存。
-            var cacheKey = $"season:v{SeasonCacheVersion}:{year}:{season}";
+            var cacheKey = GetSeasonCacheKey(year, season);
             var cachedResult = await ReadSeasonCacheAsync(
                 cacheKey,
                 allowExpired: false);
@@ -456,6 +456,9 @@ namespace AniMeido.Plugin.Base.Services
                 throw;
             }
         }
+
+        internal static string GetSeasonCacheKey(int year, Season season) =>
+            $"season:v{SeasonCacheVersion}:{year}:{season}";
 
         public async Task<List<Anime>> GetCurrentBroadcastScheduleAsync(
             CancellationToken ct)
