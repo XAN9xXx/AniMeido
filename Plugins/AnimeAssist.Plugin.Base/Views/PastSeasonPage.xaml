@@ -19,17 +19,15 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- 错误提示 (始终在顶部) -->
-        <InfoBar x:Name="ErrorInfoBar"
-                 Grid.Row="0"
-                 Severity="Error"
-                 IsClosable="True"
-                 IsOpen="False"
-                 Margin="0,0,0,12"/>
         <!-- 固定顶部区域：搜索过滤 + 年份季度选择器 -->
         <StackPanel Grid.Row="0"
                     Margin="0,0,0,16"
                     Spacing="12">
+            <!-- 错误提示与标题参与同一纵向布局，避免互相覆盖。 -->
+            <InfoBar x:Name="ErrorInfoBar"
+                     Severity="Error"
+                     IsClosable="True"
+                     IsOpen="False"/>
             <StackPanel Spacing="2">
                 <TextBlock Text="番剧库"
                            Style="{StaticResource AniMeidoPageTitleStyle}"/>
