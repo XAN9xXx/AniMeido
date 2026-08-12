@@ -109,6 +109,26 @@ namespace AniMeido.Plugin.Base.Views.Controls
                 ? Visibility.Collapsed
                 : Visibility.Visible;
             RetryRing.IsActive = state == ManagedImageLoadState.Loading;
+            RetryButton.Visibility = state == ManagedImageLoadState.Failed
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
+        private void OnRetryCoverClick(object sender, RoutedEventArgs e)
+        {
+            _ = sender;
+            _ = e;
+            ManagedImageLoader.Retry(CoverImage);
+        }
+
+        private void OnRetryCoverPointerPressed(
+            object sender,
+            PointerRoutedEventArgs e)
+        {
+            _ = sender;
+            _pointerDown = false;
+            _clickCandidate = false;
+            e.Handled = true;
         }
 
         private static void OnShowWeekdayBadgeChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)

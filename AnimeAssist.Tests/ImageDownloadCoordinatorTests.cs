@@ -159,6 +159,49 @@ public sealed class ImageDownloadCoordinatorTests
     }
 
     [Fact]
+    public async Task SvgPlaceholder_IsTransientAndIsNotCachedAsCover()
+    {
+        using var temp = new TempDirectory();
+        var handler = new DelegateHandler((_, _, _) =>
+        {
+            var content = new StringContent("<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
+            content.Headers.ContentType = new MediaTypeHeaderValue("image/svg+xml");
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = content,
+            });
+        });
+        var coordinator = CreateCoordinator(temp.Path, handler);
+        var key = ImageCacheKey.Cover(44);
+
+        var result = await coordinator.GetOrDownloadAsync(key, TestUrl("44"));
+
+        Assert.Equal(ImageDownloadStatus.Failed, result.Status);
+        Assert.Equal(2, handler.CallCount);
+        Assert.False(coordinator.HasLocalCache(key));
+    }
+
+    [Fact]
+    public async Task Invalidate_ClearsFailureCooldownForManualRetry()
+    {
+        using var temp = new TempDirectory();
+        var handler = new DelegateHandler((call, _, _) => Task.FromResult(
+            call == 1
+                ? new HttpResponseMessage(HttpStatusCode.NotFound)
+                : ImageResponse()));
+        var coordinator = CreateCoordinator(temp.Path, handler);
+        var key = ImageCacheKey.Cover(45);
+
+        var failed = await coordinator.GetOrDownloadAsync(key, TestUrl("45"));
+        coordinator.Invalidate(key);
+        var retried = await coordinator.GetOrDownloadAsync(key, TestUrl("45"));
+
+        Assert.Equal(ImageDownloadStatus.Failed, failed.Status);
+        Assert.True(retried.IsSuccess);
+        Assert.Equal(2, handler.CallCount);
+    }
+
+    [Fact]
     public async Task OversizedContentLength_IsTerminalAndDoesNotCreateCache()
     {
         using var temp = new TempDirectory();

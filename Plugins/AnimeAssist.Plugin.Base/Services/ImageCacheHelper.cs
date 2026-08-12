@@ -283,6 +283,14 @@ internal sealed class ImageDownloadCoordinator
             }
 
             var contentType = response.Content.Headers.ContentType?.MediaType;
+            if (string.Equals(
+                    contentType,
+                    "image/svg+xml",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return DownloadAttemptResult.TransientFailure;
+            }
+
             if (contentType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) != true
                 || response.Content.Headers.ContentLength > MaxImageBytes)
             {

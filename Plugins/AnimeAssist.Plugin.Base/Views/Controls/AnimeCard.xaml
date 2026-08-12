@@ -46,6 +46,17 @@
                                       HorizontalAlignment="Center"
                                       VerticalAlignment="Center"
                                       Foreground="{ThemeResource SystemAccentColor}"/>
+                        <Button x:Name="RetryButton"
+                                Width="40"
+                                Height="40"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Visibility="Collapsed"
+                                ToolTipService.ToolTip="重新加载封面"
+                                PointerPressed="OnRetryCoverPointerPressed"
+                                Click="OnRetryCoverClick">
+                            <FontIcon Glyph="&#xE72C;"/>
+                        </Button>
                     </Grid>
                 </Grid>
 

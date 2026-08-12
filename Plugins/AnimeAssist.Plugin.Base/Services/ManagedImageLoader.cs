@@ -61,6 +61,12 @@ internal static class ManagedImageLoader
             state.Cancel(clearSource);
     }
 
+    public static void Retry(Image image)
+    {
+        if (States.TryGetValue(image, out var state))
+            state.Retry();
+    }
+
     internal static int CalculateDecodePixelWidth(
         double logicalWidth,
         double actualWidth,
@@ -129,6 +135,24 @@ internal static class ManagedImageLoader
                 _showingManagedImage = false;
                 _image.Source = null;
             }
+        }
+
+        public void Retry()
+        {
+            if (_request is null || !_image.IsLoaded)
+                return;
+
+            if (_request.Kind == ImageRequestKind.Cover)
+                ImageCacheHelper.InvalidateCover(_request.AnimeId);
+            else if (_request.Kind == ImageRequestKind.Avatar
+                && !string.IsNullOrWhiteSpace(_request.Source))
+            {
+                ImageCacheHelper.InvalidateAvatar(_request.Source);
+            }
+
+            _decodeRetryUsed = false;
+            ShowPlaceholder();
+            Start();
         }
 
         private void OnLoaded(object sender, RoutedEventArgs e) => Start();
