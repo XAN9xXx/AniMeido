@@ -20,13 +20,13 @@ namespace AniMeido.Plugin.Base.Services
             {
                 client.BaseAddress = new Uri("https://archive.animeido.com:38443");
                 client.Timeout = TimeSpan.FromSeconds(10);
-                client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "XAN9xXx/AniMeido/2.0.0 (https://github.com/XAN9xXx/AniMeido)");
+                client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "XAN9xXx/AniMeido/2.1.0 (https://github.com/XAN9xXx/AniMeido)");
             });
             services.AddHttpClient(BangumiApiClient.FallbackClientName, client =>
             {
                 client.BaseAddress = new Uri("https://bgm-proxy.animeido.com");
                 client.Timeout = TimeSpan.FromSeconds(30);
-                client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "XAN9xXx/AniMeido/2.0.0 (https://github.com/XAN9xXx/AniMeido)");
+                client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "XAN9xXx/AniMeido/2.1.0 (https://github.com/XAN9xXx/AniMeido)");
             });
             services.AddSingleton<IAnimeDataSource>(sp =>
             {
