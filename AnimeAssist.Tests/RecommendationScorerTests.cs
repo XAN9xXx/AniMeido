@@ -85,7 +85,7 @@ public class RecommendationScorerTests
             .Select(index => new RecommendationCandidate(
                 Anime(
                     index,
-                    index <= 15
+                    index <= 14
                         ? today.AddYears(-1)
                         : today.AddYears(-8),
                     8),
