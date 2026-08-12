@@ -16,11 +16,17 @@ namespace AniMeido.Plugin.Base.Services
         /// <returns>服务集合services，用于链式调用。</returns>
         public static IServiceCollection AddBangumiService(this IServiceCollection services)
         {
-            services.AddHttpClient("BangumiAPI", client =>
+            services.AddHttpClient(BangumiApiClient.ArchiveClientName, client =>
+            {
+                client.BaseAddress = new Uri("https://archive.animeido.com:38443");
+                client.Timeout = TimeSpan.FromSeconds(10);
+                client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "XAN9xXx/AniMeido/2.0.0 (https://github.com/XAN9xXx/AniMeido)");
+            });
+            services.AddHttpClient(BangumiApiClient.FallbackClientName, client =>
             {
                 client.BaseAddress = new Uri("https://bgm-proxy.animeido.com");
                 client.Timeout = TimeSpan.FromSeconds(30);
-                client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "XAN9xXx/AniMeido/1.0.0 (https://github.com/XAN9xXx/AniMeido)");
+                client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "XAN9xXx/AniMeido/2.0.0 (https://github.com/XAN9xXx/AniMeido)");
             });
             services.AddSingleton<IAnimeDataSource>(sp =>
             {

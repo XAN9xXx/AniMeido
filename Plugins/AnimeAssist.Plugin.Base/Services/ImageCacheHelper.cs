@@ -466,6 +466,7 @@ internal static class ImageCacheHelper
     private static readonly HashSet<string> AllowedImageHosts = new(
         StringComparer.OrdinalIgnoreCase)
     {
+        "archive.animeido.com",
         "bgm-proxy.animeido.com",
         "lain.bgm.tv",
     };
