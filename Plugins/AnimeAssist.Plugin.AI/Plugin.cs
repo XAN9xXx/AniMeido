@@ -4,7 +4,6 @@ using AniMeido.Plugin.AI.Providers;
 using AniMeido.Plugin.AI.Services;
 using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;
-using System.Windows.Input;
 
 namespace AniMeido.Plugin.AI;
 
@@ -47,23 +46,6 @@ public sealed class AiPlugin : IPlugin
 
     public IEnumerable<PluginNavigationItem> GetNavigationItems()
     {
-        yield return PluginNavigationItem.CreateCommand(
-            "AI 工作台",
-            "\uE945",
-            AiWindowManager.OpenCommandId,
-            new ServiceCommand(_ => { }));
-    }
-
-    private sealed class ServiceCommand(Action<object?> execute) : ICommand
-    {
-        public event EventHandler? CanExecuteChanged
-        {
-            add { }
-            remove { }
-        }
-
-        public bool CanExecute(object? parameter) => true;
-
-        public void Execute(object? parameter) => execute(parameter);
+        return [];
     }
 }

@@ -5,8 +5,8 @@
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>AniMeido.Plugin.AI</RootNamespace>
     <AssemblyName>AniMeido.Plugin.AI</AssemblyName>
-    <Title>AI 工作台</Title>
-    <Version>0.2.6</Version>
+    <Title>AI 工作台（实验性，暂不启用）</Title>
+    <Version>0.2.7</Version>
     <PluginMinAppVersion>1.7.0</PluginMinAppVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

@@ -9,6 +9,7 @@
         <AssemblyName>AniMeido.Tests</AssemblyName>
         <Platforms>x64</Platforms>
         <PlatformTarget>x64</PlatformTarget>
+        <EnableExperimentalAiTests Condition="'$(EnableExperimentalAiTests)' == ''">false</EnableExperimentalAiTests>
     </PropertyGroup>
 
     <ItemGroup>
@@ -26,7 +27,15 @@
         <ProjectReference Include="..\AnimeAssist.App\AniMeido.App.csproj" />
         <ProjectReference Include="..\Plugins\AnimeAssist.Plugin.Base\AniMeido.Plugin.Base.csproj" />
         <ProjectReference Include="..\Plugins\AnimeAssist.Plugin.Player\AniMeido.Plugin.Player.csproj" />
-        <ProjectReference Include="..\Plugins\AnimeAssist.Plugin.AI\AniMeido.Plugin.AI.csproj" />
+        <ProjectReference Include="..\Plugins\AnimeAssist.Plugin.AI\AniMeido.Plugin.AI.csproj"
+                          Condition="'$(EnableExperimentalAiTests)' == 'true'" />
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(EnableExperimentalAiTests)' != 'true'">
+        <Compile Remove="AiPluginInfrastructureTests.cs" />
+        <Compile Remove="StreamingTextBatcherTests.cs" />
+        <None Include="AiPluginInfrastructureTests.cs" />
+        <None Include="StreamingTextBatcherTests.cs" />
     </ItemGroup>
 
 </Project>
