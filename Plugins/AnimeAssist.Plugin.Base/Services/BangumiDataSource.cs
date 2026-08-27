@@ -19,8 +19,9 @@ namespace AniMeido.Plugin.Base.Services
         private const string FallbackTitle = "不好，标题走丢了Q^Q";
         private const string FallbackDescription = "No description available.";
         private const int SeasonSearchPageSize = 20;
-        private const int SeasonCacheVersion = 3;
-        private const int BroadcastCacheVersion = 1;
+        private const int SeasonCacheVersion = 4;
+        private const int BroadcastCacheVersion = 2;
+        private const int ImageUrlCacheVersion = 2;
         private static readonly string? FallbackImageUrl = null;
         private static readonly IReadOnlyList<VoiceActor> FallbackCVs = Array.Empty<VoiceActor>();
         private static readonly IReadOnlyList<string> StudioFilter = new List<string> { "製作", "原作", "企画", "动画制作", "发行" }; // API中Type 2 代表参与制作的商业实体，此处仅筛选制作/原作。
@@ -297,12 +298,18 @@ namespace AniMeido.Plugin.Base.Services
             if (!Uri.TryCreate(url.ToString(), UriKind.Absolute, out var parsed))
                 return null;
 
-            // http → https
-            var builder = new UriBuilder(parsed) { Scheme = Uri.UriSchemeHttps, Port = -1 };
+            // http → https。默认端口随协议切换，自定义端口（如 Archive 的 38443）保持不变。
+            var hasCustomPort = !parsed.IsDefaultPort;
+            var builder = new UriBuilder(parsed) { Scheme = Uri.UriSchemeHttps };
+            if (!hasCustomPort)
+                builder.Port = -1;
 
             // 替换 Bangumi 源站为反代
             if (builder.Host.Equals("lain.bgm.tv", StringComparison.OrdinalIgnoreCase))
+            {
                 builder.Host = "bgm-proxy.animeido.com";
+                builder.Port = -1;
+            }
 
             return builder.Uri.ToString();
         }
@@ -597,7 +604,7 @@ namespace AniMeido.Plugin.Base.Services
         /// <returns>番剧详情信息</returns>
         public async Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct)
         {
-            return await GetCacheAsync($"detail:{animeID}", TimeSpan.FromDays(7),
+            return await GetCacheAsync($"detail:v{ImageUrlCacheVersion}:{animeID}", TimeSpan.FromDays(7),
                 async () =>
                 {
                     var result = await _apiClient.GetJsonAsync<SubjectResponse>($"/v0/subjects/{animeID}", ct).ConfigureAwait(false);
@@ -614,7 +621,7 @@ namespace AniMeido.Plugin.Base.Services
         /// <returns>Studio列表</returns>
         public async Task<List<Studio>> GetStudioAsync(int animeID, CancellationToken ct)
         {
-            return await GetCacheAsync($"studio:{animeID}", TimeSpan.FromDays(7),
+            return await GetCacheAsync($"studio:v{ImageUrlCacheVersion}:{animeID}", TimeSpan.FromDays(7),
                 async () =>
                 {
                     var result = await _apiClient.GetJsonAsync<List<RelatedPersonResponse>>($"/v0/subjects/{animeID}/persons", ct).ConfigureAwait(false);
@@ -652,7 +659,7 @@ namespace AniMeido.Plugin.Base.Services
         /// <returns>VoiceActor列表</returns>
         public async Task<List<VoiceActor>> GetCVsAsync(int animeID, CancellationToken ct)
         {
-            return await GetCacheAsync($"cvs:{animeID}", TimeSpan.FromDays(7),
+            return await GetCacheAsync($"cvs:v{ImageUrlCacheVersion}:{animeID}", TimeSpan.FromDays(7),
                 async () =>
                 {
                     var result = await _apiClient.GetJsonAsync<List<RelatedCharacterResponse>>($"/v0/subjects/{animeID}/characters", ct).ConfigureAwait(false);
@@ -674,7 +681,7 @@ namespace AniMeido.Plugin.Base.Services
         /// <returns>CV-角色对照列表</returns>
         public async Task<List<CharacterRole>> GetCharacterRolesAsync(int animeID, CancellationToken ct)
         {
-            return await GetCacheAsync($"characters:{animeID}", TimeSpan.FromDays(7),
+            return await GetCacheAsync($"characters:v{ImageUrlCacheVersion}:{animeID}", TimeSpan.FromDays(7),
                 async () =>
                 {
                     var result = await _apiClient.GetJsonAsync<List<RelatedCharacterResponse>>($"/v0/subjects/{animeID}/characters", ct).ConfigureAwait(false);
@@ -697,7 +704,7 @@ namespace AniMeido.Plugin.Base.Services
         /// <returns>人物参与的作品列表。</returns>
         public async Task<List<PersonWork>> GetPersonWorksAsync(int personId, CancellationToken ct)
         {
-            return await GetCacheAsync($"person_works:{personId}", TimeSpan.FromDays(7),
+            return await GetCacheAsync($"person_works:v{ImageUrlCacheVersion}:{personId}", TimeSpan.FromDays(7),
                 async () =>
                 {
                     var result = await _apiClient.GetJsonAsync<List<RelatedSubjectResponse>>($"/v0/persons/{personId}/subjects", ct).ConfigureAwait(false);
