@@ -1,0 +1,167 @@
+using AniMeido.Contracts;
+using AniMeido.Plugin.Base.Services;
+using Microsoft.Data.Sqlite;
+
+namespace AniMeido.App.Services
+{
+    /// <summary>
+    /// 数据库服务：初始化、自动备份、版本迁移、损坏检测。
+    /// </summary>
+    public class DatabaseService
+    {
+        private readonly SqliteConnectionFactory _dbFactory;
+
+        /// <summary>数据库文件路径</summary>
+        public string DbPath { get; }
+
+        /// <summary>日志目录路径</summary>
+        public string LogDir { get; }
+
+        /// <summary>备份目录路径</summary>
+        public string BackupDir { get; }
+
+        /// <summary>最大备份保留数</summary>
+        private const int MaxBackups = 10;
+
+        public DatabaseService(SqliteConnectionFactory dbFactory, IAppDataPaths paths)
+        {
+            _dbFactory = dbFactory;
+            DbPath = dbFactory.DatabasePath;
+            LogDir = paths.LogDirectory;
+            BackupDir = paths.BackupDirectory;
+            Directory.CreateDirectory(Path.GetDirectoryName(DbPath)!);
+            Directory.CreateDirectory(LogDir);
+            Directory.CreateDirectory(BackupDir);
+        }
+
+        public async Task InitializeAsync()
+        {
+            try
+            {
+                using var connection = await _dbFactory.OpenAsync();
+                using (var pragmaCmd = connection.CreateCommand())
+                {
+                    pragmaCmd.CommandText = "PRAGMA journal_mode=WAL";
+                    await pragmaCmd.ExecuteNonQueryAsync();
+                }
+                await DatabaseSchema.CreateInitialBusinessTablesBeforeConfigAsync(connection);
+                await CreateConfigTableAsync(connection);
+                await DatabaseSchema.CreateInitialBusinessTablesAfterConfigAsync(connection);
+                if (await DatabaseSchema.GetSchemaVersionAsync(connection)
+                    is > 0 and < DatabaseSchema.CurrentVersion)
+                {
+                    await BackupAsync(throwOnFailure: true);
+                }
+                await DatabaseSchema.RunMigrationsAsync(connection);
+            }
+            catch (SqliteException ex) when (ex.SqliteErrorCode is 11 or 26)
+            {
+                var restored = await TryRestoreFromBackupAsync();
+                if (!restored)
+                    throw new InvalidOperationException("数据库文件已损坏，且没有可用备份。请手动删除数据库文件后重启应用。", ex);
+                return;
+            }
+            catch (IOException) when (!File.Exists(DbPath))
+            {
+            }
+            _ = BackupAsync();
+        }
+
+        public async Task BackupAsync(bool throwOnFailure = false)
+        {
+            try
+            {
+                using (var checkpointCmd = await _dbFactory.OpenAsync())
+                {
+                    using var cmd = checkpointCmd.CreateCommand();
+                    cmd.CommandText = "PRAGMA wal_checkpoint(FULL)";
+                    await cmd.ExecuteNonQueryAsync();
+                }
+                var suffix = Guid.NewGuid().ToString("N")[..8];
+                var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                var backupPath = Path.Combine(BackupDir, $"AniMeido-{timestamp}-{suffix}.db");
+                using var source = await _dbFactory.OpenAsync();
+                using var dest = new SqliteConnection(
+                    new SqliteConnectionStringBuilder { DataSource = backupPath }.ToString());
+                await dest.OpenAsync();
+                source.BackupDatabase(dest);
+                var backups = Directory.GetFiles(BackupDir, "AniMeido-*.db")
+                    .OrderByDescending(f => f).ToList();
+                while (backups.Count > MaxBackups)
+                {
+                    try { File.Delete(backups.Last()); } catch (IOException) { }
+                    backups.RemoveAt(backups.Count - 1);
+                }
+            }
+#pragma warning disable CA1031 // 备份失败不影响主流程
+            catch (Exception ex)
+            {
+                Serilog.Log.Warning(ex, "Database backup failed.");
+                if (throwOnFailure)
+                {
+                    throw;
+                }
+            }
+#pragma warning restore CA1031
+        }
+
+        public async Task<bool> TryRestoreFromBackupAsync()
+        {
+            var backups = Directory.GetFiles(BackupDir, "AniMeido-*.db")
+                .OrderByDescending(f => f).ToList();
+            foreach (var backup in backups)
+            {
+                try
+                {
+                    using var test = new SqliteConnection(
+                        new SqliteConnectionStringBuilder { DataSource = backup }.ToString());
+                    await test.OpenAsync();
+                    var cmd = test.CreateCommand();
+                    cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master";
+                    await cmd.ExecuteScalarAsync();
+                    test.Close();
+                    DeleteSqliteSidecarFiles(DbPath);
+                    File.Copy(backup, DbPath, overwrite: true);
+                    using var connection = await _dbFactory.OpenAsync();
+                    await DatabaseSchema.CreateInitialBusinessTablesBeforeConfigAsync(connection);
+                    await CreateConfigTableAsync(connection);
+                    await DatabaseSchema.CreateInitialBusinessTablesAfterConfigAsync(connection);
+                    await DatabaseSchema.RunMigrationsAsync(connection);
+                    var verifyCmd = connection.CreateCommand();
+                    verifyCmd.CommandText = "PRAGMA integrity_check";
+                    var result = await verifyCmd.ExecuteScalarAsync();
+                    if (result?.ToString() != "ok")
+                    {
+                        Serilog.Log.Warning("Database integrity check after restore failed: {Result}", result);
+                        continue;
+                    }
+                    return true;
+                }
+#pragma warning disable CA1031 // 备份损坏时继续尝试下一个
+                catch
+                {
+                    try { File.Delete(backup); } catch (IOException) { }
+                }
+#pragma warning restore CA1031
+            }
+            return false;
+        }
+
+        private static void DeleteSqliteSidecarFiles(string dbPath)
+        {
+            foreach (var suffix in new[] { "-wal", "-shm", "-journal" })
+            {
+                var path = dbPath + suffix;
+                try { if (File.Exists(path)) File.Delete(path); } catch (IOException) { }
+            }
+        }
+
+        private static async Task CreateConfigTableAsync(
+            SqliteConnection connection)
+        {
+            var cmd = connection.CreateCommand();
+            cmd.CommandText = "CREATE TABLE IF NOT EXISTS config(Key TEXT PRIMARY KEY, Value TEXT NOT NULL)";
+            await cmd.ExecuteNonQueryAsync();
+        }
+    }
+}

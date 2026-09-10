@@ -372,6 +372,7 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 /AnimeAssist.App/scripts
+/AniMeido.App/scripts
 /.github/copilot-instructions.md
 
 imagecache/
@@ -381,3 +382,6 @@ imagecache/
 
 # PlayerPlugin native runtime is reproducibly downloaded for local/release builds.
 /Plugins/AnimeAssist.Plugin.Player/runtimes/win-x64/native/*.dll
+/Plugins/AniMeido.Plugin.Player/runtimes/win-x64/native/*.dll
+# Local tooling workspace
+/[Tt]ools/

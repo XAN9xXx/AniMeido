@@ -2,35 +2,38 @@
   <Configurations>
     <Platform Name="x64" />
   </Configurations>
-  <Folder Name="/AnimeAssist.Contracts/" />
   <Folder Name="/Plugin Infrastructure/">
-    <Project Path="AnimeAssist.PluginProtocol/AniMeido.PluginProtocol.csproj">
-      <Platform Solution="Debug|*" Project="x64" />
+    <Project Path="AniMeido.PluginProtocol/AniMeido.PluginProtocol.csproj">
+      <Platform Project="x64" />
     </Project>
-    <Project Path="AnimeAssist.PluginHost/AniMeido.PluginHost.csproj">
-      <Platform Solution="Debug|*" Project="x64" />
+    <Project Path="AniMeido.PluginProtocol.Tests/AniMeido.PluginProtocol.Tests.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="AniMeido.PluginHost/AniMeido.PluginHost.csproj">
+      <Platform Project="x64" />
     </Project>
   </Folder>
-  <Folder Name="/AnimeAssist.Tests/">
-    <Project Path="AnimeAssist.Tests/AniMeido.Tests.csproj" />
+  <Folder Name="/AniMeido.Tests/">
+    <Project Path="AniMeido.Tests/AniMeido.Tests.csproj">
+      <Platform Project="x64" />
+    </Project>
   </Folder>
   <Folder Name="/Plugins/">
-    <Project Path="Plugins/AnimeAssist.Plugin.Base/AniMeido.Plugin.Base.csproj" Id="70cbece3-4de2-4b18-b9c6-a07dd5c7a53c">
-      <Platform Solution="Debug|*" Project="x64" />
+    <Project Path="Plugins/AniMeido.Plugin.Base/AniMeido.Plugin.Base.csproj" Id="70cbece3-4de2-4b18-b9c6-a07dd5c7a53c">
+      <Platform Project="x64" />
     </Project>
-    <Project Path="Plugins/AnimeAssist.Plugin.Player/AniMeido.Plugin.Player.csproj">
-      <Platform Solution="Debug|*" Project="x64" />
+    <Project Path="Plugins/AniMeido.Plugin.Player/AniMeido.Plugin.Player.csproj">
+      <Platform Project="x64" />
     </Project>
-    <Project Path="Plugins/AnimeAssist.Plugin.AI/AniMeido.Plugin.AI.csproj">
-      <Platform Solution="Debug|*" Project="x64" />
+    <Project Path="Plugins/AniMeido.Plugin.AI/AniMeido.Plugin.AI.csproj">
+      <Platform Project="x64" />
     </Project>
   </Folder>
-  <Folder Name="/Plugins/AnimeAssist.Plugin.Base/" />
-  <Project Path="AnimeAssist.App/AniMeido.App.csproj">
+  <Project Path="AniMeido.App/AniMeido.App.csproj">
     <Platform Project="x64" />
     <Deploy />
   </Project>
-  <Project Path="AnimeAssist.Contracts/AniMeido.Contracts.csproj" Id="55ca2f31-e2d9-49ca-aef5-7736972f2eb4">
-    <Platform Solution="Debug|*" Project="x64" />
+  <Project Path="AniMeido.Contracts/AniMeido.Contracts.csproj" Id="55ca2f31-e2d9-49ca-aef5-7736972f2eb4">
+    <Platform Project="x64" />
   </Project>
 </Solution>

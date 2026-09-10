@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "AniMeido.App (Unpackaged)": {
+      "commandName": "Project",
+      "debugEngines": "managed,native"
+    }
+  }
+}

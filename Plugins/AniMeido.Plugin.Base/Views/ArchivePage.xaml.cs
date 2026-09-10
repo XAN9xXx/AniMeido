@@ -1,0 +1,1209 @@
+using AniMeido.Contracts;
+using AniMeido.Contracts.Desktop;
+using AniMeido.Plugin.Base.Models;
+using AniMeido.Plugin.Base.Services;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using System.Globalization;
+using System.Net;
+using System.Text;
+using Windows.Storage.Pickers;
+using WinRT.Interop;
+
+namespace AniMeido.Plugin.Base.Views;
+
+public sealed partial class ArchivePage : Page, INavigationAware
+{
+    private readonly ArchiveService _archive;
+    private readonly ScreenshotArchiveService _screenshots;
+    private readonly ScreenshotShortcutAction _shortcut;
+    private readonly IWindowHandleProvider _windowHandleProvider;
+    private IReadOnlyList<ArchiveListItem> _allArchives = [];
+    private IReadOnlyList<AnimeScreenshot> _allScreenshots = [];
+    private readonly Dictionary<string, IReadOnlyList<string>>
+        _screenshotTags = new(StringComparer.Ordinal);
+    private readonly Dictionary<ArchivePanelKind, PanelLoadState>
+        _panelStates = Enum.GetValues<ArchivePanelKind>()
+            .ToDictionary(kind => kind, _ => new PanelLoadState());
+    private ArchiveListItem? _selectedArchive;
+    private string? _requestedScreenshotId;
+    private int? _requestedAnimeId;
+    private CancellationTokenSource? _pageLifetime;
+    private CancellationTokenSource? _selectionCancellation;
+    private int _selectionVersion;
+    private ArchivePanelKind _activePanel = ArchivePanelKind.Archives;
+    private bool _suppressReviewYearChanged = true;
+    private bool _navigationInitialized;
+    private int _navigationVersion;
+
+    public ArchivePage(
+        ArchiveService archive,
+        ScreenshotArchiveService screenshots,
+        ScreenshotShortcutAction shortcut,
+        IWindowHandleProvider windowHandleProvider)
+    {
+        _archive = archive;
+        _screenshots = screenshots;
+        _shortcut = shortcut;
+        _windowHandleProvider = windowHandleProvider;
+        InitializeComponent();
+        StatusFilter.SelectedIndex = 0;
+        ReviewYear.Value = DateTime.Now.Year;
+        _suppressReviewYearChanged = false;
+        ShowPanel("archives");
+        Loaded += OnPageLoaded;
+        Unloaded += OnPageUnloaded;
+    }
+
+    private void OnScreenshotImageLoaded(object sender, RoutedEventArgs e)
+        => ConfigureScreenshotImage(sender as Image);
+
+    private void OnScreenshotImageDataContextChanged(
+        FrameworkElement sender,
+        DataContextChangedEventArgs args)
+    {
+        _ = args;
+        ConfigureScreenshotImage(sender as Image);
+    }
+
+    private static void ConfigureScreenshotImage(Image? image)
+    {
+        if (image?.DataContext is AnimeScreenshot screenshot)
+            ManagedImageLoader.ConfigureLocal(image, screenshot.FilePath, 260);
+        else if (image is not null)
+            ManagedImageLoader.Cancel(image);
+    }
+
+    public async Task OnNavigatedToAsync(object? parameter)
+    {
+        var requestedScreenshotId = parameter as string;
+        var requestedAnimeId = parameter as int?;
+        _requestedScreenshotId = requestedScreenshotId;
+        _requestedAnimeId = requestedAnimeId;
+        var navigationVersion = Interlocked.Increment(
+            ref _navigationVersion);
+        _navigationInitialized = true;
+        EnsurePageLifetime();
+        ShowPanel(requestedScreenshotId is null ? "archives" : "screenshots");
+        var lifetime = _pageLifetime;
+        await EnsureActivePanelAsync();
+        if (!IsNavigationCurrent(navigationVersion, lifetime))
+        {
+            return;
+        }
+
+        if (requestedAnimeId is { } animeId)
+        {
+            ArchiveList.SelectedItem = ArchiveList.Items
+                .OfType<ArchiveListItem>()
+                .FirstOrDefault(item => item.Archive.AnimeId == animeId);
+            if (ArchiveList.SelectedItem is not null)
+            {
+                ArchiveList.ScrollIntoView(ArchiveList.SelectedItem);
+            }
+        }
+        if (requestedScreenshotId is not null)
+        {
+            ScreenshotList.SelectedItem = ScreenshotList.Items
+                .OfType<AnimeScreenshot>()
+                .FirstOrDefault(item =>
+                    item.ScreenshotId == requestedScreenshotId);
+            if (ScreenshotList.SelectedItem is not null)
+            {
+                ScreenshotList.ScrollIntoView(
+                    ScreenshotList.SelectedItem);
+            }
+        }
+    }
+
+    private void EnsurePageLifetime()
+    {
+        if (_pageLifetime is null)
+        {
+            _pageLifetime = new CancellationTokenSource();
+        }
+    }
+
+    private async Task EnsureActivePanelAsync()
+    {
+        if (!_navigationInitialized || _pageLifetime is null)
+        {
+            return;
+        }
+
+        var panel = _activePanel;
+        var lifetime = _pageLifetime;
+        var state = _panelStates[panel];
+        var generation = state.Generation;
+        try
+        {
+            var load = state.EnsureAsync(
+                (generation, cancellationToken) => LoadPanelAsync(
+                    panel,
+                    generation,
+                    cancellationToken),
+                lifetime.Token);
+            generation = state.Generation;
+            await load;
+            if (IsPanelCurrent(panel, generation, lifetime))
+            {
+                StatusInfoBar.IsOpen = false;
+            }
+        }
+        catch (OperationCanceledException)
+            when (lifetime.IsCancellationRequested
+                || generation != state.Generation
+                || !ReferenceEquals(_pageLifetime, lifetime)
+                || !state.IsCurrent(generation, lifetime.Token))
+        {
+        }
+        catch (Exception ex) when (
+            ex is InvalidOperationException
+                or IOException
+                or Microsoft.Data.Sqlite.SqliteException)
+        {
+            if (IsPanelCurrent(panel, generation, lifetime))
+            {
+                ShowStatus(ex.Message, InfoBarSeverity.Error);
+            }
+        }
+    }
+
+    private bool IsPanelCurrent(
+        ArchivePanelKind panel,
+        int generation,
+        CancellationTokenSource lifetime)
+        => _navigationInitialized
+            && ReferenceEquals(_pageLifetime, lifetime)
+            && _activePanel == panel
+            && _panelStates[panel].IsCurrent(generation, lifetime.Token);
+
+    private bool IsPanelResultCurrent(
+        ArchivePanelKind panel,
+        int generation,
+        CancellationToken cancellationToken)
+        => _navigationInitialized
+            && _activePanel == panel
+            && _pageLifetime is not null
+            && _panelStates[panel].IsCurrent(generation, cancellationToken);
+
+    private bool IsNavigationCurrent(
+        int navigationVersion,
+        CancellationTokenSource? lifetime)
+        => navigationVersion == _navigationVersion
+            && lifetime is not null
+            && ReferenceEquals(_pageLifetime, lifetime)
+            && !lifetime.IsCancellationRequested;
+
+    private async Task LoadPanelAsync(
+        ArchivePanelKind panel,
+        int generation,
+        CancellationToken cancellationToken)
+    {
+        switch (panel)
+        {
+            case ArchivePanelKind.Archives:
+                var archives = await _archive.GetArchiveListAsync(
+                    cancellationToken);
+                if (IsPanelResultCurrent(
+                        panel,
+                        generation,
+                        cancellationToken))
+                {
+                    _allArchives = archives;
+                    ApplyArchiveFilter();
+                }
+                break;
+            case ArchivePanelKind.Statistics:
+                var statistics = await _archive.GetStatisticsAsync(
+                    cancellationToken: cancellationToken);
+                if (IsPanelResultCurrent(
+                        panel,
+                        generation,
+                        cancellationToken))
+                {
+                    StatisticsText.Text = FormatStatistics(statistics);
+                }
+                break;
+            case ArchivePanelKind.Review:
+                var year = double.IsNaN(ReviewYear.Value)
+                    ? DateTime.Now.Year
+                    : (int)ReviewYear.Value;
+                var review = await _archive.GetStatisticsAsync(
+                    year,
+                    cancellationToken);
+                if (IsPanelResultCurrent(
+                        panel,
+                        generation,
+                        cancellationToken))
+                {
+                    ReviewText.Text = FormatStatistics(review);
+                }
+                break;
+            case ArchivePanelKind.Screenshots:
+                var screenshotsTask = _archive.GetScreenshotsAsync(
+                    cancellationToken: cancellationToken);
+                var tagsTask = _archive.GetAllScreenshotTagsAsync(
+                    cancellationToken);
+                await Task.WhenAll(screenshotsTask, tagsTask);
+                if (IsPanelResultCurrent(
+                        panel,
+                        generation,
+                        cancellationToken))
+                {
+                    _allScreenshots = await screenshotsTask;
+                    var tagsByScreenshot = await tagsTask;
+                    _screenshotTags.Clear();
+                    foreach (var screenshot in _allScreenshots)
+                    {
+                        _screenshotTags[screenshot.ScreenshotId] =
+                            tagsByScreenshot.GetValueOrDefault(
+                                screenshot.ScreenshotId) ?? [];
+                    }
+
+                    ApplyScreenshotFilter();
+                }
+                break;
+        }
+    }
+
+    private void Invalidate(params ArchivePanelKind[] panels)
+    {
+        foreach (var panel in panels)
+        {
+            _panelStates[panel].Invalidate();
+        }
+    }
+
+    private async Task RefreshPanelsAsync(
+        params ArchivePanelKind[] panels)
+    {
+        Invalidate(panels);
+        if (panels.Contains(_activePanel))
+        {
+            await EnsureActivePanelAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        Invalidate(_panelStates.Keys.ToArray());
+        await EnsureActivePanelAsync();
+    }
+
+    private void ApplyScreenshotFilter()
+    {
+        var selectedIds = ScreenshotList.SelectedItems
+            .OfType<AnimeScreenshot>()
+            .Select(item => item.ScreenshotId)
+            .ToHashSet(StringComparer.Ordinal);
+        var filter = ScreenshotFilter.Text.Trim();
+        var year = double.IsNaN(ScreenshotYearFilter.Value)
+            ? null
+            : (int?)ScreenshotYearFilter.Value;
+        var filteredScreenshots = _allScreenshots.Where(item =>
+            (year is null
+                || item.CapturedAt.ToLocalTime().Year == year)
+            && (filter.Length == 0
+                || (item.AnimeTitle?.Contains(
+                    filter,
+                    StringComparison.CurrentCultureIgnoreCase) ?? false)
+                || item.ContextNote.Contains(
+                    filter,
+                    StringComparison.CurrentCultureIgnoreCase)
+                || item.ProcessName.Contains(
+                    filter,
+                    StringComparison.CurrentCultureIgnoreCase)
+                || (_screenshotTags.TryGetValue(
+                        item.ScreenshotId,
+                        out var tags)
+                    && tags.Any(tag => tag.Contains(
+                        filter,
+                        StringComparison.CurrentCultureIgnoreCase)))))
+            .ToArray();
+        ScreenshotList.ItemsSource = filteredScreenshots;
+        foreach (var item in filteredScreenshots.Where(item =>
+                     selectedIds.Contains(item.ScreenshotId)))
+        {
+            ScreenshotList.SelectedItems.Add(item);
+        }
+    }
+
+    private void OnScreenshotFilterChanged(
+        object sender,
+        TextChangedEventArgs e)
+        => ApplyScreenshotFilter();
+
+    private void OnScreenshotYearFilterChanged(
+        NumberBox sender,
+        NumberBoxValueChangedEventArgs args)
+        => ApplyScreenshotFilter();
+
+    private static string FormatStatistics(ArchiveStatistics statistics)
+    {
+        var started = statistics.RecordingStartedAt?.ToLocalTime()
+            .ToString("yyyy-MM-dd", CultureInfo.CurrentCulture)
+            ?? "尚无记录";
+        var tags = statistics.TagCounts.Count == 0
+            ? "暂无"
+            : string.Join(
+                "、",
+                statistics.TagCounts.Take(8)
+                    .Select(item => $"{item.Key}（{item.Value}）"));
+        return $"""
+            统计起点：{started}
+            档案：{statistics.ArchiveCount}
+            已评分：{statistics.RatedCount}
+            感想：{statistics.EntryCount}
+            截图：{statistics.ScreenshotCount}
+            状态变化：{statistics.TrackingChangeCount}
+            完成集数：{statistics.CompletedEpisodeCount}
+            估算观看时长：{statistics.EstimatedWatchMinutes} 分钟
+            常用个人标签：{tags}
+            """;
+    }
+
+    private void ApplyArchiveFilter()
+    {
+        var selectedAnimeId = _selectedArchive?.Archive.AnimeId;
+        var filter = ArchiveFilter.Text.Trim();
+        var status = StatusFilter.SelectedIndex switch
+        {
+            1 => AniMeido.Contracts.Models.AnimeTrackingStatus.Watching,
+            2 => AniMeido.Contracts.Models.AnimeTrackingStatus.PlanToWatch,
+            3 => AniMeido.Contracts.Models.AnimeTrackingStatus.NotInterested,
+            4 => AniMeido.Contracts.Models.AnimeTrackingStatus.Following,
+            5 => AniMeido.Contracts.Models.AnimeTrackingStatus.Completed,
+            6 => AniMeido.Contracts.Models.AnimeTrackingStatus.Dropped,
+            _ => (AniMeido.Contracts.Models.AnimeTrackingStatus?)null,
+        };
+        double? minimumRating = double.IsNaN(MinimumRatingFilter.Value)
+            ? null
+            : MinimumRatingFilter.Value;
+        var year = double.IsNaN(ArchiveYearFilter.Value)
+            ? null
+            : (int?)ArchiveYearFilter.Value;
+        var filteredArchives = _allArchives.Where(item =>
+            item.TrackingStatus
+                != AniMeido.Contracts.Models.AnimeTrackingStatus.Blocked
+            && (string.IsNullOrWhiteSpace(filter)
+                || item.Archive.TitleSnapshot.Contains(
+                    filter,
+                    StringComparison.CurrentCultureIgnoreCase)
+                || item.Tags.Any(tag => tag.Contains(
+                    filter,
+                    StringComparison.CurrentCultureIgnoreCase)))
+            && (status is null || item.TrackingStatus == status)
+            && (minimumRating is null
+                || item.Archive.PersonalRating >= minimumRating)
+            && (year is null
+                || item.Archive.CreatedAt.ToLocalTime().Year == year))
+            .ToList();
+        ArchiveList.ItemsSource = filteredArchives;
+        ArchiveResultCount.Text = $"{filteredArchives.Count} 部";
+        ArchiveListEmptyState.Visibility = filteredArchives.Count == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        var restoredSelection = selectedAnimeId is { } animeId
+            ? filteredArchives.FirstOrDefault(item =>
+                item.Archive.AnimeId == animeId)
+            : null;
+        if (restoredSelection is not null)
+        {
+            ArchiveList.SelectedItem = restoredSelection;
+        }
+        else if (_selectedArchive is not null)
+        {
+            _selectedArchive = null;
+            ArchiveList.SelectedItem = null;
+        }
+    }
+
+    private async void OnRefreshClick(object sender, RoutedEventArgs e)
+        => await LoadAsync();
+
+    private void OnArchiveFilterChanged(
+        object sender,
+        TextChangedEventArgs e)
+        => ApplyArchiveFilter();
+
+    private void OnArchiveOptionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+        => ApplyArchiveFilter();
+
+    private void OnArchiveNumberFilterChanged(
+        NumberBox sender,
+        NumberBoxValueChangedEventArgs args)
+        => ApplyArchiveFilter();
+
+    private void OnClearArchiveFiltersClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        ArchiveFilter.Text = string.Empty;
+        StatusFilter.SelectedIndex = 0;
+        MinimumRatingFilter.Value = double.NaN;
+        ArchiveYearFilter.Value = double.NaN;
+        ApplyArchiveFilter();
+    }
+
+    private async void OnArchiveSelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        _selectionCancellation?.Cancel();
+        _selectionCancellation?.Dispose();
+        _selectionCancellation = new CancellationTokenSource();
+        var cancellationToken = _selectionCancellation.Token;
+        var selectionVersion = Interlocked.Increment(ref _selectionVersion);
+        var selectedArchive = ArchiveList.SelectedItem as ArchiveListItem;
+        _selectedArchive = selectedArchive;
+        if (selectedArchive is null)
+        {
+            ArchiveSelectionEmptyState.Visibility = Visibility.Visible;
+            ArchiveDetailPanel.Visibility = Visibility.Collapsed;
+            EntryList.ItemsSource = null;
+            WatchHistoryList.ItemsSource = null;
+            UpdateEntryActions();
+            return;
+        }
+
+        ArchiveSelectionEmptyState.Visibility = Visibility.Collapsed;
+        ArchiveDetailPanel.Visibility = Visibility.Visible;
+        ArchiveTitle.Text = selectedArchive.Archive.TitleSnapshot;
+        RatingBox.Value =
+            selectedArchive.Archive.PersonalRating ?? double.NaN;
+        SummaryBox.Text = selectedArchive.Archive.SummaryNote;
+        TagsBox.Text = string.Join(", ", selectedArchive.Tags);
+        try
+        {
+            var entriesTask = _archive.GetEntriesAsync(
+                selectedArchive.Archive.AnimeId,
+                cancellationToken);
+            var historyTask = _archive.GetWatchHistoryAsync(
+                selectedArchive.Archive.AnimeId,
+                cancellationToken);
+            await Task.WhenAll(entriesTask, historyTask);
+            if (selectionVersion != _selectionVersion
+                || _selectedArchive?.Archive.AnimeId
+                    != selectedArchive.Archive.AnimeId)
+            {
+                return;
+            }
+            EntryList.ItemsSource = await entriesTask;
+            WatchHistoryList.ItemsSource = await historyTask;
+            UpdateEntryActions();
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async void OnSaveArchiveClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_selectedArchive is null)
+        {
+            ShowStatus("请先选择一部番剧。", InfoBarSeverity.Warning);
+            return;
+        }
+
+        try
+        {
+            var selectedAnimeId = _selectedArchive.Archive.AnimeId;
+            double? rating = double.IsNaN(RatingBox.Value)
+                ? null
+                : RatingBox.Value;
+            await _archive.UpsertArchiveAsync(
+                _selectedArchive.Archive.AnimeId,
+                _selectedArchive.Archive.TitleSnapshot,
+                rating,
+                SummaryBox.Text);
+            await _archive.SetAnimeTagsAsync(
+                _selectedArchive.Archive.AnimeId,
+                SplitTags(TagsBox.Text));
+            await RefreshPanelsAsync(
+                ArchivePanelKind.Archives,
+                ArchivePanelKind.Statistics,
+                ArchivePanelKind.Review);
+            ArchiveList.SelectedItem = ArchiveList.Items
+                .OfType<ArchiveListItem>()
+                .FirstOrDefault(item =>
+                    item.Archive.AnimeId == selectedAnimeId);
+            ShowStatus("档案已保存。", InfoBarSeverity.Success);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            ShowStatus(ex.Message, InfoBarSeverity.Warning);
+        }
+    }
+
+    private async void OnAddEntryClick(object sender, RoutedEventArgs e)
+    {
+        if (_selectedArchive is null)
+        {
+            ShowStatus("请先选择一部番剧。", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var body = new TextBox
+        {
+            Header = "观看感想",
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            MinHeight = 120,
+        };
+        var episode = new NumberBox
+        {
+            Header = "集数（可选）",
+            Minimum = 1,
+            SpinButtonPlacementMode =
+                NumberBoxSpinButtonPlacementMode.Compact,
+        };
+        var panel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(episode);
+        panel.Children.Add(body);
+        var dialog = CreateDialog("追加观看感想", panel, "保存");
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary
+            && !string.IsNullOrWhiteSpace(body.Text))
+        {
+            await _archive.AddEntryAsync(
+                _selectedArchive.Archive.AnimeId,
+                DateTimeOffset.Now,
+                double.IsNaN(episode.Value) ? null : (int)episode.Value,
+                body.Text);
+            EntryList.ItemsSource = await _archive.GetEntriesAsync(
+                _selectedArchive.Archive.AnimeId);
+            await RefreshPanelsAsync(
+                ArchivePanelKind.Archives,
+                ArchivePanelKind.Statistics,
+                ArchivePanelKind.Review);
+        }
+    }
+
+    private async void OnEditEntryClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (EntryList.SelectedItem is not ArchiveEntry entry)
+        {
+            ShowStatus("请先选择一条感想。", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var body = new TextBox
+        {
+            Header = "观看感想",
+            Text = entry.Body,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            MinHeight = 120,
+        };
+        var episode = new NumberBox
+        {
+            Header = "集数（可选）",
+            Minimum = 1,
+            Value = entry.EpisodeNumber ?? double.NaN,
+        };
+        var panel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(episode);
+        panel.Children.Add(body);
+        var dialog = CreateDialog("编辑观看感想", panel, "保存");
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            await _archive.UpdateEntryAsync(
+                entry.EntryId,
+                entry.OccurredAt,
+                double.IsNaN(episode.Value)
+                    ? null
+                    : (int)episode.Value,
+                body.Text);
+            EntryList.ItemsSource = await _archive.GetEntriesAsync(
+                entry.AnimeId);
+            await RefreshPanelsAsync(
+                ArchivePanelKind.Archives,
+                ArchivePanelKind.Statistics,
+                ArchivePanelKind.Review);
+        }
+    }
+
+    private async void OnDeleteEntryClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (EntryList.SelectedItem is not ArchiveEntry entry)
+        {
+            ShowStatus("请先选择一条感想。", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var dialog = CreateDialog(
+            "删除观看感想",
+            "此操作无法撤销。",
+            "删除");
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            await _archive.DeleteEntryAsync(entry.EntryId);
+            EntryList.ItemsSource = await _archive.GetEntriesAsync(
+                entry.AnimeId);
+            await RefreshPanelsAsync(
+                ArchivePanelKind.Archives,
+                ArchivePanelKind.Statistics,
+                ArchivePanelKind.Review);
+        }
+    }
+
+    private async void OnAddManualEventClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_selectedArchive is null)
+        {
+            ShowStatus("请先选择一部番剧。", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var date = new CalendarDatePicker
+        {
+            Header = "观看日期",
+            Date = DateTimeOffset.Now,
+        };
+        var time = new TimePicker
+        {
+            Header = "观看时间",
+            Time = DateTimeOffset.Now.TimeOfDay,
+        };
+        var from = new NumberBox
+        {
+            Header = "起始集",
+            Minimum = 1,
+            Value = 1,
+        };
+        var to = new NumberBox
+        {
+            Header = "结束集",
+            Minimum = 1,
+            Value = 1,
+        };
+        var minutes = new NumberBox
+        {
+            Header = "观看分钟数（可选）",
+            Minimum = 1,
+        };
+        var note = new TextBox { Header = "备注" };
+        var panel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(date);
+        panel.Children.Add(time);
+        panel.Children.Add(from);
+        panel.Children.Add(to);
+        panel.Children.Add(minutes);
+        panel.Children.Add(note);
+        var dialog = CreateDialog("补录观看事件", panel, "保存");
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary
+            || date.Date is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var localDateTime = date.Date.Value.Date.Add(time.Time);
+            var occurredAt = new DateTimeOffset(
+                localDateTime,
+                TimeZoneInfo.Local.GetUtcOffset(localDateTime));
+            await _archive.AddManualWatchEventAsync(new ManualWatchEvent(
+                Guid.NewGuid().ToString("N"),
+                _selectedArchive.Archive.AnimeId,
+                _selectedArchive.Archive.TitleSnapshot,
+                occurredAt,
+                (int)from.Value,
+                (int)to.Value,
+                double.IsNaN(minutes.Value)
+                    ? null
+                    : (int)minutes.Value,
+                note.Text,
+                DateTimeOffset.UtcNow));
+            await RefreshPanelsAsync(
+                ArchivePanelKind.Statistics,
+                ArchivePanelKind.Review);
+            WatchHistoryList.ItemsSource =
+                await _archive.GetWatchHistoryAsync(
+                    _selectedArchive.Archive.AnimeId);
+            ShowStatus("观看事件已补录，不会修改当前进度。",
+                InfoBarSeverity.Success);
+        }
+        catch (ArgumentException ex)
+        {
+            ShowStatus(ex.Message, InfoBarSeverity.Warning);
+        }
+    }
+
+    private void OnEntrySelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+        => UpdateEntryActions();
+
+    private void UpdateEntryActions()
+    {
+        var hasSelection = EntryList.SelectedItem is ArchiveEntry;
+        EditEntryButton.IsEnabled = hasSelection;
+        DeleteEntryButton.IsEnabled = hasSelection;
+    }
+
+    private async void OnSectionButtonClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string tag })
+        {
+            ShowPanel(tag);
+            await EnsureActivePanelAsync();
+        }
+    }
+
+    private void ShowPanel(string tag)
+    {
+        var nextPanel = tag switch
+        {
+            "statistics" => ArchivePanelKind.Statistics,
+            "review" => ArchivePanelKind.Review,
+            "screenshots" => ArchivePanelKind.Screenshots,
+            _ => ArchivePanelKind.Archives,
+        };
+        if (_activePanel != nextPanel
+            && _panelStates[_activePanel].IsLoading)
+        {
+            _panelStates[_activePanel].CancelInflight();
+        }
+        _activePanel = nextPanel;
+        ArchivesPanel.Visibility =
+            tag == "archives" ? Visibility.Visible : Visibility.Collapsed;
+        StatisticsPanel.Visibility =
+            tag == "statistics" ? Visibility.Visible : Visibility.Collapsed;
+        ReviewPanel.Visibility =
+            tag == "review" ? Visibility.Visible : Visibility.Collapsed;
+        ScreenshotsPanel.Visibility =
+            tag == "screenshots" ? Visibility.Visible : Visibility.Collapsed;
+        ArchivesSectionButton.IsChecked = tag == "archives";
+        StatisticsSectionButton.IsChecked = tag == "statistics";
+        ReviewSectionButton.IsChecked = tag == "review";
+        ScreenshotsSectionButton.IsChecked = tag == "screenshots";
+    }
+
+    private void OnShowScreenshotMoreActionsClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element)
+        {
+            Microsoft.UI.Xaml.Controls.Primitives.FlyoutBase
+                .ShowAttachedFlyout(element);
+        }
+    }
+
+    private async void OnReviewYearChanged(
+        NumberBox sender,
+        NumberBoxValueChangedEventArgs args)
+    {
+        _ = sender;
+        _ = args;
+        if (_suppressReviewYearChanged)
+        {
+            return;
+        }
+
+        await RefreshPanelsAsync(ArchivePanelKind.Review);
+    }
+
+    private void OnPageLoaded(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        if (!_navigationInitialized)
+        {
+            return;
+        }
+
+        EnsurePageLifetime();
+        _ = EnsureActivePanelAsync();
+    }
+
+    private void OnPageUnloaded(object sender, RoutedEventArgs e)
+    {
+        // Once initialized, this remains true because GoBack can restore the
+        // page instance without calling OnNavigatedToAsync again.
+        Interlocked.Increment(ref _navigationVersion);
+        Interlocked.Increment(ref _selectionVersion);
+        _pageLifetime?.Cancel();
+        _pageLifetime?.Dispose();
+        _pageLifetime = null;
+        foreach (var state in _panelStates.Values)
+        {
+            state.CancelInflight();
+        }
+        _selectionCancellation?.Cancel();
+        _selectionCancellation?.Dispose();
+        _selectionCancellation = null;
+    }
+
+    private async void OnExportReviewClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var year = (int)ReviewYear.Value;
+        var statistics = await _archive.GetStatisticsAsync(year);
+        var screenshots = (await _archive.GetScreenshotsAsync())
+            .Where(item => item.FileExists
+                && item.CapturedAt.ToLocalTime().Year == year)
+            .Take(12)
+            .ToArray();
+        var html = await BuildReviewHtmlAsync(
+            year,
+            statistics,
+            screenshots);
+        var picker = new FileSavePicker
+        {
+            SuggestedFileName = $"AniMeido-{year}-年度回顾",
+        };
+        picker.FileTypeChoices.Add("HTML", [".html"]);
+        if (!InitializePicker(picker))
+        {
+            return;
+        }
+        var file = await picker.PickSaveFileAsync();
+        if (file is not null)
+        {
+            await File.WriteAllTextAsync(file.Path, html);
+            ShowStatus("年度回顾已导出。", InfoBarSeverity.Success);
+        }
+    }
+
+    private async void OnOpenScreenshotClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (ScreenshotList.SelectedItem is AnimeScreenshot item
+            && item.FileExists)
+        {
+            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(
+                item.FilePath);
+            await Windows.System.Launcher.LaunchFileAsync(file);
+        }
+    }
+
+    private async void OnEditScreenshotClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (ScreenshotList.SelectedItem is not AnimeScreenshot item)
+        {
+            return;
+        }
+
+        var animeId = new NumberBox
+        {
+            Header = "Bangumi ID（留空表示未关联）",
+            Minimum = 1,
+            Value = item.AnimeId ?? double.NaN,
+        };
+        var title = new TextBox
+        {
+            Header = "番剧标题",
+            Text = item.AnimeTitle ?? string.Empty,
+        };
+        var episode = new NumberBox
+        {
+            Header = "集数",
+            Minimum = 1,
+            Value = item.EpisodeNumber ?? double.NaN,
+        };
+        var context = new TextBox
+        {
+            Header = "场合备注",
+            Text = item.ContextNote,
+        };
+        var panel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(animeId);
+        panel.Children.Add(title);
+        panel.Children.Add(episode);
+        panel.Children.Add(context);
+        var dialog = CreateDialog("编辑截图", panel, "保存");
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        await _archive.UpdateScreenshotMetadataAsync(
+            item.ScreenshotId,
+            double.IsNaN(animeId.Value) ? null : (int)animeId.Value,
+            title.Text,
+            double.IsNaN(episode.Value) ? null : (int)episode.Value,
+            context.Text);
+        await RefreshPanelsAsync(
+            ArchivePanelKind.Screenshots,
+            ArchivePanelKind.Archives,
+            ArchivePanelKind.Statistics,
+            ArchivePanelKind.Review);
+    }
+
+    private async void OnTagScreenshotsClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var selected = ScreenshotList.SelectedItems
+            .OfType<AnimeScreenshot>()
+            .ToArray();
+        if (selected.Length == 0)
+        {
+            return;
+        }
+
+        var input = new TextBox
+        {
+            Header = "个人标签（逗号分隔）",
+        };
+        var dialog = CreateDialog("批量添加标签", input, "添加");
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            await _archive.AddScreenshotTagsAsync(
+                selected.Select(item => item.ScreenshotId).ToArray(),
+                SplitTags(input.Text));
+            await RefreshPanelsAsync(
+                ArchivePanelKind.Screenshots,
+                ArchivePanelKind.Archives,
+                ArchivePanelKind.Statistics,
+                ArchivePanelKind.Review);
+            ShowStatus("截图标签已更新。", InfoBarSeverity.Success);
+        }
+    }
+
+    private async void OnExportScreenshotsClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var selected = ScreenshotList.SelectedItems
+            .OfType<AnimeScreenshot>()
+            .Where(item => item.FileExists)
+            .ToArray();
+        if (selected.Length == 0)
+        {
+            return;
+        }
+
+        var picker = new FolderPicker();
+        picker.FileTypeFilter.Add("*");
+        if (!InitializePicker(picker))
+        {
+            return;
+        }
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder is null)
+        {
+            return;
+        }
+
+        foreach (var item in selected)
+        {
+            var file = await Windows.Storage.StorageFile
+                .GetFileFromPathAsync(item.FilePath);
+            await file.CopyAsync(
+                folder,
+                file.Name,
+                Windows.Storage.NameCollisionOption.GenerateUniqueName);
+        }
+
+        ShowStatus($"已导出 {selected.Length} 张原图。",
+            InfoBarSeverity.Success);
+    }
+
+    private async void OnDeleteScreenshotClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var selected = ScreenshotList.SelectedItems
+            .OfType<AnimeScreenshot>()
+            .ToList();
+        if (selected.Count == 0)
+        {
+            return;
+        }
+
+        var deleted = 0;
+        var failed = 0;
+        foreach (var item in selected)
+        {
+            try
+            {
+                await _screenshots.DeleteAsync(item);
+                deleted++;
+            }
+            catch (Exception ex) when (
+                ex is IOException or UnauthorizedAccessException)
+            {
+                failed++;
+            }
+        }
+
+        await RefreshPanelsAsync(
+            ArchivePanelKind.Screenshots,
+            ArchivePanelKind.Archives,
+            ArchivePanelKind.Statistics,
+            ArchivePanelKind.Review);
+        ShowStatus(
+            failed == 0
+                ? $"{deleted} 张截图已移入回收站。"
+                : $"已删除 {deleted} 张，{failed} 张失败且保留记录。",
+            failed == 0
+                ? InfoBarSeverity.Success
+                : InfoBarSeverity.Warning);
+    }
+
+    private async void OnCleanupScreenshotsClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var count = await _archive.RemoveMissingScreenshotRecordsAsync();
+        await RefreshPanelsAsync(
+            ArchivePanelKind.Screenshots,
+            ArchivePanelKind.Archives,
+            ArchivePanelKind.Statistics,
+            ArchivePanelKind.Review);
+        ShowStatus($"已清理 {count} 条缺失文件记录。",
+            InfoBarSeverity.Success);
+    }
+
+    private async void OnScreenshotSettingsClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var settings = await _archive.GetScreenshotSettingsAsync();
+        var enabled = new CheckBox
+        {
+            Content = "启用 F12 全局截图（拦截 F12）",
+            IsChecked = settings.Enabled,
+        };
+        var sound = new CheckBox
+        {
+            Content = "播放截图音效",
+            IsChecked = settings.SoundEnabled,
+        };
+        var popup = new CheckBox
+        {
+            Content = "显示截图缩略图弹窗",
+            IsChecked = settings.PopupEnabled,
+        };
+        var root = new TextBox
+        {
+            Header = "新截图保存目录",
+            Text = settings.RootDirectory,
+        };
+        var panel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(enabled);
+        panel.Children.Add(sound);
+        panel.Children.Add(popup);
+        panel.Children.Add(root);
+        var dialog = CreateDialog("截图设置", panel, "保存");
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary
+            && !string.IsNullOrWhiteSpace(root.Text))
+        {
+            var updated = new ScreenshotSettings(
+                enabled.IsChecked == true,
+                Path.GetFullPath(
+                    Environment.ExpandEnvironmentVariables(root.Text.Trim())),
+                sound.IsChecked == true,
+                popup.IsChecked == true);
+            await _archive.SaveScreenshotSettingsAsync(updated);
+            _shortcut.SetEnabled(updated.Enabled);
+        }
+    }
+
+    private ContentDialog CreateDialog(
+        string title,
+        object content,
+        string primaryText)
+        => new()
+        {
+            XamlRoot = XamlRoot,
+            Title = title,
+            Content = content,
+            PrimaryButtonText = primaryText,
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+
+    private void ShowStatus(string message, InfoBarSeverity severity)
+    {
+        StatusInfoBar.Message = message;
+        StatusInfoBar.Severity = severity;
+        StatusInfoBar.IsOpen = true;
+    }
+
+    private static IEnumerable<string> SplitTags(string value)
+        => value.Split(
+            [',', '，'],
+            StringSplitOptions.RemoveEmptyEntries
+                | StringSplitOptions.TrimEntries);
+
+    private static async Task<string> BuildReviewHtmlAsync(
+        int year,
+        ArchiveStatistics statistics,
+        IReadOnlyList<AnimeScreenshot> screenshots)
+    {
+        var title = WebUtility.HtmlEncode($"{year} 年 AniMeido 年度回顾");
+        var tags = WebUtility.HtmlEncode(string.Join(
+            "、",
+            statistics.TagCounts.Take(8).Select(item => item.Key)));
+        var images = new StringBuilder();
+        foreach (var screenshot in screenshots)
+        {
+            var bytes = await File.ReadAllBytesAsync(
+                screenshot.FilePath);
+            var caption = WebUtility.HtmlEncode(
+                screenshot.ContextNote);
+            images.Append(
+                $"<figure><img src=\"data:image/png;base64,{Convert.ToBase64String(bytes)}\" alt=\"截图\"><figcaption>{caption}</figcaption></figure>");
+        }
+        return $$"""
+            <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+            <title>{{title}}</title><style>
+            body{font-family:"Segoe UI","Microsoft YaHei",sans-serif;
+            max-width:900px;margin:48px auto;padding:0 24px;color:#24243a}
+            .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+            .card{background:#f1f0fa;border-radius:12px;padding:20px}
+            .gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+            figure{margin:0}img{width:100%;aspect-ratio:16/9;object-fit:cover;
+            border-radius:8px}figcaption{font-size:.8rem;color:#68677b}
+            strong{font-size:2rem;display:block}small{color:#68677b}
+            </style></head><body><h1>{{title}}</h1>
+            <p>仅统计 AniMeido 中真实保存的播放器事件与手工补录。</p>
+            <div class="cards">
+            <div class="card"><strong>{{statistics.ArchiveCount}}</strong><small>动画档案</small></div>
+            <div class="card"><strong>{{statistics.CompletedEpisodeCount}}</strong><small>完成集数</small></div>
+            <div class="card"><strong>{{statistics.EstimatedWatchMinutes}}</strong><small>估算观看分钟</small></div>
+            <div class="card"><strong>{{statistics.EntryCount}}</strong><small>观看感想</small></div>
+            <div class="card"><strong>{{statistics.ScreenshotCount}}</strong><small>截图</small></div>
+            <div class="card"><strong>{{statistics.RatedCount}}</strong><small>已评分档案</small></div>
+            <div class="card"><strong>{{statistics.TrackingChangeCount}}</strong><small>状态变化</small></div>
+            </div><h2>常用标签</h2><p>{{tags}}</p>
+            <h2>年度截图</h2><div class="gallery">{{images}}</div></body></html>
+            """;
+    }
+
+    private bool InitializePicker(object picker)
+    {
+        if (!_windowHandleProvider.TryGetWindowHandle(out var handle))
+        {
+            ShowStatus(
+                "主窗口句柄当前不可用，无法打开选择器。",
+                InfoBarSeverity.Warning);
+            return false;
+        }
+
+        InitializeWithWindow.Initialize(picker, handle);
+        return true;
+    }
+}

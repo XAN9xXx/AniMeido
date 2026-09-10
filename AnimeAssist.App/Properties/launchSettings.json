@@ -1,8 +1,0 @@
-{
-  "profiles": {
-    "AnimeAssist.App (Unpackaged)": {
-      "commandName": "Project",
-      "debugEngines": "managed,native"
-    }
-  }
-}
