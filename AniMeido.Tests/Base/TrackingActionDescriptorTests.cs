@@ -18,8 +18,16 @@ namespace AniMeido.Tests
                 actions.Select(action => action.Status).Order());
         }
 
-        [Fact]
-        public void SeasonalActions_PreserveCurrentAndPastRules()
+        [Theory]
+        // 本季在播与未上映都属于“可追”，往季才是“可补”。
+        [InlineData(true, false, true, false)]
+        [InlineData(false, true, false, true)]
+        [InlineData(false, false, false, false)]
+        public void SeasonalActions_SplitOngoingFromCatchUp(
+            bool allowsOngoing,
+            bool allowsCatchUp,
+            bool expectWatching,
+            bool expectPlan)
         {
             var actions = TrackingActionDescriptor.CreateDefaults();
             var watching = Assert.Single(
@@ -29,25 +37,11 @@ namespace AniMeido.Tests
                 actions,
                 action => action.Status == AnimeTrackingStatus.PlanToWatch);
 
-            watching.UpdateAvailability(
-                isCurrentSeason: true,
-                isOldSeason: false);
-            plan.UpdateAvailability(
-                isCurrentSeason: true,
-                isOldSeason: false);
+            watching.UpdateAvailability(allowsOngoing, allowsCatchUp);
+            plan.UpdateAvailability(allowsOngoing, allowsCatchUp);
 
-            Assert.True(watching.IsVisible);
-            Assert.False(plan.IsVisible);
-
-            watching.UpdateAvailability(
-                isCurrentSeason: false,
-                isOldSeason: true);
-            plan.UpdateAvailability(
-                isCurrentSeason: false,
-                isOldSeason: true);
-
-            Assert.False(watching.IsVisible);
-            Assert.True(plan.IsVisible);
+            Assert.Equal(expectWatching, watching.IsVisible);
+            Assert.Equal(expectPlan, plan.IsVisible);
         }
 
         [Fact]
@@ -58,14 +52,14 @@ namespace AniMeido.Tests
             foreach (var action in actions)
             {
                 action.UpdateAvailability(
-                    isCurrentSeason: false,
-                    isOldSeason: false);
+                    allowsOngoing: false,
+                    allowsCatchUp: false);
             }
 
             Assert.All(
                 actions.Where(action =>
-                    !action.CurrentSeasonOnly
-                    && !action.OldSeasonOnly),
+                    !action.OngoingOnly
+                    && !action.CatchUpOnly),
                 action => Assert.True(action.IsVisible));
         }
     }

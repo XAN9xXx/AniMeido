@@ -11,8 +11,8 @@ namespace AniMeido.Plugin.Base.ViewModels
         string label,
         string activeLabel,
         string glyph,
-        bool currentSeasonOnly = false,
-        bool oldSeasonOnly = false) : ObservableObject
+        bool ongoingOnly = false,
+        bool catchUpOnly = false) : ObservableObject
     {
         public AnimeTrackingStatus Status { get; } = status;
 
@@ -22,20 +22,25 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         public string Glyph { get; } = glyph;
 
-        public bool CurrentSeasonOnly { get; } = currentSeasonOnly;
+        /// <summary>
+        /// 仅当作品尚未完结时可用，即本季在播或尚未开播。
+        /// 不以“本季”为判据：未上映的作品同样属于可追范围。
+        /// </summary>
+        public bool OngoingOnly { get; } = ongoingOnly;
 
-        public bool OldSeasonOnly { get; } = oldSeasonOnly;
+        /// <summary>仅当作品属于往季时可用。</summary>
+        public bool CatchUpOnly { get; } = catchUpOnly;
 
         [ObservableProperty]
         private bool _isSelected;
 
         [ObservableProperty]
-        private bool _isVisible = !(currentSeasonOnly || oldSeasonOnly);
+        private bool _isVisible = !(ongoingOnly || catchUpOnly);
 
-        public void UpdateAvailability(bool isCurrentSeason, bool isOldSeason)
+        public void UpdateAvailability(bool allowsOngoing, bool allowsCatchUp)
         {
-            IsVisible = (!CurrentSeasonOnly || isCurrentSeason) &&
-                (!OldSeasonOnly || isOldSeason);
+            IsVisible = (!OngoingOnly || allowsOngoing) &&
+                (!CatchUpOnly || allowsCatchUp);
         }
 
         public static IReadOnlyList<TrackingActionDescriptor> CreateDefaults() =>
@@ -45,13 +50,13 @@ namespace AniMeido.Plugin.Base.ViewModels
                 "追番",
                 "追番中",
                 "\uE8FB",
-                currentSeasonOnly: true),
+                ongoingOnly: true),
             new(
                 AnimeTrackingStatus.PlanToWatch,
                 "补番",
                 "补番中",
                 "\uE1D4",
-                oldSeasonOnly: true),
+                catchUpOnly: true),
             new(
                 AnimeTrackingStatus.NotInterested,
                 "不感兴趣",

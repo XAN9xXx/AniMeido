@@ -30,6 +30,8 @@ namespace AniMeido.Plugin.Base.ViewModels
         [ObservableProperty]
         private bool _isOldSeason = false;
         [ObservableProperty]
+        private bool _isUpcoming = false;
+        [ObservableProperty]
         private string _releasePhaseText = "日期未知";
         [ObservableProperty]
         private string _mediaFormatText = "其他动画";
@@ -131,6 +133,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 IsCurrentSeason = releasePhase
                     == AnimeReleasePhase.CurrentSeason;
                 IsOldSeason = releasePhase == AnimeReleasePhase.Past;
+                IsUpcoming = releasePhase == AnimeReleasePhase.Upcoming;
                 ReleasePhaseText = AnimeReleaseClassifier.GetPhaseText(
                     releasePhase);
                 MediaFormatText = AnimeReleaseClassifier.GetMediaFormatText(
@@ -220,11 +223,20 @@ namespace AniMeido.Plugin.Base.ViewModels
             UpdateTrackingActionAvailability();
         }
 
+        partial void OnIsUpcomingChanged(bool value)
+        {
+            UpdateTrackingActionAvailability();
+        }
+
         private void UpdateTrackingActionAvailability()
         {
+            // 未上映的作品同样可以“追番”：AnimeTrackingStatus.Watching 的语义
+            // 覆盖“正在追”和“未上映，计划追”两种情况。
             foreach (var action in TrackingActions)
             {
-                action.UpdateAvailability(IsCurrentSeason, IsOldSeason);
+                action.UpdateAvailability(
+                    IsCurrentSeason || IsUpcoming,
+                    IsOldSeason);
             }
 
             OnPropertyChanged(nameof(VisibleTrackingActions));
