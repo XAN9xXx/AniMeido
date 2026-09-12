@@ -46,11 +46,30 @@ public sealed class RecommendationService : IDisposable
         _candidates = candidates;
     }
 
+    public Task<IReadOnlyList<RecommendationFeature>> GetPreviewTagsAsync(
+        int animeId, CancellationToken cancellationToken = default)
+        => _candidates.GetTagsForPreviewAsync(animeId, cancellationToken);
+
+    public Task<AnimeTrackingStatus?> GetTrackingStatusAsync(int animeId)
+        => _tracking.GetStatusAsync(animeId);
+
+    public async Task<(AnimeTrackingStatus Status, bool Added)> AddToWatchlistAsync(int animeId,
+        CancellationToken cancellationToken = default)
+    {
+        var status = await _tracking.AddToPlanIfMissingAsync(animeId, cancellationToken);
+        if (status.Added) await _cache.RemoveCacheAsync(SnapshotCacheKey);
+        return status;
+    }
+
     public IReadOnlyList<RecommendationFeatureProfile> LastProfile
     {
         get;
         private set;
     } = [];
+
+    internal static bool IsSnapshotFresh(RecommendationSnapshot snapshot, DateTimeOffset now)
+        => snapshot.SchemaVersion == RecommendationSnapshot.CurrentSchemaVersion
+            && snapshot.GeneratedAt >= now - SnapshotFreshness;
 
     public async Task<RecommendationSnapshot?> GetCachedSnapshotAsync(
         bool allowExpired,
@@ -76,7 +95,7 @@ public sealed class RecommendationService : IDisposable
             }
 
             return allowExpired
-                || snapshot.GeneratedAt >= DateTimeOffset.UtcNow - SnapshotFreshness
+                || IsSnapshotFresh(snapshot, DateTimeOffset.UtcNow)
                     ? snapshot
                     : null;
         }

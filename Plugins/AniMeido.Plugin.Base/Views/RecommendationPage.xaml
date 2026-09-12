@@ -16,7 +16,7 @@
             <StackPanel Spacing="2">
                 <TextBlock Text="为你推荐"
                            Style="{StaticResource AniMeidoPageTitleStyle}"/>
-                <TextBlock Text="基于本地记录生成，可查看和修正每一项依据"
+                <TextBlock Text="从喜欢的故事，发现下一部心动。"
                            Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
             </StackPanel>
             <Button x:Name="RefreshButton"
@@ -74,7 +74,7 @@
 
         <Grid Grid.Row="3">
             <Grid x:Name="RecommendationsPanel"
-                  RowDefinitions="Auto,Auto,*"
+                  RowDefinitions="Auto,*"
                   RowSpacing="16"
                   Padding="0,0,4,4">
                     <Border x:Name="ColdStartPanel"
@@ -120,79 +120,160 @@
                         </Grid>
                     </Border>
 
-                    <Border Grid.Row="1"
-                            Style="{StaticResource AniMeidoCardStyle}">
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="推荐流"
-                                       Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                            <TextBlock Text="主推荐流不会包含已有追番标记或已屏蔽的作品。"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        </StackPanel>
-                    </Border>
-
-                    <ListView Grid.Row="2"
-                              ItemsSource="{x:Bind ViewModel.Items, Mode=OneWay}"
-                              SelectionMode="None"
-                              IsItemClickEnabled="False">
-                        <ListView.ItemContainerStyle>
-                            <Style TargetType="ListViewItem">
-                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                <Setter Property="Padding" Value="0"/>
-                                <Setter Property="Margin" Value="0,0,0,12"/>
-                            </Style>
-                        </ListView.ItemContainerStyle>
-                        <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="models:RecommendationItem">
-                                <Border Style="{StaticResource AniMeidoCardStyle}">
-                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="18">
-                                        <controls:AnimeCard DataContext="{x:Bind Anime}"
-                                                            CardClicked="OnAnimeCardClicked"/>
-                                        <StackPanel Grid.Column="1" Spacing="10" Margin="0,8,0,8">
-                                            <StackPanel Spacing="3">
-                                                <TextBlock Text="{x:Bind Anime.Title}"
-                                                           FontSize="20"
-                                                           FontWeight="SemiBold"
-                                                           TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock Text="{x:Bind Metadata}"
-                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                            </StackPanel>
-                                            <TextBlock Text="推荐依据"
-                                                       FontWeight="SemiBold"/>
-                                            <ItemsControl ItemsSource="{x:Bind Reasons}">
-                                                <ItemsControl.ItemTemplate>
-                                                    <DataTemplate x:DataType="models:RecommendationReason">
-                                                        <Button Tag="{x:Bind Feature}"
-                                                                HorizontalAlignment="Left"
-                                                                Margin="0,0,0,6"
-                                                                Click="OnReasonClick">
-                                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                                <FontIcon Glyph="&#xE8EC;" FontSize="12"/>
-                                                                <TextBlock Text="{x:Bind Text}"/>
-                                                            </StackPanel>
-                                                        </Button>
-                                                    </DataTemplate>
-                                                </ItemsControl.ItemTemplate>
-                                            </ItemsControl>
+                <Grid x:Name="BrowseGrid" Grid.Row="1" ColumnSpacing="16" SizeChanged="OnBrowseSizeChanged">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="3*"/>
+                        <ColumnDefinition x:Name="PreviewColumn" Width="2*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid>
+                        <ListView x:Name="RecommendationList"
+                                  ItemsSource="{x:Bind ViewModel.Items, Mode=OneWay}"
+                                  SelectedItem="{x:Bind ViewModel.SelectedItem, Mode=TwoWay}"
+                                  SelectionMode="Single" IsItemClickEnabled="True"
+                                  ItemClick="OnRecommendationItemClick"
+                                  SelectionChanged="OnRecommendationSelectionChanged"
+                                  Loaded="OnRecommendationListLoaded"
+                                  AutomationProperties.Name="推荐作品">
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                    <Setter Property="Padding" Value="10"/>
+                                    <Setter Property="Margin" Value="0,0,0,4"/>
+                                    <Setter Property="CornerRadius" Value="8"/>
+                                </Style>
+                            </ListView.ItemContainerStyle>
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="models:RecommendationItem">
+                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14" MinHeight="112">
+                                        <Border Width="72" Height="102" CornerRadius="6"
+                                                Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                            <Image Tag="{x:Bind Anime}" Stretch="Uniform" Loaded="OnCoverLoaded"
+                                                   DataContextChanged="OnCoverDataContextChanged" Unloaded="OnCoverUnloaded"
+                                                   AutomationProperties.Name="{x:Bind Anime.Title}"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Spacing="7" VerticalAlignment="Center">
+                                            <TextBlock Text="{x:Bind Anime.Title}" FontSize="17" FontWeight="SemiBold"
+                                                       TextTrimming="CharacterEllipsis" MaxLines="2" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{x:Bind Metadata}" FontSize="12"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            <TextBlock Text="{x:Bind PrimaryReason}" TextWrapping="Wrap" MaxLines="2"
+                                                       TextTrimming="CharacterEllipsis" FontSize="12"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                         </StackPanel>
-                                        <StackPanel Grid.Column="2"
-                                                    VerticalAlignment="Center"
-                                                    Spacing="8">
-                                            <Button Content="查看详情"
-                                                    Tag="{x:Bind}"
-                                                    Style="{StaticResource AccentButtonStyle}"
-                                                    Click="OnViewDetailsClick"/>
-                                            <Button Content="不再推荐"
-                                                    Tag="{x:Bind}"
-                                                    Click="OnHideClick"/>
-                                            <Button Content="不感兴趣"
-                                                    Tag="{x:Bind}"
-                                                    Click="OnNotInterestedClick"/>
+                                        <StackPanel Grid.Column="2" Spacing="8" VerticalAlignment="Center">
+                                            <Button x:Name="WantButton" Content="+ 想看" Tag="{x:Bind}" Click="OnWantClick"
+                                                    Loaded="OnWantLoaded" DataContextChanged="OnWantDataContextChanged" AutomationProperties.Name="加入想看"/>
+                                            <Button Content="···" Tag="{x:Bind}" Click="OnMoreClick"
+                                                    HorizontalAlignment="Right" AutomationProperties.Name="作品更多操作"/>
                                         </StackPanel>
                                     </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                        <StackPanel x:Name="EmptyRecommendations" Visibility="Collapsed"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                            <FontIcon Glyph="&#xE734;" FontSize="30"/>
+                            <TextBlock Text="本轮暂无推荐作品" FontSize="18"/>
+                            <TextBlock Text="调整偏好或刷新推荐后再看看。"/>
+                        </StackPanel>
+                    </Grid>
+                    <Border x:Name="PreviewPanel" Grid.Column="1" Canvas.ZIndex="2"
+                            Background="{ThemeResource CardBackgroundFillColorDefault}"
+                            BorderBrush="{ThemeResource ControlStrokeColorDefault}"
+                            BorderThickness="1" CornerRadius="12" Padding="18">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel Spacing="16">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Text="推荐依据" FontSize="20" FontWeight="SemiBold"/>
+                                    <Button x:Name="ClosePreviewButton" Grid.Column="1" Content="关闭" Visibility="Collapsed"
+                                            Click="OnClosePreviewClick"/>
+                                </Grid>
+                                <StackPanel x:Name="SelectedPreviewContent" Spacing="16"
+                                            DataContext="{x:Bind ViewModel.SelectedItem, Mode=OneWay}">
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
+                                        <Border Width="110" Height="156" CornerRadius="8"
+                                                Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                            <Image x:Name="PreviewCover" Stretch="Uniform" Unloaded="OnCoverUnloaded"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="8">
+                                            <TextBlock Text="{Binding Anime.Title}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding Metadata}" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            <Button x:Name="SelectedWantButton" Content="{x:Bind ViewModel.WatchlistLabel, Mode=OneWay}"
+                                                    Style="{StaticResource AccentButtonStyle}" Click="OnSelectedWantClick"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding Reasons}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="models:RecommendationReason">
+                                                <Border Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                                        CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                                                    <StackPanel Spacing="6">
+                                                        <TextBlock Text="{x:Bind Feature.DisplayName}" FontWeight="SemiBold"/>
+                                                        <TextBlock Text="{x:Bind Text}" TextWrapping="Wrap" FontSize="13"
+                                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Grid Margin="0,0,0,6">
+                                        <Border Margin="8,6,0,-6" CornerRadius="8" BorderThickness="1"
+                                                BorderBrush="{ThemeResource ControlStrokeColorDefault}"
+                                                Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"/>
+                                        <Button x:Name="TagPackButton" HorizontalAlignment="Stretch"
+                                                HorizontalContentAlignment="Stretch" Padding="12"
+                                                Click="OnTagPackClick" PointerEntered="OnTagPackEntered" PointerExited="OnTagPackExited">
+                                            <StackPanel Spacing="5">
+                                                <TextBlock Text="{x:Bind ViewModel.TagSummary, Mode=OneWay}" FontWeight="SemiBold"/>
+                                                <TextBlock x:Name="TagPreviewText" Text="展开调整当前作品的标签偏好" TextTrimming="CharacterEllipsis" FontSize="12"/>
+                                            </StackPanel>
+                                            <FlyoutBase.AttachedFlyout>
+                                                <Flyout x:Name="TagPackFlyout" Placement="Bottom" Opened="OnTagFlyoutOpened" Closed="OnTagFlyoutClosed">
+                                                    <StackPanel x:Name="TagFlyoutContent" Width="320" Spacing="10"
+                                                                PointerEntered="OnTagContentEntered" PointerExited="OnTagContentExited"
+                                                                PointerPressed="OnTagContentPressed">
+                                                        <TextBlock Text="当前作品的标签偏好" FontSize="17" FontWeight="SemiBold"/>
+                                                        <TextBlock Text="未设置表示交给系统判断，不抵消推断。" TextWrapping="Wrap" FontSize="12"/>
+                                                        <ProgressRing Width="20" Height="20" IsActive="{x:Bind ViewModel.IsLoadingTags, Mode=OneWay}"/>
+                                                        <TextBlock Text="{x:Bind ViewModel.TagError, Mode=OneWay}" TextWrapping="Wrap"/>
+                                                        <ScrollViewer MaxHeight="350" HorizontalScrollBarVisibility="Disabled">
+                                                            <ItemsControl ItemsSource="{x:Bind ViewModel.SelectedTags, Mode=OneWay}">
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate x:DataType="viewModels:RecommendationTagPreference">
+                                                                        <StackPanel Spacing="6" Margin="0,0,0,12">
+                                                                            <Grid ColumnDefinitions="*,Auto">
+                                                                                <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis"/>
+                                                                                <TextBlock Grid.Column="1" Text="{x:Bind DirectionText, Mode=OneWay}" FontSize="12"/>
+                                                                            </Grid>
+                                                                            <StackPanel Orientation="Horizontal" Spacing="5" IsHitTestVisible="{x:Bind CanEdit, Mode=OneWay}">
+                                                                                <Button Content="喜欢" Tag="{x:Bind}" IsEnabled="{x:Bind CanEdit, Mode=OneWay}" Click="OnTagLikeClick"/>
+                                                                                <Button Content="未设置" Tag="{x:Bind}" IsEnabled="{x:Bind CanEdit, Mode=OneWay}" Click="OnTagResetClick"/>
+                                                                                <Button Content="减少推荐" Tag="{x:Bind}" IsEnabled="{x:Bind CanEdit, Mode=OneWay}" Click="OnTagReduceClick"/>
+                                                                            </StackPanel>
+                                                                        </StackPanel>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                        </ScrollViewer>
+                                                        <Button Content="重新加载标签" Click="OnRetryTagsClick"/>
+                                                    </StackPanel>
+                                                </Flyout>
+                                            </FlyoutBase.AttachedFlyout>
+                                        </Button>
+                                    </Grid>
+                                    <Button Content="查看作品详情" HorizontalAlignment="Stretch" Click="OnSelectedDetailsClick"/>
+                                    <TextBlock Text="调整这条推荐" FontWeight="SemiBold"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="暂时跳过" Click="OnSelectedSkipClick"/>
+                                        <Button Content="更多反馈" Click="OnSelectedMoreClick"/>
+                                    </StackPanel>
+                                </StackPanel>
+                                <TextBlock x:Name="NoSelectionText" Text="选择一部作品查看推荐依据" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Border>
+                </Grid>
             </Grid>
 
             <Grid x:Name="ProfilePanel"

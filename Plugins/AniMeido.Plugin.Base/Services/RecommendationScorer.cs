@@ -1,4 +1,4 @@
-using AniMeido.Plugin.Base.Models;
+﻿using AniMeido.Plugin.Base.Models;
 
 namespace AniMeido.Plugin.Base.Services;
 
@@ -261,7 +261,7 @@ internal static class RecommendationScorer
         string text;
         if (isReduction)
         {
-            text = $"已降低你对{featureLabel}“{contribution.Feature.DisplayName}”的偏好";
+            text = $"该作品包含已被降低权重的{featureLabel}“{contribution.Feature.DisplayName}”";
         }
         else if (contribution.Profile.Adjustment
             == RecommendationAdjustment.Like)
@@ -274,11 +274,11 @@ internal static class RecommendationScorer
         }
         else if (contribution.Profile.Evidence.FirstOrDefault() is { } evidence)
         {
-            text = $"因为你喜欢《{evidence.Title}》，且同样包含{featureLabel}“{contribution.Feature.DisplayName}”";
+            text = $"与你记录中的《{evidence.Title}》具有共同{featureLabel}“{contribution.Feature.DisplayName}”";
         }
         else
         {
-            text = $"符合你对{featureLabel}“{contribution.Feature.DisplayName}”的偏好";
+            text = $"匹配当前推荐画像中的{featureLabel}“{contribution.Feature.DisplayName}”";
         }
 
         return new RecommendationReason(

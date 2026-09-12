@@ -1,4 +1,7 @@
 using AniMeido.Contracts;
+using AniMeido.Contracts.Models;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
@@ -13,17 +16,32 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     private readonly IPluginNavigator _navigator;
     private CancellationTokenSource? _navigationCancellation;
     private bool _isActionRunning;
+    private ScrollViewer? _listScroll;
+    private bool _restoringScroll;
+    private bool _scrollRestorePending;
+    private int _scrollRestoreGeneration;
+    private bool _isNarrow;
+    private bool _previewOpen;
+    private bool _tagPinned;
+    private bool _overTagEntry;
+    private bool _overTagContent;
+    private readonly DispatcherTimer _tagOpenTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
+    private readonly DispatcherTimer _tagCloseTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
+
 
     public RecommendationPage(
         RecommendationService recommendations,
-        IPluginNavigator navigator)
+        IPluginNavigator navigator,
+        RecommendationBrowseState browse)
     {
         _navigator = navigator;
-        ViewModel = new RecommendationViewModel(recommendations);
+        ViewModel = new RecommendationViewModel(recommendations, browse);
         InitializeComponent();
-        ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         Unloaded += OnUnloaded;
-        ShowSection("recommendations");
+        Loaded += OnLoaded;
+        _tagOpenTimer.Tick += OnTagOpenTick;
+        _tagCloseTimer.Tick += OnTagCloseTick;
+        ShowSection(browse.Section);
     }
 
     public RecommendationViewModel ViewModel { get; }
@@ -33,20 +51,44 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         _navigationCancellation?.Cancel();
         _navigationCancellation?.Dispose();
         _navigationCancellation = new CancellationTokenSource();
-        await ViewModel.LoadAsync(_navigationCancellation.Token);
+        ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        _scrollRestorePending = true;
+        var token = _navigationCancellation.Token;
+        await ViewModel.LoadAsync(token);
+        if (token.IsCancellationRequested) return;
+        UpdatePreview();
+        RestoreScroll();
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        SaveScroll();
+        _navigationCancellation?.Cancel();
+        ViewModel.Suspend();
+        ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        _tagOpenTimer.Stop();
+        _tagCloseTimer.Stop();
+        TagPackFlyout.Hide();
+        if (_listScroll is not null) _listScroll.ViewChanged -= OnListViewChanged;
+        _listScroll = null;
+        _scrollRestoreGeneration++;
+        _restoringScroll = false;
+        _scrollRestorePending = false;
         _navigationCancellation?.Cancel();
         _navigationCancellation?.Dispose();
         _navigationCancellation = null;
     }
 
     private async void OnRefreshClick(object sender, RoutedEventArgs e)
-        => await RunActionAsync(() => ViewModel.RefreshAsync(
-            CurrentToken,
-            preferNewBatch: true));
+    {
+        await RunActionAsync(() => ViewModel.RefreshAsync(CurrentToken, preferNewBatch: true));
+        if (!ViewModel.HasError && _navigationCancellation is not null)
+        {
+            ViewModel.BrowseState.VerticalOffset = 0;
+            RestoreScroll();
+        }
+    }
 
     private void OnSectionButtonClick(object sender, RoutedEventArgs e)
     {
@@ -58,6 +100,8 @@ public sealed partial class RecommendationPage : Page, INavigationAware
 
     private void ShowSection(string section)
     {
+        ViewModel.BrowseState.Section = section;
+        TagPackFlyout?.Hide();
         RecommendationsPanel.Visibility = section == "recommendations"
             ? Visibility.Visible
             : Visibility.Collapsed;
@@ -70,36 +114,12 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         RecommendationsSectionButton.IsChecked = section == "recommendations";
         ProfileSectionButton.IsChecked = section == "profile";
         HiddenSectionButton.IsChecked = section == "hidden";
+        if (section == "recommendations" && _scrollRestorePending) RestoreScroll();
     }
 
-    private void OnAnimeCardClicked(
-        object? sender,
-        Controls.AnimeCardClickedEventArgs e)
-        => _navigator.Navigate(typeof(AnimeDetailPage), e.Anime.ID);
-
-    private void OnViewDetailsClick(object sender, RoutedEventArgs e)
+    private async Task ConfirmNotInterestedAsync(RecommendationItem item)
     {
-        if (sender is Button { Tag: RecommendationItem item })
-        {
-            _navigator.Navigate(typeof(AnimeDetailPage), item.Anime.ID);
-        }
-    }
-
-    private async void OnHideClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { Tag: RecommendationItem item })
-        {
-            await RunActionAsync(() => ViewModel.HideAsync(item, CurrentToken));
-        }
-    }
-
-    private async void OnNotInterestedClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button { Tag: RecommendationItem item })
-        {
-            return;
-        }
-
+        var token = CurrentToken;
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
@@ -109,19 +129,8 @@ public sealed partial class RecommendationPage : Page, INavigationAware
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close,
         };
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
-        {
-            await RunActionAsync(() =>
-                ViewModel.MarkNotInterestedAsync(item, CurrentToken));
-        }
-    }
-
-    private async void OnReasonClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { Tag: RecommendationFeature feature })
-        {
-            await RunActionAsync(() => ShowPreferenceDialogAsync(feature));
-        }
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary && !token.IsCancellationRequested)
+            await ViewModel.MarkNotInterestedAsync(item, token);
     }
 
     private async void OnPreferenceClick(object sender, RoutedEventArgs e)
@@ -139,10 +148,16 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         {
             Header = $"此{feature.KindText}的推荐倾向",
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            SelectedIndex = 1,
+            SelectedIndex = ViewModel.Profile.FirstOrDefault(item => item.Feature.Kind == feature.Kind
+                && item.Feature.Key == feature.Key)?.Adjustment switch
+            {
+                RecommendationAdjustment.Like => 0,
+                RecommendationAdjustment.Reduce => 2,
+                _ => 1,
+            },
         };
         choices.Items.Add("喜欢");
-        choices.Items.Add("中立");
+        choices.Items.Add("未设置（恢复自动判断）");
         choices.Items.Add("减少");
         var dialog = new ContentDialog
         {
@@ -275,6 +290,20 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         object? sender,
         System.ComponentModel.PropertyChangedEventArgs e)
     {
+        if (e.PropertyName is nameof(RecommendationViewModel.SelectedItem)
+            or nameof(RecommendationViewModel.HasItems)) UpdatePreview();
+        if (e.PropertyName == nameof(RecommendationViewModel.SavingWatchlistIds))
+        {
+            RefreshWantButtons(RecommendationList);
+            UpdateSelectedWantButton();
+        }
+        if (e.PropertyName == nameof(RecommendationViewModel.WatchlistLabel)
+            && ViewModel.SelectedItem is { } selected
+            && RecommendationList.ContainerFromItem(selected) is DependencyObject container)
+            RefreshWantButtons(container);
+        if (e.PropertyName == nameof(RecommendationViewModel.TagSummary))
+            TagPreviewText.Text = ViewModel.SelectedTags.Count == 0 ? "展开查看作品标签"
+                : string.Join(" · ", ViewModel.SelectedTags.Take(3).Select(tag => tag.Name));
         if (e.PropertyName is nameof(RecommendationViewModel.Message)
             or nameof(RecommendationViewModel.HasError))
         {
@@ -292,17 +321,324 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         }
     }
 
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        UpdatePreview();
+        RestoreScroll();
+    }
+
+    private void UpdatePreview()
+    {
+        if (PreviewPanel is null) return;
+        var item = ViewModel.SelectedItem;
+        SelectedPreviewContent.Visibility = item is null ? Visibility.Collapsed : Visibility.Visible;
+        NoSelectionText.Visibility = item is null ? Visibility.Visible : Visibility.Collapsed;
+        EmptyRecommendations.Visibility = ViewModel.HasItems ? Visibility.Collapsed : Visibility.Visible;
+        if (item is null) ManagedImageLoader.Cancel(PreviewCover);
+        else ManagedImageLoader.ConfigureCover(PreviewCover, item.Anime.ID, item.Anime.CoverURL, 110);
+        ApplyPreviewLayout();
+        UpdateSelectedWantButton();
+    }
+
+    private async void OnRecommendationSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        ViewModel.SelectedItem = RecommendationList.SelectedItem as RecommendationItem;
+        TagPackFlyout.Hide();
+        UpdatePreview();
+        if (_navigationCancellation is not null)
+            await LoadTagsAsync();
+    }
+
+    private async Task LoadTagsAsync()
+    {
+        var token = CurrentToken;
+        try { await ViewModel.LoadSelectedTagsAsync(token); }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+#pragma warning disable CA1031 // Preview failures are contained at the asynchronous UI boundary.
+        catch (Exception ex) { if (!token.IsCancellationRequested) ViewModel.ReportError(ex.Message); }
+#pragma warning restore CA1031
+    }
+
+    private void OnRecommendationItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is RecommendationItem item) ViewModel.SelectedItem = item;
+        _previewOpen = true;
+        ApplyPreviewLayout();
+    }
+
+    private void OnBrowseSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        _isNarrow = e.NewSize.Width < 900;
+        ApplyPreviewLayout();
+    }
+
+    private void ApplyPreviewLayout()
+    {
+        if (PreviewColumn is null) return;
+        PreviewColumn.Width = _isNarrow ? new GridLength(0) : new GridLength(2, GridUnitType.Star);
+        Grid.SetColumn(PreviewPanel, _isNarrow ? 0 : 1);
+        Grid.SetColumnSpan(PreviewPanel, _isNarrow ? 2 : 1);
+        PreviewPanel.HorizontalAlignment = _isNarrow ? HorizontalAlignment.Right : HorizontalAlignment.Stretch;
+        PreviewPanel.Width = _isNarrow ? Math.Min(440, Math.Max(0, BrowseGrid.ActualWidth)) : double.NaN;
+        PreviewPanel.Visibility = !_isNarrow || (_previewOpen && ViewModel.HasSelection) ? Visibility.Visible : Visibility.Collapsed;
+        ClosePreviewButton.Visibility = _isNarrow ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OnClosePreviewClick(object sender, RoutedEventArgs e)
+    {
+        TagPackFlyout.Hide();
+        _previewOpen = false;
+        ApplyPreviewLayout();
+        RecommendationList.Focus(FocusState.Programmatic);
+    }
+
+    private void OnSelectedDetailsClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel.SelectedItem is not { } item) return;
+        SaveScroll();
+        _navigator.Navigate(typeof(AnimeDetailPage), item.Anime.ID);
+    }
+
+    private async void OnWantClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: RecommendationItem item } button) return;
+
+        await RunActionAsync(() => ViewModel.AddToWatchlistAsync(item, CurrentToken), serialize: false);
+        if (button.Tag is RecommendationItem current) UpdateWantButton(button, current);
+    }
+
+    private void OnWantLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: RecommendationItem item } button)
+            UpdateWantButton(button, item);
+    }
+
+    private void OnWantDataContextChanged(FrameworkElement sender, DataContextChangedEventArgs args)
+    {
+        if (sender is Button button && args.NewValue is RecommendationItem item)
+            UpdateWantButton(button, item);
+    }
+
+    private async void OnSelectedWantClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel.SelectedItem is not { } item) return;
+        await RunActionAsync(() => ViewModel.AddToWatchlistAsync(item, CurrentToken), serialize: false);
+        if (RecommendationList.ContainerFromItem(item) is DependencyObject container)
+            RefreshWantButtons(container);
+    }
+
+    private void RefreshWantButtons(DependencyObject root)
+    {
+        if (root is Button { Name: "WantButton", Tag: RecommendationItem item } button)
+            UpdateWantButton(button, item);
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            RefreshWantButtons(VisualTreeHelper.GetChild(root, i));
+    }
+
+    private void UpdateWantButton(Button button, RecommendationItem item)
+    {
+        button.Content = ViewModel.BrowseState.TrackingLabels.GetValueOrDefault(item.Anime.ID, "+ 想看");
+        button.IsEnabled = !ViewModel.SavingWatchlistIds.Contains(item.Anime.ID);
+    }
+
+    private void UpdateSelectedWantButton()
+    {
+        SelectedWantButton.IsEnabled = ViewModel.SelectedItem is { } item
+            && !ViewModel.SavingWatchlistIds.Contains(item.Anime.ID);
+    }
+
+    private void OnSelectedSkipClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel.SelectedItem is { } item) ViewModel.Skip(item);
+    }
+
+    private void OnMoreClick(object sender, RoutedEventArgs e)
+    {
+
+        if (sender is Button { Tag: RecommendationItem item } button) ShowMore(button, item);
+    }
+
+    private void OnSelectedMoreClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button button && ViewModel.SelectedItem is { } item) ShowMore(button, item);
+    }
+
+    private void ShowMore(FrameworkElement anchor, RecommendationItem item)
+    {
+        TagPackFlyout.Hide();
+        var menu = new MenuFlyout();
+        var skip = new MenuFlyoutItem { Text = "暂时跳过" };
+        skip.Click += (_, _) => ViewModel.Skip(item);
+        var hide = new MenuFlyoutItem { Text = "不再推荐（可恢复）" };
+        hide.Click += async (_, _) => await RunActionAsync(() => ViewModel.HideAsync(item, CurrentToken));
+        var dislike = new MenuFlyoutItem { Text = "不感兴趣" };
+        dislike.Click += async (_, _) => await RunActionAsync(() => ConfirmNotInterestedAsync(item));
+        menu.Items.Add(skip);
+        menu.Items.Add(hide);
+        menu.Items.Add(dislike);
+        menu.ShowAt(anchor);
+    }
+
+    private void OnCoverLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is Image image) ConfigureRowCover(image);
+    }
+
+    private void OnCoverDataContextChanged(FrameworkElement sender, DataContextChangedEventArgs args)
+    {
+        if (sender is Image image && image.IsLoaded) ConfigureRowCover(image);
+    }
+
+    private static void ConfigureRowCover(Image image)
+    {
+        var anime = (image.DataContext as RecommendationItem)?.Anime ?? image.Tag as Anime;
+        if (anime is not null) ManagedImageLoader.ConfigureCover(image, anime.ID, anime.CoverURL, 72);
+        else ManagedImageLoader.Cancel(image);
+    }
+
+    private void OnCoverUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is Image image) ManagedImageLoader.Cancel(image);
+    }
+
+    private void OnRecommendationListLoaded(object sender, RoutedEventArgs e)
+    {
+        if (_listScroll is not null) _listScroll.ViewChanged -= OnListViewChanged;
+        _listScroll = FindScrollViewer(RecommendationList);
+        if (_listScroll is not null) _listScroll.ViewChanged += OnListViewChanged;
+        RestoreScroll();
+    }
+
+    private static ScrollViewer? FindScrollViewer(DependencyObject root)
+    {
+        if (root is ScrollViewer scroll) return scroll;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            if (FindScrollViewer(VisualTreeHelper.GetChild(root, i)) is { } found) return found;
+        return null;
+    }
+
+    private void SaveScroll()
+    {
+        if (_listScroll is not null && !_restoringScroll && !_scrollRestorePending)
+            ViewModel.BrowseState.VerticalOffset = _listScroll.VerticalOffset;
+    }
+
+    private void OnListViewChanged(object? sender, ScrollViewerViewChangedEventArgs e) => SaveScroll();
+
+    private void RestoreScroll()
+    {
+        var scroll = _listScroll;
+        var navigation = _navigationCancellation;
+        if (scroll is null || navigation is null || ViewModel.IsBusy
+            || RecommendationsPanel.Visibility != Visibility.Visible) return;
+        var generation = ++_scrollRestoreGeneration;
+        _restoringScroll = true;
+        if (!DispatcherQueue.TryEnqueue(() =>
+        {
+            try
+            {
+                if (generation != _scrollRestoreGeneration || navigation != _navigationCancellation
+                    || scroll != _listScroll) return;
+                if (RecommendationsPanel.Visibility != Visibility.Visible)
+                {
+                    _scrollRestorePending = true;
+                    return;
+                }
+                RecommendationList.UpdateLayout();
+                scroll.ChangeView(null, ViewModel.BrowseState.VerticalOffset, null, true);
+                _scrollRestorePending = false;
+            }
+            finally
+            {
+                if (generation == _scrollRestoreGeneration) _restoringScroll = false;
+            }
+        }))
+        {
+            _restoringScroll = false;
+            _scrollRestorePending = false;
+        }
+    }
+
+    private void OnTagPackEntered(object sender, PointerRoutedEventArgs e)
+    {
+        _overTagEntry = true;
+        _tagCloseTimer.Stop();
+        _tagOpenTimer.Start();
+    }
+
+    private void OnTagPackExited(object sender, PointerRoutedEventArgs e)
+    {
+        _overTagEntry = false;
+        _tagOpenTimer.Stop();
+        _tagCloseTimer.Start();
+    }
+
+    private void OnTagOpenTick(object? sender, object e)
+    {
+        _tagOpenTimer.Stop();
+        if (_overTagEntry && ViewModel.HasSelection) TagPackFlyout.ShowAt(TagPackButton);
+    }
+
+    private void OnTagCloseTick(object? sender, object e)
+    {
+        _tagCloseTimer.Stop();
+        if (!_tagPinned && !_overTagEntry && !_overTagContent) TagPackFlyout.Hide();
+    }
+
+    private void OnTagPackClick(object sender, RoutedEventArgs e)
+    {
+        _tagPinned = true;
+        _tagOpenTimer.Stop();
+        TagPackFlyout.ShowAt(TagPackButton);
+    }
+
+    private void OnTagContentEntered(object sender, PointerRoutedEventArgs e)
+    {
+        _overTagContent = true;
+        _tagCloseTimer.Stop();
+    }
+
+    private void OnTagContentExited(object sender, PointerRoutedEventArgs e)
+    {
+        _overTagContent = false;
+        _tagCloseTimer.Start();
+    }
+
+    private void OnTagContentPressed(object sender, PointerRoutedEventArgs e) => _tagPinned = true;
+    private void OnTagFlyoutOpened(object? sender, object e) => _tagCloseTimer.Stop();
+    private void OnTagFlyoutClosed(object? sender, object e)
+    {
+        _tagPinned = false;
+        _overTagContent = false;
+        _tagOpenTimer.Stop();
+        _tagCloseTimer.Stop();
+    }
+
+    private async void OnRetryTagsClick(object sender, RoutedEventArgs e) => await LoadTagsAsync();
+    private async void OnTagLikeClick(object sender, RoutedEventArgs e) => await SaveTagAsync(sender, RecommendationAdjustment.Like);
+    private async void OnTagResetClick(object sender, RoutedEventArgs e) => await SaveTagAsync(sender, null);
+    private async void OnTagReduceClick(object sender, RoutedEventArgs e) => await SaveTagAsync(sender, RecommendationAdjustment.Reduce);
+
+    private async Task SaveTagAsync(object sender, RecommendationAdjustment? adjustment)
+    {
+        _tagPinned = true;
+        if (sender is Button { Tag: RecommendationTagPreference tag })
+            await RunActionAsync(() => ViewModel.SaveTagAsync(tag, adjustment, CurrentToken));
+    }
+
     private CancellationToken CurrentToken
         => _navigationCancellation?.Token ?? CancellationToken.None;
 
-    private async Task RunActionAsync(Func<Task> action)
+    private async Task RunActionAsync(Func<Task> action, bool serialize = true)
     {
-        if (_isActionRunning)
+        if (serialize && _isActionRunning)
         {
             return;
         }
 
-        _isActionRunning = true;
+        if (serialize) _isActionRunning = true;
         var cancellationToken = CurrentToken;
         try
         {
@@ -314,12 +650,12 @@ public sealed partial class RecommendationPage : Page, INavigationAware
 #pragma warning disable CA1031 // UI 边界将可恢复错误转为页面提示，避免 async void 终止进程。
         catch (Exception ex)
         {
-            ViewModel.ReportError(ex.Message);
+            if (!cancellationToken.IsCancellationRequested) ViewModel.ReportError(ex.Message);
         }
 #pragma warning restore CA1031
         finally
         {
-            _isActionRunning = false;
+            if (serialize) _isActionRunning = false;
         }
     }
 }

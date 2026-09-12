@@ -1,4 +1,4 @@
-using AniMeido.Contracts.Models;
+﻿using AniMeido.Contracts.Models;
 
 namespace AniMeido.Plugin.Base.Models;
 
@@ -92,6 +92,8 @@ public sealed record RecommendationItem(
     bool IsPersonalized,
     bool IsRecent)
 {
+    public string PrimaryReason => Reasons.FirstOrDefault(reason => !reason.IsReduction)?.Text ?? "探索更多作品";
+
     public string ReasonSummary => string.Join(
         "；",
         Reasons.Select(reason => reason.Text));
@@ -107,7 +109,7 @@ public sealed record RecommendationSnapshot(
     bool IsPersonalized,
     IReadOnlyList<RecommendationItem> Items)
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 }
 
 public sealed record RecommendationGeneration(

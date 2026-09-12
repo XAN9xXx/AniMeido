@@ -145,6 +145,27 @@ namespace AniMeido.Plugin.Base.Services
                 cancellationToken);
         }
 
+        /// <summary>Adds a plan only when no tracking record exists, in one write transaction.</summary>
+        internal async Task<(AnimeTrackingStatus Status, bool Added)> AddToPlanIfMissingAsync(
+            int animeId, CancellationToken cancellationToken)
+        {
+            using var connection = await _dbFactory.OpenAsync(cancellationToken);
+            using var transaction = connection.BeginTransaction();
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "SELECT Status FROM tracking WHERE AnimeId = @animeId";
+            command.Parameters.AddWithValue("@animeId", animeId);
+            var existing = await command.ExecuteScalarAsync(cancellationToken);
+            if (existing is not null and not DBNull)
+                return ((AnimeTrackingStatus)Convert.ToInt32(existing), false);
+
+            await SetStatusInTransactionAsync(connection, transaction, animeId,
+                AnimeTrackingStatus.PlanToWatch, DateTime.UtcNow.ToString("O"),
+                recordEvent: true, recordOnlyOnChange: true, eventId: null, cancellationToken);
+            transaction.Commit();
+            return (AnimeTrackingStatus.PlanToWatch, true);
+        }
+
         public async Task<AnimeTrackingStatus?> GetStatusAsync(int animeId)
         {
             using var connection = await _dbFactory.OpenAsync();

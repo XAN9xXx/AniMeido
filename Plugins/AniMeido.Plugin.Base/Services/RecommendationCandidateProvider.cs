@@ -1,4 +1,4 @@
-using AniMeido.Contracts;
+﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using Microsoft.Extensions.Logging;
@@ -315,6 +315,18 @@ public sealed class RecommendationCandidateProvider : IDisposable
                 false,
                 true))
             .ToArray();
+    }
+
+    internal async Task<IReadOnlyList<RecommendationFeature>> GetTagsForPreviewAsync(
+        int animeId, CancellationToken cancellationToken)
+    {
+        // Unlike ranking enrichment, the editor must distinguish failure from an empty tag set.
+        var tags = await WithNetworkGateAsync(
+            ct => _dataSource.GetTagsAsync(animeId, ct), cancellationToken);
+        return tags.Where(tag => !string.IsNullOrWhiteSpace(tag.Name))
+            .Select(tag => new RecommendationFeature(RecommendationFeatureKind.Tag,
+                NormalizeTag(tag.Name), tag.Name.Trim()))
+            .DistinctBy(tag => tag.Key).ToArray();
     }
 
     private async Task<IReadOnlyList<RecommendationFeature>>

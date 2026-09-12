@@ -87,6 +87,7 @@ namespace AniMeido.Plugin.Base
             services.AddSingleton<ArchiveBundleService>();
             services.AddSingleton<RecommendationCandidateProvider>();
             services.AddSingleton<RecommendationService>();
+            services.AddSingleton<AniMeido.Plugin.Base.Models.RecommendationBrowseState>();
             services.AddSingleton<PersonalAnimeDataGateway>();
             services.AddSingleton<IPersonalAnimeDataGateway>(provider =>
                 provider.GetRequiredService<PersonalAnimeDataGateway>());

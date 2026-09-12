@@ -1,3 +1,4 @@
+using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -27,7 +28,181 @@ public partial class RecommendationViewModel : ObservableObject
     ];
 
     private readonly RecommendationService _recommendations;
+    private readonly RecommendationBrowseState _browse;
+    private readonly Dictionary<int, Task<IReadOnlyList<RecommendationFeature>>> _tagRequests = [];
+    private int _selectionGeneration;
+    private int _tagLoadGeneration;
+    private int _preferenceGeneration;
     private int _loadGeneration;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSelection))]
+    private RecommendationItem? _selectedItem;
+
+    [ObservableProperty]
+    private ObservableCollection<RecommendationTagPreference> _selectedTags = [];
+
+    [ObservableProperty]
+    private bool _isLoadingTags;
+
+    [ObservableProperty]
+    private string? _tagError;
+
+    [ObservableProperty]
+    private string _watchlistLabel = "+ 想看";
+
+    private readonly HashSet<int> _savingWatchlistIds = [];
+    public IReadOnlySet<int> SavingWatchlistIds => _savingWatchlistIds;
+
+    private bool _isSavingPreference;
+    public bool HasSelection => SelectedItem is not null;
+    public RecommendationBrowseState BrowseState => _browse;
+    public string TagSummary => $"标签偏好 · {SelectedTags.Count} 个 · 已设置 {SelectedTags.Count(tag => tag.Adjustment is not null)} 项";
+
+    partial void OnSelectedItemChanged(RecommendationItem? value)
+    {
+        _browse.SelectedAnimeId = value?.Anime.ID;
+        _selectionGeneration++;
+        SelectedTags = new(value?.Reasons.Where(reason => reason.Feature.Kind == RecommendationFeatureKind.Tag)
+            .DistinctBy(reason => reason.Feature.Key)
+            .Select(reason => new RecommendationTagPreference(reason.Feature,
+                Profile.FirstOrDefault(profile => profile.Feature.Kind == RecommendationFeatureKind.Tag
+                    && profile.Feature.Key == reason.Feature.Key)?.Adjustment)) ?? []);
+        TagError = null;
+        IsLoadingTags = false;
+        WatchlistLabel = value is not null && _browse.TrackingLabels.TryGetValue(value.Anime.ID, out var label)
+            ? label : "+ 想看";
+        OnPropertyChanged(nameof(TagSummary));
+    }
+
+    public void Suspend()
+    {
+        _selectionGeneration++;
+        _loadGeneration++;
+        _refreshGeneration++;
+        _tagRequests.Clear();
+        _browse.Profile = Profile.ToArray();
+    }
+
+    public async Task LoadSelectedTagsAsync(CancellationToken cancellationToken = default)
+    {
+        var item = SelectedItem;
+        if (item is null) return;
+        var generation = _selectionGeneration;
+        var tagGeneration = ++_tagLoadGeneration;
+        bool IsCurrent() => generation == _selectionGeneration && tagGeneration == _tagLoadGeneration
+            && !cancellationToken.IsCancellationRequested;
+        IsLoadingTags = true;
+        TagError = null;
+        Task<IReadOnlyList<RecommendationFeature>>? request = null;
+        try
+        {
+            var status = await _recommendations.GetTrackingStatusAsync(item.Anime.ID);
+            if (!IsCurrent()) return;
+            WatchlistLabel = status switch
+            {
+                null => "+ 想看",
+                AnimeTrackingStatus.PlanToWatch => "已加入想看",
+                _ => "已有追番状态",
+            };
+            if (status is null) _browse.TrackingLabels.Remove(item.Anime.ID);
+            else _browse.TrackingLabels[item.Anime.ID] = WatchlistLabel;
+            if (!_tagRequests.TryGetValue(item.Anime.ID, out request))
+            {
+                request = _recommendations.GetPreviewTagsAsync(item.Anime.ID, cancellationToken);
+                _tagRequests[item.Anime.ID] = request;
+            }
+            var tags = await request;
+            var preferenceGeneration = _preferenceGeneration;
+            var preferences = await _recommendations.GetFeaturePreferencesAsync(cancellationToken);
+            if (!IsCurrent()) return;
+            // A completed save wins over a preference read started before that save.
+            if (preferenceGeneration != _preferenceGeneration)
+                preferences = await _recommendations.GetFeaturePreferencesAsync(cancellationToken);
+            if (!IsCurrent()) return;
+            var reasonKeys = item.Reasons.Select(reason => reason.Feature.Key).ToHashSet();
+            SelectedTags = new(tags.OrderByDescending(tag => reasonKeys.Contains(tag.Key))
+                .ThenBy(tag => tag.DisplayName, StringComparer.Ordinal)
+                .Select(tag => new RecommendationTagPreference(tag,
+                    preferences.FirstOrDefault(preference => preference.Kind == tag.Kind
+                        && preference.Key == tag.Key)?.Adjustment)));
+            OnPropertyChanged(nameof(TagSummary));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception ex) when (IsExpectedFailure(ex))
+        {
+            if (IsCurrent()) TagError = $"标签加载失败，保留已知标签。{ex.Message}";
+        }
+        finally
+        {
+            // Never retain a failed task, or let an old request remove a newer retry.
+            if (request is { IsCompletedSuccessfully: false }
+                && _tagRequests.TryGetValue(item.Anime.ID, out var cached)
+                && ReferenceEquals(request, cached))
+                _tagRequests.Remove(item.Anime.ID);
+            if (IsCurrent()) IsLoadingTags = false;
+        }
+    }
+
+    public async Task SaveTagAsync(RecommendationTagPreference tag,
+        RecommendationAdjustment? adjustment, CancellationToken cancellationToken)
+    {
+        if (tag.IsSaving || _isSavingPreference) return;
+        tag.IsSaving = true;
+        try
+        {
+            await SetPreferenceAsync(tag.Feature, adjustment, cancellationToken);
+            if (!cancellationToken.IsCancellationRequested) tag.Adjustment = adjustment;
+        }
+        finally
+        {
+            tag.IsSaving = false;
+            OnPropertyChanged(nameof(TagSummary));
+        }
+    }
+
+    public async Task AddToWatchlistAsync(RecommendationItem item, CancellationToken cancellationToken)
+    {
+        if (!_savingWatchlistIds.Add(item.Anime.ID)) return;
+        OnPropertyChanged(nameof(SavingWatchlistIds));
+        try
+        {
+            var (status, added) = await _recommendations.AddToWatchlistAsync(item.Anime.ID, cancellationToken);
+            var label = status == AnimeTrackingStatus.PlanToWatch ? "已加入想看" : "已有追番状态";
+            _browse.TrackingLabels[item.Anime.ID] = label;
+            if (cancellationToken.IsCancellationRequested) return;
+            if (SelectedItem?.Anime.ID == item.Anime.ID) WatchlistLabel = label;
+            Message = status == AnimeTrackingStatus.PlanToWatch
+                ? added ? "已加入想看，当前列表保留。" : "这部作品已在想看列表中。"
+                : "此作品已有追番状态，未覆盖。";
+        }
+        finally
+        {
+            _savingWatchlistIds.Remove(item.Anime.ID);
+            OnPropertyChanged(nameof(SavingWatchlistIds));
+        }
+    }
+
+    public void Skip(RecommendationItem item)
+    {
+        _browse.SkippedIds.Add(item.Anime.ID);
+        RemoveItem(item);
+        Message = "本轮暂时跳过；生成新一轮后可再次参与推荐。";
+    }
+
+    private void RemoveItem(RecommendationItem item)
+    {
+        var index = Items.IndexOf(item);
+        var wasSelected = SelectedItem?.Anime.ID == item.Anime.ID;
+        Items.Remove(item);
+        if (wasSelected)
+        {
+            var next = RecommendationBrowseState.SelectAfterRemoval(Items, index);
+            SelectedItem = Items.FirstOrDefault(candidate => candidate.Anime.ID == next);
+        }
+        OnPropertyChanged(nameof(HasItems));
+    }
+
     private int _refreshGeneration;
     private int _onboardingTagOffset;
 
@@ -61,9 +236,10 @@ public partial class RecommendationViewModel : ObservableObject
     [ObservableProperty]
     private bool _hasError;
 
-    public RecommendationViewModel(RecommendationService recommendations)
+    public RecommendationViewModel(RecommendationService recommendations, RecommendationBrowseState browse)
     {
         _recommendations = recommendations;
+        _browse = browse;
         RefreshSuggestedTags();
     }
 
@@ -110,6 +286,28 @@ public partial class RecommendationViewModel : ObservableObject
         ClearMessage();
         try
         {
+            if (_browse.Snapshot is { SchemaVersion: RecommendationSnapshot.CurrentSchemaVersion } saved)
+            {
+                var selectedId = _browse.SelectedAnimeId;
+                Profile = new(_browse.Profile);
+                Items = new(_browse.VisibleItems);
+                SelectedItem = Items.FirstOrDefault(item => item.Anime.ID == selectedId) ?? Items.FirstOrDefault();
+                IsPersonalized = saved.IsPersonalized;
+                SnapshotText = $"{saved.GeneratedAt.ToLocalTime():M月d日 HH:mm} 更新";
+                await LoadHiddenAsync(cancellationToken);
+                if (!IsCurrentLoad(generation, cancellationToken)) return;
+                OnPropertyChanged(nameof(HasItems));
+                OnPropertyChanged(nameof(IsColdStart));
+                if (_browse.HasPendingPreferences) Message = "偏好已更新，下轮推荐生效。";
+                if (!RecommendationService.IsSnapshotFresh(saved, DateTimeOffset.UtcNow))
+                {
+                    // RefreshAsync republishes Profile on success; on failure the
+                    // restored browse profile stays, because it is the only copy
+                    // that carries this session's manual preference edits.
+                    await RefreshAsync(cancellationToken);
+                }
+                return;
+            }
             var validSnapshot = await _recommendations.GetCachedSnapshotAsync(
                 allowExpired: false,
                 cancellationToken);
@@ -172,7 +370,7 @@ public partial class RecommendationViewModel : ObservableObject
                 cancellationToken,
                 preferNewBatch,
                 preferNewBatch ? previousIds : null);
-            if (generation != _refreshGeneration)
+            if (generation != _refreshGeneration || cancellationToken.IsCancellationRequested)
             {
                 return;
             }
@@ -180,6 +378,7 @@ public partial class RecommendationViewModel : ObservableObject
             ApplySnapshot(result.Snapshot);
             Profile = new(result.Profile.OrderByDescending(
                 item => item.EffectiveScore));
+            _browse.Profile = Profile.ToArray();
             OnPropertyChanged(nameof(IsColdStart));
             var hasDifferentItems = result.Snapshot.Items
                 .Select(item => item.Anime.ID)
@@ -219,7 +418,9 @@ public partial class RecommendationViewModel : ObservableObject
             item.Anime.ID,
             item.Anime.Title,
             cancellationToken);
-        Items.Remove(item);
+        _browse.RemovedIds.Add(item.Anime.ID);
+        if (cancellationToken.IsCancellationRequested) return;
+        RemoveItem(item);
         await LoadHiddenAsync(cancellationToken);
         OnPropertyChanged(nameof(HasItems));
         Message = "已从推荐中隐藏，可在“已隐藏”中恢复。";
@@ -232,8 +433,9 @@ public partial class RecommendationViewModel : ObservableObject
         await _recommendations.MarkNotInterestedAsync(
             item.Anime.ID,
             cancellationToken);
-        Items.Remove(item);
-        OnPropertyChanged(nameof(HasItems));
+        _browse.RemovedIds.Add(item.Anime.ID);
+        if (cancellationToken.IsCancellationRequested) return;
+        RemoveItem(item);
         Message = "已标记为不感兴趣，不会再出现在推荐中。";
     }
 
@@ -263,11 +465,31 @@ public partial class RecommendationViewModel : ObservableObject
         RecommendationAdjustment? adjustment,
         CancellationToken cancellationToken = default)
     {
-        await _recommendations.SetFeaturePreferenceAsync(
-            feature,
-            adjustment,
-            cancellationToken);
-        await RefreshAsync(cancellationToken);
+        if (_isSavingPreference) return;
+        _isSavingPreference = true;
+        try
+        {
+            await _recommendations.SetFeaturePreferenceAsync(feature, adjustment, cancellationToken);
+            _preferenceGeneration++;
+            _browse.HasPendingPreferences = true;
+            // Preserve the current evidence and ordering; only explicit preference state changes.
+            var existing = Profile.FirstOrDefault(item => item.Feature.Kind == feature.Kind && item.Feature.Key == feature.Key);
+            var updated = existing is null
+                ? new RecommendationFeatureProfile(feature, 0, adjustment, [])
+                : existing with { Adjustment = adjustment };
+            var profile = Profile.ToList();
+            if (existing is not null) profile[profile.IndexOf(existing)] = updated;
+            else profile.Add(updated);
+            _browse.Profile = profile;
+            if (cancellationToken.IsCancellationRequested) return;
+            Profile = new(profile);
+            foreach (var tag in SelectedTags.Where(tag => tag.Feature.Kind == feature.Kind && tag.Feature.Key == feature.Key))
+                tag.Adjustment = adjustment;
+            OnPropertyChanged(nameof(TagSummary));
+            Message = "偏好已更新，下轮推荐生效。";
+            HasError = false;
+        }
+        finally { _isSavingPreference = false; }
     }
 
     public async Task ApplyOnboardingTagsAsync(
@@ -362,7 +584,11 @@ public partial class RecommendationViewModel : ObservableObject
 
     private void ApplySnapshot(RecommendationSnapshot snapshot)
     {
+        var selectedId = _browse.SelectedAnimeId;
+        _tagRequests.Clear();
+        _browse.StartRound(snapshot);
         Items = new(snapshot.Items);
+        SelectedItem = Items.FirstOrDefault(item => item.Anime.ID == selectedId) ?? Items.FirstOrDefault();
         IsPersonalized = snapshot.IsPersonalized;
         SnapshotText = $"{snapshot.GeneratedAt.ToLocalTime():M月d日 HH:mm} 更新";
         OnPropertyChanged(nameof(HasItems));
@@ -383,6 +609,7 @@ public partial class RecommendationViewModel : ObservableObject
     private static bool IsExpectedFailure(Exception exception)
         => exception is InvalidOperationException
             or HttpRequestException
+            or OperationCanceledException
             or Microsoft.Data.Sqlite.SqliteException
             or System.Text.Json.JsonException;
 }
