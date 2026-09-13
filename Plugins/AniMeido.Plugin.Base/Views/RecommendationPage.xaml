@@ -127,6 +127,8 @@
                     </Grid.ColumnDefinitions>
                     <Grid>
                         <ListView x:Name="RecommendationList"
+                                  ScrollViewer.VerticalScrollBarVisibility="Hidden"
+                                  ScrollViewer.VerticalScrollMode="Enabled"
                                   ItemsSource="{x:Bind ViewModel.Items, Mode=OneWay}"
                                   SelectedItem="{x:Bind ViewModel.SelectedItem, Mode=TwoWay}"
                                   SelectionMode="Single" IsItemClickEnabled="True"
@@ -184,7 +186,7 @@
                             Background="{ThemeResource CardBackgroundFillColorDefault}"
                             BorderBrush="{ThemeResource ControlStrokeColorDefault}"
                             BorderThickness="1" CornerRadius="12" Padding="18">
-                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ScrollViewer VerticalScrollBarVisibility="Hidden" VerticalScrollMode="Enabled" HorizontalScrollBarVisibility="Disabled">
                             <StackPanel Spacing="16">
                                 <Grid ColumnDefinitions="*,Auto">
                                     <TextBlock Text="推荐依据" FontSize="20" FontWeight="SemiBold"/>
@@ -240,8 +242,8 @@
                                                         <TextBlock Text="未设置表示交给系统判断，不抵消推断。" TextWrapping="Wrap" FontSize="12"/>
                                                         <ProgressRing x:Name="TagLoadingRing" Width="20" Height="20" MinWidth="20" MinHeight="20" Visibility="Collapsed" IsActive="{x:Bind ViewModel.IsLoadingTags, Mode=OneWay}"/>
                                                         <TextBlock x:Name="TagErrorText" Visibility="Collapsed" Text="{x:Bind ViewModel.TagError, Mode=OneWay}" TextWrapping="Wrap"/>
-                                                        <ScrollViewer MaxHeight="280" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled">
-                                                            <ItemsControl Margin="0,0,20,0" ItemsSource="{x:Bind ViewModel.SelectedTags, Mode=OneWay}">
+                                                        <ScrollViewer MaxHeight="280" VerticalScrollBarVisibility="Hidden" VerticalScrollMode="Enabled" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled">
+                                                            <ItemsControl ItemsSource="{x:Bind ViewModel.SelectedTags, Mode=OneWay}">
                                                                 <ItemsControl.ItemTemplate>
                                                                     <DataTemplate x:DataType="viewModels:RecommendationTagPreference">
                                                                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="0,0,0,8">
