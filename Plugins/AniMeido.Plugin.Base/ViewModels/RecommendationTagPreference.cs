@@ -11,6 +11,9 @@ public partial class RecommendationTagPreference(RecommendationFeature feature,
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DirectionText))]
+    [NotifyPropertyChangedFor(nameof(IsLiked))]
+    [NotifyPropertyChangedFor(nameof(IsUnset))]
+    [NotifyPropertyChangedFor(nameof(IsReduced))]
     private RecommendationAdjustment? _adjustment = adjustment;
 
     [ObservableProperty]
@@ -18,6 +21,16 @@ public partial class RecommendationTagPreference(RecommendationFeature feature,
     private bool _isSaving;
 
     public bool CanEdit => !IsSaving;
+    public bool IsLiked => Adjustment == RecommendationAdjustment.Like;
+    public bool IsUnset => Adjustment is null;
+    public bool IsReduced => Adjustment == RecommendationAdjustment.Reduce;
+
+    internal void RefreshSelection()
+    {
+        OnPropertyChanged(nameof(IsLiked));
+        OnPropertyChanged(nameof(IsUnset));
+        OnPropertyChanged(nameof(IsReduced));
+    }
     public string DirectionText => Adjustment switch
     {
         RecommendationAdjustment.Like => "喜欢",

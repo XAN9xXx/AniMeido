@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="AniMeido.Plugin.Base.Views.RecommendationPage"
     x:Name="RootPage"
@@ -160,12 +160,15 @@
                                                        TextTrimming="CharacterEllipsis" FontSize="12"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                         </StackPanel>
-                                        <StackPanel Grid.Column="2" Spacing="8" VerticalAlignment="Center">
+                                        <Grid Grid.Column="2" RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,Auto"
+                                              RowSpacing="6" ColumnSpacing="6" VerticalAlignment="Center">
                                             <Button x:Name="WantButton" Content="+ 想看" Tag="{x:Bind}" Click="OnWantClick"
                                                     Loaded="OnWantLoaded" DataContextChanged="OnWantDataContextChanged" AutomationProperties.Name="加入想看"/>
-                                            <Button Content="···" Tag="{x:Bind}" Click="OnMoreClick"
-                                                    HorizontalAlignment="Right" AutomationProperties.Name="作品更多操作"/>
-                                        </StackPanel>
+                                            <Button Grid.Column="1" Content="暂时跳过" Tag="{x:Bind}" Click="OnRowSkipClick"/>
+                                            <Button Grid.Row="1" Content="不再推荐" Tag="{x:Bind}" Click="OnRowHideClick"
+                                                    ToolTipService.ToolTip="从推荐中隐藏，可在已隐藏中恢复"/>
+                                            <Button Grid.Row="1" Grid.Column="1" Content="不感兴趣" Tag="{x:Bind}" Click="OnRowNotInterestedClick"/>
+                                        </Grid>
                                     </Grid>
                                 </DataTemplate>
                             </ListView.ItemTemplate>
@@ -230,33 +233,30 @@
                                             </StackPanel>
                                             <FlyoutBase.AttachedFlyout>
                                                 <Flyout x:Name="TagPackFlyout" Placement="Bottom" Opened="OnTagFlyoutOpened" Closed="OnTagFlyoutClosed">
-                                                    <StackPanel x:Name="TagFlyoutContent" Width="320" Spacing="10"
+                                                    <StackPanel x:Name="TagFlyoutContent" Width="360" Spacing="10"
                                                                 PointerEntered="OnTagContentEntered" PointerExited="OnTagContentExited"
                                                                 PointerPressed="OnTagContentPressed">
                                                         <TextBlock Text="当前作品的标签偏好" FontSize="17" FontWeight="SemiBold"/>
                                                         <TextBlock Text="未设置表示交给系统判断，不抵消推断。" TextWrapping="Wrap" FontSize="12"/>
-                                                        <ProgressRing Width="20" Height="20" IsActive="{x:Bind ViewModel.IsLoadingTags, Mode=OneWay}"/>
-                                                        <TextBlock Text="{x:Bind ViewModel.TagError, Mode=OneWay}" TextWrapping="Wrap"/>
-                                                        <ScrollViewer MaxHeight="350" HorizontalScrollBarVisibility="Disabled">
-                                                            <ItemsControl ItemsSource="{x:Bind ViewModel.SelectedTags, Mode=OneWay}">
+                                                        <ProgressRing x:Name="TagLoadingRing" Width="20" Height="20" MinWidth="20" MinHeight="20" Visibility="Collapsed" IsActive="{x:Bind ViewModel.IsLoadingTags, Mode=OneWay}"/>
+                                                        <TextBlock x:Name="TagErrorText" Visibility="Collapsed" Text="{x:Bind ViewModel.TagError, Mode=OneWay}" TextWrapping="Wrap"/>
+                                                        <ScrollViewer MaxHeight="280" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled">
+                                                            <ItemsControl Margin="0,0,20,0" ItemsSource="{x:Bind ViewModel.SelectedTags, Mode=OneWay}">
                                                                 <ItemsControl.ItemTemplate>
                                                                     <DataTemplate x:DataType="viewModels:RecommendationTagPreference">
-                                                                        <StackPanel Spacing="6" Margin="0,0,0,12">
-                                                                            <Grid ColumnDefinitions="*,Auto">
-                                                                                <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis"/>
-                                                                                <TextBlock Grid.Column="1" Text="{x:Bind DirectionText, Mode=OneWay}" FontSize="12"/>
-                                                                            </Grid>
-                                                                            <StackPanel Orientation="Horizontal" Spacing="5" IsHitTestVisible="{x:Bind CanEdit, Mode=OneWay}">
-                                                                                <Button Content="喜欢" Tag="{x:Bind}" IsEnabled="{x:Bind CanEdit, Mode=OneWay}" Click="OnTagLikeClick"/>
-                                                                                <Button Content="未设置" Tag="{x:Bind}" IsEnabled="{x:Bind CanEdit, Mode=OneWay}" Click="OnTagResetClick"/>
-                                                                                <Button Content="减少推荐" Tag="{x:Bind}" IsEnabled="{x:Bind CanEdit, Mode=OneWay}" Click="OnTagReduceClick"/>
+                                                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="0,0,0,8">
+                                                                            <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTipService.ToolTip="{x:Bind Name}"/>
+                                                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="3">
+                                                                                <ToggleButton Content="喜欢" Padding="8,5" MinWidth="0" IsChecked="{x:Bind IsLiked, Mode=OneWay}" Tag="{x:Bind}" IsEnabled="{x:Bind CanEdit, Mode=OneWay}" Click="OnTagLikeClick"/>
+                                                                                <ToggleButton Content="未设置" Padding="8,5" MinWidth="0" IsChecked="{x:Bind IsUnset, Mode=OneWay}" Tag="{x:Bind}" IsEnabled="{x:Bind CanEdit, Mode=OneWay}" Click="OnTagResetClick"/>
+                                                                                <ToggleButton Content="减少" Padding="8,5" MinWidth="0" IsChecked="{x:Bind IsReduced, Mode=OneWay}" Tag="{x:Bind}" IsEnabled="{x:Bind CanEdit, Mode=OneWay}" Click="OnTagReduceClick" ToolTipService.ToolTip="减少推荐"/>
                                                                             </StackPanel>
-                                                                        </StackPanel>
+                                                                        </Grid>
                                                                     </DataTemplate>
                                                                 </ItemsControl.ItemTemplate>
                                                             </ItemsControl>
                                                         </ScrollViewer>
-                                                        <Button Content="重新加载标签" Click="OnRetryTagsClick"/>
+                                                        <Button x:Name="RetryTagsButton" Visibility="Collapsed" Content="重试" Click="OnRetryTagsClick"/>
                                                     </StackPanel>
                                                 </Flyout>
                                             </FlyoutBase.AttachedFlyout>
@@ -266,7 +266,8 @@
                                     <TextBlock Text="调整这条推荐" FontWeight="SemiBold"/>
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <Button Content="暂时跳过" Click="OnSelectedSkipClick"/>
-                                        <Button Content="更多反馈" Click="OnSelectedMoreClick"/>
+                                        <Button Content="不再推荐" Click="OnSelectedHideClick" ToolTipService.ToolTip="从推荐中隐藏，可在已隐藏中恢复"/>
+                                        <Button Content="不感兴趣" Click="OnSelectedNotInterestedClick"/>
                                     </StackPanel>
                                 </StackPanel>
                                 <TextBlock x:Name="NoSelectionText" Text="选择一部作品查看推荐依据" TextWrapping="Wrap"/>

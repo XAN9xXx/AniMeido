@@ -1,4 +1,4 @@
-using AniMeido.Contracts;
+﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -290,6 +290,8 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         object? sender,
         System.ComponentModel.PropertyChangedEventArgs e)
     {
+        if (e.PropertyName is nameof(RecommendationViewModel.IsLoadingTags)
+            or nameof(RecommendationViewModel.TagError)) UpdateTagLoadingState();
         if (e.PropertyName is nameof(RecommendationViewModel.SelectedItem)
             or nameof(RecommendationViewModel.HasItems)) UpdatePreview();
         if (e.PropertyName == nameof(RecommendationViewModel.SavingWatchlistIds))
@@ -454,31 +456,33 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         if (ViewModel.SelectedItem is { } item) ViewModel.Skip(item);
     }
 
-    private void OnMoreClick(object sender, RoutedEventArgs e)
+    private void OnRowSkipClick(object sender, RoutedEventArgs e)
     {
-
-        if (sender is Button { Tag: RecommendationItem item } button) ShowMore(button, item);
+        if (sender is Button { Tag: RecommendationItem item }) ViewModel.Skip(item);
     }
 
-    private void OnSelectedMoreClick(object sender, RoutedEventArgs e)
+    private async void OnRowHideClick(object sender, RoutedEventArgs e)
     {
-        if (sender is Button button && ViewModel.SelectedItem is { } item) ShowMore(button, item);
+        if (sender is Button { Tag: RecommendationItem item })
+            await RunActionAsync(() => ViewModel.HideAsync(item, CurrentToken));
     }
 
-    private void ShowMore(FrameworkElement anchor, RecommendationItem item)
+    private async void OnRowNotInterestedClick(object sender, RoutedEventArgs e)
     {
-        TagPackFlyout.Hide();
-        var menu = new MenuFlyout();
-        var skip = new MenuFlyoutItem { Text = "暂时跳过" };
-        skip.Click += (_, _) => ViewModel.Skip(item);
-        var hide = new MenuFlyoutItem { Text = "不再推荐（可恢复）" };
-        hide.Click += async (_, _) => await RunActionAsync(() => ViewModel.HideAsync(item, CurrentToken));
-        var dislike = new MenuFlyoutItem { Text = "不感兴趣" };
-        dislike.Click += async (_, _) => await RunActionAsync(() => ConfirmNotInterestedAsync(item));
-        menu.Items.Add(skip);
-        menu.Items.Add(hide);
-        menu.Items.Add(dislike);
-        menu.ShowAt(anchor);
+        if (sender is Button { Tag: RecommendationItem item })
+            await RunActionAsync(() => ConfirmNotInterestedAsync(item));
+    }
+
+    private async void OnSelectedHideClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel.SelectedItem is { } item)
+            await RunActionAsync(() => ViewModel.HideAsync(item, CurrentToken));
+    }
+
+    private async void OnSelectedNotInterestedClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel.SelectedItem is { } item)
+            await RunActionAsync(() => ConfirmNotInterestedAsync(item));
     }
 
     private void OnCoverLoaded(object sender, RoutedEventArgs e)
@@ -607,7 +611,19 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     }
 
     private void OnTagContentPressed(object sender, PointerRoutedEventArgs e) => _tagPinned = true;
-    private void OnTagFlyoutOpened(object? sender, object e) => _tagCloseTimer.Stop();
+    private void OnTagFlyoutOpened(object? sender, object e)
+    {
+        _tagCloseTimer.Stop();
+        UpdateTagLoadingState();
+    }
+
+    private void UpdateTagLoadingState()
+    {
+        TagLoadingRing.Visibility = ViewModel.IsLoadingTags ? Visibility.Visible : Visibility.Collapsed;
+        var hasError = !string.IsNullOrWhiteSpace(ViewModel.TagError);
+        TagErrorText.Visibility = hasError ? Visibility.Visible : Visibility.Collapsed;
+        RetryTagsButton.Visibility = hasError && !ViewModel.IsLoadingTags ? Visibility.Visible : Visibility.Collapsed;
+    }
     private void OnTagFlyoutClosed(object? sender, object e)
     {
         _tagPinned = false;
@@ -624,8 +640,13 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     private async Task SaveTagAsync(object sender, RecommendationAdjustment? adjustment)
     {
         _tagPinned = true;
-        if (sender is Button { Tag: RecommendationTagPreference tag })
-            await RunActionAsync(() => ViewModel.SaveTagAsync(tag, adjustment, CurrentToken));
+        if (sender is ToggleButton { Tag: RecommendationTagPreference tag })
+        {
+            // A click must not claim a saved preference before persistence succeeds.
+            tag.RefreshSelection();
+            try { await RunActionAsync(() => ViewModel.SaveTagAsync(tag, adjustment, CurrentToken)); }
+            finally { tag.RefreshSelection(); }
+        }
     }
 
     private CancellationToken CurrentToken
