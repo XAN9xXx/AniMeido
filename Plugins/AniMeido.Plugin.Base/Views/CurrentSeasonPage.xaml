@@ -3,122 +3,395 @@
     x:Class="AniMeido.Plugin.Base.Views.CurrentSeasonPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:AniMeido.Plugin.Base"
-    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:controls="using:AniMeido.Plugin.Base.Views.Controls"
-    xmlns:vm="using:AniMeido.Plugin.Base.ViewModels"
-    xmlns:contracts="using:AniMeido.Contracts.Models">
+    xmlns:vm="using:AniMeido.Plugin.Base.ViewModels">
 
-    <Grid AllowDrop="True"
+    <Page.Resources>
+        <ResourceDictionary>
+            <!-- 面板底色必须不透明，两侧渐隐才能与之衔接 -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <Color x:Key="CalendarPanelColor">#FFFFFFFF</Color>
+                    <Color x:Key="CalendarPanelClearColor">#00FFFFFF</Color>
+                    <SolidColorBrush x:Key="CalendarPanelBrush" Color="#FFFFFFFF"/>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <Color x:Key="CalendarPanelColor">#FF2D2D2D</Color>
+                    <Color x:Key="CalendarPanelClearColor">#002D2D2D</Color>
+                    <SolidColorBrush x:Key="CalendarPanelBrush" Color="#FF2D2D2D"/>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <Style x:Key="CalendarPanelStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource CalendarPanelBrush}"/>
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CornerRadius" Value="12"/>
+            </Style>
+
+            <Style x:Key="CalendarTileButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorSecondaryBrush}"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="CornerRadius" Value="9"/>
+                <Setter Property="HorizontalAlignment" Value="Stretch"/>
+                <Setter Property="VerticalAlignment" Value="Stretch"/>
+                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
+            </Style>
+
+            <Style x:Key="CalendarScopeButtonStyle" TargetType="ToggleButton" BasedOn="{StaticResource DefaultToggleButtonStyle}">
+                <Setter Property="Padding" Value="12,4"/>
+                <Setter Property="MinWidth" Value="0"/>
+            </Style>
+
+            <!-- 星期格：选中时叠加强调色描边与浅色底 -->
+            <DataTemplate x:Key="DayTemplate" x:DataType="vm:CalendarDay">
+                <Grid>
+                    <Button Tag="{x:Bind}"
+                            Click="OnDayClick"
+                            Style="{StaticResource CalendarTileButtonStyle}"
+                            Padding="12,8"
+                            AutomationProperties.Name="{x:Bind Label}">
+                        <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="1">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                <TextBlock Text="{x:Bind Label}" FontSize="15" FontWeight="SemiBold"/>
+                                <TextBlock Grid.Column="1"
+                                           Text="今天"
+                                           Visibility="{x:Bind IsToday}"
+                                           FontSize="12"
+                                           VerticalAlignment="Center"
+                                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                            </Grid>
+                            <TextBlock Grid.Row="1"
+                                       Text="{x:Bind CountText, Mode=OneWay}"
+                                       FontSize="12"
+                                       TextTrimming="CharacterEllipsis"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <ItemsControl Grid.Row="2"
+                                          Height="6"
+                                          Margin="0,3,0,0"
+                                          IsTabStop="False"
+                                          ItemsSource="{x:Bind Dots, Mode=OneWay}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="4"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:CalendarDot">
+                                        <Grid Width="6" Height="6">
+                                            <Ellipse Fill="{ThemeResource AccentFillColorDefaultBrush}" Visibility="{x:Bind IsWatching}"/>
+                                            <Ellipse Fill="{ThemeResource AniMeidoFollowingColorBrush}" Visibility="{x:Bind IsFollowing}"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Grid>
+                    </Button>
+                    <Border CornerRadius="9"
+                            IsHitTestVisible="False"
+                            Opacity="0.14"
+                            Background="{ThemeResource AccentFillColorDefaultBrush}"
+                            Visibility="{x:Bind IsSelected, Mode=OneWay}"/>
+                    <Border CornerRadius="9"
+                            IsHitTestVisible="False"
+                            BorderThickness="1.5"
+                            BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                            Visibility="{x:Bind IsSelected, Mode=OneWay}"/>
+                </Grid>
+            </DataTemplate>
+
+            <!-- 卡片包在 Grid 里：列表把 DataContext 设在外层 Grid，卡片自己的 DataContext 才能固定为作品 -->
+            <DataTemplate x:Key="ShelfCardTemplate" x:DataType="vm:CalendarEntry">
+                <Grid>
+                    <controls:AnimeCard DataContext="{x:Bind Anime}"
+                                        TrackingStatus="{x:Bind Status, Mode=OneWay}"
+                                        ShowQuickActions="True"
+                                        CardClicked="OnAnimeCardClicked"
+                                        TrackingActionRequested="OnTrackingActionRequested"/>
+                </Grid>
+            </DataTemplate>
+
+            <DataTemplate x:Key="ResultCardTemplate" x:DataType="vm:CalendarEntry">
+                <Grid>
+                    <controls:AnimeCard DataContext="{x:Bind Anime}"
+                                        TrackingStatus="{x:Bind Status, Mode=OneWay}"
+                                        WeekdayText="{x:Bind WeekdayText}"
+                                        ShowQuickActions="True"
+                                        CardClicked="OnAnimeCardClicked"
+                                        TrackingActionRequested="OnTrackingActionRequested"/>
+                </Grid>
+            </DataTemplate>
+
+            <!-- 本季发现的一行：整行进入详情，悬停时显示标记按钮（叠放，不嵌套） -->
+            <DataTemplate x:Key="PickTemplate" x:DataType="vm:CalendarPick">
+                <Grid PointerEntered="OnPickPointerEntered"
+                      PointerExited="OnPickPointerExited">
+                    <Button Tag="{x:Bind Entry.Anime}"
+                            Click="OnPickClick"
+                            Style="{StaticResource CalendarTileButtonStyle}"
+                            Padding="8,6,12,6"
+                            AutomationProperties.Name="{x:Bind Entry.Anime.Title}">
+                        <Grid ColumnDefinitions="22,38,*,Auto" ColumnSpacing="10">
+                            <TextBlock Text="{x:Bind RankText}"
+                                       FontWeight="SemiBold"
+                                       HorizontalAlignment="Right"
+                                       VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <Border Grid.Column="1"
+                                    Width="38"
+                                    Height="52"
+                                    CornerRadius="5"
+                                    Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}">
+                                <Image DataContext="{x:Bind Entry.Anime}"
+                                       Stretch="UniformToFill"
+                                       Loaded="OnPickCoverLoaded"
+                                       DataContextChanged="OnPickCoverDataContextChanged"
+                                       Unloaded="OnPickCoverUnloaded"/>
+                            </Border>
+                            <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="1">
+                                <TextBlock Text="{x:Bind Entry.Anime.Title}"
+                                           FontWeight="SemiBold"
+                                           MaxLines="1"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{x:Bind Meta}"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                            <TextBlock x:Name="PickScore"
+                                       Grid.Column="3"
+                                       Text="{x:Bind ScoreText}"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                        </Grid>
+                    </Button>
+                    <StackPanel x:Name="PickActions"
+                                Orientation="Horizontal"
+                                Spacing="4"
+                                Margin="0,0,10,0"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center"
+                                Visibility="Collapsed">
+                        <Button Content="追番"
+                                Tag="{x:Bind Entry.Anime}"
+                                Click="OnPickWatchClick"
+                                Style="{StaticResource AccentButtonStyle}"
+                                Padding="10,2"
+                                FontSize="12"/>
+                        <Button Content="关注"
+                                Tag="{x:Bind Entry.Anime}"
+                                Click="OnPickFollowClick"
+                                Padding="10,2"
+                                FontSize="12"/>
+                    </StackPanel>
+                </Grid>
+            </DataTemplate>
+        </ResourceDictionary>
+    </Page.Resources>
+
+    <!-- 页面整体不滚动：番剧区按天时贴合一行卡片，剩余高度交给“本季发现”；搜索时番剧区占满剩余高度 -->
+    <Grid x:Name="RootGrid"
+          AllowDrop="True"
           Padding="24,20,24,24"
+          RowDefinitions="Auto,Auto,Auto,*"
           Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
           Loaded="OnPageLoaded">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0"
-                    Spacing="12"
-                    Margin="0,0,0,16">
-            <StackPanel Spacing="2">
-                <TextBlock Text="放送日历"
-                           Style="{StaticResource AniMeidoPageTitleStyle}"/>
-                <TextBlock Text="按星期浏览本季正在放送的动画"
-                           Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
-            </StackPanel>
+        <StackPanel Spacing="2">
+            <TextBlock Text="放送日历" Style="{StaticResource AniMeidoPageTitleStyle}"/>
+            <TextBlock Text="{x:Bind ViewModel.SeasonSummary, Mode=OneWay}"
+                       Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
             <InfoBar x:Name="ErrorInfoBar"
                      Severity="Error"
                      IsClosable="True"
-                     IsOpen="False"/>
-            <Border Style="{StaticResource AniMeidoToolbarStyle}">
-                <Grid ColumnDefinitions="Auto,*"
-                      ColumnSpacing="8">
-                    <FontIcon Glyph="&#xE721;"
-                              FontSize="14"
-                              VerticalAlignment="Center"
-                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <TextBox x:Name="FilterBox"
-                             Grid.Column="1"
-                             PlaceholderText="搜索本季番剧"
-                             BorderThickness="0"
-                             Background="Transparent"
-                             FontSize="14"
-                             TextChanged="OnFilterTextChanged"/>
-                </Grid>
-            </Border>
+                     Margin="0,10,0,0"
+                     Visibility="{x:Bind ErrorInfoBar.IsOpen, Mode=OneWay}"/>
         </StackPanel>
 
-        <!-- 内容区域：加载完成时可见 -->
-        <ScrollViewer Grid.Row="1"
-                      x:Name="RootScrollViewer">
-            <Grid>
+        <!-- 工具栏：搜索 · 全部 / 我的 · 排序 -->
+        <Border Grid.Row="1"
+                Style="{StaticResource CalendarPanelStyle}"
+                Padding="12,10"
+                Margin="0,14,0,0">
+            <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="14">
+                <TextBox x:Name="FilterBox"
+                         Width="360"
+                         PlaceholderText="搜索本季番剧"
+                         VerticalAlignment="Center"
+                         TextChanged="OnFilterTextChanged"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                    <ToggleButton x:Name="AllScopeButton"
+                                  Style="{StaticResource CalendarScopeButtonStyle}"
+                                  IsChecked="True"
+                                  Click="OnAllScopeClick">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="全部"/>
+                            <TextBlock Text="{x:Bind ViewModel.TotalCountText, Mode=OneWay}"
+                                       Opacity="0.7"/>
+                        </StackPanel>
+                    </ToggleButton>
+                    <ToggleButton x:Name="MineScopeButton"
+                                  Style="{StaticResource CalendarScopeButtonStyle}"
+                                  Click="OnMineScopeClick">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="我的"/>
+                            <TextBlock Text="{x:Bind ViewModel.MineCountText, Mode=OneWay}"
+                                       Opacity="0.7"/>
+                        </StackPanel>
+                    </ToggleButton>
+                </StackPanel>
+                <ComboBox x:Name="SortBox"
+                          Grid.Column="3"
+                          MinWidth="160"
+                          VerticalAlignment="Center"
+                          SelectedIndex="0"
+                          SelectionChanged="OnSortSelectionChanged">
+                    <x:String>排序：评分高到低</x:String>
+                    <x:String>排序：开播日期</x:String>
+                    <x:String>排序：标题</x:String>
+                </ComboBox>
+            </Grid>
+        </Border>
 
-                <StackPanel x:Name="EmptyState"
-                            Visibility="Collapsed"
-                            HorizontalAlignment="Center"
-                            Margin="0,40,0,0">
-                    <FontIcon Glyph="&#xE11A;"
-                              Style="{StaticResource AniMeidoEmptyStateIconStyle}"/>
-                    <TextBlock x:Name="EmptyStateText"
-                               Text="当季暂无新番数据"
-                               FontWeight="SemiBold"
-                               HorizontalAlignment="Center"
-                               Margin="0,12,0,0"/>
-                    <TextBlock Text="稍后刷新，或检查网络和 Bangumi 数据源"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               HorizontalAlignment="Center"/>
+        <!-- 番剧区 -->
+        <Border x:Name="MainPanel"
+                Grid.Row="2"
+                Style="{StaticResource CalendarPanelStyle}"
+                Padding="16,14,16,12"
+                Margin="0,14,0,0">
+            <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
+                <!-- 七格等分，任何宽度都完整放下 -->
+                <ItemsRepeater ItemsSource="{x:Bind ViewModel.Days}"
+                               ItemTemplate="{StaticResource DayTemplate}">
+                    <ItemsRepeater.Layout>
+                        <UniformGridLayout MaximumRowsOrColumns="7"
+                                           MinItemWidth="48"
+                                           MinItemHeight="64"
+                                           MinColumnSpacing="8"
+                                           ItemsStretch="Fill"/>
+                    </ItemsRepeater.Layout>
+                </ItemsRepeater>
+
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" Padding="2,0,0,0">
+                    <TextBlock Text="{x:Bind ViewModel.ListTitle, Mode=OneWay}"
+                               FontSize="17"
+                               FontWeight="SemiBold"/>
+                    <TextBlock Text="{x:Bind ViewModel.ListCaption, Mode=OneWay}"
+                               FontSize="13"
+                               VerticalAlignment="Bottom"
+                               Margin="0,0,0,2"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
 
-                <!-- 按星期分组展示当季番剧 -->
-                <ItemsRepeater x:Name="WeekdayRepeater"
-                               ItemsSource="{x:Bind ViewModel.WeekdayGroups}">
-                    <ItemsRepeater.Layout>
-                        <StackLayout Spacing="12"/>
-                    </ItemsRepeater.Layout>
-                    <ItemsRepeater.ItemTemplate>
-                        <DataTemplate x:DataType="vm:WeekdayGroup">
-                            <Border Style="{StaticResource AniMeidoContentCardStyle}"
-                                    Padding="16">
-                                <StackPanel>
-                                    <TextBlock Text="{x:Bind WeekdayName}"
-                                               Style="{StaticResource AniMeidoSectionTitleStyle}"
-                                               Margin="0,0,0,12"/>
-                                    <GridView ItemsSource="{x:Bind Items}"
-                                              SelectionMode="None"
-                                              ScrollViewer.HorizontalScrollMode="Disabled"
-                                              ScrollViewer.VerticalScrollMode="Disabled">
-                                        <GridView.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <ItemsWrapGrid Orientation="Horizontal"/>
-                                            </ItemsPanelTemplate>
-                                        </GridView.ItemsPanel>
-                                        <GridView.ItemContainerStyle>
-                                            <Style TargetType="GridViewItem">
-                                                <Setter Property="UseSystemFocusVisuals"
-                                                        Value="False"/>
-                                                <Setter Property="IsTabStop"
-                                                        Value="False"/>
-                                                <Setter Property="Margin"
-                                                        Value="0,0,4,8"/>
-                                            </Style>
-                                        </GridView.ItemContainerStyle>
-                                        <GridView.ItemTemplate>
-                                            <DataTemplate x:DataType="contracts:Anime">
-                                                <controls:AnimeCard CardClicked="OnAnimeCardClicked"/>
-                                            </DataTemplate>
-                                        </GridView.ItemTemplate>
-                                    </GridView>
-                                </StackPanel>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsRepeater.ItemTemplate>
-                </ItemsRepeater>
-            </Grid>
-        </ScrollViewer>
+                <Grid Grid.Row="2">
+                    <!-- 按天：横向一行，滚轮横向滚动，不显示滚动条，只在还能滚动的一侧显示渐隐 -->
+                    <Grid x:Name="ShelfHost">
+                        <ScrollViewer x:Name="ShelfScroller"
+                                      HorizontalScrollMode="Enabled"
+                                      HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollMode="Disabled"
+                                      VerticalScrollBarVisibility="Disabled"
+                                      ViewChanged="OnShelfViewChanged"
+                                      SizeChanged="OnShelfSizeChanged"
+                                      PointerWheelChanged="OnShelfPointerWheelChanged">
+                            <ItemsRepeater x:Name="ShelfRepeater"
+                                           ItemsSource="{x:Bind ViewModel.VisibleEntries, Mode=OneWay}"
+                                           ItemTemplate="{StaticResource ShelfCardTemplate}"
+                                           SizeChanged="OnShelfSizeChanged">
+                                <ItemsRepeater.Layout>
+                                    <StackLayout Orientation="Horizontal"/>
+                                </ItemsRepeater.Layout>
+                            </ItemsRepeater>
+                        </ScrollViewer>
+                        <Rectangle x:Name="ShelfStartFade"
+                                   Width="56"
+                                   HorizontalAlignment="Left"
+                                   IsHitTestVisible="False"
+                                   Opacity="0">
+                            <Rectangle.Fill>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                    <GradientStop Color="{ThemeResource CalendarPanelColor}" Offset="0"/>
+                                    <GradientStop Color="{ThemeResource CalendarPanelClearColor}" Offset="1"/>
+                                </LinearGradientBrush>
+                            </Rectangle.Fill>
+                        </Rectangle>
+                        <Rectangle x:Name="ShelfEndFade"
+                                   Width="56"
+                                   HorizontalAlignment="Right"
+                                   IsHitTestVisible="False"
+                                   Opacity="0">
+                            <Rectangle.Fill>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                    <GradientStop Color="{ThemeResource CalendarPanelClearColor}" Offset="0"/>
+                                    <GradientStop Color="{ThemeResource CalendarPanelColor}" Offset="1"/>
+                                </LinearGradientBrush>
+                            </Rectangle.Fill>
+                        </Rectangle>
+                    </Grid>
 
-        <!-- 加载/重试覆盖层：加载中或出错时覆盖内容区域 -->
+                    <!-- 搜索或“我的”：跨星期的结果改为网格，只有这里竖向滚动 -->
+                    <ScrollViewer x:Name="ResultsScroller"
+                                  Visibility="Collapsed"
+                                  HorizontalScrollMode="Disabled"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Hidden">
+                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.VisibleEntries, Mode=OneWay}"
+                                       ItemTemplate="{StaticResource ResultCardTemplate}">
+                            <ItemsRepeater.Layout>
+                                <UniformGridLayout MinItemWidth="162"
+                                                   MinItemHeight="286"
+                                                   ItemsJustification="Start"/>
+                            </ItemsRepeater.Layout>
+                        </ItemsRepeater>
+                    </ScrollViewer>
+
+                    <TextBlock Text="{x:Bind ViewModel.EmptyText, Mode=OneWay}"
+                               Visibility="{x:Bind ViewModel.HasNoVisibleEntries, Mode=OneWay}"
+                               Margin="2,8,0,16"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- 本季发现：只显示能完整放下的行，一行都放不下时隐藏 -->
+        <Grid x:Name="DiscoverHost"
+              Grid.Row="3"
+              Margin="0,14,0,0"
+              SizeChanged="OnDiscoverHostSizeChanged">
+            <Border x:Name="DiscoverPanel"
+                    Style="{StaticResource CalendarPanelStyle}"
+                    Padding="16,14"
+                    Visibility="Collapsed">
+                <Grid RowDefinitions="Auto,*" RowSpacing="10">
+                    <StackPanel Orientation="Horizontal" Spacing="12" Padding="2,0,0,0">
+                        <TextBlock Text="本季发现" FontSize="17" FontWeight="SemiBold"/>
+                        <TextBlock Text="评分较高、你还没标记的作品 · 评分来自 Bangumi"
+                                   FontSize="13"
+                                   VerticalAlignment="Bottom"
+                                   Margin="0,0,0,2"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
+                    <ItemsRepeater Grid.Row="1"
+                                   VerticalAlignment="Top"
+                                   ItemsSource="{x:Bind ViewModel.DiscoverPicks, Mode=OneWay}"
+                                   ItemTemplate="{StaticResource PickTemplate}">
+                        <ItemsRepeater.Layout>
+                            <UniformGridLayout MaximumRowsOrColumns="3"
+                                               MinItemWidth="260"
+                                               MinItemHeight="64"
+                                               MinColumnSpacing="10"
+                                               MinRowSpacing="8"
+                                               ItemsStretch="Fill"/>
+                        </ItemsRepeater.Layout>
+                    </ItemsRepeater>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- 加载/重试覆盖层 -->
         <Grid Grid.Row="1"
+              Grid.RowSpan="3"
               x:Name="LoadingOverlay"
               Visibility="Collapsed"
               Background="{ThemeResource AniMeidoOverlayScrimBrush}"
@@ -150,10 +423,9 @@
 
         <!-- 拖放目标覆盖层：拖放开始时显示，动态生成 zone -->
         <Canvas x:Name="DragOverlay"
-                Grid.RowSpan="2"
+                Grid.RowSpan="4"
                 Visibility="Collapsed"
                 Background="Transparent"
                 AllowDrop="True"/>
     </Grid>
 </Page>
-

@@ -103,6 +103,92 @@
                                FontWeight="Bold"/>
                 </Border>
 
+                <!-- 追番状态标签（放送日历使用，默认隐藏） -->
+                <Border x:Name="WatchingBadge"
+                        Background="{ThemeResource AccentFillColorDefaultBrush}"
+                        CornerRadius="9"
+                        Padding="7,1"
+                        Margin="6"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Top"
+                        Visibility="Collapsed">
+                    <TextBlock Text="追番中"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"/>
+                </Border>
+                <Border x:Name="FollowingBadge"
+                        Background="{ThemeResource AniMeidoFollowingColorBrush}"
+                        CornerRadius="9"
+                        Padding="7,1"
+                        Margin="6"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Top"
+                        Visibility="Collapsed">
+                    <TextBlock Text="关注中"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#2A1D00"/>
+                </Border>
+                <Border x:Name="OtherStatusBadge"
+                        Background="#A6000000"
+                        CornerRadius="9"
+                        Padding="7,1"
+                        Margin="6"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Top"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="OtherStatusBadgeText"
+                               FontSize="12"
+                               Foreground="White"/>
+                </Border>
+
+                <!-- 放送星期（放送日历搜索结果使用，默认隐藏） -->
+                <Border x:Name="WeekdayTextBadge"
+                        Background="#A6000000"
+                        CornerRadius="9"
+                        Padding="7,1"
+                        Margin="6"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Top"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="WeekdayTextBadgeText"
+                               FontSize="12"
+                               Foreground="White"/>
+                </Border>
+
+                <!-- 悬停标记按钮（放送日历使用，默认隐藏）。按钮自己处理点击，不会触发卡片单击 -->
+                <Grid x:Name="QuickActions"
+                      Height="200"
+                      VerticalAlignment="Top"
+                      Visibility="Collapsed">
+                    <Grid VerticalAlignment="Bottom"
+                          Padding="6,28,6,6"
+                          ColumnDefinitions="*,*"
+                          ColumnSpacing="4">
+                        <Grid.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                <GradientStop Color="#00000000" Offset="0"/>
+                                <GradientStop Color="#D9000000" Offset="0.55"/>
+                            </LinearGradientBrush>
+                        </Grid.Background>
+                        <Button x:Name="WatchActionButton"
+                                Content="追番"
+                                Style="{StaticResource AccentButtonStyle}"
+                                HorizontalAlignment="Stretch"
+                                Padding="0,3"
+                                FontSize="12"
+                                Click="OnWatchActionClick"/>
+                        <Button x:Name="FollowActionButton"
+                                Grid.Column="1"
+                                Content="关注"
+                                HorizontalAlignment="Stretch"
+                                Padding="0,3"
+                                FontSize="12"
+                                Click="OnFollowActionClick"/>
+                    </Grid>
+                </Grid>
+
                 <!-- 文字信息 -->
                 <StackPanel Grid.Row="1"
                             Padding="10,8">

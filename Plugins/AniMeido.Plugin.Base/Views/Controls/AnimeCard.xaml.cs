@@ -17,10 +17,31 @@ namespace AniMeido.Plugin.Base.Views.Controls
         public AnimeCardClickedEventArgs(Anime anime) => Anime = anime;
     }
 
+    /// <summary>点击卡片上的悬停标记按钮时的事件参数。</summary>
+    public sealed class AnimeCardTrackingActionEventArgs : EventArgs
+    {
+        public Anime Anime { get; }
+        public AnimeTrackingStatus Status { get; }
+        public AnimeCardTrackingActionEventArgs(Anime anime, AnimeTrackingStatus status)
+        {
+            Anime = anime;
+            Status = status;
+        }
+    }
+
     public sealed partial class AnimeCard : UserControl
     {
         /// <summary>单击 AnimeCard 时触发（非拖拽）。由页面订阅。</summary>
         public event EventHandler<AnimeCardClickedEventArgs>? CardClicked;
+
+        /// <summary>点击悬停标记按钮时触发；是否写入或取消由页面决定。</summary>
+        public event EventHandler<AnimeCardTrackingActionEventArgs>? TrackingActionRequested;
+
+        private static readonly IReadOnlyDictionary<AnimeTrackingStatus, string> StatusLabels =
+            TrackingActionDescriptor.CreateDefaults()
+                .ToDictionary(action => action.Status, action => action.ActiveLabel);
+
+        private bool _isPointerOver;
 
         // click-vs-drag 输入状态
         private bool _pointerDown;
@@ -52,6 +73,50 @@ namespace AniMeido.Plugin.Base.Views.Controls
             set => SetValue(ShowMediaFormatBadgeProperty, value);
         }
 
+        /// <summary>在封面左上角显示的追番状态（放送日历使用）。</summary>
+        public static readonly DependencyProperty TrackingStatusProperty =
+            DependencyProperty.Register(
+                nameof(TrackingStatus),
+                typeof(AnimeTrackingStatus),
+                typeof(AnimeCard),
+                new PropertyMetadata(
+                    AnimeTrackingStatus.None,
+                    OnTrackingPresentationChanged));
+
+        public AnimeTrackingStatus TrackingStatus
+        {
+            get => (AnimeTrackingStatus)GetValue(TrackingStatusProperty);
+            set => SetValue(TrackingStatusProperty, value);
+        }
+
+        /// <summary>悬停时显示“追番 / 关注”标记按钮（放送日历使用）。</summary>
+        public static readonly DependencyProperty ShowQuickActionsProperty =
+            DependencyProperty.Register(
+                nameof(ShowQuickActions),
+                typeof(bool),
+                typeof(AnimeCard),
+                new PropertyMetadata(false, OnTrackingPresentationChanged));
+
+        public bool ShowQuickActions
+        {
+            get => (bool)GetValue(ShowQuickActionsProperty);
+            set => SetValue(ShowQuickActionsProperty, value);
+        }
+
+        /// <summary>在封面右上角显示的放送星期（放送日历搜索结果使用）。</summary>
+        public static readonly DependencyProperty WeekdayTextProperty =
+            DependencyProperty.Register(
+                nameof(WeekdayText),
+                typeof(string),
+                typeof(AnimeCard),
+                new PropertyMetadata(null, OnWeekdayTextChanged));
+
+        public string? WeekdayText
+        {
+            get => (string?)GetValue(WeekdayTextProperty);
+            set => SetValue(WeekdayTextProperty, value);
+        }
+
         public AnimeCard()
         {
             InitializeComponent();
@@ -60,7 +125,9 @@ namespace AniMeido.Plugin.Base.Views.Controls
             {
                 UpdateWeekdayBadge();
                 UpdateMediaFormatBadge();
-                UpdateScoreBadge();
+                // 容器复用时换了作品，悬停状态不沿用。
+                _isPointerOver = false;
+                UpdateQuickActions();
                 if (DataContext is Anime anime)
                 {
                     ManagedImageLoader.ConfigureCover(
@@ -201,8 +268,103 @@ namespace AniMeido.Plugin.Base.Views.Controls
             }
         }
 
+        private static void OnTrackingPresentationChanged(
+            DependencyObject dependencyObject,
+            DependencyPropertyChangedEventArgs args)
+        {
+            _ = args;
+            var card = (AnimeCard)dependencyObject;
+            card.UpdateTrackingBadges();
+            card.UpdateQuickActions();
+        }
+
+        private static void OnWeekdayTextChanged(
+            DependencyObject dependencyObject,
+            DependencyPropertyChangedEventArgs args)
+        {
+            var card = (AnimeCard)dependencyObject;
+            var text = args.NewValue as string;
+            card.WeekdayTextBadgeText.Text = text ?? string.Empty;
+            card.WeekdayTextBadge.Visibility = string.IsNullOrEmpty(text)
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+        }
+
+        private void UpdateTrackingBadges()
+        {
+            var status = TrackingStatus;
+            WatchingBadge.Visibility = status == AnimeTrackingStatus.Watching
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            FollowingBadge.Visibility = status == AnimeTrackingStatus.Following
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            var showOther = status is not (AnimeTrackingStatus.None
+                    or AnimeTrackingStatus.Watching
+                    or AnimeTrackingStatus.Following
+                    or AnimeTrackingStatus.Blocked)
+                && StatusLabels.ContainsKey(status);
+            OtherStatusBadgeText.Text = showOther ? StatusLabels[status] : string.Empty;
+            OtherStatusBadge.Visibility = showOther
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+            // 与详情页一致：已是该状态时按钮表示“取消”，显示为当前状态。
+            var watching = status == AnimeTrackingStatus.Watching;
+            WatchActionButton.Content = watching ? "追番中 ✓" : "追番";
+            WatchActionButton.Style = watching
+                ? null
+                : (Style)Application.Current.Resources["AccentButtonStyle"];
+            FollowActionButton.Content = status == AnimeTrackingStatus.Following
+                ? "关注中 ✓"
+                : "关注";
+        }
+
+        /// <summary>悬停时显示标记按钮并暂时隐藏评分，避免两者重叠。</summary>
+        private void UpdateQuickActions()
+        {
+            var show = ShowQuickActions && _isPointerOver && DataContext is Anime;
+            QuickActions.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            if (show)
+            {
+                ScoreBadge.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                UpdateScoreBadge();
+            }
+        }
+
+        private void OnWatchActionClick(object sender, RoutedEventArgs e)
+        {
+            _ = sender;
+            _ = e;
+            RequestTrackingAction(AnimeTrackingStatus.Watching);
+        }
+
+        private void OnFollowActionClick(object sender, RoutedEventArgs e)
+        {
+            _ = sender;
+            _ = e;
+            RequestTrackingAction(AnimeTrackingStatus.Following);
+        }
+
+        private void RequestTrackingAction(AnimeTrackingStatus status)
+        {
+            _clickCandidate = false;
+            if (DataContext is Anime anime)
+            {
+                TrackingActionRequested?.Invoke(
+                    this,
+                    new AnimeCardTrackingActionEventArgs(anime, status));
+            }
+        }
+
         private void OnPointerEntered(object sender, PointerRoutedEventArgs e)
         {
+            _isPointerOver = true;
+            UpdateQuickActions();
+
             var visual = ElementCompositionPreview.GetElementVisual(this);
             var compositor = visual.Compositor;
 
@@ -222,6 +384,9 @@ namespace AniMeido.Plugin.Base.Views.Controls
 
         private void OnPointerExited(object sender, PointerRoutedEventArgs e)
         {
+            _isPointerOver = false;
+            UpdateQuickActions();
+
             var visual = ElementCompositionPreview.GetElementVisual(this);
             var compositor = visual.Compositor;
 
