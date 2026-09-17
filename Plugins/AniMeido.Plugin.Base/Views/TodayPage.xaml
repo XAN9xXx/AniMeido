@@ -42,7 +42,7 @@
             <Button Tag="{x:Bind Anime}" Click="OnAnimeButtonClick" Style="{StaticResource TodayTileButtonStyle}" Height="104">
                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
                     <Border Width="58" Height="82" CornerRadius="6" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}">
-                        <Image Tag="{x:Bind Anime}" Stretch="UniformToFill" Loaded="OnCoverLoaded" DataContextChanged="OnCoverDataContextChanged" Unloaded="OnCoverUnloaded"/>
+                        <Image DataContext="{x:Bind Anime}" Stretch="UniformToFill" Loaded="OnCoverLoaded" DataContextChanged="OnCoverDataContextChanged" Unloaded="OnCoverUnloaded"/>
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="8">
                         <TextBlock Text="{x:Bind Anime.Title}" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"/>
@@ -87,7 +87,7 @@
                 <Button Tag="{x:Bind Anime}" Click="OnAnimeButtonClick" Style="{StaticResource TodayTileButtonStyle}" Padding="10,10,150,10" AutomationProperties.Name="{x:Bind Anime.Title}">
                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
                         <Border Width="48" Height="68" CornerRadius="6" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}">
-                            <Image Tag="{x:Bind Anime}" Stretch="UniformToFill" Loaded="OnCoverLoaded" DataContextChanged="OnCoverDataContextChanged" Unloaded="OnCoverUnloaded"/>
+                            <Image DataContext="{x:Bind Anime}" Stretch="UniformToFill" Loaded="OnCoverLoaded" DataContextChanged="OnCoverDataContextChanged" Unloaded="OnCoverUnloaded"/>
                         </Border>
                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="6">
                             <TextBlock Text="{x:Bind Anime.Title}" FontWeight="SemiBold" MaxLines="1" TextTrimming="CharacterEllipsis"/>
@@ -115,7 +115,7 @@
                     <Button Tag="{x:Bind}" Click="OnPlanDetailsClick" Style="{StaticResource TodayTileButtonStyle}" Padding="10,10,290,10" AutomationProperties.Name="{x:Bind Title}">
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
                                 <Border Width="44" Height="62" CornerRadius="6" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}">
-                                    <Image Tag="{x:Bind Anime}" Stretch="UniformToFill" Loaded="OnCoverLoaded" DataContextChanged="OnCoverDataContextChanged" Unloaded="OnCoverUnloaded"/>
+                                    <Image DataContext="{x:Bind Anime}" Stretch="UniformToFill" Loaded="OnCoverLoaded" DataContextChanged="OnCoverDataContextChanged" Unloaded="OnCoverUnloaded"/>
                                 </Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="6">
                                     <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" MaxLines="1" TextTrimming="CharacterEllipsis"/>
@@ -156,7 +156,7 @@
                     <Button Tag="{x:Bind}" Click="OnPlanDetailsClick" Style="{StaticResource TodayTileButtonStyle}" Padding="10,10,10,52" VerticalContentAlignment="Top" AutomationProperties.Name="{x:Bind Title}">
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
                                 <Border Width="44" Height="62" CornerRadius="6" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}">
-                                    <Image Tag="{x:Bind Anime}" Stretch="UniformToFill" Loaded="OnCoverLoaded" DataContextChanged="OnCoverDataContextChanged" Unloaded="OnCoverUnloaded"/>
+                                    <Image DataContext="{x:Bind Anime}" Stretch="UniformToFill" Loaded="OnCoverLoaded" DataContextChanged="OnCoverDataContextChanged" Unloaded="OnCoverUnloaded"/>
                                 </Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Top" Spacing="6">
                                     <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" MaxLines="1" TextTrimming="CharacterEllipsis"/>
@@ -194,7 +194,7 @@
             <Button Tag="{x:Bind Anime}" Click="OnAnimeButtonClick" Style="{StaticResource TodayTileButtonStyle}" Height="76" Padding="8">
                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
                     <Border Width="40" Height="56" CornerRadius="5" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}">
-                        <Image Tag="{x:Bind Anime}" Stretch="UniformToFill" Loaded="OnCoverLoaded" DataContextChanged="OnCoverDataContextChanged" Unloaded="OnCoverUnloaded"/>
+                        <Image DataContext="{x:Bind Anime}" Stretch="UniformToFill" Loaded="OnCoverLoaded" DataContextChanged="OnCoverDataContextChanged" Unloaded="OnCoverUnloaded"/>
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
                         <TextBlock Text="{x:Bind Anime.Title}" FontWeight="SemiBold" MaxLines="1" TextTrimming="CharacterEllipsis"/>
