@@ -7,6 +7,9 @@ namespace AniMeido.App
 {
     public sealed partial class MainWindow : Window
     {
+        private const string DefaultPageTypeName =
+            "AniMeido.Plugin.Base.Views.TodayPage";
+
         private readonly PluginContributionRegistry _pluginContributions;
         private readonly NavigationService _navigationService;
         private readonly SplashCoordinator _splash;
@@ -123,16 +126,28 @@ namespace AniMeido.App
 
             var splashStart = DateTime.UtcNow;
 
-            // 开始导航到首页
+            // 默认进入“今天”；目标页缺失时回退到第一个可用页面。
             var navigationItems = _pluginContributions.NavigationItems;
             if (MainNaviView.MenuItems.Count > 0 && navigationItems.Count > 0)
             {
-                var firstItem = navigationItems[0];
-                if (firstItem.Kind == PluginNavigationItemKind.Page && firstItem.PageType != null)
+                var initialItem = navigationItems.FirstOrDefault(item =>
+                    item.Kind == PluginNavigationItemKind.Page
+                    && item.PageType is not null
+                    && string.Equals(
+                        item.PageTypeName,
+                        DefaultPageTypeName,
+                        StringComparison.Ordinal))
+                    ?? navigationItems.FirstOrDefault(item =>
+                        item.Kind == PluginNavigationItemKind.Page
+                        && item.PageType is not null);
+                var initialMenuItem = MainNaviView.MenuItems
+                    .OfType<NavigationViewItem>()
+                    .FirstOrDefault(item => Equals(item.Tag, initialItem));
+                if (initialItem?.PageType is not null && initialMenuItem is not null)
                 {
-                    MainNaviView.SelectedItem = MainNaviView.MenuItems[0];
-                    _lastSelectedPageItem = MainNaviView.MenuItems[0] as NavigationViewItem;
-                    _navigationService.NavigateTopLevel(firstItem.PageType);
+                    MainNaviView.SelectedItem = initialMenuItem;
+                    _lastSelectedPageItem = initialMenuItem;
+                    _navigationService.NavigateTopLevel(initialItem.PageType);
                 }
             }
 
