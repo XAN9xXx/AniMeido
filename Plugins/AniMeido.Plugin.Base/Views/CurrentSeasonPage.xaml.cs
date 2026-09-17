@@ -7,6 +7,7 @@ using AniMeido.Plugin.Base.Views.Controls;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 
 namespace AniMeido.Plugin.Base.Views
 {
@@ -28,6 +29,7 @@ namespace AniMeido.Plugin.Base.Views
 
         private readonly DragDropService _dragDrop;
         private readonly IPluginNavigator _pluginNavigator;
+        private readonly HashSet<FrameworkElement> _hoveredPickRows = [];
         private IDisposable? _dropHostRegistration;
         private double _wheelTarget = double.NaN;
 
@@ -115,6 +117,7 @@ namespace AniMeido.Plugin.Base.Views
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
         {
             ViewModel.LoadSeasonalAnimeCommand.Cancel();
+            _hoveredPickRows.Clear();
             _dropHostRegistration?.Dispose();
             _dropHostRegistration = null;
         }
@@ -361,10 +364,53 @@ namespace AniMeido.Plugin.Base.Views
 
         /// <summary>悬停时显示标记按钮并隐藏评分，避免两者重叠。</summary>
         private void OnPickPointerEntered(object sender, PointerRoutedEventArgs e)
-            => SetPickActionsVisible(sender, true);
+        {
+            if (sender is FrameworkElement row)
+                _hoveredPickRows.Add(row);
+            SetPickActionsVisible(sender, true);
+        }
 
         private void OnPickPointerExited(object sender, PointerRoutedEventArgs e)
-            => SetPickActionsVisible(sender, false);
+        {
+            var keepVisible = false;
+            if (sender is FrameworkElement row)
+            {
+                _hoveredPickRows.Remove(row);
+                keepVisible = ContainsKeyboardFocus(row);
+            }
+            SetPickActionsVisible(sender, keepVisible);
+        }
+
+        private void OnPickFocusChanged(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement row)
+                return;
+
+            DispatcherQueue.TryEnqueue(() =>
+                SetPickActionsVisible(
+                    row,
+                    _hoveredPickRows.Contains(row) || ContainsKeyboardFocus(row)));
+        }
+
+        /// <summary>只认键盘焦点，鼠标点过按钮留下的焦点不让浮层一直显示。</summary>
+        private static bool ContainsKeyboardFocus(FrameworkElement element)
+        {
+            if (element.XamlRoot is null
+                || FocusManager.GetFocusedElement(element.XamlRoot)
+                    is not Control { FocusState: FocusState.Keyboard } focused)
+                return false;
+
+            DependencyObject? current = focused;
+            while (current is not null)
+            {
+                if (ReferenceEquals(current, element))
+                    return true;
+
+                current = VisualTreeHelper.GetParent(current);
+            }
+
+            return false;
+        }
 
         private static void SetPickActionsVisible(object sender, bool visible)
         {

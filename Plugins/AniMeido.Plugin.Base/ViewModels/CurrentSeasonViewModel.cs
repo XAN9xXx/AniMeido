@@ -28,8 +28,16 @@ namespace AniMeido.Plugin.Base.ViewModels
         [ObservableProperty]
         private AnimeTrackingStatus _status;
 
+        [ObservableProperty]
+        private bool _isSavingStatus;
+
         public bool IsMine => Status is AnimeTrackingStatus.Watching
             or AnimeTrackingStatus.Following;
+
+        public bool CanChangeStatus => !IsSavingStatus;
+
+        partial void OnIsSavingStatusChanged(bool value)
+            => OnPropertyChanged(nameof(CanChangeStatus));
     }
 
     /// <summary>星期格上的一个小点：追番中或关注中。</summary>
@@ -81,6 +89,7 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         private readonly IAnimeDataSource _animeDataSource;
         private readonly TrackingService _tracking;
+        private IReadOnlyList<Anime> _schedule = [];
         private IReadOnlyList<CalendarEntry> _entries = [];
         private bool _suppressRefresh;
         private int _discoverCapacity;
@@ -218,24 +227,32 @@ namespace AniMeido.Plugin.Base.ViewModels
         public async Task ToggleStatusAsync(int animeId, AnimeTrackingStatus status)
         {
             var entry = _entries.FirstOrDefault(item => item.Anime.ID == animeId);
-            if (entry is null)
+            if (entry is null || entry.IsSavingStatus)
             {
                 return;
             }
 
-            if (entry.Status == status)
+            entry.IsSavingStatus = true;
+            try
             {
-                await _tracking.RemoveStatusAsync(animeId);
-                entry.Status = AnimeTrackingStatus.None;
-            }
-            else
-            {
-                await _tracking.SetStatusAsync(animeId, status);
-                entry.Status = status;
-            }
+                if (entry.Status == status)
+                {
+                    await _tracking.RemoveStatusAsync(animeId);
+                    entry.Status = AnimeTrackingStatus.None;
+                }
+                else
+                {
+                    await _tracking.SetStatusAsync(animeId, status);
+                    entry.Status = status;
+                }
 
-            // 只看“我的”时成员会变化，需要重建；否则保留列表顺序与滚动位置。
-            Refresh(rebuildList: ShowMineOnly);
+                // 只看“我的”时成员会变化，需要重建；否则保留列表顺序与滚动位置。
+                Refresh(rebuildList: ShowMineOnly);
+            }
+            finally
+            {
+                entry.IsSavingStatus = false;
+            }
         }
 
         /// <summary>
@@ -243,27 +260,38 @@ namespace AniMeido.Plugin.Base.ViewModels
         /// </summary>
         public async Task ReloadStatusesAsync()
         {
-            if (_entries.Count == 0)
+            if (_schedule.Count == 0)
             {
                 return;
             }
 
-            var statuses = await ReadStatusesAsync();
-            var blockedRemoved = _entries.Any(entry =>
-                statuses.GetValueOrDefault(entry.Anime.ID) == AnimeTrackingStatus.Blocked);
-            if (blockedRemoved)
+            var statuses = await TryReadStatusesAsync();
+            if (statuses is null)
             {
-                _entries = BuildEntries(_entries.Select(entry => entry.Anime), statuses);
+                // 重新读取失败时保留屏幕上的既有状态，避免把所有标记误显示为“未设置”。
+                return;
             }
-            else
+
+            var rebuilt = BuildEntries(_schedule, statuses);
+            var previousById = _entries.ToDictionary(entry => entry.Anime.ID);
+            var merged = new List<CalendarEntry>(rebuilt.Count);
+            foreach (var candidate in rebuilt)
             {
-                foreach (var entry in _entries)
+                if (previousById.TryGetValue(candidate.Anime.ID, out var previous))
                 {
-                    entry.Status = statuses.GetValueOrDefault(entry.Anime.ID);
+                    previous.Status = candidate.Status;
+                    merged.Add(previous);
+                }
+                else
+                {
+                    merged.Add(candidate);
                 }
             }
 
-            Refresh(rebuildList: blockedRemoved || ShowMineOnly);
+            var membershipChanged = !_entries.Select(entry => entry.Anime.ID)
+                .SequenceEqual(merged.Select(entry => entry.Anime.ID));
+            _entries = merged;
+            Refresh(rebuildList: membershipChanged || ShowMineOnly);
         }
 
         [RelayCommand]
@@ -286,11 +314,13 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 var scheduleTask = _animeDataSource
                     .GetCurrentBroadcastScheduleAsync(ct);
-                var statuses = await ReadStatusesAsync();
+                var statuses = await TryReadStatusesAsync()
+                    ?? new Dictionary<int, AnimeTrackingStatus>();
                 var schedule = await scheduleTask;
                 ct.ThrowIfCancellationRequested();
 
-                _entries = BuildEntries(schedule, statuses);
+                _schedule = schedule.DistinctBy(anime => anime.ID).ToList();
+                _entries = BuildEntries(_schedule, statuses);
                 HasData = _entries.Count > 0;
                 Refresh(rebuildList: true);
             }
@@ -327,7 +357,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
         }
 
-        private async Task<IReadOnlyDictionary<int, AnimeTrackingStatus>> ReadStatusesAsync()
+        private async Task<IReadOnlyDictionary<int, AnimeTrackingStatus>?> TryReadStatusesAsync()
         {
             try
             {
@@ -336,10 +366,10 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
             catch (Microsoft.Data.Sqlite.SqliteException ex)
             {
-                // 本地标记读取失败时仍显示放送日程，只是不带状态。
+                // 初次加载可继续显示日程；后续刷新由调用方保留既有状态。
                 System.Diagnostics.Debug.WriteLine(
-                    $"[CurrentSeasonViewModel] ReadStatusesAsync failed: {ex.Message}");
-                return new Dictionary<int, AnimeTrackingStatus>();
+                    $"[CurrentSeasonViewModel] TryReadStatusesAsync failed: {ex.Message}");
+                return null;
             }
         }
 

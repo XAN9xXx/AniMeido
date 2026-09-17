@@ -106,6 +106,7 @@
                 <Grid>
                     <controls:AnimeCard DataContext="{x:Bind Anime}"
                                         TrackingStatus="{x:Bind Status, Mode=OneWay}"
+                                        IsTrackingActionPending="{x:Bind IsSavingStatus, Mode=OneWay}"
                                         ShowQuickActions="True"
                                         CardClicked="OnAnimeCardClicked"
                                         TrackingActionRequested="OnTrackingActionRequested"/>
@@ -115,7 +116,9 @@
             <DataTemplate x:Key="ResultCardTemplate" x:DataType="vm:CalendarEntry">
                 <Grid>
                     <controls:AnimeCard DataContext="{x:Bind Anime}"
+                                        VerticalAlignment="Top"
                                         TrackingStatus="{x:Bind Status, Mode=OneWay}"
+                                        IsTrackingActionPending="{x:Bind IsSavingStatus, Mode=OneWay}"
                                         WeekdayText="{x:Bind WeekdayText}"
                                         ShowQuickActions="True"
                                         CardClicked="OnAnimeCardClicked"
@@ -126,7 +129,9 @@
             <!-- 本季发现的一行：整行进入详情，悬停时显示标记按钮（叠放，不嵌套） -->
             <DataTemplate x:Key="PickTemplate" x:DataType="vm:CalendarPick">
                 <Grid PointerEntered="OnPickPointerEntered"
-                      PointerExited="OnPickPointerExited">
+                      PointerExited="OnPickPointerExited"
+                      GotFocus="OnPickFocusChanged"
+                      LostFocus="OnPickFocusChanged">
                     <Button Tag="{x:Bind Entry.Anime}"
                             Click="OnPickClick"
                             Style="{StaticResource CalendarTileButtonStyle}"
@@ -176,12 +181,16 @@
                         <Button Content="追番"
                                 Tag="{x:Bind Entry.Anime}"
                                 Click="OnPickWatchClick"
+                                IsEnabled="{x:Bind Entry.CanChangeStatus, Mode=OneWay}"
+                                AutomationProperties.Name="切换追番状态"
                                 Style="{StaticResource AccentButtonStyle}"
                                 Padding="10,2"
                                 FontSize="12"/>
                         <Button Content="关注"
                                 Tag="{x:Bind Entry.Anime}"
                                 Click="OnPickFollowClick"
+                                IsEnabled="{x:Bind Entry.CanChangeStatus, Mode=OneWay}"
+                                AutomationProperties.Name="切换关注状态"
                                 Padding="10,2"
                                 FontSize="12"/>
                     </StackPanel>
@@ -214,13 +223,22 @@
                 Style="{StaticResource CalendarPanelStyle}"
                 Padding="12,10"
                 Margin="0,14,0,0">
-            <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="14">
+            <Grid x:Name="ToolbarGrid"
+                  ColumnDefinitions="Auto,Auto,*,Auto"
+                  RowDefinitions="Auto,Auto"
+                  ColumnSpacing="14"
+                  RowSpacing="8">
                 <TextBox x:Name="FilterBox"
-                         Width="360"
+                         Grid.ColumnSpan="4"
                          PlaceholderText="搜索本季番剧"
                          VerticalAlignment="Center"
                          TextChanged="OnFilterTextChanged"/>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                <StackPanel x:Name="ScopeButtons"
+                            Grid.Row="1"
+                            Grid.ColumnSpan="2"
+                            Orientation="Horizontal"
+                            Spacing="4"
+                            VerticalAlignment="Center">
                     <ToggleButton x:Name="AllScopeButton"
                                   Style="{StaticResource CalendarScopeButtonStyle}"
                                   IsChecked="True"
@@ -242,6 +260,7 @@
                     </ToggleButton>
                 </StackPanel>
                 <ComboBox x:Name="SortBox"
+                          Grid.Row="1"
                           Grid.Column="3"
                           MinWidth="160"
                           VerticalAlignment="Center"
@@ -427,5 +446,26 @@
                 Visibility="Collapsed"
                 Background="Transparent"
                 AllowDrop="True"/>
+
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup x:Name="WindowWidthStates">
+                <VisualState x:Name="CompactWidth"/>
+                <VisualState x:Name="WideWidth">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="980"/>
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="FilterBox.Width" Value="360"/>
+                        <Setter Target="FilterBox.(Grid.ColumnSpan)" Value="1"/>
+                        <Setter Target="ScopeButtons.(Grid.Row)" Value="0"/>
+                        <Setter Target="ScopeButtons.(Grid.Column)" Value="1"/>
+                        <Setter Target="ScopeButtons.(Grid.ColumnSpan)" Value="1"/>
+                        <Setter Target="SortBox.(Grid.Row)" Value="0"/>
+                        <!-- 宽窗口时第二行为空，去掉行间距，避免工具栏底部多出空白 -->
+                        <Setter Target="ToolbarGrid.RowSpacing" Value="0"/>
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
     </Grid>
 </Page>

@@ -8,6 +8,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
     CanDrag="True"
+    AutomationProperties.Name="{Binding Title}"
     DragStarting="OnBodyDragStarting">
 
     <Grid Width="150"
@@ -175,6 +176,7 @@
                         <Button x:Name="WatchActionButton"
                                 Content="追番"
                                 Style="{StaticResource AccentButtonStyle}"
+                                AutomationProperties.Name="切换追番状态"
                                 HorizontalAlignment="Stretch"
                                 Padding="0,3"
                                 FontSize="12"
@@ -182,6 +184,7 @@
                         <Button x:Name="FollowActionButton"
                                 Grid.Column="1"
                                 Content="关注"
+                                AutomationProperties.Name="切换关注状态"
                                 HorizontalAlignment="Stretch"
                                 Padding="0,3"
                                 FontSize="12"

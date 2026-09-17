@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
 
 namespace AniMeido.Plugin.Base.Views.Controls
@@ -42,6 +43,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
                 .ToDictionary(action => action.Status, action => action.ActiveLabel);
 
         private bool _isPointerOver;
+        private bool _hasKeyboardFocus;
 
         // click-vs-drag 输入状态
         private bool _pointerDown;
@@ -103,6 +105,20 @@ namespace AniMeido.Plugin.Base.Views.Controls
             set => SetValue(ShowQuickActionsProperty, value);
         }
 
+        /// <summary>快捷标记正在写入时禁用同一卡片上的两个按钮。</summary>
+        public static readonly DependencyProperty IsTrackingActionPendingProperty =
+            DependencyProperty.Register(
+                nameof(IsTrackingActionPending),
+                typeof(bool),
+                typeof(AnimeCard),
+                new PropertyMetadata(false, OnTrackingPresentationChanged));
+
+        public bool IsTrackingActionPending
+        {
+            get => (bool)GetValue(IsTrackingActionPendingProperty);
+            set => SetValue(IsTrackingActionPendingProperty, value);
+        }
+
         /// <summary>在封面右上角显示的放送星期（放送日历搜索结果使用）。</summary>
         public static readonly DependencyProperty WeekdayTextProperty =
             DependencyProperty.Register(
@@ -127,6 +143,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
                 UpdateMediaFormatBadge();
                 // 容器复用时换了作品，悬停状态不沿用。
                 _isPointerOver = false;
+                _hasKeyboardFocus = false;
                 UpdateQuickActions();
                 if (DataContext is Anime anime)
                 {
@@ -147,6 +164,8 @@ namespace AniMeido.Plugin.Base.Views.Controls
             PointerCanceled += OnPointerCanceled;
             PointerCaptureLost += OnPointerCaptureLost;
             PointerMoved += OnDragPointerMoved;
+            GotFocus += OnKeyboardFocusChanged;
+            LostFocus += OnKeyboardFocusChanged;
 
             // 拖拽启动阶段自兜底：鼠标仍在卡片上方时防止禁止图标
             AllowDrop = true;
@@ -276,6 +295,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
             var card = (AnimeCard)dependencyObject;
             card.UpdateTrackingBadges();
             card.UpdateQuickActions();
+            card.UpdateTrackingActionAvailability();
         }
 
         private static void OnWeekdayTextChanged(
@@ -323,7 +343,10 @@ namespace AniMeido.Plugin.Base.Views.Controls
         /// <summary>悬停时显示标记按钮并暂时隐藏评分，避免两者重叠。</summary>
         private void UpdateQuickActions()
         {
-            var show = ShowQuickActions && _isPointerOver && DataContext is Anime;
+            IsTabStop = ShowQuickActions;
+            var show = ShowQuickActions
+                && (_isPointerOver || _hasKeyboardFocus)
+                && DataContext is Anime;
             QuickActions.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
             if (show)
             {
@@ -333,6 +356,51 @@ namespace AniMeido.Plugin.Base.Views.Controls
             {
                 UpdateScoreBadge();
             }
+        }
+
+        private void UpdateTrackingActionAvailability()
+        {
+            var enabled = !IsTrackingActionPending;
+            WatchActionButton.IsEnabled = enabled;
+            FollowActionButton.IsEnabled = enabled;
+        }
+
+        private void OnKeyboardFocusChanged(object sender, RoutedEventArgs e)
+        {
+            _ = sender;
+            _ = e;
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                _hasKeyboardFocus = ContainsKeyboardFocus();
+                UpdateQuickActions();
+            });
+        }
+
+        /// <summary>
+        /// 只认键盘焦点：鼠标点击标记按钮也会让按钮获得焦点，
+        /// 若同样计入，移开鼠标后按钮浮层会一直留着。
+        /// </summary>
+        private bool ContainsKeyboardFocus()
+        {
+            if (XamlRoot is null
+                || FocusManager.GetFocusedElement(XamlRoot)
+                    is not Control { FocusState: FocusState.Keyboard } focused)
+            {
+                return false;
+            }
+
+            DependencyObject? current = focused;
+            while (current is not null)
+            {
+                if (ReferenceEquals(current, this))
+                {
+                    return true;
+                }
+
+                current = VisualTreeHelper.GetParent(current);
+            }
+
+            return false;
         }
 
         private void OnWatchActionClick(object sender, RoutedEventArgs e)
