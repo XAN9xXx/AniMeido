@@ -100,7 +100,8 @@ public sealed class PlanReminderCoordinatorTests : DbTestBase
                 }));
 
         var status = await new TrackingService(DbFactory).GetStatusAsync(20);
-        Assert.Equal(AnimeTrackingStatus.Watching, status);
+        // 从通知开始补番同样不改变作品归属：老番仍是补番中，不会变成追番中。
+        Assert.Equal(AnimeTrackingStatus.PlanToWatch, status);
         Assert.Contains("anime-plan-20", notifications.CancelledGroups);
         Assert.Equal(20, navigator.Parameter);
     }

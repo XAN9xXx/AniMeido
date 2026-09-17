@@ -1,4 +1,4 @@
-using AniMeido.Contracts.Models;
+﻿using AniMeido.Contracts.Models;
 using AniMeido.Contracts.Playback;
 using AniMeido.Plugin.Base.Models;
 using Microsoft.Data.Sqlite;
@@ -167,9 +167,10 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
                     UpdatedAt = excluded.UpdatedAt
                 """;
             tracking.Parameters.AddWithValue("@animeId", animeId);
+            // 开始执行补番计划不改变作品归属：老番仍是补番中，不会变成追番中。
             tracking.Parameters.AddWithValue(
                 "@status",
-                (int)AnimeTrackingStatus.Watching);
+                (int)AnimeTrackingStatus.PlanToWatch);
             tracking.Parameters.AddWithValue("@now", now);
             await tracking.ExecuteNonQueryAsync(cancellationToken);
         }
@@ -458,11 +459,11 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
                 VALUES(@animeId, @watching, @observedAt)
                 ON CONFLICT(AnimeId) DO UPDATE SET
                     Status = CASE
-                        WHEN tracking.Status IN (@plan, @following)
+                        WHEN tracking.Status = @following
                         THEN @watching
                         ELSE tracking.Status END,
                     UpdatedAt = CASE
-                        WHEN tracking.Status IN (@plan, @following)
+                        WHEN tracking.Status = @following
                         THEN @observedAt
                         ELSE tracking.UpdatedAt END
                 """;
@@ -472,9 +473,6 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
             tracking.Parameters.AddWithValue(
                 "@watching",
                 (int)AnimeTrackingStatus.Watching);
-            tracking.Parameters.AddWithValue(
-                "@plan",
-                (int)AnimeTrackingStatus.PlanToWatch);
             tracking.Parameters.AddWithValue(
                 "@following",
                 (int)AnimeTrackingStatus.Following);

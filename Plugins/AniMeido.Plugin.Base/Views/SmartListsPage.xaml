@@ -69,10 +69,13 @@
                                           Header="第二层条件组"
                                           ItemsSource="{x:Bind ViewModel.GroupModes}"
                                           SelectedItem="{x:Bind ViewModel.NestedMode, Mode=TwoWay}"/>
+                                <!-- 候选字段随播放器可用性整体替换，替换时选中项会先被清空；
+                                     枚举不能写回空值，所以选中项改由 SelectionChanged 写回。 -->
                                 <ComboBox Grid.Column="2"
                                           Header="排序"
-                                          ItemsSource="{x:Bind ViewModel.Fields}"
-                                          SelectedItem="{x:Bind ViewModel.SortField, Mode=TwoWay}"/>
+                                          ItemsSource="{x:Bind ViewModel.Fields, Mode=OneWay}"
+                                          SelectedItem="{x:Bind ViewModel.SortField, Mode=OneWay}"
+                                          SelectionChanged="OnSortFieldSelectionChanged"/>
                                 <CheckBox Grid.Column="3"
                                           Content="降序"
                                           IsChecked="{x:Bind ViewModel.SortDescending, Mode=TwoWay}"
@@ -93,7 +96,8 @@
                                             <ComboBox Grid.Column="1"
                                                       Header="字段"
                                                       ItemsSource="{Binding ViewModel.Fields, ElementName=RootPage}"
-                                                      SelectedItem="{x:Bind Field, Mode=TwoWay}"/>
+                                                      SelectedItem="{x:Bind Field, Mode=OneWay}"
+                                                      SelectionChanged="OnConditionFieldSelectionChanged"/>
                                             <ComboBox Grid.Column="2"
                                                       Header="运算符"
                                                       ItemsSource="{Binding ViewModel.Operators, ElementName=RootPage}"

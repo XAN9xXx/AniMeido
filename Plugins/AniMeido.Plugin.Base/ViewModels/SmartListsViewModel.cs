@@ -97,10 +97,18 @@ public partial class SmartListsViewModel : ObservableObject
     public void SetPlaybackAvailability(bool isAvailable)
     {
         IsPlaybackAvailable = isAvailable;
-        Fields = new ObservableCollection<SmartListField>(
-            Enum.GetValues<SmartListField>().Where(field =>
+        var fields = Enum.GetValues<SmartListField>()
+            .Where(field =>
                 isAvailable
-                || !SmartListEvaluator.IsPlaybackField(field)));
+                || !SmartListEvaluator.IsPlaybackField(field))
+            .ToList();
+        // 页面每次加载都会重新同步一次可用性。字段没变时保留原集合：
+        // 替换集合会重置下拉框的 ItemsSource，并清空其选中项。
+        if (!Fields.SequenceEqual(fields))
+        {
+            Fields = new ObservableCollection<SmartListField>(fields);
+        }
+
         if (isAvailable)
         {
             return;

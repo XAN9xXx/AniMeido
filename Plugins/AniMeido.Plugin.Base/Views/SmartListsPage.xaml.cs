@@ -120,6 +120,51 @@ public sealed partial class SmartListsPage : Page
         }
     }
 
+    /// <summary>
+    /// 候选字段集合被替换时，下拉框会先把选中项清为空。字段是枚举，
+    /// 不能写回空值：只写回有效选择，空选中项时恢复为当前字段。
+    /// </summary>
+    private void OnSortFieldSelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        if (sender is not ComboBox comboBox)
+        {
+            return;
+        }
+
+        if (comboBox.SelectedItem is SmartListField field)
+        {
+            ViewModel.SortField = field;
+        }
+        else
+        {
+            comboBox.SelectedItem = ViewModel.SortField;
+        }
+    }
+
+    private void OnConditionFieldSelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        if (sender is not ComboBox
+            {
+                DataContext: SmartConditionEditor editor,
+            } comboBox)
+        {
+            return;
+        }
+
+        if (comboBox.SelectedItem is SmartListField field)
+        {
+            editor.Field = field;
+        }
+        else
+        {
+            comboBox.SelectedItem = editor.Field;
+        }
+    }
+
     private void OnNewClick(object sender, RoutedEventArgs e)
     {
         ViewModel.SelectedDefinition = null;

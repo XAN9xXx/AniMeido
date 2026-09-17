@@ -140,6 +140,7 @@ namespace AniMeido.Plugin.Base.Services
                 connection,
                 transaction,
                 animeId,
+                previousStatus,
                 status,
                 updatedAt,
                 cancellationToken);
@@ -318,12 +319,21 @@ namespace AniMeido.Plugin.Base.Services
             SqliteConnection connection,
             SqliteTransaction transaction,
             int animeId,
+            AnimeTrackingStatus? previousStatus,
             AnimeTrackingStatus status,
             string updatedAt,
             CancellationToken cancellationToken)
         {
             if (status == AnimeTrackingStatus.PlanToWatch)
             {
+                // 补番中既可能对应待开始的计划，也可能是已开始补番（计划已归档并记录开始时间）。
+                // 只有真正切换到补番中时才重新激活计划；重复写入同一状态（例如再次拖到补番区域）
+                // 不得把已开始的补番退回未开始。
+                if (previousStatus == AnimeTrackingStatus.PlanToWatch)
+                {
+                    return;
+                }
+
                 using var plan = connection.CreateCommand();
                 plan.Transaction = transaction;
                 plan.CommandText = """
