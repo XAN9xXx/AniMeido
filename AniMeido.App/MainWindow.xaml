@@ -22,7 +22,7 @@
                         IsPaneToggleButtonVisible="False"
                         CompactPaneLength="48"
                         OpenPaneLength="164"
-                        Margin="0,32,0,0">
+                        Margin="0,48,0,0">
 
             <NavigationView.Resources>
                 <Style TargetType="NavigationViewItem">
@@ -36,29 +36,37 @@
 
         </NavigationView>
 
-        <!-- 标题栏 -->
-        <Grid x:Name="AppTitleBar"
-              Height="33"
-              VerticalAlignment="Top"
-              IsHitTestVisible="True"
-              Background="Transparent"
-              Margin="0,-1,0,0">
+        <!-- 标题栏：高 48，与系统标题栏按钮的 Tall 高度一致 -->
+        <Grid Height="48"
+              VerticalAlignment="Top">
             <Rectangle Height="1"
                        VerticalAlignment="Bottom"
                        Fill="{ThemeResource DividerStrokeColorDefault}"/>
 
-            <!-- 返回按钮 -->
+            <!-- 拖动区域从返回按钮右侧开始。按钮若放在拖动区域内，
+                 鼠标按下会先交给系统拖动窗口，点击时有时失效。 -->
+            <Grid x:Name="AppTitleBar"
+                  Margin="56,0,0,1"
+                  Background="Transparent"/>
+
+            <!-- 返回按钮：圆角方块，与左侧导航栏对齐 -->
             <Button x:Name="BackButton"
-                    Content="&#xE76B;"
-                    FontFamily="Segoe MDL2 Assets"
-                    FontSize="14"
-                    Width="48"
-                    Height="33"
+                    Width="40"
+                    Height="36"
+                    Margin="8,0,0,1"
+                    Padding="0"
                     HorizontalAlignment="Left"
                     VerticalAlignment="Center"
-                    Background="Transparent"
+                    CornerRadius="8"
                     BorderThickness="0"
-                    Click="OnBackButtonClick"/>
+                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                    AutomationProperties.Name="返回"
+                    ToolTipService.ToolTip="返回"
+                    Click="OnBackButtonClick">
+                <FontIcon Glyph="&#xE76B;"
+                          FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                          FontSize="14"/>
+            </Button>
         </Grid>
 
         <!-- 开屏覆盖层：覆盖全窗口 -->

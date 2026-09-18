@@ -22,6 +22,18 @@ public static class TitleBarHelper
         AppWindow.GetFromWindowId(windowId).SetIcon(iconPath);
     }
 
+    /// <summary>
+    /// 系统标题栏按钮改用高 48 的样式，与自定义标题栏（含返回按钮）等高。
+    /// 需在 ExtendsContentIntoTitleBar 之后调用。
+    /// </summary>
+    public static void UseTallTitleBar(Window window)
+    {
+        var hWnd = WindowNative.GetWindowHandle(window);
+        var windowId = Win32Interop.GetWindowIdFromWindow(hWnd);
+        AppWindow.GetFromWindowId(windowId).TitleBar.PreferredHeightOption =
+            TitleBarHeightOption.Tall;
+    }
+
     /// <summary>更新标题栏按钮颜色以匹配当前主题。</summary>
     public static void UpdateButtonColors(AppWindow appWindow)
     {

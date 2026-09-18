@@ -45,6 +45,7 @@ namespace AniMeido.App
 
             MainNaviView.ItemInvoked += OnNaviItemInvoked;
             ExtendsContentIntoTitleBar = true;
+            TitleBarHelper.UseTallTitleBar(this);
             SetTitleBar(AppTitleBar);
             UpdateBackButton();
 
