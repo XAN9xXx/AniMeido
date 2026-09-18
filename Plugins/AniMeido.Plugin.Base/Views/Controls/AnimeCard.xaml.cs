@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Windows.Foundation;
 
 namespace AniMeido.Plugin.Base.Views.Controls
@@ -45,6 +46,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
         private bool _isPointerOver;
         private bool _hasKeyboardFocus;
         private object? _hoverStateOwner;
+        private readonly ScaleTransform _cardScale = new();
 
         // click-vs-drag 输入状态
         private bool _pointerDown;
@@ -123,6 +125,8 @@ namespace AniMeido.Plugin.Base.Views.Controls
         public AnimeCard()
         {
             InitializeComponent();
+            RenderTransformOrigin = new Point(0.5, 0.5);
+            RenderTransform = _cardScale;
 
             DataContextChanged += (s, e) =>
             {
@@ -164,17 +168,6 @@ namespace AniMeido.Plugin.Base.Views.Controls
             // 拖拽启动阶段自兜底：鼠标仍在卡片上方时防止禁止图标
             AllowDrop = true;
             AddHandler(UIElement.DragOverEvent, new DragEventHandler(OnSelfDragOver), true);
-
-            SizeChanged += OnSizeChanged;
-        }
-
-        private void OnSizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            var visual = ElementCompositionPreview.GetElementVisual(this);
-            visual.CenterPoint = new System.Numerics.Vector3(
-                (float)e.NewSize.Width / 2,
-                (float)e.NewSize.Height / 2,
-                0);
         }
 
         private void OnCoverLoadStateChanged(ManagedImageLoadState state)
@@ -420,20 +413,9 @@ namespace AniMeido.Plugin.Base.Views.Controls
             UpdateQuickActions();
 
             var visual = ElementCompositionPreview.GetElementVisual(this);
-            var compositor = visual.Compositor;
-
             visual.Properties.InsertVector3("Translation", new System.Numerics.Vector3(0, 0, 16));
 
-            var scaleX = compositor.CreateScalarKeyFrameAnimation();
-            scaleX.InsertKeyFrame(1.0f, 1.05f);
-            scaleX.Duration = TimeSpan.FromMilliseconds(200);
-
-            var scaleY = compositor.CreateScalarKeyFrameAnimation();
-            scaleY.InsertKeyFrame(1.0f, 1.05f);
-            scaleY.Duration = TimeSpan.FromMilliseconds(200);
-
-            visual.StartAnimation("Scale.X", scaleX);
-            visual.StartAnimation("Scale.Y", scaleY);
+            AnimateScale(1.05, 200);
         }
 
         private void OnPointerExited(object sender, PointerRoutedEventArgs e)
@@ -442,25 +424,9 @@ namespace AniMeido.Plugin.Base.Views.Controls
             UpdateQuickActions();
 
             var visual = ElementCompositionPreview.GetElementVisual(this);
-            var compositor = visual.Compositor;
-
-            visual.CenterPoint = new System.Numerics.Vector3(
-                (float)ActualWidth / 2,
-                (float)ActualHeight / 2,
-                0);
-
             visual.Properties.InsertVector3("Translation", new System.Numerics.Vector3(0, 0, 0));
 
-            var scaleX = compositor.CreateScalarKeyFrameAnimation();
-            scaleX.InsertKeyFrame(1.0f, 1.0f);
-            scaleX.Duration = TimeSpan.FromMilliseconds(200);
-
-            var scaleY = compositor.CreateScalarKeyFrameAnimation();
-            scaleY.InsertKeyFrame(1.0f, 1.0f);
-            scaleY.Duration = TimeSpan.FromMilliseconds(200);
-
-            visual.StartAnimation("Scale.X", scaleX);
-            visual.StartAnimation("Scale.Y", scaleY);
+            AnimateScale(1.0, 200);
         }
 
         private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
@@ -470,19 +436,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
             _standardDragStarted = false;
             _pointerDownPoint = e.GetCurrentPoint(this).Position;
 
-            var visual = ElementCompositionPreview.GetElementVisual(this);
-            var compositor = visual.Compositor;
-
-            var scaleX = compositor.CreateScalarKeyFrameAnimation();
-            scaleX.InsertKeyFrame(1.0f, 0.95f);
-            scaleX.Duration = TimeSpan.FromMilliseconds(100);
-
-            var scaleY = compositor.CreateScalarKeyFrameAnimation();
-            scaleY.InsertKeyFrame(1.0f, 0.95f);
-            scaleY.Duration = TimeSpan.FromMilliseconds(100);
-
-            visual.StartAnimation("Scale.X", scaleX);
-            visual.StartAnimation("Scale.Y", scaleY);
+            AnimateScale(0.95, 100);
         }
 
         private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
@@ -500,19 +454,31 @@ namespace AniMeido.Plugin.Base.Views.Controls
             if (shouldClick)
                 CardClicked?.Invoke(this, new AnimeCardClickedEventArgs(clickAnime!));
 
-            var visual = ElementCompositionPreview.GetElementVisual(this);
-            var compositor = visual.Compositor;
+            AnimateScale(1.05, 100);
+        }
 
-            var scaleX = compositor.CreateScalarKeyFrameAnimation();
-            scaleX.InsertKeyFrame(1.0f, 1.05f);
-            scaleX.Duration = TimeSpan.FromMilliseconds(100);
+        /// <summary>
+        /// 用 XAML 缩放变换做悬停/按下缩放。合成动画的缩放只拉伸已渲染的画面，
+        /// 文字会发虚；依赖动画每帧按当前比例重新渲染，文字保持清晰。
+        /// 新动画从当前值接续，不先停止旧动画，避免跳回原始大小。
+        /// </summary>
+        private void AnimateScale(double to, int milliseconds)
+        {
+            var storyboard = new Storyboard();
+            foreach (var property in new[] { nameof(ScaleTransform.ScaleX), nameof(ScaleTransform.ScaleY) })
+            {
+                var animation = new DoubleAnimation
+                {
+                    To = to,
+                    Duration = TimeSpan.FromMilliseconds(milliseconds),
+                    EnableDependentAnimation = true,
+                };
+                Storyboard.SetTarget(animation, _cardScale);
+                Storyboard.SetTargetProperty(animation, property);
+                storyboard.Children.Add(animation);
+            }
 
-            var scaleY = compositor.CreateScalarKeyFrameAnimation();
-            scaleY.InsertKeyFrame(1.0f, 1.05f);
-            scaleY.Duration = TimeSpan.FromMilliseconds(100);
-
-            visual.StartAnimation("Scale.X", scaleX);
-            visual.StartAnimation("Scale.Y", scaleY);
+            storyboard.Begin();
         }
 
         private void OnPointerCanceled(object sender, PointerRoutedEventArgs e)
