@@ -73,7 +73,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             OnPropertyChanged(nameof(DailyPickFollowLabel));
         }
 
-        /// <summary>换一个：沿当天的固定顺序往后找下一部未标记、且不在本季发现里的作品。</summary>
+        /// <summary>换一个：沿当天的固定顺序往后找下一部还没有任何标记的作品。</summary>
         [RelayCommand]
         private async Task NextDailyPickAsync()
         {
@@ -133,10 +133,9 @@ namespace AniMeido.Plugin.Base.ViewModels
                 .Where(entry => !entry.IsOther)
                 .ToDictionary(entry => entry.Anime.ID);
 
-        /// <summary>候选：还没有任何标记、此刻不在本季发现里的周更作品。</summary>
-        private bool IsDailyPickCandidate(CalendarEntry entry)
-            => entry.Status == AnimeTrackingStatus.None
-                && DiscoverPicks.All(pick => pick.Entry.Anime.ID != entry.Anime.ID);
+        /// <summary>候选：还没有任何标记的周更作品。</summary>
+        private static bool IsDailyPickCandidate(CalendarEntry entry)
+            => entry.Status == AnimeTrackingStatus.None;
 
         private void SetDailyPick(CalendarEntry? entry, DateOnly date)
         {
@@ -145,8 +144,6 @@ namespace AniMeido.Plugin.Base.ViewModels
                 return;
 
             DailyPick = entry;
-            // 本季发现不重复显示抽到的作品。
-            RefreshDiscover();
             _ = LoadDailyPickDetailsAsync(entry);
         }
 

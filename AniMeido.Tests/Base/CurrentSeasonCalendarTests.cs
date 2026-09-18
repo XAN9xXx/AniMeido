@@ -37,19 +37,22 @@ public sealed class CurrentSeasonCalendarTests
     }
 
     [Fact]
-    public void RankDiscover_OnlyIncludesUnmarkedScoredEntriesByScore()
+    public void RankTimeMachine_KeepsMarkedWithStatusAndDropsBlockedOrUnscored()
     {
-        // 不感兴趣等任何标记都算“已标记”，不再推荐。
-        var entries = CurrentSeasonViewModel.BuildEntries(
-            [Item(1, 1, 7.5), Item(2, 2, 8.8), Item(3, 3, null), Item(4, 4, 9.1)],
+        // 时光机保留已标记的作品并显示状态；屏蔽的与没有评分的不显示。
+        var ranked = CurrentSeasonViewModel.RankTimeMachine(
+            [Item(1, 1, 7.5), Item(2, 2, 8.8), Item(3, 3, null), Item(4, 4, 9.1), Item(5, 5, 8.0)],
             new Dictionary<int, AnimeTrackingStatus>
             {
-                [4] = AnimeTrackingStatus.NotInterested,
+                [2] = AnimeTrackingStatus.Completed,
+                [4] = AnimeTrackingStatus.Blocked,
             });
 
-        var ranked = CurrentSeasonViewModel.RankDiscover(entries);
-
-        Assert.Equal(new[] { 2, 1 }, ranked.Select(entry => entry.Anime.ID));
+        Assert.Equal(new[] { 2, 5, 1 }, ranked.Select(entry => entry.Anime.ID));
+        Assert.Equal(new[] { 1, 2, 3 }, ranked.Select(entry => entry.Rank));
+        Assert.Equal(AnimeTrackingStatus.Completed, ranked[0].Status);
+        Assert.True(ranked[0].HasStatus);
+        Assert.False(ranked[1].HasStatus);
     }
 
     [Fact]
@@ -63,19 +66,17 @@ public sealed class CurrentSeasonCalendarTests
     }
 
     [Fact]
-    public void Others_AreOrderedByDateAndLeftOutOfDiscover()
+    public void Others_AreOrderedByDate()
     {
-        // “其他”固定按上映日期排列，没有日期的放最后；本季发现只推荐周更作品。
+        // “其他”固定按上映日期排列，没有日期的放最后。
         var entries = CurrentSeasonViewModel.BuildEntries(
             [Item(1, 1, 7.0)],
             [Movie(10, null, 9.5), Movie(11, new DateOnly(2026, 9, 1), 9.0), Movie(12, new DateOnly(2026, 7, 20), 8.0)],
             new Dictionary<int, AnimeTrackingStatus>());
 
         var ordered = CurrentSeasonViewModel.OrderOthers(entries.Where(entry => entry.IsOther));
-        var ranked = CurrentSeasonViewModel.RankDiscover(entries);
 
         Assert.Equal(new[] { 12, 11, 10 }, ordered.Select(entry => entry.Anime.ID));
-        Assert.Equal(new[] { 1 }, ranked.Select(entry => entry.Anime.ID));
     }
 
     [Fact]

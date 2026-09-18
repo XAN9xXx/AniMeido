@@ -6,6 +6,7 @@ using AniMeido.Plugin.Base.ViewModels;
 using AniMeido.Plugin.Base.Views.Controls;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 
@@ -15,13 +16,16 @@ namespace AniMeido.Plugin.Base.Views
     {
         // 滚动位置可能带小数，判断是否到头时留一点容差，避免停在边界附近仍显示渐隐。
         private const double EdgeTolerance = 2;
-        // 本季发现每行的尺寸，与 XAML 中的 UniformGridLayout 保持一致。
+        // 时光机每行的最小与最大高度；能放下几行后，剩余高度平分给这些行。
         private const double PickHeight = 64;
+        private const double PickMaxHeight = 96;
+        // 封面宽高比，与原来 38×52 的缩略图一致。
+        private const double PickCoverAspect = 38.0 / 52;
         private const double PickRowSpacing = 8;
         private const double PickMinWidth = 260;
         private const double PickColumnSpacing = 10;
-        // 发现面板除列表外占用的高度：上下内边距、边框、标题行与行间距。
-        private const double DiscoverChromeHeight = 14 + 14 + 2 + 24 + 10;
+        // 时光机面板除列表外占用的高度：上下内边距、边框、标题行（含年份按钮）与行间距。
+        private const double DiscoverChromeHeight = 14 + 14 + 2 + 28 + 10;
         // 发现面板左右内边距与边框。
         private const double DiscoverChromeWidth = 16 + 16 + 2;
         // 今日一抽面板宽度（含右侧间距）。
@@ -87,8 +91,8 @@ namespace AniMeido.Plugin.Base.Views
                         UpdateShelfFades();
                         break;
 
-                    case nameof(CurrentSeasonViewModel.DiscoverPicks):
-                        UpdateDiscoverVisibility();
+                    case nameof(CurrentSeasonViewModel.TimeMachineYearsAgo):
+                        UpdateTimeMachineYearButtons();
                         break;
 
                     case nameof(CurrentSeasonViewModel.DailyPick):
@@ -139,6 +143,8 @@ namespace AniMeido.Plugin.Base.Views
             }
 
             ApplyFilterLayout();
+            // 年份在应用运行期间保留，重新打开页面时按钮要跟着对上。
+            UpdateTimeMachineYearButtons();
         }
 
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
@@ -259,7 +265,16 @@ namespace AniMeido.Plugin.Base.Views
                 1,
                 3);
             ViewModel.SetDiscoverCapacity(Math.Max(0, rows) * columns);
-            UpdateDiscoverVisibility();
+            // 连一行都放不下时整块隐藏，不出现被截断的行。
+            DiscoverPanel.Visibility = rows > 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (rows > 0)
+            {
+                // 剩余高度平分给能放下的行，避免下方空出一截；行高不超过上限。
+                var listHeight = height - DiscoverChromeHeight;
+                TimeMachineLayout.MinItemHeight = Math.Min(
+                    PickMaxHeight,
+                    Math.Floor((listHeight - PickRowSpacing * (rows - 1)) / rows));
+            }
         }
 
         /// <summary>
@@ -319,10 +334,6 @@ namespace AniMeido.Plugin.Base.Views
                 await ToggleStatusSafelyAsync(anime.ID, AnimeTrackingStatus.Following);
         }
 
-        private void UpdateDiscoverVisibility()
-            => DiscoverPanel.Visibility = ViewModel.HasDiscoverPicks
-                ? Visibility.Visible
-                : Visibility.Collapsed;
 
         // ======== 横向列表 ========
 
@@ -435,21 +446,58 @@ namespace AniMeido.Plugin.Base.Views
             }
         }
 
-        private async void OnPickWatchClick(object sender, RoutedEventArgs e)
+        // ======== 番剧时光机 ========
+
+        private async void OnTimeMachinePlanClick(object sender, RoutedEventArgs e)
         {
             if (sender is FrameworkElement { Tag: Anime anime })
+                await ToggleTimeMachineStatusSafelyAsync(anime.ID, AnimeTrackingStatus.PlanToWatch);
+        }
+
+        private async void OnTimeMachineFollowClick(object sender, RoutedEventArgs e)
+        {
+            if (sender is FrameworkElement { Tag: Anime anime })
+                await ToggleTimeMachineStatusSafelyAsync(anime.ID, AnimeTrackingStatus.Following);
+        }
+
+        private async Task ToggleTimeMachineStatusSafelyAsync(int animeId, AnimeTrackingStatus status)
+        {
+            try
             {
-                await ToggleStatusSafelyAsync(anime.ID, AnimeTrackingStatus.Watching);
+                await ViewModel.ToggleTimeMachineStatusAsync(animeId, status);
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException ex)
+            {
+                ErrorInfoBar.Message = $"标记失败：{ex.Message}";
+                ErrorInfoBar.IsOpen = true;
             }
         }
 
-        private async void OnPickFollowClick(object sender, RoutedEventArgs e)
+        private void OnTimeMachineYearClick(object sender, RoutedEventArgs e)
         {
-            if (sender is FrameworkElement { Tag: Anime anime })
+            if (sender is FrameworkElement { Tag: string text }
+                && int.TryParse(text, out var yearsAgo))
             {
-                await ToggleStatusSafelyAsync(anime.ID, AnimeTrackingStatus.Following);
+                ViewModel.TimeMachineYearsAgo = yearsAgo;
+            }
+
+            // 点击已选中的按钮也保持选中。
+            UpdateTimeMachineYearButtons();
+        }
+
+        private void UpdateTimeMachineYearButtons()
+        {
+            foreach (var button in TimeMachineYearButtons.Children.OfType<ToggleButton>())
+            {
+                button.IsChecked = button.Tag is string text
+                    && int.TryParse(text, out var yearsAgo)
+                    && yearsAgo == ViewModel.TimeMachineYearsAgo;
             }
         }
+
+        /// <summary>打开番剧库并直接定位到时光机指向的那一季。</summary>
+        private void OnTimeMachineOpenSeasonClick(object sender, RoutedEventArgs e)
+            => _pluginNavigator.Navigate(typeof(PastSeasonPage), ViewModel.TimeMachineTarget);
 
         private async Task ToggleStatusSafelyAsync(int animeId, AnimeTrackingStatus status)
         {
@@ -523,6 +571,13 @@ namespace AniMeido.Plugin.Base.Views
                 actions.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
             if (row.FindName("PickScore") is UIElement score)
                 score.Visibility = visible ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        /// <summary>封面随行高变高，宽度按比例跟随。</summary>
+        private void OnPickCoverHostSizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (sender is FrameworkElement host && e.NewSize.Height > 0)
+                host.Width = Math.Round(e.NewSize.Height * PickCoverAspect);
         }
 
         private void OnPickCoverLoaded(object sender, RoutedEventArgs e)

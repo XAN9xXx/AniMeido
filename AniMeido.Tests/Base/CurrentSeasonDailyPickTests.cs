@@ -81,18 +81,6 @@ public sealed class CurrentSeasonDailyPickTests : DbTestBase
         Assert.Equal(expected, vm.DailyPick?.Anime.ID);
     }
 
-    [Fact]
-    public async Task DailyPick_IsNotRepeatedInDiscover()
-    {
-        await RunProductionMigrationAsync();
-        var vm = await LoadAsync();
-        vm.SetDiscoverCapacity(10);
-
-        Assert.DoesNotContain(
-            vm.DiscoverPicks,
-            pick => pick.Entry.Anime.ID == vm.DailyPick!.Anime.ID);
-    }
-
     private async Task<CurrentSeasonViewModel> LoadAsync()
     {
         var vm = new CurrentSeasonViewModel(new ScheduleSource(), new TrackingService(DbFactory));

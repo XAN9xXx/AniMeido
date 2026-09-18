@@ -9,7 +9,7 @@ using Microsoft.UI.Xaml.Input;
 
 namespace AniMeido.Plugin.Base.Views
 {
-    public sealed partial class PastSeasonPage : Page
+    public sealed partial class PastSeasonPage : Page, INavigationAware
     {
         private const int EarliestSupportedYear = 1900;
         private readonly PastSeasonViewModel _viewModel;
@@ -157,6 +157,39 @@ namespace AniMeido.Plugin.Base.Views
             SeasonComboBox.SelectionChanged += OnSeasonSelectionChanged;
 
         }
+
+        /// <summary>
+        /// 从放送日历的番剧时光机进入时，直接定位到指定季度；
+        /// 从主导航进入时没有参数，保持默认的最近一个已完结季度。
+        /// </summary>
+        public async Task OnNavigatedToAsync(object? parameter)
+        {
+            if (parameter is not PastSeasonTarget target)
+                return;
+
+            var latestCompleted = GetLatestCompletedSeason(DateTime.Now);
+            if (target.Year < EarliestSupportedYear
+                || (target.Year, target.Season).CompareTo((latestCompleted.Year, latestCompleted.Season)) > 0)
+            {
+                return;
+            }
+
+            // 程序设置选中项时暂停联动加载，选好后只加载一次。
+            YearComboBox.SelectionChanged -= OnYearSelectionChanged;
+            YearComboBox.SelectedItem = target.Year;
+            YearComboBox.SelectionChanged += OnYearSelectionChanged;
+            RebuildSeasonItems(target.Year, SelectableSeason(target, latestCompleted));
+            await LoadSelectedSeasonSafelyAsync();
+        }
+
+        /// <summary>
+        /// RebuildSeasonItems 把传入的季度同时当作最新可选季度；
+        /// 目标在往年时这个限制不生效，直接传入；在今年时只能传今年最新的已完结季度之内。
+        /// </summary>
+        private static Season SelectableSeason(PastSeasonTarget target, (int Year, Season Season) latestCompleted)
+            => target.Year < latestCompleted.Year || target.Season <= latestCompleted.Season
+                ? target.Season
+                : latestCompleted.Season;
 
         internal static (int Year, Season Season) GetLatestCompletedSeason(
             DateTime now)

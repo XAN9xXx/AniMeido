@@ -136,45 +136,51 @@
                 </Grid>
             </DataTemplate>
 
-            <!-- 本季发现的一行：整行进入详情，悬停时显示标记按钮（叠放，不嵌套） -->
-            <DataTemplate x:Key="PickTemplate" x:DataType="vm:CalendarPick">
+            <!-- 番剧时光机的一行：整行进入详情，悬停时显示标记按钮（叠放，不嵌套） -->
+            <DataTemplate x:Key="TimeMachineRowTemplate" x:DataType="vm:TimeMachineEntry">
                 <Grid PointerEntered="OnPickPointerEntered"
                       PointerExited="OnPickPointerExited"
                       GotFocus="OnPickFocusChanged"
                       LostFocus="OnPickFocusChanged">
-                    <Button Tag="{x:Bind Entry.Anime}"
+                    <Button Tag="{x:Bind Anime}"
                             Click="OnPickClick"
                             Style="{StaticResource CalendarTileButtonStyle}"
                             Padding="8,6,12,6"
-                            AutomationProperties.Name="{x:Bind Entry.Anime.Title}">
-                        <Grid ColumnDefinitions="22,38,*,Auto" ColumnSpacing="10">
-                            <TextBlock Text="{x:Bind RankText}"
-                                       FontWeight="SemiBold"
-                                       HorizontalAlignment="Right"
-                                       VerticalAlignment="Center"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <Border Grid.Column="1"
+                            AutomationProperties.Name="{x:Bind Anime.Title}">
+                        <!-- 每次随机翻出，排名没有意义，不显示序号 -->
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                            <!-- 封面高度随行高变化，宽度在 SizeChanged 中按 38:52 跟随 -->
+                            <Border
                                     Width="38"
-                                    Height="52"
+                                    VerticalAlignment="Stretch"
                                     CornerRadius="5"
+                                    SizeChanged="OnPickCoverHostSizeChanged"
                                     Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}">
-                                <Image DataContext="{x:Bind Entry.Anime}"
+                                <Image DataContext="{x:Bind Anime}"
                                        Stretch="UniformToFill"
                                        Loaded="OnPickCoverLoaded"
                                        DataContextChanged="OnPickCoverDataContextChanged"
                                        Unloaded="OnPickCoverUnloaded"/>
                             </Border>
-                            <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="1">
-                                <TextBlock Text="{x:Bind Entry.Anime.Title}"
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                <TextBlock Text="{x:Bind Anime.Title}"
                                            FontWeight="SemiBold"
                                            MaxLines="1"
                                            TextTrimming="CharacterEllipsis"/>
-                                <TextBlock Text="{x:Bind Meta}"
-                                           FontSize="12"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <!-- 形态与你的标记：已标记的保留，并标出状态 -->
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="{x:Bind Meta}"
+                                               FontSize="12"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <TextBlock Text="{x:Bind StatusText, Mode=OneWay}"
+                                               Visibility="{x:Bind HasStatus, Mode=OneWay}"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"
+                                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                                </StackPanel>
                             </StackPanel>
                             <TextBlock x:Name="PickScore"
-                                       Grid.Column="3"
+                                       Grid.Column="2"
                                        Text="{x:Bind ScoreText}"
                                        FontWeight="SemiBold"
                                        VerticalAlignment="Center"
@@ -188,16 +194,16 @@
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Center"
                                 Visibility="Collapsed">
-                        <Button Content="追番"
-                                Tag="{x:Bind Entry.Anime}"
-                                Click="OnPickWatchClick"
-                                AutomationProperties.Name="切换追番状态"
+                        <Button Content="{x:Bind PlanLabel, Mode=OneWay}"
+                                Tag="{x:Bind Anime}"
+                                Click="OnTimeMachinePlanClick"
+                                AutomationProperties.Name="切换补番状态"
                                 Style="{StaticResource AccentButtonStyle}"
                                 Padding="10,2"
                                 FontSize="12"/>
-                        <Button Content="关注"
-                                Tag="{x:Bind Entry.Anime}"
-                                Click="OnPickFollowClick"
+                        <Button Content="{x:Bind FollowLabel, Mode=OneWay}"
+                                Tag="{x:Bind Anime}"
+                                Click="OnTimeMachineFollowClick"
                                 AutomationProperties.Name="切换关注状态"
                                 Padding="10,2"
                                 FontSize="12"/>
@@ -525,26 +531,61 @@
                 </Grid>
             </Border>
 
+            <!-- 番剧时光机：每次打开从往年同一季随机翻出几部，已标记的保留并显示状态 -->
             <Border x:Name="DiscoverPanel"
                     Grid.Column="1"
                     Style="{StaticResource CalendarPanelStyle}"
                     Padding="16,14"
                     Visibility="Collapsed">
                 <Grid RowDefinitions="Auto,*" RowSpacing="10">
-                    <StackPanel Orientation="Horizontal" Spacing="12" Padding="2,0,0,0">
-                        <TextBlock Text="本季发现" FontSize="17" FontWeight="SemiBold"/>
-                        <TextBlock Text="评分较高、你还没标记的作品 · 评分来自 Bangumi"
+                    <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="12" Padding="2,0,0,0">
+                        <TextBlock Text="番剧时光机" FontSize="17" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="{x:Bind ViewModel.TimeMachineCaption, Mode=OneWay}"
                                    FontSize="13"
                                    VerticalAlignment="Bottom"
                                    Margin="0,0,0,2"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </StackPanel>
+                        <StackPanel x:Name="TimeMachineYearButtons"
+                                    Grid.Column="2"
+                                    Orientation="Horizontal"
+                                    Spacing="4"
+                                    VerticalAlignment="Center">
+                            <ToggleButton Content="5 年前"
+                                          Tag="5"
+                                          Padding="8,1"
+                                          FontSize="12"
+                                          MinWidth="0"
+                                          Click="OnTimeMachineYearClick"/>
+                            <ToggleButton Content="10 年前"
+                                          Tag="10"
+                                          Padding="8,1"
+                                          FontSize="12"
+                                          MinWidth="0"
+                                          IsChecked="True"
+                                          Click="OnTimeMachineYearClick"/>
+                            <ToggleButton Content="20 年前"
+                                          Tag="20"
+                                          Padding="8,1"
+                                          FontSize="12"
+                                          MinWidth="0"
+                                          Click="OnTimeMachineYearClick"/>
+                        </StackPanel>
+                        <HyperlinkButton Grid.Column="4"
+                                         Content="查看这一季全部"
+                                         Padding="4,0"
+                                         FontSize="13"
+                                         VerticalAlignment="Center"
+                                         Click="OnTimeMachineOpenSeasonClick"/>
+                    </Grid>
                     <ItemsRepeater Grid.Row="1"
                                    VerticalAlignment="Top"
-                                   ItemsSource="{x:Bind ViewModel.DiscoverPicks, Mode=OneWay}"
-                                   ItemTemplate="{StaticResource PickTemplate}">
+                                   ItemsSource="{x:Bind ViewModel.TimeMachinePicks, Mode=OneWay}"
+                                   ItemTemplate="{StaticResource TimeMachineRowTemplate}">
                         <ItemsRepeater.Layout>
-                            <UniformGridLayout MaximumRowsOrColumns="3"
+                            <!-- 行高由 code-behind 按剩余高度平分 -->
+                            <UniformGridLayout x:Name="TimeMachineLayout"
+                                               MaximumRowsOrColumns="3"
                                                MinItemWidth="260"
                                                MinItemHeight="64"
                                                MinColumnSpacing="10"
@@ -552,6 +593,22 @@
                                                ItemsStretch="Fill"/>
                         </ItemsRepeater.Layout>
                     </ItemsRepeater>
+                    <!-- 加载中、失败或没有作品时的说明 -->
+                    <StackPanel Grid.Row="1"
+                                Orientation="Horizontal"
+                                Spacing="12"
+                                Padding="2,4,0,0"
+                                VerticalAlignment="Top"
+                                Visibility="{x:Bind ViewModel.HasTimeMachineStatusText, Mode=OneWay}">
+                        <TextBlock Text="{x:Bind ViewModel.TimeMachineStatusText, Mode=OneWay}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <Button Content="重试"
+                                Padding="10,2"
+                                FontSize="12"
+                                Visibility="{x:Bind ViewModel.IsTimeMachineFailed, Mode=OneWay}"
+                                Command="{x:Bind ViewModel.RetryTimeMachineCommand}"/>
+                    </StackPanel>
                 </Grid>
             </Border>
         </Grid>

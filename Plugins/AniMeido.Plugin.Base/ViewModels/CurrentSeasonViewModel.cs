@@ -106,20 +106,6 @@ namespace AniMeido.Plugin.Base.ViewModels
             => OnPropertyChanged(nameof(ShowOtherOutline));
     }
 
-    /// <summary>“本季发现”中的一行。</summary>
-    public sealed record CalendarPick(int Rank, CalendarEntry Entry)
-    {
-        public string RankText => Rank.ToString(CultureInfo.InvariantCulture);
-
-        public string ScoreText => Entry.Anime.Score is { } score
-            ? score.ToString("F1", CultureInfo.InvariantCulture)
-            : "";
-
-        public string Meta => Entry.Anime.MediaFormat == AnimeMediaFormat.Unknown
-            ? Entry.WeekdayText
-            : $"{Entry.WeekdayText} · {AnimeReleaseClassifier.GetMediaFormatText(Entry.Anime.MediaFormat)}";
-    }
-
     public partial class CurrentSeasonViewModel : ObservableObject
     {
         private static readonly StringComparer TitleComparer =
@@ -163,9 +149,6 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         [ObservableProperty]
         private ObservableCollection<CalendarEntry> _visibleEntries = [];
-
-        [ObservableProperty]
-        private ObservableCollection<CalendarPick> _discoverPicks = [];
 
         [ObservableProperty]
         private string _seasonSummary = "按日历排期，不代表已上线";
@@ -214,8 +197,6 @@ namespace AniMeido.Plugin.Base.ViewModels
         public bool IsSortApplicable =>
             IsFiltering || SelectedWeekday != CalendarDay.OtherKey;
 
-        public bool HasDiscoverPicks => DiscoverPicks.Count > 0;
-
         partial void OnSearchTextChanged(string value)
         {
             OnPropertyChanged(nameof(IsFiltering));
@@ -239,9 +220,6 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         partial void OnVisibleEntriesChanged(ObservableCollection<CalendarEntry> value)
             => OnPropertyChanged(nameof(HasNoVisibleEntries));
-
-        partial void OnDiscoverPicksChanged(ObservableCollection<CalendarPick> value)
-            => OnPropertyChanged(nameof(HasDiscoverPicks));
 
         /// <summary>
         /// 切换到某一天。搜索或只看“我的”时点星期格，会清空搜索、回到全部，跳到那一天。
@@ -271,7 +249,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
         }
 
-        /// <summary>按剩余高度能完整放下的行数更新“本季发现”的条数。</summary>
+        /// <summary>按剩余高度能完整放下的行数更新番剧时光机的条数。</summary>
         public void SetDiscoverCapacity(int capacity)
         {
             capacity = Math.Max(0, capacity);
@@ -281,7 +259,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
 
             _discoverCapacity = capacity;
-            RefreshDiscover();
+            RefreshTimeMachine();
         }
 
         /// <summary>与详情页一致：已是该状态则取消，否则设为该状态。</summary>
@@ -335,6 +313,8 @@ namespace AniMeido.Plugin.Base.ViewModels
                 return;
             }
 
+            ApplyTimeMachineStatuses(statuses);
+
             var rebuilt = BuildEntries(_schedule, _others, statuses);
             var previousById = _entries.ToDictionary(entry => entry.Anime.ID);
             var merged = new List<CalendarEntry>(rebuilt.Count);
@@ -382,6 +362,8 @@ namespace AniMeido.Plugin.Base.ViewModels
             HasData = false;
             try
             {
+                // 番剧时光机独立加载，失败或较慢都不影响放送日历本身。
+                _ = LoadTimeMachineAsync();
                 var scheduleTask = _animeDataSource
                     .GetCurrentBroadcastScheduleAsync(ct);
                 var seasonTask = TryLoadSeasonAnimeAsync(ct);
@@ -571,18 +553,6 @@ namespace AniMeido.Plugin.Base.ViewModels
                         ? list
                         : Order(list, Sort));
             }
-
-            RefreshDiscover();
-        }
-
-        private void RefreshDiscover()
-        {
-            // 今日一抽已经展示的作品不在这里重复出现。
-            DiscoverPicks = new ObservableCollection<CalendarPick>(
-                RankDiscover(_entries)
-                    .Where(entry => !ReferenceEquals(entry, DailyPick))
-                    .Take(_discoverCapacity)
-                    .Select((entry, index) => new CalendarPick(index + 1, entry)));
         }
 
         internal static IReadOnlyList<CalendarEntry> BuildEntries(
@@ -645,20 +615,6 @@ namespace AniMeido.Plugin.Base.ViewModels
                     .ThenByDescending(entry => entry.Anime.Score ?? double.MinValue),
             }).ToList();
         }
-
-        /// <summary>
-        /// 本季发现：周更表里还没有任何标记、且有评分的作品，按评分从高到低。
-        /// “其他”里的作品不参与，它们已有单独的一格。
-        /// </summary>
-        internal static IReadOnlyList<CalendarEntry> RankDiscover(
-            IEnumerable<CalendarEntry> entries)
-            => entries
-                .Where(entry => !entry.IsOther
-                    && entry.Status == AnimeTrackingStatus.None
-                    && entry.Anime.Score is > 0)
-                .OrderByDescending(entry => entry.Anime.Score)
-                .ThenBy(entry => entry.Anime.Title, TitleComparer)
-                .ToList();
 
         internal static string BuildDayCountText(int matched, int total, bool filtering)
             => filtering ? $"{matched} / {total} 部" : $"{total} 部";
