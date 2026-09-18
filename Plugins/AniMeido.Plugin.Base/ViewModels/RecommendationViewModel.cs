@@ -1,4 +1,4 @@
-using AniMeido.Contracts.Models;
+﻿using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -17,15 +17,7 @@ public partial class RecommendationTagOption(string name) : ObservableObject
 public partial class RecommendationViewModel : ObservableObject
 {
     private const int OnboardingTagBatchSize = 12;
-    private static readonly string[] OnboardingTags =
-    [
-        "科幻", "奇幻", "恋爱", "日常", "喜剧", "动作",
-        "悬疑", "治愈", "校园", "音乐", "运动", "冒险",
-        "机器人", "青春", "历史", "推理", "战斗", "魔法",
-        "家庭", "职场", "旅行", "美食", "美术", "萌系",
-        "偶像", "公路片", "时空穿越", "超能力", "游戏", "社会",
-        "剧情", "原创", "漫画改", "小说改", "群像", "成长",
-    ];
+    private static readonly IReadOnlyList<string> OnboardingTags = RecommendationTagCatalog.Tags;
 
     private readonly RecommendationService _recommendations;
     private readonly RecommendationBrowseState _browse;
@@ -265,16 +257,16 @@ public partial class RecommendationViewModel : ObservableObject
         var selectedNames = selected
             .Select(option => option.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var candidates = Enumerable.Range(0, OnboardingTags.Length)
+        var candidates = Enumerable.Range(0, OnboardingTags.Count)
             .Select(index => OnboardingTags[
-                (_onboardingTagOffset + index) % OnboardingTags.Length])
+                (_onboardingTagOffset + index) % OnboardingTags.Count])
             .Where(tag => !selectedNames.Contains(tag))
             .Take(OnboardingTagBatchSize - selected.Count)
             .Select(tag => new RecommendationTagOption(tag));
         SuggestedTags = new(selected.Concat(candidates));
         _onboardingTagOffset = (
             _onboardingTagOffset + OnboardingTagBatchSize)
-            % OnboardingTags.Length;
+            % OnboardingTags.Count;
     }
 
     public async Task LoadAsync(CancellationToken cancellationToken = default)

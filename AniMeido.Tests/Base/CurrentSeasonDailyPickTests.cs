@@ -37,6 +37,17 @@ public sealed class CurrentSeasonDailyPickTests : DbTestBase
     }
 
     [Fact]
+    public void PickDailyTags_KeepsCatalogTagsInOrder()
+    {
+        // 去掉季度、制作公司等杂项，按返回顺序去重，最多三个。
+        var tags = CurrentSeasonViewModel.PickDailyTags(
+            ["2023年10月", " 奇幻 ", "MADHouse", null, "", "奇幻", "漫画改", "治愈", "冒险"]);
+
+        Assert.Equal(new[] { "奇幻", "漫画改", "治愈" }, tags);
+        Assert.Empty(CurrentSeasonViewModel.PickDailyTags(["TV", "2024"]));
+    }
+
+    [Fact]
     public async Task CalendarDailyPick_RoundTripsThroughConfig()
     {
         await RunProductionMigrationAsync();

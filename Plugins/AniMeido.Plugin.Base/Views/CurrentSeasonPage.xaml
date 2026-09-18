@@ -115,6 +115,7 @@
                 <Grid>
                     <controls:AnimeCard DataContext="{x:Bind Anime}"
                                         TrackingStatus="{x:Bind Status, Mode=OneWay}"
+                                        IsTrackingActionPending="{x:Bind IsSavingStatus, Mode=OneWay}"
                                         ShowWatchAction="{x:Bind ShowWatchAction}"
                                         WeekdayText="{x:Bind ShelfBadgeText}"
                                         ShowQuickActions="True"
@@ -128,6 +129,7 @@
                     <controls:AnimeCard DataContext="{x:Bind Anime}"
                                         VerticalAlignment="Top"
                                         TrackingStatus="{x:Bind Status, Mode=OneWay}"
+                                        IsTrackingActionPending="{x:Bind IsSavingStatus, Mode=OneWay}"
                                         ShowWatchAction="{x:Bind ShowWatchAction}"
                                         WeekdayText="{x:Bind WeekdayText}"
                                         ShowQuickActions="True"
@@ -188,6 +190,7 @@
                         </Grid>
                     </Button>
                     <StackPanel x:Name="PickActions"
+                                Opacity="{x:Bind ActionOpacity, Mode=OneWay}"
                                 Orientation="Horizontal"
                                 Spacing="4"
                                 Margin="0,0,10,0"
@@ -512,7 +515,10 @@
                                            TextTrimming="CharacterEllipsis"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Grid>
-                            <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="6">
+                            <StackPanel Grid.Row="4"
+                                        Orientation="Horizontal"
+                                        Spacing="6"
+                                        Opacity="{x:Bind ViewModel.DailyPickActionOpacity, Mode=OneWay}">
                                 <Button x:Name="DailyPickWatchButton"
                                         Content="{x:Bind ViewModel.DailyPickWatchLabel, Mode=OneWay}"
                                         Style="{StaticResource AccentButtonStyle}"

@@ -108,6 +108,9 @@ namespace AniMeido.Plugin.Base.ViewModels
 
     public partial class CurrentSeasonViewModel : ObservableObject
     {
+        /// <summary>标记写入中按钮的不透明度（与卡片上的快捷按钮一致）。</summary>
+        public const double SavingActionOpacity = 0.55;
+
         private static readonly StringComparer TitleComparer =
             StringComparer.Create(CultureInfo.GetCultureInfo("zh-CN"), ignoreCase: true);
 
@@ -116,7 +119,11 @@ namespace AniMeido.Plugin.Base.ViewModels
         private IReadOnlyList<Anime> _schedule = [];
         // 本季不在周更表里的作品（剧场版、OVA 等），来自按季查询。
         private IReadOnlyList<Anime> _others = [];
+        private bool _othersLoaded;
         private bool _othersFailed;
+        private CancellationTokenSource? _othersCts;
+        private bool _supplementaryLoadsSuspended;
+        private int _supplementaryLoadGeneration;
         private IReadOnlyList<CalendarEntry> _entries = [];
         private bool _suppressRefresh;
         private int _discoverCapacity;
@@ -241,9 +248,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             Refresh(rebuildList: true);
 
             // “其他”加载失败时，点这一格就是重试。
-            if (weekday == CalendarDay.OtherKey
-                && _othersFailed
-                && !RetryOthersCommand.IsRunning)
+            if (weekday == CalendarDay.OtherKey && _othersFailed)
             {
                 RetryOthersCommand.Execute(null);
             }
@@ -305,43 +310,97 @@ namespace AniMeido.Plugin.Base.ViewModels
                 return;
             }
 
-            var readStartedAt = _statusWriteCount;
+            var supplementaryGeneration = _supplementaryLoadGeneration;
+            var snapshot = BeginStatusRead();
             var statuses = await TryReadStatusesAsync();
-            if (statuses is null)
+            if (statuses is null
+                || _supplementaryLoadsSuspended
+                || supplementaryGeneration != _supplementaryLoadGeneration)
             {
                 // 重新读取失败时保留屏幕上的既有状态，避免把所有标记误显示为“未设置”。
                 return;
             }
 
-            ApplyTimeMachineStatuses(statuses);
+            ApplyStatuses(statuses, snapshot);
+            await EnsureDailyPickAsync(supplementaryGeneration);
+        }
 
-            var rebuilt = BuildEntries(_schedule, _others, statuses);
+        /// <summary>读取开始时的写入序号，以及当时还没写完的作品。</summary>
+        internal sealed record StatusReadSnapshot(long WriteStamp, IReadOnlySet<int> SavingIds);
+
+        /// <summary>在读取本地标记之前调用，用来判断读到的结果对哪些作品已经过时。</summary>
+        internal StatusReadSnapshot BeginStatusRead()
+            => new(
+                _statusWriteCount,
+                _entries.Where(entry => entry.IsSavingStatus).Select(entry => entry.Anime.ID)
+                    .Concat(_timeMachineEntries
+                        .Where(entry => entry.IsSavingStatus)
+                        .Select(entry => entry.Anime.ID))
+                    .ToHashSet());
+
+        /// <summary>
+        /// 读到的标记是否可以覆盖页面上的状态。读取开始时还没写完、读取期间正在写、
+        /// 或读取开始之后才发起的写入，都可能比读到的结果新，保留页面上的状态。
+        /// </summary>
+        internal static bool CanApplyReadStatus(
+            int animeId,
+            bool isSaving,
+            long writeStamp,
+            StatusReadSnapshot snapshot)
+            => !isSaving
+                && !snapshot.SavingIds.Contains(animeId)
+                && writeStamp <= snapshot.WriteStamp;
+
+        /// <summary>把读到的标记合并进日历与时光机；新屏蔽的作品被移除，被解除屏蔽的重新出现。</summary>
+        internal void ApplyStatuses(
+            IReadOnlyDictionary<int, AnimeTrackingStatus> statuses,
+            StatusReadSnapshot snapshot)
+        {
+            ApplyTimeMachineStatuses(statuses, snapshot);
+
             var previousById = _entries.ToDictionary(entry => entry.Anime.ID);
-            var merged = new List<CalendarEntry>(rebuilt.Count);
-            foreach (var candidate in rebuilt)
+            var candidates = _schedule
+                .DistinctBy(anime => anime.ID)
+                .Select(anime => (Anime: anime, IsOther: false))
+                .Concat(_others
+                    .DistinctBy(anime => anime.ID)
+                    .Select(anime => (Anime: anime, IsOther: true)))
+                .ToList();
+            var merged = new List<CalendarEntry>(candidates.Count);
+            foreach (var candidate in candidates)
             {
+                var status = statuses.GetValueOrDefault(candidate.Anime.ID);
                 if (previousById.TryGetValue(candidate.Anime.ID, out var previous))
                 {
-                    // 读取期间开始的写入比读到的结果新，保留页面上的状态。
-                    if (!previous.IsSavingStatus
-                        && previous.StatusWriteStamp <= readStartedAt)
+                    var canApply = CanApplyReadStatus(
+                        previous.Anime.ID,
+                        previous.IsSavingStatus,
+                        previous.StatusWriteStamp,
+                        snapshot);
+                    if (canApply && status == AnimeTrackingStatus.Blocked)
+                        continue;
+
+                    if (canApply)
                     {
-                        previous.Status = candidate.Status;
+                        previous.Status = status;
                     }
 
                     merged.Add(previous);
                 }
-                else
+                else if (status != AnimeTrackingStatus.Blocked)
                 {
-                    merged.Add(candidate);
+                    merged.Add(new CalendarEntry(candidate.Anime, candidate.IsOther)
+                    {
+                        Status = status,
+                    });
                 }
             }
 
             var membershipChanged = !_entries.Select(entry => entry.Anime.ID)
                 .SequenceEqual(merged.Select(entry => entry.Anime.ID));
             _entries = merged;
-            Refresh(rebuildList: membershipChanged || ShowMineOnly);
-            await EnsureDailyPickAsync();
+            // 例如“其他”合并进来时，当前这一天的列表没变，不重置滚动位置。
+            Refresh(rebuildList: membershipChanged || ShowMineOnly, keepUnchangedList: true);
         }
 
         [RelayCommand]
@@ -356,30 +415,33 @@ namespace AniMeido.Plugin.Base.ViewModels
         [RelayCommand]
         private async Task LoadSeasonalAnimeAsync(CancellationToken ct = default)
         {
+            var supplementaryGeneration = _supplementaryLoadGeneration;
             IsLoading = true;
             IsError = false;
             ErrorMessage = null;
             HasData = false;
+            CancelOthersLoad();
+            _others = [];
+            _othersLoaded = false;
+            _othersFailed = false;
             try
             {
                 // 番剧时光机独立加载，失败或较慢都不影响放送日历本身。
-                _ = LoadTimeMachineAsync();
+                PendingTimeMachineLoad = LoadTimeMachineAsync();
                 var scheduleTask = _animeDataSource
                     .GetCurrentBroadcastScheduleAsync(ct);
-                var seasonTask = TryLoadSeasonAnimeAsync(ct);
                 var statuses = await TryReadStatusesAsync()
                     ?? new Dictionary<int, AnimeTrackingStatus>();
                 var schedule = await scheduleTask;
-                var season = await seasonTask;
                 ct.ThrowIfCancellationRequested();
 
+                // 周一到周日先显示；“其他”随后单独加载，慢或失败都只影响那一格。
                 _schedule = schedule.DistinctBy(anime => anime.ID).ToList();
-                _othersFailed = season is null;
-                _others = season is null ? [] : ExtractOthers(season, _schedule);
-                _entries = BuildEntries(_schedule, _others, statuses);
+                _entries = BuildEntries(_schedule, statuses);
                 HasData = _entries.Count > 0;
                 Refresh(rebuildList: true);
-                await EnsureDailyPickAsync();
+                PendingOthersLoad = LoadOthersAsync();
+                await EnsureDailyPickAsync(supplementaryGeneration);
             }
             catch (HttpRequestException ex)
             {
@@ -409,33 +471,123 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
             finally
             {
-                if (!ct.IsCancellationRequested)
-                    IsLoading = false;
+                IsLoading = false;
             }
         }
 
-        /// <summary>重新请求“其他”一格的作品；成功后与现有条目合并，保留标记与列表位置。</summary>
-        [RelayCommand]
-        private async Task RetryOthersAsync()
-        {
-            if (_schedule.Count == 0)
-            {
-                return;
-            }
+        /// <summary>“其他”这一次加载，测试用来等待它完成。</summary>
+        internal Task PendingOthersLoad { get; private set; } = Task.CompletedTask;
 
+        /// <summary>“其他”加载失败后重试。</summary>
+        [RelayCommand]
+        private Task RetryOthersAsync() => PendingOthersLoad = LoadOthersAsync();
+
+        /// <summary>
+        /// 按季查询本季作品，把不在周更表里的归入“其他”，与现有条目合并，保留标记与列表位置。
+        /// 离开页面时被取消，回到页面后由 <see cref="ResumeSupplementaryLoads"/> 重新开始。
+        /// </summary>
+        private async Task LoadOthersAsync()
+        {
+            CancelOthersLoad();
+            if (_schedule.Count == 0)
+                return;
+
+            var cts = new CancellationTokenSource();
+            _othersCts = cts;
             _othersFailed = false;
             Refresh(rebuildList: false);
-            var season = await TryLoadSeasonAnimeAsync(CancellationToken.None);
-            if (season is null)
+            try
             {
-                _othersFailed = true;
-                Refresh(rebuildList: SelectedWeekday == CalendarDay.OtherKey);
+                var season = await TryLoadSeasonAnimeAsync(cts.Token);
+                if (cts.IsCancellationRequested)
+                    return;
+
+                if (season is null)
+                {
+                    _othersFailed = true;
+                    return;
+                }
+
+                _others = ExtractOthers(season, _schedule);
+                _othersLoaded = true;
+                // 读取标记失败时沿用页面上的标记，新出现的作品按未标记显示。
+                var snapshot = BeginStatusRead();
+                var statuses = await TryReadStatusesAsync()
+                    ?? _entries.ToDictionary(entry => entry.Anime.ID, entry => entry.Status);
+                if (cts.IsCancellationRequested)
+                {
+                    // 已拿到作品，只差合并；回到页面时重新读取标记会把它们带上。
+                    return;
+                }
+
+                ApplyStatuses(statuses, snapshot);
+            }
+            catch (OperationCanceledException) when (cts.IsCancellationRequested)
+            {
+            }
+            finally
+            {
+                if (ReferenceEquals(_othersCts, cts))
+                {
+                    _othersCts = null;
+                    cts.Dispose();
+                    Refresh(rebuildList: SelectedWeekday == CalendarDay.OtherKey, keepUnchangedList: true);
+                }
+            }
+        }
+
+        /// <summary>取消正在进行的“其他”查询；还没拿到结果的，回到页面时重新开始。</summary>
+        private void CancelOthersLoad()
+        {
+            if (_othersCts is not { } cts)
                 return;
+
+            _othersCts = null;
+            cts.Cancel();
+            cts.Dispose();
+        }
+
+        /// <summary>“其他”正在加载或等待重新开始（还没有结果，也没有失败）。</summary>
+        private bool IsOthersPending => !_othersLoaded && !_othersFailed;
+
+        /// <summary>
+        /// 页面离开时调用：取消“其他”、番剧时光机和今日一抽详情的请求，
+        /// 结果不再写回已离开的页面。主加载由页面自己取消。
+        /// </summary>
+        public void CancelSupplementaryLoads()
+        {
+            _supplementaryLoadsSuspended = true;
+            _supplementaryLoadGeneration++;
+            CancelOthersLoad();
+            CancelTimeMachineLoad();
+            CancelDailyPickDetails();
+        }
+
+        /// <summary>
+        /// 页面回到前台时调用（例如从详情页返回，页面实例被复用）：
+        /// 只重新开始被取消、还没有结果的请求；失败的不自动重试，等用户点重试。
+        /// 正在进行的请求不重复发起。
+        /// </summary>
+        public void ResumeSupplementaryLoads()
+        {
+            _supplementaryLoadsSuspended = false;
+
+            if (HasData && IsOthersPending && _othersCts is null)
+                PendingOthersLoad = LoadOthersAsync();
+
+            if (_timeMachineLoadedTarget is null
+                && !IsTimeMachineFailed
+                && _timeMachineCts is null)
+            {
+                PendingTimeMachineLoad = LoadTimeMachineAsync();
             }
 
-            _others = ExtractOthers(season, _schedule);
-            await ReloadStatusesAsync();
-            Refresh(rebuildList: SelectedWeekday == CalendarDay.OtherKey);
+            if (DailyPick is { } pick
+                && !ReferenceEquals(_dailyPickDetailsFor, pick)
+                && _dailyPickDetailCts is null)
+            {
+                _ = LoadDailyPickDetailsAsync(pick);
+            }
         }
 
         /// <summary>
@@ -480,7 +632,9 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
         }
 
-        private void Refresh(bool rebuildList)
+        /// <param name="rebuildList">重建当前显示的列表（会回到开头）。</param>
+        /// <param name="keepUnchangedList">重建出的列表与现有的完全相同时保留现有列表。</param>
+        private void Refresh(bool rebuildList, bool keepUnchangedList = false)
         {
             var mineCount = _entries.Count(entry => entry.IsMine);
             TotalCountText = _entries.Count.ToString(CultureInfo.InvariantCulture);
@@ -502,9 +656,13 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 var total = _entries.Count(entry => entry.DayKey == day.Weekday);
                 var matched = matches.Count(entry => entry.DayKey == day.Weekday);
-                day.CountText = day.IsOther && _othersFailed
-                    ? "–"
-                    : BuildDayCountText(matched, total, filtering);
+                day.CountText = !day.IsOther
+                    ? BuildDayCountText(matched, total, filtering)
+                    : _othersFailed
+                        ? "–"
+                        : IsOthersPending
+                            ? "…"
+                            : BuildDayCountText(matched, total, filtering);
                 day.Dots = filtering
                     ? []
                     : _entries
@@ -532,7 +690,9 @@ namespace AniMeido.Plugin.Base.ViewModels
                     : "剧场版、OVA 与特别篇 · 按上映日期排列";
                 EmptyText = _othersFailed
                     ? "本季的剧场版、OVA 等作品没有加载出来"
-                    : "本季没有不按星期播出的作品";
+                    : IsOthersPending
+                        ? "正在加载本季的剧场版、OVA 等作品…"
+                        : "本季没有不按星期播出的作品";
             }
             else
             {
@@ -548,10 +708,11 @@ namespace AniMeido.Plugin.Base.ViewModels
 
             if (rebuildList)
             {
-                VisibleEntries = new ObservableCollection<CalendarEntry>(
-                    !filtering && SelectedWeekday == CalendarDay.OtherKey
-                        ? list
-                        : Order(list, Sort));
+                var ordered = !filtering && SelectedWeekday == CalendarDay.OtherKey
+                    ? list
+                    : Order(list, Sort);
+                if (!keepUnchangedList || !ordered.SequenceEqual(VisibleEntries))
+                    VisibleEntries = new ObservableCollection<CalendarEntry>(ordered);
             }
         }
 

@@ -45,6 +45,64 @@ public sealed class CurrentSeasonStatusReloadTests : DbTestBase
             entry => entry.Anime.ID == 1 && entry.Status == AnimeTrackingStatus.Watching);
     }
 
+    [Fact]
+    public async Task ApplyStatuses_KeepsWriteThatStartedBeforeTheRead()
+    {
+        // 写入先开始、回读随后开始并读到写入前的旧值；写入完成后旧值不能把它盖掉。
+        await RunProductionMigrationAsync();
+        var vm = await LoadAsync(new TrackingService(DbFactory));
+        var entry = vm.VisibleEntries.Single(item => item.Anime.ID == 1);
+
+        entry.IsSavingStatus = true;
+        var snapshot = vm.BeginStatusRead();
+        entry.Status = AnimeTrackingStatus.Watching;
+        entry.IsSavingStatus = false;
+        vm.ApplyStatuses(new Dictionary<int, AnimeTrackingStatus>(), snapshot);
+
+        Assert.Equal(AnimeTrackingStatus.Watching, entry.Status);
+
+        // 之后开始的读取照常生效，不会一直拒绝外部的变化。
+        vm.ApplyStatuses(
+            new Dictionary<int, AnimeTrackingStatus> { [1] = AnimeTrackingStatus.Following },
+            vm.BeginStatusRead());
+
+        Assert.Equal(AnimeTrackingStatus.Following, entry.Status);
+    }
+
+    [Fact]
+    public async Task ApplyStatuses_KeepsWriteThatStartedDuringTheRead()
+    {
+        await RunProductionMigrationAsync();
+        var vm = await LoadAsync(new TrackingService(DbFactory));
+
+        var snapshot = vm.BeginStatusRead();
+        await vm.ToggleStatusAsync(1, AnimeTrackingStatus.Watching);
+        vm.ApplyStatuses(new Dictionary<int, AnimeTrackingStatus>(), snapshot);
+
+        Assert.Equal(
+            AnimeTrackingStatus.Watching,
+            vm.VisibleEntries.Single(item => item.Anime.ID == 1).Status);
+    }
+
+    [Fact]
+    public async Task ApplyStatuses_DoesNotRemoveSavingItemForStaleBlockedRead()
+    {
+        await RunProductionMigrationAsync();
+        var vm = await LoadAsync(new TrackingService(DbFactory));
+        var entry = vm.VisibleEntries.Single(item => item.Anime.ID == 1);
+
+        entry.IsSavingStatus = true;
+        var snapshot = vm.BeginStatusRead();
+        entry.Status = AnimeTrackingStatus.Watching;
+        entry.IsSavingStatus = false;
+        vm.ApplyStatuses(
+            new Dictionary<int, AnimeTrackingStatus> { [1] = AnimeTrackingStatus.Blocked },
+            snapshot);
+
+        Assert.Contains(vm.VisibleEntries, item => ReferenceEquals(item, entry));
+        Assert.Equal(AnimeTrackingStatus.Watching, entry.Status);
+    }
+
     private static async Task<CurrentSeasonViewModel> LoadAsync(TrackingService tracking)
     {
         var vm = new CurrentSeasonViewModel(new ScheduleSource(), tracking);

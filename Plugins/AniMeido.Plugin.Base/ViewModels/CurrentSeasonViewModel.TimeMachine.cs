@@ -34,6 +34,16 @@ namespace AniMeido.Plugin.Base.ViewModels
         [ObservableProperty]
         private bool _isSavingStatus;
 
+        /// <summary>最近一次写入开始时的序号，重新读取时据此判断读到的状态是否已过时。</summary>
+        internal long StatusWriteStamp { get; set; }
+
+        /// <summary>写入中按钮变淡；按钮仍接住点击，不禁用，避免焦点被挤走。</summary>
+        public double ActionOpacity => IsSavingStatus
+            ? CurrentSeasonViewModel.SavingActionOpacity
+            : 1;
+
+        partial void OnIsSavingStatusChanged(bool value) => OnPropertyChanged(nameof(ActionOpacity));
+
         /// <summary>已标记时显示的状态，例如“已看完”“补番中”。</summary>
         public string StatusText => StatusLabels.GetValueOrDefault(Status, "");
 
@@ -175,8 +185,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         /// </summary>
         public async Task LoadTimeMachineAsync()
         {
-            _timeMachineCts?.Cancel();
-            _timeMachineCts?.Dispose();
+            CancelTimeMachineLoad();
             var cts = new CancellationTokenSource();
             _timeMachineCts = cts;
 
@@ -233,8 +242,24 @@ namespace AniMeido.Plugin.Base.ViewModels
             finally
             {
                 if (ReferenceEquals(_timeMachineCts, cts))
+                {
+                    _timeMachineCts = null;
+                    cts.Dispose();
                     IsTimeMachineLoading = false;
+                }
             }
+        }
+
+        /// <summary>取消正在进行的时光机请求；还没有结果的，回到页面时重新开始。</summary>
+        private void CancelTimeMachineLoad()
+        {
+            if (_timeMachineCts is not { } cts)
+                return;
+
+            _timeMachineCts = null;
+            cts.Cancel();
+            cts.Dispose();
+            IsTimeMachineLoading = false;
         }
 
         /// <summary>与卡片一致：已是该状态则取消，否则设为该状态。</summary>
@@ -245,6 +270,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 return;
 
             entry.IsSavingStatus = true;
+            entry.StatusWriteStamp = ++_statusWriteCount;
             try
             {
                 if (entry.Status == status)
@@ -265,24 +291,38 @@ namespace AniMeido.Plugin.Base.ViewModels
         }
 
         /// <summary>重新读取标记后同步到时光机；新屏蔽的作品从列表移除。</summary>
-        private void ApplyTimeMachineStatuses(IReadOnlyDictionary<int, AnimeTrackingStatus> statuses)
+        private void ApplyTimeMachineStatuses(
+            IReadOnlyDictionary<int, AnimeTrackingStatus> statuses,
+            StatusReadSnapshot snapshot)
         {
             var blockedRemoved = false;
+            var merged = new List<TimeMachineEntry>(_timeMachineEntries.Count);
             foreach (var entry in _timeMachineEntries)
             {
                 var status = statuses.GetValueOrDefault(entry.Anime.ID);
-                if (status == AnimeTrackingStatus.Blocked)
+                var canApply = CanApplyReadStatus(
+                    entry.Anime.ID,
+                    entry.IsSavingStatus,
+                    entry.StatusWriteStamp,
+                    snapshot);
+                if (canApply && status == AnimeTrackingStatus.Blocked)
+                {
                     blockedRemoved = true;
-                else if (!entry.IsSavingStatus)
+                    continue;
+                }
+
+                if (canApply)
+                {
                     entry.Status = status;
+                }
+
+                merged.Add(entry);
             }
 
             if (!blockedRemoved)
                 return;
 
-            _timeMachineEntries = _timeMachineEntries
-                .Where(entry => statuses.GetValueOrDefault(entry.Anime.ID) != AnimeTrackingStatus.Blocked)
-                .ToList();
+            _timeMachineEntries = merged;
             RefreshTimeMachine();
         }
 

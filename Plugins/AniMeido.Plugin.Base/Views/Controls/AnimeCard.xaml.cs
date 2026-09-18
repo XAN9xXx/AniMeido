@@ -54,6 +54,8 @@ namespace AniMeido.Plugin.Base.Views.Controls
         private bool _standardDragStarted;
         private Point _pointerDownPoint;
         private const double ClickMoveThreshold = 8.0;
+        // 标记写入中快捷按钮的不透明度。
+        private const double PendingActionOpacity = 0.55;
 
         public static readonly DependencyProperty ShowWeekdayBadgeProperty =
             DependencyProperty.Register(nameof(ShowWeekdayBadge), typeof(bool), typeof(AnimeCard),
@@ -120,6 +122,23 @@ namespace AniMeido.Plugin.Base.Views.Controls
         {
             get => (bool)GetValue(ShowWatchActionProperty);
             set => SetValue(ShowWatchActionProperty, value);
+        }
+
+        /// <summary>
+        /// 快捷标记正在写入：两个按钮变淡，点击被按钮接住但不再发出请求。
+        /// 不禁用按钮，禁用会把按钮上的焦点挤走；也不关闭命中测试，否则点击会落到卡片上打开详情。
+        /// </summary>
+        public static readonly DependencyProperty IsTrackingActionPendingProperty =
+            DependencyProperty.Register(
+                nameof(IsTrackingActionPending),
+                typeof(bool),
+                typeof(AnimeCard),
+                new PropertyMetadata(false, OnTrackingActionPendingChanged));
+
+        public bool IsTrackingActionPending
+        {
+            get => (bool)GetValue(IsTrackingActionPendingProperty);
+            set => SetValue(IsTrackingActionPendingProperty, value);
         }
 
         /// <summary>在封面右上角显示的放送星期（放送日历搜索结果使用）。</summary>
@@ -298,6 +317,16 @@ namespace AniMeido.Plugin.Base.Views.Controls
             card.UpdateQuickActions();
         }
 
+        private static void OnTrackingActionPendingChanged(
+            DependencyObject dependencyObject,
+            DependencyPropertyChangedEventArgs args)
+        {
+            var card = (AnimeCard)dependencyObject;
+            var opacity = (bool)args.NewValue ? PendingActionOpacity : 1;
+            card.WatchActionButton.Opacity = opacity;
+            card.FollowActionButton.Opacity = opacity;
+        }
+
         private static void OnWeekdayTextChanged(
             DependencyObject dependencyObject,
             DependencyPropertyChangedEventArgs args)
@@ -420,6 +449,11 @@ namespace AniMeido.Plugin.Base.Views.Controls
         private void RequestTrackingAction(AnimeTrackingStatus status)
         {
             _clickCandidate = false;
+            if (IsTrackingActionPending)
+            {
+                return;
+            }
+
             if (DataContext is Anime anime)
             {
                 TrackingActionRequested?.Invoke(

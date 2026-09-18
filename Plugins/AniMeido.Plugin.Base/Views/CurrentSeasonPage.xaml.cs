@@ -100,6 +100,10 @@ namespace AniMeido.Plugin.Base.Views
                         ApplyLowerLayout();
                         break;
 
+                    case nameof(CurrentSeasonViewModel.DailyPickTags):
+                        ApplyLowerLayout();
+                        break;
+
                     case nameof(CurrentSeasonViewModel.IsDailyPickWatching):
                         // 与卡片一致：已在追番时按钮表示“取消”，不再用强调色。
                         DailyPickWatchButton.Style = ViewModel.IsDailyPickWatching
@@ -142,6 +146,9 @@ namespace AniMeido.Plugin.Base.Views
                 ViewModel.LoadSeasonalAnimeCommand.Execute(null);
             }
 
+            // 从详情页返回时复用的是同一个页面，离开时取消的补充请求在这里补上。
+            ViewModel.ResumeSupplementaryLoads();
+
             ApplyFilterLayout();
             // 年份在应用运行期间保留，重新打开页面时按钮要跟着对上。
             UpdateTimeMachineYearButtons();
@@ -150,6 +157,7 @@ namespace AniMeido.Plugin.Base.Views
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
         {
             ViewModel.LoadSeasonalAnimeCommand.Cancel();
+            ViewModel.CancelSupplementaryLoads();
             _hoveredPickRows.Clear();
             _dropHostRegistration?.Dispose();
             _dropHostRegistration = null;
@@ -295,8 +303,9 @@ namespace AniMeido.Plugin.Base.Views
                 + DailyPickButtonsHeight
                 + DailyPickSpacing * 3;
 
-            // 放下标签后简介至少还能有一行，才显示标签。
-            var showTags = available - used >= DailyPickTagsHeight + DailyPickSpacing + DailyPickLineHeight;
+            // 有标签、且放下标签后简介至少还能有一行，才显示标签。
+            var showTags = ViewModel.HasDailyPickTags
+                && available - used >= DailyPickTagsHeight + DailyPickSpacing + DailyPickLineHeight;
             DailyPickTagsHost.Visibility = showTags ? Visibility.Visible : Visibility.Collapsed;
         }
 

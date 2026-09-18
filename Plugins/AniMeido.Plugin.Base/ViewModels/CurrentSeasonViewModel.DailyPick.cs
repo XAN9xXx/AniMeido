@@ -1,6 +1,7 @@
 ﻿using System.ComponentModel;
 using System.Globalization;
 using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Models;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -12,8 +13,15 @@ namespace AniMeido.Plugin.Base.ViewModels
     /// </summary>
     public partial class CurrentSeasonViewModel
     {
+        // 今日一抽只显示推荐页题材目录里的标签，不显示制作公司、季度等杂项。
+        private static readonly HashSet<string> DailyPickTagCatalog = new(
+            RecommendationTagCatalog.Tags,
+            StringComparer.OrdinalIgnoreCase);
+
         private DateOnly _dailyPickDate;
         private CancellationTokenSource? _dailyPickDetailCts;
+        // 已经请求过详情的那一部（成功或失败都算），回到页面时不重复请求。
+        private CalendarEntry? _dailyPickDetailsFor;
 
         [ObservableProperty]
         private CalendarEntry? _dailyPick;
@@ -43,6 +51,16 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         public bool HasDailyPickDescription => DailyPickDescription.Length > 0;
 
+        public bool HasDailyPickTags => DailyPickTags.Count > 0;
+
+        /// <summary>写入中按钮变淡；按钮仍接住点击，不禁用，避免焦点被挤走。</summary>
+        public double DailyPickActionOpacity => DailyPick?.IsSavingStatus == true
+            ? SavingActionOpacity
+            : 1;
+
+        partial void OnDailyPickTagsChanged(IReadOnlyList<string> value)
+            => OnPropertyChanged(nameof(HasDailyPickTags));
+
         partial void OnDailyPickChanged(CalendarEntry? oldValue, CalendarEntry? newValue)
         {
             if (oldValue is not null)
@@ -64,10 +82,13 @@ namespace AniMeido.Plugin.Base.ViewModels
         {
             if (e.PropertyName == nameof(CalendarEntry.Status))
                 RaiseDailyPickStatusChanged();
+            else if (e.PropertyName == nameof(CalendarEntry.IsSavingStatus))
+                OnPropertyChanged(nameof(DailyPickActionOpacity));
         }
 
         private void RaiseDailyPickStatusChanged()
         {
+            OnPropertyChanged(nameof(DailyPickActionOpacity));
             OnPropertyChanged(nameof(IsDailyPickWatching));
             OnPropertyChanged(nameof(DailyPickWatchLabel));
             OnPropertyChanged(nameof(DailyPickFollowLabel));
@@ -94,8 +115,13 @@ namespace AniMeido.Plugin.Base.ViewModels
         /// 加载或重新读取标记后调用：当天已有抽到的作品就沿用；
         /// 没有、跨了天、或那部作品已不在列表里（例如刚被屏蔽）时，重新抽。
         /// </summary>
-        private async Task EnsureDailyPickAsync()
+        private async Task EnsureDailyPickAsync(int supplementaryGeneration)
         {
+            bool IsCurrent() => !_supplementaryLoadsSuspended
+                && supplementaryGeneration == _supplementaryLoadGeneration;
+            if (!IsCurrent())
+                return;
+
             var today = DateOnly.FromDateTime(DateTime.Today);
             var weekly = WeeklyEntriesById();
             if (DailyPick is { } current
@@ -107,6 +133,9 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
 
             var stored = await TryLoadDailyPickStateAsync();
+            if (!IsCurrent())
+                return;
+
             if (stored is { } state
                 && state.Date == today
                 && weekly.TryGetValue(state.AnimeId, out var storedEntry))
@@ -144,15 +173,18 @@ namespace AniMeido.Plugin.Base.ViewModels
                 return;
 
             DailyPick = entry;
-            _ = LoadDailyPickDetailsAsync(entry);
+            if (!_supplementaryLoadsSuspended)
+                _ = LoadDailyPickDetailsAsync(entry);
         }
 
         /// <summary>日历接口没有简介和标签，抽中后单独请求（有 7 天缓存）；失败时这两项留空。</summary>
         private async Task LoadDailyPickDetailsAsync(CalendarEntry? entry)
         {
-            _dailyPickDetailCts?.Cancel();
-            _dailyPickDetailCts?.Dispose();
-            _dailyPickDetailCts = null;
+            if (_supplementaryLoadsSuspended)
+                return;
+
+            CancelDailyPickDetails();
+            _dailyPickDetailsFor = null;
             DailyPickDescription = "";
             DailyPickTags = [];
             if (entry is null)
@@ -163,16 +195,22 @@ namespace AniMeido.Plugin.Base.ViewModels
             try
             {
                 var detail = await _animeDataSource.GetAnimeDetailAsync(entry.Anime.ID, cts.Token);
+                if (cts.IsCancellationRequested
+                    || _supplementaryLoadsSuspended
+                    || !ReferenceEquals(DailyPick, entry))
+                {
+                    return;
+                }
+
                 var tags = await _animeDataSource.GetTagsAsync(entry.Anime.ID, cts.Token);
-                if (cts.IsCancellationRequested || !ReferenceEquals(DailyPick, entry))
+                if (cts.IsCancellationRequested
+                    || _supplementaryLoadsSuspended
+                    || !ReferenceEquals(DailyPick, entry))
                     return;
 
                 DailyPickDescription = detail?.Description?.Trim() ?? "";
-                DailyPickTags = tags
-                    .Select(tag => tag.Name)
-                    .Where(name => !string.IsNullOrWhiteSpace(name))
-                    .Take(3)
-                    .ToList();
+                DailyPickTags = PickDailyTags(tags.Select(tag => tag.Name));
+                _dailyPickDetailsFor = entry;
             }
             catch (OperationCanceledException) when (cts.IsCancellationRequested)
             {
@@ -182,9 +220,44 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 System.Diagnostics.Debug.WriteLine(
                     $"[CurrentSeasonViewModel] LoadDailyPickDetailsAsync failed: {ex.Message}");
+                // 失败也算请求过：回到页面时不自动重试。
+                if (ReferenceEquals(_dailyPickDetailCts, cts))
+                    _dailyPickDetailsFor = entry;
             }
 #pragma warning restore CA1031
+            finally
+            {
+                if (ReferenceEquals(_dailyPickDetailCts, cts))
+                {
+                    _dailyPickDetailCts = null;
+                    cts.Dispose();
+                }
+            }
         }
+
+        /// <summary>取消正在进行的详情请求；回到页面时重新请求。</summary>
+        private void CancelDailyPickDetails()
+        {
+            if (_dailyPickDetailCts is not { } cts)
+                return;
+
+            _dailyPickDetailCts = null;
+            cts.Cancel();
+            cts.Dispose();
+        }
+
+        /// <summary>
+        /// 从 Bangumi 标签里挑出最多三个：按返回顺序，只取题材目录里的，
+        /// 去掉制作公司、季度等。一个都没有时返回空，标签行随之隐藏。
+        /// </summary>
+        internal static IReadOnlyList<string> PickDailyTags(IEnumerable<string?> names)
+            => names
+                .Select(name => name?.Trim())
+                .OfType<string>()
+                .Where(name => name.Length > 0 && DailyPickTagCatalog.Contains(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(3)
+                .ToList();
 
         private async Task<(DateOnly Date, int AnimeId)?> TryLoadDailyPickStateAsync()
         {

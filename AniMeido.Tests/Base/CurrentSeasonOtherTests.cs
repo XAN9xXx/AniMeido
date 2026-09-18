@@ -38,10 +38,57 @@ public sealed class CurrentSeasonOtherTests : DbTestBase
         Assert.Equal("–", vm.Days.Single(day => day.IsOther).CountText);
     }
 
+    [Fact]
+    public async Task Load_ShowsWeeklyScheduleBeforeSlowSeasonQueryReturns()
+    {
+        // 按季查询慢时，周一到周日先显示，“其他”一格单独显示加载中。
+        await RunProductionMigrationAsync();
+        var gate = new TaskCompletionSource();
+        var vm = new CurrentSeasonViewModel(
+            new ScheduleSource(seasonFails: false) { SeasonGate = gate },
+            new TrackingService(DbFactory));
+
+        await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null);
+
+        Assert.True(vm.HasData);
+        Assert.False(vm.IsLoading);
+        Assert.Equal("1", vm.TotalCountText);
+        Assert.Equal("…", vm.Days.Single(day => day.IsOther).CountText);
+
+        gate.SetResult();
+        await vm.PendingOthersLoad;
+
+        Assert.Equal("2", vm.TotalCountText);
+        Assert.Equal("1 部", vm.Days.Single(day => day.IsOther).CountText);
+    }
+
+    [Fact]
+    public async Task LeavingPage_CancelsSeasonQueryAndReturningRestartsIt()
+    {
+        // 离开页面时取消；从详情页返回复用同一个页面，还没有结果的查询重新开始。
+        await RunProductionMigrationAsync();
+        var gate = new TaskCompletionSource();
+        var source = new ScheduleSource(seasonFails: false) { SeasonGate = gate };
+        var vm = new CurrentSeasonViewModel(source, new TrackingService(DbFactory));
+        await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null);
+        var requestsBeforeLeaving = source.CurrentSeasonRequests;
+
+        vm.CancelSupplementaryLoads();
+        vm.ResumeSupplementaryLoads();
+        // 再次回到页面时查询已在进行，不重复发起。
+        vm.ResumeSupplementaryLoads();
+
+        Assert.Equal(requestsBeforeLeaving + 1, source.CurrentSeasonRequests);
+        gate.SetResult();
+        await vm.PendingOthersLoad;
+        Assert.Equal("1 部", vm.Days.Single(day => day.IsOther).CountText);
+    }
+
     private async Task<CurrentSeasonViewModel> LoadAsync(ScheduleSource source)
     {
         var vm = new CurrentSeasonViewModel(source, new TrackingService(DbFactory));
         await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null);
+        await vm.PendingOthersLoad;
         Assert.True(vm.HasData);
         return vm;
     }
@@ -53,18 +100,28 @@ public sealed class CurrentSeasonOtherTests : DbTestBase
 
         private static T Unexpected<T>() => throw new NotSupportedException("Unexpected data-source request.");
 
+        /// <summary>设置后，本季的按季查询等它完成才返回（番剧时光机查的往年不受影响）。</summary>
+        public TaskCompletionSource? SeasonGate { get; init; }
+
+        public int CurrentSeasonRequests { get; private set; }
+
         public Task<List<Anime>> GetCurrentBroadcastScheduleAsync(CancellationToken ct)
             => Task.FromResult(new List<Anime> { Item(1, Today, AnimeMediaFormat.Television) });
 
         // 按季查询同时返回周更作品和一部剧场版，只有剧场版应归入“其他”。
-        public Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct)
-            => seasonFails
-                ? Task.FromException<List<Anime>>(new HttpRequestException("offline"))
-                : Task.FromResult(new List<Anime>
-                {
-                    Item(1, Today, AnimeMediaFormat.Television),
-                    Item(10, null, AnimeMediaFormat.Movie),
-                });
+        public async Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct)
+        {
+            if (year == SeasonHelper.GetCurrentSeason().year)
+            {
+                CurrentSeasonRequests++;
+                if (SeasonGate is { } gate)
+                    await gate.Task;
+            }
+
+            return seasonFails
+                ? throw new HttpRequestException("offline")
+                : [Item(1, Today, AnimeMediaFormat.Television), Item(10, null, AnimeMediaFormat.Movie)];
+        }
 
         public Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct) => Unexpected<Task<Anime?>>();
         public Task<List<Studio>> GetStudioAsync(int animeID, CancellationToken ct) => Unexpected<Task<List<Studio>>>();

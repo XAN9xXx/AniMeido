@@ -145,6 +145,87 @@ public sealed class CurrentSeasonTimeMachineTests : DbTestBase
         Assert.Equal(AnimeTrackingStatus.None, vm.TimeMachinePicks.Single(entry => entry.Anime.ID == 102).Status);
     }
 
+    [Fact]
+    public async Task TimeMachine_ReadDoesNotOverwriteWriteThatStartedBeforeIt()
+    {
+        await RunProductionMigrationAsync();
+        var vm = new CurrentSeasonViewModel(new SeasonSource(), new TrackingService(DbFactory));
+        vm.SetDiscoverCapacity(10);
+        await vm.LoadTimeMachineAsync();
+        var entry = vm.TimeMachinePicks.Single(item => item.Anime.ID == 102);
+
+        entry.IsSavingStatus = true;
+        var snapshot = vm.BeginStatusRead();
+        entry.Status = AnimeTrackingStatus.PlanToWatch;
+        entry.IsSavingStatus = false;
+        vm.ApplyStatuses(new Dictionary<int, AnimeTrackingStatus>(), snapshot);
+
+        Assert.Equal(AnimeTrackingStatus.PlanToWatch, entry.Status);
+    }
+
+    [Fact]
+    public async Task TimeMachine_ReadDoesNotOverwriteWriteThatStartedDuringIt()
+    {
+        await RunProductionMigrationAsync();
+        var vm = new CurrentSeasonViewModel(new SeasonSource(), new TrackingService(DbFactory));
+        vm.SetDiscoverCapacity(10);
+        await vm.LoadTimeMachineAsync();
+
+        var snapshot = vm.BeginStatusRead();
+        await vm.ToggleTimeMachineStatusAsync(102, AnimeTrackingStatus.PlanToWatch);
+        vm.ApplyStatuses(new Dictionary<int, AnimeTrackingStatus>(), snapshot);
+
+        Assert.Equal(
+            AnimeTrackingStatus.PlanToWatch,
+            vm.TimeMachinePicks.Single(item => item.Anime.ID == 102).Status);
+    }
+
+    [Fact]
+    public async Task TimeMachine_ReadDoesNotRemoveSavingItemForStaleBlockedRead()
+    {
+        await RunProductionMigrationAsync();
+        var vm = new CurrentSeasonViewModel(new SeasonSource(), new TrackingService(DbFactory));
+        vm.SetDiscoverCapacity(10);
+        await vm.LoadTimeMachineAsync();
+        var entry = vm.TimeMachinePicks.Single(item => item.Anime.ID == 102);
+
+        entry.IsSavingStatus = true;
+        var snapshot = vm.BeginStatusRead();
+        entry.Status = AnimeTrackingStatus.PlanToWatch;
+        entry.IsSavingStatus = false;
+        vm.ApplyStatuses(
+            new Dictionary<int, AnimeTrackingStatus> { [102] = AnimeTrackingStatus.Blocked },
+            snapshot);
+
+        Assert.Contains(vm.TimeMachinePicks, item => ReferenceEquals(item, entry));
+        Assert.Equal(AnimeTrackingStatus.PlanToWatch, entry.Status);
+    }
+
+    [Fact]
+    public async Task TimeMachine_LeavingPageCancelsAndReturningRestarts()
+    {
+        // 离开页面时取消，不停在“加载中”；回到同一个页面时重新加载。
+        await RunProductionMigrationAsync();
+        var gate = new TaskCompletionSource();
+        var source = new SeasonSource { Gate = gate };
+        var vm = new CurrentSeasonViewModel(source, new TrackingService(DbFactory));
+        vm.SetDiscoverCapacity(10);
+        var cancelled = vm.LoadTimeMachineAsync();
+
+        vm.CancelSupplementaryLoads();
+        Assert.False(vm.IsTimeMachineLoading);
+
+        vm.ResumeSupplementaryLoads();
+        vm.ResumeSupplementaryLoads();
+        Assert.Equal(2, source.RequestCount);
+
+        gate.SetResult();
+        await cancelled;
+        await vm.PendingTimeMachineLoad;
+        Assert.Equal(2, vm.TimeMachinePicks.Count);
+        Assert.False(vm.IsTimeMachineLoading);
+    }
+
     private static Anime Item(int id, double? score) => new(
         id,
         $"老番{id}",
@@ -166,15 +247,21 @@ public sealed class CurrentSeasonTimeMachineTests : DbTestBase
 
         public int RequestCount { get; private set; }
 
+        /// <summary>设置后，查询等它完成才返回。</summary>
+        public TaskCompletionSource? Gate { get; init; }
+
         private static T Unexpected<T>() => throw new NotSupportedException("Unexpected data-source request.");
 
-        public Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct)
+        public async Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct)
         {
             LastRequest = new PastSeasonTarget(year, season);
             RequestCount++;
+            if (Gate is { } gate)
+                await gate.Task;
+
             return Fails
-                ? Task.FromException<List<Anime>>(new HttpRequestException("offline"))
-                : Task.FromResult(new List<Anime> { Item(101, 8.6), Item(102, 7.9), Item(103, null) });
+                ? throw new HttpRequestException("offline")
+                : [Item(101, 8.6), Item(102, 7.9), Item(103, null)];
         }
 
         public Task<List<Anime>> GetCurrentBroadcastScheduleAsync(CancellationToken ct) => Unexpected<Task<List<Anime>>>();
