@@ -106,7 +106,6 @@
                 <Grid>
                     <controls:AnimeCard DataContext="{x:Bind Anime}"
                                         TrackingStatus="{x:Bind Status, Mode=OneWay}"
-                                        IsTrackingActionPending="{x:Bind IsSavingStatus, Mode=OneWay}"
                                         ShowQuickActions="True"
                                         CardClicked="OnAnimeCardClicked"
                                         TrackingActionRequested="OnTrackingActionRequested"/>
@@ -118,7 +117,6 @@
                     <controls:AnimeCard DataContext="{x:Bind Anime}"
                                         VerticalAlignment="Top"
                                         TrackingStatus="{x:Bind Status, Mode=OneWay}"
-                                        IsTrackingActionPending="{x:Bind IsSavingStatus, Mode=OneWay}"
                                         WeekdayText="{x:Bind WeekdayText}"
                                         ShowQuickActions="True"
                                         CardClicked="OnAnimeCardClicked"
@@ -181,7 +179,6 @@
                         <Button Content="追番"
                                 Tag="{x:Bind Entry.Anime}"
                                 Click="OnPickWatchClick"
-                                IsEnabled="{x:Bind Entry.CanChangeStatus, Mode=OneWay}"
                                 AutomationProperties.Name="切换追番状态"
                                 Style="{StaticResource AccentButtonStyle}"
                                 Padding="10,2"
@@ -189,7 +186,6 @@
                         <Button Content="关注"
                                 Tag="{x:Bind Entry.Anime}"
                                 Click="OnPickFollowClick"
-                                IsEnabled="{x:Bind Entry.CanChangeStatus, Mode=OneWay}"
                                 AutomationProperties.Name="切换关注状态"
                                 Padding="10,2"
                                 FontSize="12"/>

@@ -44,6 +44,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
 
         private bool _isPointerOver;
         private bool _hasKeyboardFocus;
+        private object? _hoverStateOwner;
 
         // click-vs-drag 输入状态
         private bool _pointerDown;
@@ -105,20 +106,6 @@ namespace AniMeido.Plugin.Base.Views.Controls
             set => SetValue(ShowQuickActionsProperty, value);
         }
 
-        /// <summary>快捷标记正在写入时禁用同一卡片上的两个按钮。</summary>
-        public static readonly DependencyProperty IsTrackingActionPendingProperty =
-            DependencyProperty.Register(
-                nameof(IsTrackingActionPending),
-                typeof(bool),
-                typeof(AnimeCard),
-                new PropertyMetadata(false, OnTrackingPresentationChanged));
-
-        public bool IsTrackingActionPending
-        {
-            get => (bool)GetValue(IsTrackingActionPendingProperty);
-            set => SetValue(IsTrackingActionPendingProperty, value);
-        }
-
         /// <summary>在封面右上角显示的放送星期（放送日历搜索结果使用）。</summary>
         public static readonly DependencyProperty WeekdayTextProperty =
             DependencyProperty.Register(
@@ -142,8 +129,15 @@ namespace AniMeido.Plugin.Base.Views.Controls
                 UpdateWeekdayBadge();
                 UpdateMediaFormatBadge();
                 // 容器复用时换了作品，悬停状态不沿用。
-                _isPointerOver = false;
-                _hasKeyboardFocus = false;
+                // 焦点首次进入列表时，所有卡片会以同一作品再触发一次本事件，
+                // 此时清掉悬停会让按钮在按下途中隐藏、丢失指针捕获，点击随之失效。
+                if (!ReferenceEquals(e.NewValue, _hoverStateOwner))
+                {
+                    _hoverStateOwner = e.NewValue;
+                    _isPointerOver = false;
+                    _hasKeyboardFocus = false;
+                }
+
                 UpdateQuickActions();
                 if (DataContext is Anime anime)
                 {
@@ -295,7 +289,6 @@ namespace AniMeido.Plugin.Base.Views.Controls
             var card = (AnimeCard)dependencyObject;
             card.UpdateTrackingBadges();
             card.UpdateQuickActions();
-            card.UpdateTrackingActionAvailability();
         }
 
         private static void OnWeekdayTextChanged(
@@ -356,13 +349,6 @@ namespace AniMeido.Plugin.Base.Views.Controls
             {
                 UpdateScoreBadge();
             }
-        }
-
-        private void UpdateTrackingActionAvailability()
-        {
-            var enabled = !IsTrackingActionPending;
-            WatchActionButton.IsEnabled = enabled;
-            FollowActionButton.IsEnabled = enabled;
         }
 
         private void OnKeyboardFocusChanged(object sender, RoutedEventArgs e)
@@ -620,7 +606,6 @@ namespace AniMeido.Plugin.Base.Views.Controls
                 e.DragUIOverride.IsContentVisible = true;
             }
         }
-
 
     }
 }

@@ -31,13 +31,11 @@ namespace AniMeido.Plugin.Base.ViewModels
         [ObservableProperty]
         private bool _isSavingStatus;
 
+        /// <summary>最近一次写入开始时的序号，重新读取时据此判断读到的状态是否已过时。</summary>
+        internal long StatusWriteStamp { get; set; }
+
         public bool IsMine => Status is AnimeTrackingStatus.Watching
             or AnimeTrackingStatus.Following;
-
-        public bool CanChangeStatus => !IsSavingStatus;
-
-        partial void OnIsSavingStatusChanged(bool value)
-            => OnPropertyChanged(nameof(CanChangeStatus));
     }
 
     /// <summary>星期格上的一个小点：追番中或关注中。</summary>
@@ -93,6 +91,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         private IReadOnlyList<CalendarEntry> _entries = [];
         private bool _suppressRefresh;
         private int _discoverCapacity;
+        private long _statusWriteCount;
 
         [ObservableProperty]
         private bool _isLoading;
@@ -233,6 +232,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
 
             entry.IsSavingStatus = true;
+            entry.StatusWriteStamp = ++_statusWriteCount;
             try
             {
                 if (entry.Status == status)
@@ -265,6 +265,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 return;
             }
 
+            var readStartedAt = _statusWriteCount;
             var statuses = await TryReadStatusesAsync();
             if (statuses is null)
             {
@@ -279,7 +280,13 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 if (previousById.TryGetValue(candidate.Anime.ID, out var previous))
                 {
-                    previous.Status = candidate.Status;
+                    // 读取期间开始的写入比读到的结果新，保留页面上的状态。
+                    if (!previous.IsSavingStatus
+                        && previous.StatusWriteStamp <= readStartedAt)
+                    {
+                        previous.Status = candidate.Status;
+                    }
+
                     merged.Add(previous);
                 }
                 else
