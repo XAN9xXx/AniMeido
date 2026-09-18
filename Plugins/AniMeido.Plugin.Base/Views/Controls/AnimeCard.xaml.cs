@@ -108,6 +108,20 @@ namespace AniMeido.Plugin.Base.Views.Controls
             set => SetValue(ShowQuickActionsProperty, value);
         }
 
+        /// <summary>为 false 时隐藏“追番”，只保留“关注”并占满整行（未上映的剧场版、OVA）。</summary>
+        public static readonly DependencyProperty ShowWatchActionProperty =
+            DependencyProperty.Register(
+                nameof(ShowWatchAction),
+                typeof(bool),
+                typeof(AnimeCard),
+                new PropertyMetadata(true, OnTrackingPresentationChanged));
+
+        public bool ShowWatchAction
+        {
+            get => (bool)GetValue(ShowWatchActionProperty);
+            set => SetValue(ShowWatchActionProperty, value);
+        }
+
         /// <summary>在封面右上角显示的放送星期（放送日历搜索结果使用）。</summary>
         public static readonly DependencyProperty WeekdayTextProperty =
             DependencyProperty.Register(
@@ -324,6 +338,13 @@ namespace AniMeido.Plugin.Base.Views.Controls
             FollowActionButton.Content = status == AnimeTrackingStatus.Following
                 ? "关注中 ✓"
                 : "关注";
+
+            // 隐藏“追番”时，“关注”占满整行。
+            WatchActionButton.Visibility = ShowWatchAction
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            Grid.SetColumn(FollowActionButton, ShowWatchAction ? 1 : 0);
+            Grid.SetColumnSpan(FollowActionButton, ShowWatchAction ? 1 : 2);
         }
 
         /// <summary>悬停时显示标记按钮并暂时隐藏评分，避免两者重叠。</summary>

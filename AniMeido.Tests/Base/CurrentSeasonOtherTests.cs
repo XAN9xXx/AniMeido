@@ -2,71 +2,70 @@
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
-using Microsoft.Data.Sqlite;
 
 namespace AniMeido.Tests;
 
-/// <summary>放送日历在拖放结束或返回页面时重新读取本地标记。</summary>
-public sealed class CurrentSeasonStatusReloadTests : DbTestBase
+/// <summary>放送日历第八格“其他”：本季不在周更表里的剧场版、OVA 等。</summary>
+public sealed class CurrentSeasonOtherTests : DbTestBase
 {
     [Fact]
-    public async Task ReloadStatuses_RestoresAnimeAfterUnblocking()
+    public async Task Load_PutsSeasonOnlyAnimeIntoOtherCell()
     {
-        // 屏蔽的作品不显示；解除屏蔽后应从原始日程中重新出现，而不是永久丢失。
         await RunProductionMigrationAsync();
-        var tracking = new TrackingService(DbFactory);
-        await tracking.SetStatusAsync(2, AnimeTrackingStatus.Blocked);
-        var vm = await LoadAsync(tracking);
-        Assert.Equal("1", vm.TotalCountText);
+        var vm = await LoadAsync(new ScheduleSource(seasonFails: false));
 
-        await tracking.RemoveStatusAsync(2);
-        await vm.ReloadStatusesAsync();
-
+        var other = vm.Days.Single(day => day.IsOther);
+        Assert.Equal("1 部", other.CountText);
         Assert.Equal("2", vm.TotalCountText);
+
+        vm.SelectDay(CalendarDay.OtherKey);
+
+        var entry = Assert.Single(vm.VisibleEntries);
+        Assert.Equal(10, entry.Anime.ID);
+        Assert.True(entry.IsOther);
+        Assert.False(vm.IsSortApplicable);
     }
 
     [Fact]
-    public async Task ReloadStatuses_KeepsExistingStatusesWhenReadFails()
+    public async Task Load_KeepsWeeklyScheduleWhenSeasonQueryFails()
     {
-        // 读取失败时保留屏幕上的标记，不能全部显示成“未设置”。
+        // 按季查询失败只影响“其他”一格，周一到周日照常显示。
         await RunProductionMigrationAsync();
-        var tracking = new TrackingService(DbFactory);
-        await tracking.SetStatusAsync(1, AnimeTrackingStatus.Watching);
-        var vm = await LoadAsync(tracking);
-        Assert.Equal("1", vm.MineCountText);
+        var vm = await LoadAsync(new ScheduleSource(seasonFails: true));
 
-        SqliteConnection.ClearAllPools();
-        CorruptDatabase();
-        await vm.ReloadStatusesAsync();
-
-        Assert.Equal("1", vm.MineCountText);
-        Assert.Contains(
-            vm.VisibleEntries,
-            entry => entry.Anime.ID == 1 && entry.Status == AnimeTrackingStatus.Watching);
+        Assert.False(vm.IsError);
+        Assert.Equal("1", vm.TotalCountText);
+        Assert.Equal("–", vm.Days.Single(day => day.IsOther).CountText);
     }
 
-    private static async Task<CurrentSeasonViewModel> LoadAsync(TrackingService tracking)
+    private async Task<CurrentSeasonViewModel> LoadAsync(ScheduleSource source)
     {
-        var vm = new CurrentSeasonViewModel(new ScheduleSource(), tracking);
+        var vm = new CurrentSeasonViewModel(source, new TrackingService(DbFactory));
         await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null);
         Assert.True(vm.HasData);
         return vm;
     }
 
-    private sealed class ScheduleSource : IAnimeDataSource
+    private sealed class ScheduleSource(bool seasonFails) : IAnimeDataSource
     {
-        // 两部作品都排在今天，按天视图的列表里就能看到它们。
         private static readonly int Today =
             AnimeListPresentation.ToBangumiWeekday(DateTime.Today.DayOfWeek);
 
         private static T Unexpected<T>() => throw new NotSupportedException("Unexpected data-source request.");
 
         public Task<List<Anime>> GetCurrentBroadcastScheduleAsync(CancellationToken ct)
-            => Task.FromResult(new List<Anime> { Item(1), Item(2) });
+            => Task.FromResult(new List<Anime> { Item(1, Today, AnimeMediaFormat.Television) });
 
-        // “其他”一格的按季查询：本测试只关心周更作品，返回空。
+        // 按季查询同时返回周更作品和一部剧场版，只有剧场版应归入“其他”。
         public Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct)
-            => Task.FromResult(new List<Anime>());
+            => seasonFails
+                ? Task.FromException<List<Anime>>(new HttpRequestException("offline"))
+                : Task.FromResult(new List<Anime>
+                {
+                    Item(1, Today, AnimeMediaFormat.Television),
+                    Item(10, null, AnimeMediaFormat.Movie),
+                });
+
         public Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct) => Unexpected<Task<Anime?>>();
         public Task<List<Studio>> GetStudioAsync(int animeID, CancellationToken ct) => Unexpected<Task<List<Studio>>>();
         public Task<List<Tag>> GetTagsAsync(int animeID, CancellationToken ct) => Unexpected<Task<List<Tag>>>();
@@ -78,17 +77,18 @@ public sealed class CurrentSeasonStatusReloadTests : DbTestBase
         public Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct)
             => Unexpected<Task<(List<Anime>, int)>>();
 
-        private static Anime Item(int id) => new(
+        private static Anime Item(int id, int? weekday, AnimeMediaFormat format) => new(
             id,
             $"作品{id}",
             null,
             [],
-            null,
+            new DateOnly(2026, 8, 7),
             null,
             string.Empty,
             2026,
             7,
-            Today,
-            7.0);
+            weekday,
+            7.0,
+            MediaFormat: format);
     }
 }

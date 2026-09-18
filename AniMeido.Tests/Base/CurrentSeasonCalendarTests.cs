@@ -52,6 +52,46 @@ public sealed class CurrentSeasonCalendarTests
         Assert.Equal(new[] { 2, 1 }, ranked.Select(entry => entry.Anime.ID));
     }
 
+    [Fact]
+    public void ExtractOthers_KeepsOnlySeasonAnimeMissingFromWeeklySchedule()
+    {
+        var others = CurrentSeasonViewModel.ExtractOthers(
+            [Item(1, 1, 7.0), Movie(10, new DateOnly(2026, 8, 7)), Movie(10, new DateOnly(2026, 8, 7))],
+            [Item(1, 1, 7.0)]);
+
+        Assert.Equal(new[] { 10 }, others.Select(anime => anime.ID));
+    }
+
+    [Fact]
+    public void Others_AreOrderedByDateAndLeftOutOfDiscover()
+    {
+        // “其他”固定按上映日期排列，没有日期的放最后；本季发现只推荐周更作品。
+        var entries = CurrentSeasonViewModel.BuildEntries(
+            [Item(1, 1, 7.0)],
+            [Movie(10, null, 9.5), Movie(11, new DateOnly(2026, 9, 1), 9.0), Movie(12, new DateOnly(2026, 7, 20), 8.0)],
+            new Dictionary<int, AnimeTrackingStatus>());
+
+        var ordered = CurrentSeasonViewModel.OrderOthers(entries.Where(entry => entry.IsOther));
+        var ranked = CurrentSeasonViewModel.RankDiscover(entries);
+
+        Assert.Equal(new[] { 12, 11, 10 }, ordered.Select(entry => entry.Anime.ID));
+        Assert.Equal(new[] { 1 }, ranked.Select(entry => entry.Anime.ID));
+    }
+
+    [Fact]
+    public void OtherEntry_OffersWatchOnlyAfterRelease()
+    {
+        var released = new CalendarEntry(Movie(10, DateOnly.FromDateTime(DateTime.Today)), isOther: true);
+        var upcoming = new CalendarEntry(Movie(11, DateOnly.FromDateTime(DateTime.Today).AddDays(1)), isOther: true);
+        var weekly = new CalendarEntry(Item(1, 1, 7.0));
+
+        Assert.True(released.ShowWatchAction);
+        Assert.False(upcoming.ShowWatchAction);
+        Assert.True(weekly.ShowWatchAction);
+        Assert.Equal("剧场版", released.WeekdayText);
+        Assert.Equal(CalendarDay.OtherKey, released.DayKey);
+    }
+
     [Theory]
     [InlineData(false, "9 部")]
     [InlineData(true, "2 / 9 部")]
@@ -72,4 +112,17 @@ public sealed class CurrentSeasonCalendarTests
         7,
         weekday,
         score);
+
+    private static Anime Movie(int id, DateOnly? airDate, double? score = null) => new(
+        id,
+        $"剧场版{id}",
+        null,
+        [],
+        airDate,
+        null,
+        string.Empty,
+        2026,
+        7,
+        Score: score,
+        MediaFormat: AnimeMediaFormat.Movie);
 }

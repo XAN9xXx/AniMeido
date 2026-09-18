@@ -18,12 +18,32 @@ namespace AniMeido.Plugin.Base.ViewModels
     }
 
     /// <summary>放送日历中的一部作品及其本地标记。</summary>
-    public sealed partial class CalendarEntry(Anime anime) : ObservableObject
+    /// <param name="anime">作品。</param>
+    /// <param name="isOther">不在周更表里、归入“其他”一格的作品（剧场版、OVA 等）。</param>
+    public sealed partial class CalendarEntry(Anime anime, bool isOther = false) : ObservableObject
     {
         public Anime Anime { get; } = anime;
 
-        public string WeekdayText { get; } =
-            AnimeListPresentation.GetWeekdayName(anime.Weekday);
+        public bool IsOther { get; } = isOther;
+
+        /// <summary>所在的格子：周一至周日为 1–7，“其他”为 <see cref="CalendarDay.OtherKey"/>。</summary>
+        public int DayKey => IsOther ? CalendarDay.OtherKey : Anime.Weekday ?? 0;
+
+        /// <summary>卡片右上角的标注：周更作品写星期，“其他”里的作品写形态。</summary>
+        public string WeekdayText { get; } = isOther
+            ? GetFormatBadge(anime.MediaFormat)
+            : AnimeListPresentation.GetWeekdayName(anime.Weekday);
+
+        /// <summary>按天浏览时只有“其他”需要标形态；星期已由所在格子表明。</summary>
+        public string? ShelfBadgeText => IsOther ? WeekdayText : null;
+
+        /// <summary>已经上映或发售，才谈得上追番。没有日期的按未上映处理。</summary>
+        public bool IsReleased { get; } =
+            anime.AirDate is { } airDate
+            && airDate <= DateOnly.FromDateTime(DateTime.Today);
+
+        /// <summary>未上映的“其他”作品只能关注，上映后才出现“追番”。</summary>
+        public bool ShowWatchAction => !IsOther || IsReleased;
 
         [ObservableProperty]
         private AnimeTrackingStatus _status;
@@ -36,6 +56,15 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         public bool IsMine => Status is AnimeTrackingStatus.Watching
             or AnimeTrackingStatus.Following;
+
+        private static string GetFormatBadge(AnimeMediaFormat format) => format switch
+        {
+            AnimeMediaFormat.Movie => "剧场版",
+            AnimeMediaFormat.Ova => "OVA",
+            AnimeMediaFormat.Ona => "网络",
+            AnimeMediaFormat.Television => "TV",
+            _ => "其他",
+        };
     }
 
     /// <summary>星期格上的一个小点：追番中或关注中。</summary>
@@ -44,13 +73,21 @@ namespace AniMeido.Plugin.Base.ViewModels
         public bool IsWatching => !IsFollowing;
     }
 
-    /// <summary>顶部七个星期格之一。</summary>
+    /// <summary>顶部八格之一：周一至周日，以及放不按星期播出作品的“其他”。</summary>
     public sealed partial class CalendarDay(
         int weekday,
         string label,
         bool isToday) : ObservableObject
     {
+        /// <summary>“其他”一格的键，接在周日（7）之后。</summary>
+        public const int OtherKey = 8;
+
         public int Weekday { get; } = weekday;
+
+        public bool IsOther => Weekday == OtherKey;
+
+        /// <summary>“其他”未选中时画虚线框；选中后改用与星期格相同的实线描边。</summary>
+        public bool ShowOtherOutline => IsOther && !IsSelected;
 
         public string Label { get; } = label;
 
@@ -64,6 +101,9 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         [ObservableProperty]
         private bool _isSelected;
+
+        partial void OnIsSelectedChanged(bool value)
+            => OnPropertyChanged(nameof(ShowOtherOutline));
     }
 
     /// <summary>“本季发现”中的一行。</summary>
@@ -88,6 +128,9 @@ namespace AniMeido.Plugin.Base.ViewModels
         private readonly IAnimeDataSource _animeDataSource;
         private readonly TrackingService _tracking;
         private IReadOnlyList<Anime> _schedule = [];
+        // 本季不在周更表里的作品（剧场版、OVA 等），来自按季查询。
+        private IReadOnlyList<Anime> _others = [];
+        private bool _othersFailed;
         private IReadOnlyList<CalendarEntry> _entries = [];
         private bool _suppressRefresh;
         private int _discoverCapacity;
@@ -151,10 +194,12 @@ namespace AniMeido.Plugin.Base.ViewModels
             var today = AnimeListPresentation.ToBangumiWeekday(
                 DateTime.Today.DayOfWeek);
             Days = new ObservableCollection<CalendarDay>(
-                Enumerable.Range(1, 7).Select(weekday => new CalendarDay(
-                    weekday,
-                    AnimeListPresentation.GetWeekdayName(weekday),
-                    weekday == today)));
+                Enumerable.Range(1, 7)
+                    .Select(weekday => new CalendarDay(
+                        weekday,
+                        AnimeListPresentation.GetWeekdayName(weekday),
+                        weekday == today))
+                    .Append(new CalendarDay(CalendarDay.OtherKey, "其他", isToday: false)));
         }
 
         public ObservableCollection<CalendarDay> Days { get; }
@@ -165,11 +210,16 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         public bool HasNoVisibleEntries => VisibleEntries.Count == 0;
 
+        /// <summary>“其他”固定按上映日期排列，排序选项只在其余情况下生效。</summary>
+        public bool IsSortApplicable =>
+            IsFiltering || SelectedWeekday != CalendarDay.OtherKey;
+
         public bool HasDiscoverPicks => DiscoverPicks.Count > 0;
 
         partial void OnSearchTextChanged(string value)
         {
             OnPropertyChanged(nameof(IsFiltering));
+            OnPropertyChanged(nameof(IsSortApplicable));
             if (!_suppressRefresh)
                 Refresh(rebuildList: true);
         }
@@ -177,11 +227,15 @@ namespace AniMeido.Plugin.Base.ViewModels
         partial void OnShowMineOnlyChanged(bool value)
         {
             OnPropertyChanged(nameof(IsFiltering));
+            OnPropertyChanged(nameof(IsSortApplicable));
             if (!_suppressRefresh)
                 Refresh(rebuildList: true);
         }
 
         partial void OnSortChanged(CalendarSort value) => Refresh(rebuildList: true);
+
+        partial void OnSelectedWeekdayChanged(int value)
+            => OnPropertyChanged(nameof(IsSortApplicable));
 
         partial void OnVisibleEntriesChanged(ObservableCollection<CalendarEntry> value)
             => OnPropertyChanged(nameof(HasNoVisibleEntries));
@@ -207,6 +261,14 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
 
             Refresh(rebuildList: true);
+
+            // “其他”加载失败时，点这一格就是重试。
+            if (weekday == CalendarDay.OtherKey
+                && _othersFailed
+                && !RetryOthersCommand.IsRunning)
+            {
+                RetryOthersCommand.Execute(null);
+            }
         }
 
         /// <summary>按剩余高度能完整放下的行数更新“本季发现”的条数。</summary>
@@ -273,7 +335,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 return;
             }
 
-            var rebuilt = BuildEntries(_schedule, statuses);
+            var rebuilt = BuildEntries(_schedule, _others, statuses);
             var previousById = _entries.ToDictionary(entry => entry.Anime.ID);
             var merged = new List<CalendarEntry>(rebuilt.Count);
             foreach (var candidate in rebuilt)
@@ -321,13 +383,17 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 var scheduleTask = _animeDataSource
                     .GetCurrentBroadcastScheduleAsync(ct);
+                var seasonTask = TryLoadSeasonAnimeAsync(ct);
                 var statuses = await TryReadStatusesAsync()
                     ?? new Dictionary<int, AnimeTrackingStatus>();
                 var schedule = await scheduleTask;
+                var season = await seasonTask;
                 ct.ThrowIfCancellationRequested();
 
                 _schedule = schedule.DistinctBy(anime => anime.ID).ToList();
-                _entries = BuildEntries(_schedule, statuses);
+                _othersFailed = season is null;
+                _others = season is null ? [] : ExtractOthers(season, _schedule);
+                _entries = BuildEntries(_schedule, _others, statuses);
                 HasData = _entries.Count > 0;
                 Refresh(rebuildList: true);
             }
@@ -361,6 +427,56 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 if (!ct.IsCancellationRequested)
                     IsLoading = false;
+            }
+        }
+
+        /// <summary>重新请求“其他”一格的作品；成功后与现有条目合并，保留标记与列表位置。</summary>
+        [RelayCommand]
+        private async Task RetryOthersAsync()
+        {
+            if (_schedule.Count == 0)
+            {
+                return;
+            }
+
+            _othersFailed = false;
+            Refresh(rebuildList: false);
+            var season = await TryLoadSeasonAnimeAsync(CancellationToken.None);
+            if (season is null)
+            {
+                _othersFailed = true;
+                Refresh(rebuildList: SelectedWeekday == CalendarDay.OtherKey);
+                return;
+            }
+
+            _others = ExtractOthers(season, _schedule);
+            await ReloadStatusesAsync();
+            Refresh(rebuildList: SelectedWeekday == CalendarDay.OtherKey);
+        }
+
+        /// <summary>
+        /// 按季查询本季全部作品，只用于“其他”一格。失败时返回 null，不影响周一到周日。
+        /// </summary>
+        private async Task<IReadOnlyList<Anime>?> TryLoadSeasonAnimeAsync(CancellationToken ct)
+        {
+            try
+            {
+                var (year, season) = SeasonHelper.GetCurrentSeason();
+                return await _animeDataSource.GetAnimeBySeasonAsync(year, season, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException
+                or BangumiApiException
+                or TaskCanceledException
+                or InvalidOperationException
+                or JsonException)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CurrentSeasonViewModel] TryLoadSeasonAnimeAsync failed: {ex.Message}");
+                return null;
             }
         }
 
@@ -400,13 +516,15 @@ namespace AniMeido.Plugin.Base.ViewModels
 
             foreach (var day in Days)
             {
-                var total = _entries.Count(entry => entry.Anime.Weekday == day.Weekday);
-                var matched = matches.Count(entry => entry.Anime.Weekday == day.Weekday);
-                day.CountText = BuildDayCountText(matched, total, filtering);
+                var total = _entries.Count(entry => entry.DayKey == day.Weekday);
+                var matched = matches.Count(entry => entry.DayKey == day.Weekday);
+                day.CountText = day.IsOther && _othersFailed
+                    ? "–"
+                    : BuildDayCountText(matched, total, filtering);
                 day.Dots = filtering
                     ? []
                     : _entries
-                        .Where(entry => entry.Anime.Weekday == day.Weekday && entry.IsMine)
+                        .Where(entry => entry.DayKey == day.Weekday && entry.IsMine)
                         .Select(entry => new CalendarDot(
                             entry.Status == AnimeTrackingStatus.Following))
                         .ToList();
@@ -421,10 +539,21 @@ namespace AniMeido.Plugin.Base.ViewModels
                 ListCaption = "点击上方某天，清空搜索并跳到那一天";
                 EmptyText = "没有符合条件的番剧";
             }
+            else if (SelectedWeekday == CalendarDay.OtherKey)
+            {
+                list = OrderOthers(_entries.Where(entry => entry.IsOther));
+                ListTitle = $"其他 · {list.Count} 部";
+                ListCaption = _othersFailed
+                    ? "加载失败，点击上方“其他”重试"
+                    : "剧场版、OVA 与特别篇 · 按上映日期排列";
+                EmptyText = _othersFailed
+                    ? "本季的剧场版、OVA 等作品没有加载出来"
+                    : "本季没有不按星期播出的作品";
+            }
             else
             {
                 list = _entries
-                    .Where(entry => entry.Anime.Weekday == SelectedWeekday)
+                    .Where(entry => entry.DayKey == SelectedWeekday)
                     .ToList();
                 var dayMine = list.Count(entry => entry.IsMine);
                 ListTitle =
@@ -436,7 +565,9 @@ namespace AniMeido.Plugin.Base.ViewModels
             if (rebuildList)
             {
                 VisibleEntries = new ObservableCollection<CalendarEntry>(
-                    Order(list, Sort));
+                    !filtering && SelectedWeekday == CalendarDay.OtherKey
+                        ? list
+                        : Order(list, Sort));
             }
 
             RefreshDiscover();
@@ -453,14 +584,45 @@ namespace AniMeido.Plugin.Base.ViewModels
         internal static IReadOnlyList<CalendarEntry> BuildEntries(
             IEnumerable<Anime> schedule,
             IReadOnlyDictionary<int, AnimeTrackingStatus> statuses)
+            => BuildEntries(schedule, [], statuses);
+
+        /// <summary>周更作品在前，“其他”作品在后；屏蔽的作品两边都不显示。</summary>
+        internal static IReadOnlyList<CalendarEntry> BuildEntries(
+            IEnumerable<Anime> schedule,
+            IEnumerable<Anime> others,
+            IReadOnlyDictionary<int, AnimeTrackingStatus> statuses)
             => schedule
                 .DistinctBy(anime => anime.ID)
-                .Where(anime => statuses.GetValueOrDefault(anime.ID)
+                .Select(anime => (Anime: anime, IsOther: false))
+                .Concat(others
+                    .DistinctBy(anime => anime.ID)
+                    .Select(anime => (Anime: anime, IsOther: true)))
+                .Where(item => statuses.GetValueOrDefault(item.Anime.ID)
                     != AnimeTrackingStatus.Blocked)
-                .Select(anime => new CalendarEntry(anime)
+                .Select(item => new CalendarEntry(item.Anime, item.IsOther)
                 {
-                    Status = statuses.GetValueOrDefault(anime.ID),
+                    Status = statuses.GetValueOrDefault(item.Anime.ID),
                 })
+                .ToList();
+
+        /// <summary>按季查询的结果去掉周更表里已有的作品，剩下的归入“其他”。</summary>
+        internal static IReadOnlyList<Anime> ExtractOthers(
+            IEnumerable<Anime> season,
+            IEnumerable<Anime> schedule)
+        {
+            var scheduled = schedule.Select(anime => anime.ID).ToHashSet();
+            return season
+                .Where(anime => !scheduled.Contains(anime.ID))
+                .DistinctBy(anime => anime.ID)
+                .ToList();
+        }
+
+        /// <summary>“其他”按上映或发售日期从早到晚排列，没有日期的放最后。</summary>
+        internal static IReadOnlyList<CalendarEntry> OrderOthers(
+            IEnumerable<CalendarEntry> entries)
+            => entries
+                .OrderBy(entry => entry.Anime.AirDate ?? DateOnly.MaxValue)
+                .ThenBy(entry => entry.Anime.Title, TitleComparer)
                 .ToList();
 
         /// <summary>你标记的（追番中、关注中）排在前面，其余按所选方式排序。</summary>
@@ -480,11 +642,15 @@ namespace AniMeido.Plugin.Base.ViewModels
             }).ToList();
         }
 
-        /// <summary>本季发现：还没有任何标记、且有评分的作品，按评分从高到低。</summary>
+        /// <summary>
+        /// 本季发现：周更表里还没有任何标记、且有评分的作品，按评分从高到低。
+        /// “其他”里的作品不参与，它们已有单独的一格。
+        /// </summary>
         internal static IReadOnlyList<CalendarEntry> RankDiscover(
             IEnumerable<CalendarEntry> entries)
             => entries
-                .Where(entry => entry.Status == AnimeTrackingStatus.None
+                .Where(entry => !entry.IsOther
+                    && entry.Status == AnimeTrackingStatus.None
                     && entry.Anime.Score is > 0)
                 .OrderByDescending(entry => entry.Anime.Score)
                 .ThenBy(entry => entry.Anime.Title, TitleComparer)

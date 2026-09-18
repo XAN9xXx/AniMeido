@@ -88,6 +88,15 @@
                             </ItemsControl>
                         </Grid>
                     </Button>
+                    <!-- “其他”不是星期中的某一天：未选中时用虚线框区分 -->
+                    <Rectangle RadiusX="9"
+                               RadiusY="9"
+                               IsHitTestVisible="False"
+                               StrokeThickness="1"
+                               StrokeDashArray="4,3"
+                               Stroke="{ThemeResource ControlStrongStrokeColorDefaultBrush}"
+                               Opacity="0.6"
+                               Visibility="{x:Bind ShowOtherOutline, Mode=OneWay}"/>
                     <Border CornerRadius="9"
                             IsHitTestVisible="False"
                             Opacity="0.14"
@@ -106,6 +115,8 @@
                 <Grid>
                     <controls:AnimeCard DataContext="{x:Bind Anime}"
                                         TrackingStatus="{x:Bind Status, Mode=OneWay}"
+                                        ShowWatchAction="{x:Bind ShowWatchAction}"
+                                        WeekdayText="{x:Bind ShelfBadgeText}"
                                         ShowQuickActions="True"
                                         CardClicked="OnAnimeCardClicked"
                                         TrackingActionRequested="OnTrackingActionRequested"/>
@@ -117,6 +128,7 @@
                     <controls:AnimeCard DataContext="{x:Bind Anime}"
                                         VerticalAlignment="Top"
                                         TrackingStatus="{x:Bind Status, Mode=OneWay}"
+                                        ShowWatchAction="{x:Bind ShowWatchAction}"
                                         WeekdayText="{x:Bind WeekdayText}"
                                         ShowQuickActions="True"
                                         CardClicked="OnAnimeCardClicked"
@@ -261,6 +273,7 @@
                           MinWidth="160"
                           VerticalAlignment="Center"
                           SelectedIndex="0"
+                          IsEnabled="{x:Bind ViewModel.IsSortApplicable, Mode=OneWay}"
                           SelectionChanged="OnSortSelectionChanged">
                     <x:String>排序：评分高到低</x:String>
                     <x:String>排序：开播日期</x:String>
@@ -276,11 +289,11 @@
                 Padding="16,14,16,12"
                 Margin="0,14,0,0">
             <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
-                <!-- 七格等分，任何宽度都完整放下 -->
+                <!-- 周一至周日加“其他”，八格等分，任何宽度都完整放下 -->
                 <ItemsRepeater ItemsSource="{x:Bind ViewModel.Days}"
                                ItemTemplate="{StaticResource DayTemplate}">
                     <ItemsRepeater.Layout>
-                        <UniformGridLayout MaximumRowsOrColumns="7"
+                        <UniformGridLayout MaximumRowsOrColumns="8"
                                            MinItemWidth="48"
                                            MinItemHeight="64"
                                            MinColumnSpacing="8"
