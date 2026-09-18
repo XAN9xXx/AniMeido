@@ -215,26 +215,26 @@
           Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
           Loaded="OnPageLoaded">
 
-        <StackPanel Spacing="2">
-            <TextBlock Text="放送日历" Style="{StaticResource AniMeidoPageTitleStyle}"/>
-            <TextBlock Text="{x:Bind ViewModel.SeasonSummary, Mode=OneWay}"
-                       Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
-            <InfoBar x:Name="ErrorInfoBar"
-                     Severity="Error"
-                     IsClosable="True"
-                     Margin="0,10,0,0"
-                     Visibility="{x:Bind ErrorInfoBar.IsOpen, Mode=OneWay}"/>
-        </StackPanel>
+        <!-- 页头：标题在左；宽窗口时工具栏（搜索 · 全部 / 我的 · 排序）并到右侧同一行，
+             否则换到标题下方。工具栏不再单独占一块面板，把高度让给下方的今日一抽。 -->
+        <Grid x:Name="HeaderGrid"
+              ColumnDefinitions="*,Auto"
+              RowDefinitions="Auto,Auto,Auto"
+              ColumnSpacing="16">
+            <StackPanel Spacing="2" VerticalAlignment="Bottom">
+                <TextBlock Text="放送日历" Style="{StaticResource AniMeidoPageTitleStyle}"/>
+                <TextBlock Text="{x:Bind ViewModel.SeasonSummary, Mode=OneWay}"
+                           Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
+            </StackPanel>
 
-        <!-- 工具栏：搜索 · 全部 / 我的 · 排序 -->
-        <Border Grid.Row="1"
-                Style="{StaticResource CalendarPanelStyle}"
-                Padding="12,10"
-                Margin="0,14,0,0">
             <Grid x:Name="ToolbarGrid"
+                  Grid.Row="1"
+                  Grid.ColumnSpan="2"
+                  Margin="0,12,0,0"
+                  VerticalAlignment="Bottom"
                   ColumnDefinitions="Auto,Auto,*,Auto"
                   RowDefinitions="Auto,Auto"
-                  ColumnSpacing="14"
+                  ColumnSpacing="10"
                   RowSpacing="8">
                 <TextBox x:Name="FilterBox"
                          Grid.ColumnSpan="4"
@@ -280,7 +280,15 @@
                     <x:String>排序：标题</x:String>
                 </ComboBox>
             </Grid>
-        </Border>
+
+            <InfoBar x:Name="ErrorInfoBar"
+                     Grid.Row="2"
+                     Grid.ColumnSpan="2"
+                     Severity="Error"
+                     IsClosable="True"
+                     Margin="0,10,0,0"
+                     Visibility="{x:Bind ErrorInfoBar.IsOpen, Mode=OneWay}"/>
+        </Grid>
 
         <!-- 番剧区 -->
         <Border x:Name="MainPanel"
@@ -382,12 +390,143 @@
             </Grid>
         </Border>
 
-        <!-- 本季发现：只显示能完整放下的行，一行都放不下时隐藏 -->
+        <!-- 下方：左边今日一抽（放不下封面时隐藏），右边本季发现（只显示能完整放下的行） -->
         <Grid x:Name="DiscoverHost"
               Grid.Row="3"
               Margin="0,14,0,0"
+              ColumnDefinitions="Auto,*"
               SizeChanged="OnDiscoverHostSizeChanged">
+            <Border x:Name="DailyPickPanel"
+                    Width="480"
+                    Margin="0,0,14,0"
+                    Style="{StaticResource CalendarPanelStyle}"
+                    Padding="16,14"
+                    Visibility="Collapsed">
+                <Grid RowDefinitions="Auto,*" RowSpacing="10">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12" Padding="2,0,0,0">
+                        <TextBlock Text="今日一抽" FontSize="17" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="你还没标记的本季作品"
+                                   FontSize="13"
+                                   VerticalAlignment="Bottom"
+                                   Margin="0,0,0,2"
+                                   MaxLines="1"
+                                   TextTrimming="CharacterEllipsis"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <Button Grid.Column="2"
+                                Content="换一个"
+                                Padding="10,2"
+                                FontSize="12"
+                                VerticalAlignment="Center"
+                                Command="{x:Bind ViewModel.NextDailyPickCommand}"/>
+                    </Grid>
+                    <Grid Grid.Row="1"
+                          ColumnDefinitions="Auto,*"
+                          ColumnSpacing="14"
+                          VerticalAlignment="Top">
+                        <!-- 封面尺寸由 code-behind 按面板高度调整，保持 5:7 -->
+                        <Button x:Name="DailyPickCoverButton"
+                                Width="120"
+                                Height="168"
+                                Padding="0"
+                                VerticalAlignment="Top"
+                                CornerRadius="8"
+                                BorderThickness="0"
+                                Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}"
+                                AutomationProperties.Name="打开今日一抽的详情"
+                                Click="OnDailyPickOpenClick">
+                            <Grid>
+                                <Image x:Name="DailyPickCover" Stretch="UniformToFill"/>
+                                <Border HorizontalAlignment="Right"
+                                        VerticalAlignment="Bottom"
+                                        Padding="6,2"
+                                        CornerRadius="8,0,0,0"
+                                        Background="{ThemeResource SystemAccentColor}"
+                                        Visibility="{x:Bind ViewModel.HasDailyPickScore, Mode=OneWay}">
+                                    <TextBlock Text="{x:Bind ViewModel.DailyPickScoreText, Mode=OneWay}"
+                                               FontSize="12"
+                                               FontWeight="Bold"
+                                               Foreground="{ThemeResource AniMeidoBadgeTextBrush}"/>
+                                </Border>
+                            </Grid>
+                        </Button>
+                        <!-- 右侧与封面等高：追番 / 关注贴底，简介占满中间剩余空间，能放几行放几行 -->
+                        <Grid x:Name="DailyPickText"
+                              Grid.Column="1"
+                              RowDefinitions="Auto,Auto,Auto,*,Auto"
+                              RowSpacing="6">
+                            <HyperlinkButton Padding="0"
+                                             Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                             Click="OnDailyPickOpenClick">
+                                <TextBlock x:Name="DailyPickTitle"
+                                           Text="{x:Bind ViewModel.DailyPick.Anime.Title, Mode=OneWay, FallbackValue=''}"
+                                           FontSize="16"
+                                           FontWeight="SemiBold"
+                                           MaxLines="2"
+                                           TextWrapping="Wrap"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </HyperlinkButton>
+                            <TextBlock Grid.Row="1"
+                                       Text="{x:Bind ViewModel.DailyPickMeta, Mode=OneWay}"
+                                       FontSize="12"
+                                       TextTrimming="CharacterEllipsis"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <!-- 高度不够时由 code-behind 收起标签 -->
+                            <ItemsRepeater x:Name="DailyPickTagsHost"
+                                           Grid.Row="2"
+                                           ItemsSource="{x:Bind ViewModel.DailyPickTags, Mode=OneWay}">
+                                <ItemsRepeater.Layout>
+                                    <StackLayout Orientation="Horizontal" Spacing="4"/>
+                                </ItemsRepeater.Layout>
+                                <ItemsRepeater.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                        <Border Padding="8,0"
+                                                CornerRadius="9"
+                                                Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                            <TextBlock Text="{x:Bind}"
+                                                       FontSize="12"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsRepeater.ItemTemplate>
+                            </ItemsRepeater>
+                            <!-- 行数按这一格的实际高度计算，最后一行放不下时才加省略号 -->
+                            <Grid x:Name="DailyPickDescriptionHost"
+                                  Grid.Row="3"
+                                  SizeChanged="OnDailyPickDescriptionHostSizeChanged">
+                                <TextBlock x:Name="DailyPickDescription"
+                                           Text="{x:Bind ViewModel.DailyPickDescription, Mode=OneWay}"
+                                           Visibility="{x:Bind ViewModel.HasDailyPickDescription, Mode=OneWay}"
+                                           VerticalAlignment="Top"
+                                           FontSize="13"
+                                           LineHeight="19"
+                                           LineStackingStrategy="BlockLineHeight"
+                                           MaxLines="1"
+                                           TextWrapping="Wrap"
+                                           TextTrimming="CharacterEllipsis"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </Grid>
+                            <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="6">
+                                <Button x:Name="DailyPickWatchButton"
+                                        Content="{x:Bind ViewModel.DailyPickWatchLabel, Mode=OneWay}"
+                                        Style="{StaticResource AccentButtonStyle}"
+                                        AutomationProperties.Name="切换追番状态"
+                                        Padding="12,3"
+                                        FontSize="13"
+                                        Click="OnDailyPickWatchClick"/>
+                                <Button Content="{x:Bind ViewModel.DailyPickFollowLabel, Mode=OneWay}"
+                                        AutomationProperties.Name="切换关注状态"
+                                        Padding="12,3"
+                                        FontSize="13"
+                                        Click="OnDailyPickFollowClick"/>
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+                </Grid>
+            </Border>
+
             <Border x:Name="DiscoverPanel"
+                    Grid.Column="1"
                     Style="{StaticResource CalendarPanelStyle}"
                     Padding="16,14"
                     Visibility="Collapsed">
@@ -457,21 +596,40 @@
                 AllowDrop="True"/>
 
         <VisualStateManager.VisualStateGroups>
+            <!-- 窄：工具栏在标题下方分两行；中：标题下方一行；宽：并到标题右侧 -->
             <VisualStateGroup x:Name="WindowWidthStates">
                 <VisualState x:Name="CompactWidth"/>
-                <VisualState x:Name="WideWidth">
+                <VisualState x:Name="MediumWidth">
                     <VisualState.StateTriggers>
                         <AdaptiveTrigger MinWindowWidth="980"/>
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
-                        <Setter Target="FilterBox.Width" Value="360"/>
+                        <Setter Target="FilterBox.Width" Value="300"/>
                         <Setter Target="FilterBox.(Grid.ColumnSpan)" Value="1"/>
                         <Setter Target="ScopeButtons.(Grid.Row)" Value="0"/>
                         <Setter Target="ScopeButtons.(Grid.Column)" Value="1"/>
                         <Setter Target="ScopeButtons.(Grid.ColumnSpan)" Value="1"/>
                         <Setter Target="SortBox.(Grid.Row)" Value="0"/>
-                        <!-- 宽窗口时第二行为空，去掉行间距，避免工具栏底部多出空白 -->
+                        <!-- 第二行为空，去掉行间距，避免工具栏底部多出空白 -->
                         <Setter Target="ToolbarGrid.RowSpacing" Value="0"/>
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="WideWidth">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="1360"/>
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="FilterBox.Width" Value="300"/>
+                        <Setter Target="FilterBox.(Grid.ColumnSpan)" Value="1"/>
+                        <Setter Target="ScopeButtons.(Grid.Row)" Value="0"/>
+                        <Setter Target="ScopeButtons.(Grid.Column)" Value="1"/>
+                        <Setter Target="ScopeButtons.(Grid.ColumnSpan)" Value="1"/>
+                        <Setter Target="SortBox.(Grid.Row)" Value="0"/>
+                        <Setter Target="ToolbarGrid.RowSpacing" Value="0"/>
+                        <Setter Target="ToolbarGrid.(Grid.Row)" Value="0"/>
+                        <Setter Target="ToolbarGrid.(Grid.Column)" Value="1"/>
+                        <Setter Target="ToolbarGrid.(Grid.ColumnSpan)" Value="1"/>
+                        <Setter Target="ToolbarGrid.Margin" Value="0,0,0,2"/>
                     </VisualState.Setters>
                 </VisualState>
             </VisualStateGroup>

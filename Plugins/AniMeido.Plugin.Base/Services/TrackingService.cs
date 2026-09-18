@@ -315,6 +315,66 @@ namespace AniMeido.Plugin.Base.Services
             return DragZoneConfig.GetDefaults();
         }
 
+        // ======== 放送日历“今日一抽” ========
+
+        private const string CalendarDailyPickKey = "calendar_daily_pick";
+
+        private sealed record CalendarDailyPickState(string Date, int AnimeId);
+
+        /// <summary>读取某天抽到的作品；没有记录或内容无法解析时返回 null。</summary>
+        public async Task<(DateOnly Date, int AnimeId)?> LoadCalendarDailyPickAsync()
+        {
+            using var connection = await _dbFactory.OpenAsync();
+
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Value FROM config WHERE Key = @key";
+            command.Parameters.AddWithValue("@key", CalendarDailyPickKey);
+            if (await command.ExecuteScalarAsync() is not string json
+                || string.IsNullOrEmpty(json))
+            {
+                return null;
+            }
+
+            try
+            {
+                var state = JsonSerializer.Deserialize<CalendarDailyPickState>(json, ConfigJsonOptions);
+                return state is not null
+                    && DateOnly.TryParseExact(
+                        state.Date,
+                        "yyyy-MM-dd",
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.None,
+                        out var date)
+                    ? (date, state.AnimeId)
+                    : null;
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>记下某天抽到的作品，重启后同一天仍显示它。</summary>
+        public async Task SaveCalendarDailyPickAsync(DateOnly date, int animeId)
+        {
+            var json = JsonSerializer.Serialize(
+                new CalendarDailyPickState(
+                    date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+                    animeId),
+                ConfigJsonOptions);
+
+            using var connection = await _dbFactory.OpenAsync();
+
+            var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT OR REPLACE INTO config (Key, Value)
+                VALUES (@key, @value)
+                """;
+            command.Parameters.AddWithValue("@key", CalendarDailyPickKey);
+            command.Parameters.AddWithValue("@value", json);
+            await command.ExecuteNonQueryAsync();
+        }
+
         private static async Task SynchronizePlanAsync(
             SqliteConnection connection,
             SqliteTransaction transaction,

@@ -361,6 +361,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 .SequenceEqual(merged.Select(entry => entry.Anime.ID));
             _entries = merged;
             Refresh(rebuildList: membershipChanged || ShowMineOnly);
+            await EnsureDailyPickAsync();
         }
 
         [RelayCommand]
@@ -396,6 +397,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 _entries = BuildEntries(_schedule, _others, statuses);
                 HasData = _entries.Count > 0;
                 Refresh(rebuildList: true);
+                await EnsureDailyPickAsync();
             }
             catch (HttpRequestException ex)
             {
@@ -575,8 +577,10 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         private void RefreshDiscover()
         {
+            // 今日一抽已经展示的作品不在这里重复出现。
             DiscoverPicks = new ObservableCollection<CalendarPick>(
                 RankDiscover(_entries)
+                    .Where(entry => !ReferenceEquals(entry, DailyPick))
                     .Take(_discoverCapacity)
                     .Select((entry, index) => new CalendarPick(index + 1, entry)));
         }

@@ -24,6 +24,21 @@ namespace AniMeido.Plugin.Base.Views
         private const double DiscoverChromeHeight = 14 + 14 + 2 + 24 + 10;
         // 发现面板左右内边距与边框。
         private const double DiscoverChromeWidth = 16 + 16 + 2;
+        // 今日一抽面板宽度（含右侧间距）。
+        private const double DailyPickWidth = 480 + 14;
+        // 今日一抽除封面外占用的高度：上下内边距、边框、标题行与行间距。
+        private const double DailyPickChromeHeight = 14 + 14 + 2 + 28 + 10;
+        // 封面最大 120×168；可用高度低于最小值时整块隐藏。
+        private const double DailyPickCoverMaxHeight = 168;
+        private const double DailyPickCoverMinHeight = 96;
+        private const double DailyPickCoverAspect = 120.0 / 168;
+        // 右侧文字各部分的大致高度，用来决定收起哪些内容。
+        private const double DailyPickLineHeight = 19;
+        private const double DailyPickTitleLineHeight = 22;
+        private const double DailyPickMetaHeight = 16;
+        private const double DailyPickTagsHeight = 20;
+        private const double DailyPickButtonsHeight = 34;
+        private const double DailyPickSpacing = 6;
 
         public CurrentSeasonViewModel ViewModel { get; }
 
@@ -74,6 +89,18 @@ namespace AniMeido.Plugin.Base.Views
 
                     case nameof(CurrentSeasonViewModel.DiscoverPicks):
                         UpdateDiscoverVisibility();
+                        break;
+
+                    case nameof(CurrentSeasonViewModel.DailyPick):
+                        UpdateDailyPickCover();
+                        ApplyLowerLayout();
+                        break;
+
+                    case nameof(CurrentSeasonViewModel.IsDailyPickWatching):
+                        // 与卡片一致：已在追番时按钮表示“取消”，不再用强调色。
+                        DailyPickWatchButton.Style = ViewModel.IsDailyPickWatching
+                            ? null
+                            : (Style)Application.Current.Resources["AccentButtonStyle"];
                         break;
                 }
             };
@@ -203,18 +230,93 @@ namespace AniMeido.Plugin.Base.Views
         }
 
         private void OnDiscoverHostSizeChanged(object sender, SizeChangedEventArgs e)
+            => ApplyLowerLayout();
+
+        /// <summary>
+        /// 下方区域：高度能完整放下封面、且宽度还能留出一列发现行时显示今日一抽，
+        /// 其余宽度按能放下的列数（最多三列）排本季发现。
+        /// </summary>
+        private void ApplyLowerLayout()
         {
+            var width = DiscoverHost.ActualWidth;
+            var height = DiscoverHost.ActualHeight;
+            var coverHeight = Math.Min(DailyPickCoverMaxHeight, height - DailyPickChromeHeight);
+            var showDailyPick = ViewModel.HasDailyPick
+                && coverHeight >= DailyPickCoverMinHeight
+                && width - DailyPickWidth >= PickMinWidth + DiscoverChromeWidth;
+            DailyPickPanel.Visibility = showDailyPick ? Visibility.Visible : Visibility.Collapsed;
+            if (showDailyPick)
+                FitDailyPick(coverHeight);
+
+            var discoverWidth = showDailyPick ? width - DailyPickWidth : width;
             var rows = (int)Math.Floor(
-                (e.NewSize.Height - DiscoverChromeHeight + PickRowSpacing)
+                (height - DiscoverChromeHeight + PickRowSpacing)
                 / (PickHeight + PickRowSpacing));
             var columns = Math.Clamp(
                 (int)Math.Floor(
-                    (e.NewSize.Width - DiscoverChromeWidth + PickColumnSpacing)
+                    (discoverWidth - DiscoverChromeWidth + PickColumnSpacing)
                     / (PickMinWidth + PickColumnSpacing)),
                 1,
                 3);
             ViewModel.SetDiscoverCapacity(Math.Max(0, rows) * columns);
             UpdateDiscoverVisibility();
+        }
+
+        /// <summary>
+        /// 按可用高度缩放封面，右侧与封面等高。矮时先把标题压成一行，再藏标签，
+        /// 简介占剩下的空间（行数见 <see cref="OnDailyPickDescriptionHostSizeChanged"/>）；
+        /// “追番 / 关注”始终保留。
+        /// </summary>
+        private void FitDailyPick(double available)
+        {
+            DailyPickCoverButton.Height = available;
+            DailyPickCoverButton.Width = Math.Round(available * DailyPickCoverAspect);
+            DailyPickText.Height = available;
+
+            var titleLines = available >= 150 ? 2 : 1;
+            DailyPickTitle.MaxLines = titleLines;
+            var used = titleLines * DailyPickTitleLineHeight
+                + DailyPickMetaHeight
+                + DailyPickButtonsHeight
+                + DailyPickSpacing * 3;
+
+            // 放下标签后简介至少还能有一行，才显示标签。
+            var showTags = available - used >= DailyPickTagsHeight + DailyPickSpacing + DailyPickLineHeight;
+            DailyPickTagsHost.Visibility = showTags ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        /// <summary>简介按所在格子的实际高度决定行数，放不下一行时隐藏。</summary>
+        private void OnDailyPickDescriptionHostSizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            var lines = (int)Math.Floor(e.NewSize.Height / DailyPickLineHeight);
+            DailyPickDescriptionHost.Opacity = lines > 0 ? 1 : 0;
+            DailyPickDescription.MaxLines = Math.Max(1, lines);
+        }
+
+        private void UpdateDailyPickCover()
+        {
+            if (ViewModel.DailyPick?.Anime is { } anime)
+                ManagedImageLoader.ConfigureCover(DailyPickCover, anime.ID, anime.CoverURL, 120);
+            else
+                ManagedImageLoader.Cancel(DailyPickCover);
+        }
+
+        private void OnDailyPickOpenClick(object sender, RoutedEventArgs e)
+        {
+            if (ViewModel.DailyPick?.Anime is { } anime)
+                _pluginNavigator.Navigate(typeof(AnimeDetailPage), anime.ID);
+        }
+
+        private async void OnDailyPickWatchClick(object sender, RoutedEventArgs e)
+        {
+            if (ViewModel.DailyPick?.Anime is { } anime)
+                await ToggleStatusSafelyAsync(anime.ID, AnimeTrackingStatus.Watching);
+        }
+
+        private async void OnDailyPickFollowClick(object sender, RoutedEventArgs e)
+        {
+            if (ViewModel.DailyPick?.Anime is { } anime)
+                await ToggleStatusSafelyAsync(anime.ID, AnimeTrackingStatus.Following);
         }
 
         private void UpdateDiscoverVisibility()
