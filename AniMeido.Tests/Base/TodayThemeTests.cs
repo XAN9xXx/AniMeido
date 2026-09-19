@@ -377,6 +377,99 @@ public sealed class TodayThemeTests : DbTestBase
             row => row.AnimeId == 401 && row.Status == AnimeTrackingStatus.Completed);
     }
 
+    [Fact]
+    public void PickFavoriteGenre_CountsEachGenreOncePerAnimeAndSkipsSourceTags()
+    {
+        IReadOnlyList<string>[] tags =
+        [
+            ["治愈", "漫画改", "日常"],
+            ["治愈", "治愈", "奇幻", "漫画改"],
+            ["日常", "2024年4月"],
+        ];
+
+        // 治愈、日常各 2 次，按题材目录顺序取“日常”；漫画改不算题材。
+        Assert.Equal("日常", TodayThemeService.PickFavoriteGenre(tags));
+        Assert.Null(TodayThemeService.PickFavoriteGenre([["漫画改", "MADHouse"]]));
+    }
+
+    [Fact]
+    public void SelectGenreSeeds_PrefersHighlyRatedFinishedWorks()
+    {
+        var context = new TodayThemeContext(
+            Start,
+            new Dictionary<int, AnimeTrackingStatus>
+            {
+                [1] = AnimeTrackingStatus.Completed,
+                [2] = AnimeTrackingStatus.Completed,
+                [3] = AnimeTrackingStatus.Watching,
+            },
+            ExcludedAnimeId: null);
+
+        Assert.Equal(
+            new[] { 2 },
+            TodayThemeService.SelectGenreSeeds(context, new Dictionary<int, double> { [1] = 6, [2] = 9, [3] = 10 }));
+        // 没有评分高的：用全部看完的。
+        Assert.Equal(
+            new[] { 1, 2 },
+            TodayThemeService.SelectGenreSeeds(context, new Dictionary<int, double>()).Order());
+    }
+
+    [Fact]
+    public void SelectStudioWorks_KeepsOtherUnmarkedAnimationWorks()
+    {
+        var context = new TodayThemeContext(
+            Start,
+            new Dictionary<int, AnimeTrackingStatus> { [3] = AnimeTrackingStatus.Completed },
+            ExcludedAnimeId: 4);
+        PersonWork[] works =
+        [
+            new(1, "出发作品", "动画制作"),
+            new(2, "作品2", "动画制作"),
+            new(3, "作品3", "动画制作"),
+            new(4, "作品4", "动画制作"),
+            new(5, "作品5", "原作"),
+            new(6, "作品6", "动画制作"),
+        ];
+
+        var picked = TodayThemeService.SelectStudioWorks(works, seedId: 1, context);
+
+        Assert.Equal(new[] { 2, 6 }, picked.Select(work => work.ID));
+    }
+
+    [Fact]
+    public async Task SameStudio_StartsFromRatedWorkAndUsesItsAnimationStudio()
+    {
+        await RunProductionMigrationAsync();
+        await new ArchiveService(DbFactory).UpsertArchiveAsync(401, "出发作品", 9.5, string.Empty);
+        var date = DateWith(TodayThemeKind.SameStudio);
+        var vm = NewViewModel(new ThemeSource(), new TrackingService(DbFactory));
+
+        await vm.LoadForDateAsync(date);
+
+        Assert.False(vm.IsFallback);
+        Assert.Contains("《出发作品》出自 动画工作室", vm.Caption);
+        Assert.Equal(new[] { 501, 502, 503 }, vm.Items.Select(item => item.Anime.ID).Order());
+    }
+
+    [Fact]
+    public async Task FavoriteGenre_SearchesMostCommonGenreOfLikedWorks()
+    {
+        await RunProductionMigrationAsync();
+        var tracking = new TrackingService(DbFactory);
+        await tracking.SetStatusAsync(601, AnimeTrackingStatus.Completed);
+        await new ArchiveService(DbFactory).UpsertArchiveAsync(601, "喜欢的", 9, string.Empty);
+        var source = new ThemeSource();
+        var date = DateWith(TodayThemeKind.FavoriteGenre);
+        var vm = NewViewModel(source, tracking);
+
+        await vm.LoadForDateAsync(date);
+
+        Assert.False(vm.IsFallback);
+        Assert.Equal("治愈", source.LastTag);
+        Assert.Contains("“治愈”", vm.Caption);
+        Assert.NotEmpty(vm.Items);
+    }
+
     private TodayThemeViewModel NewViewModel(IAnimeDataSource source, TrackingService tracking)
         => new(
             source,
@@ -419,20 +512,49 @@ public sealed class TodayThemeTests : DbTestBase
                 ? Task.FromException<List<Anime>>(new HttpRequestException("offline"))
                 : Task.FromResult(Enumerable.Range(101, 20).Select(id => Item(id, 6.0 + (id - 100) * 0.1)).ToList());
 
+        public string? LastTag { get; private set; }
+
         public Task<(List<Anime> Results, int Total)> SearchByTagAsync(string tag, int offset, string sort, CancellationToken ct,
             string? airDateFrom = null, string? airDateTo = null)
-            => Fails
+        {
+            LastTag = tag;
+            return Fails
                 ? Task.FromException<(List<Anime>, int)>(new HttpRequestException("offline"))
                 : Task.FromResult((Enumerable.Range(201, 10).Select(id => Item(id, 8.0, AnimeMediaFormat.Movie)).ToList(), 10));
+        }
+
+        // 601 的标签里“治愈”是题材，“漫画改”是来源。
+        public Task<List<Tag>> GetTagsAsync(int animeID, CancellationToken ct)
+            => Task.FromResult(animeID == 601
+                ? new List<Tag> { new("漫画改"), new("治愈"), new("2024年4月") }
+                : new List<Tag>());
+
+        // 401 的公司里，出版社排在前面，动画工作室在后面。
+        public Task<List<Studio>> GetStudioAsync(int animeID, CancellationToken ct)
+            => Task.FromResult(animeID == 401
+                ? new List<Studio> { new(900, "出版社", null), new(901, "动画工作室", null) }
+                : new List<Studio>());
+
+        public Task<List<PersonWork>> GetPersonWorksAsync(int personId, CancellationToken ct)
+            => Task.FromResult(personId switch
+            {
+                900 => new List<PersonWork> { new(401, "出发作品", "原作"), new(599, "别的书", "原作") },
+                901 => new List<PersonWork>
+                {
+                    new(401, "出发作品", "动画制作"),
+                    new(501, "作品501", "动画制作"),
+                    new(502, "作品502", "动画制作"),
+                    new(503, "作品503", "动画制作"),
+                    new(504, "作品504", "製作"),
+                },
+                _ => new List<PersonWork>(),
+            });
 
         public Task<List<Anime>> GetCurrentBroadcastScheduleAsync(CancellationToken ct) => Unexpected<Task<List<Anime>>>();
         public Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct)
             => Task.FromResult<Anime?>(Item(animeID, 7.0));
-        public Task<List<Studio>> GetStudioAsync(int animeID, CancellationToken ct) => Unexpected<Task<List<Studio>>>();
-        public Task<List<Tag>> GetTagsAsync(int animeID, CancellationToken ct) => Unexpected<Task<List<Tag>>>();
         public Task<List<VoiceActor>> GetCVsAsync(int animeID, CancellationToken ct) => Unexpected<Task<List<VoiceActor>>>();
         public Task<List<CharacterRole>> GetCharacterRolesAsync(int animeID, CancellationToken ct) => Unexpected<Task<List<CharacterRole>>>();
-        public Task<List<PersonWork>> GetPersonWorksAsync(int personId, CancellationToken ct) => Unexpected<Task<List<PersonWork>>>();
         public Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct)
             => Unexpected<Task<(List<Anime>, int)>>();
     }

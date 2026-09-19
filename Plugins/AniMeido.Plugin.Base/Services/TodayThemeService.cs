@@ -75,6 +75,19 @@ namespace AniMeido.Plugin.Base.Services
         internal const int StalledDays = 30;
         // “一年前的今天”取前后这么多天。
         internal const int OneYearAgoWindowDays = 7;
+        // “你常看题材”最多从这么多部看完的作品里统计标签。
+        internal const int GenreSeedCount = 20;
+        // “同一家制作公司”从评分最高的这么多部里按日期挑一部出发。
+        internal const int StudioSeedCount = 5;
+        // 每部出发作品最多看它的前几家公司，找出负责动画制作的那一家。
+        internal const int StudioCandidatesPerSeed = 3;
+        // 个人评分达到这个分数才算“评分高”。
+        internal const double HighRating = 8;
+
+        // 统计常看题材时不算改编来源：几乎每部作品都有，统计出来没有意义。
+        private static readonly HashSet<string> GenreCatalog = new(
+            RecommendationTagCatalog.Tags.Where(tag => tag is not ("原创" or "漫画改" or "小说改")),
+            StringComparer.OrdinalIgnoreCase);
 
         public async Task<TodayThemeContent?> BuildAsync(
             TodayThemeKind kind,
@@ -110,8 +123,13 @@ namespace AniMeido.Plugin.Base.Services
                 case TodayThemeKind.Stalled:
                     return await BuildStalledAsync(context, ct);
 
+                case TodayThemeKind.FavoriteGenre:
+                    return await BuildFavoriteGenreAsync(context, ct);
+
+                case TodayThemeKind.SameStudio:
+                    return await BuildSameStudioAsync(context, ct);
+
                 default:
-                    // 其余主题分批实现；还没实现的按“没有内容”处理，当天改用替补。
                     return null;
             }
         }
@@ -349,6 +367,160 @@ namespace AniMeido.Plugin.Base.Services
                 : watched is null ? marked
                 : marked > watched ? marked : watched;
         }
+
+        // ======== 组合主题 ========
+
+        private async Task<TodayThemeContent?> BuildFavoriteGenreAsync(
+            TodayThemeContext context,
+            CancellationToken ct)
+        {
+            var ratings = RatingsById(await archive.GetArchiveListAsync(ct));
+            var seeds = SelectGenreSeeds(context, ratings);
+            if (seeds.Count == 0)
+                return null;
+
+            // 标签有 7 天缓存；单部失败只少统计这一部。
+            var tagLists = new ConcurrentBag<IReadOnlyList<string>>();
+            await Parallel.ForEachAsync(
+                seeds,
+                new ParallelOptions { CancellationToken = ct, MaxDegreeOfParallelism = 4 },
+                async (animeId, token) =>
+                {
+                    try
+                    {
+                        var tags = await dataSource.GetTagsAsync(animeId, token);
+                        tagLists.Add(tags.Select(tag => tag.Name).ToList());
+                    }
+                    catch (Exception ex) when (
+                        ex is HttpRequestException
+                        or BangumiApiException
+                        or InvalidOperationException
+                        or System.Text.Json.JsonException
+                        or TaskCanceledException)
+                    {
+                        if (ex is OperationCanceledException && token.IsCancellationRequested)
+                            throw;
+                    }
+                });
+
+            if (PickFavoriteGenre(tagLists) is not { } genre)
+                return null;
+
+            var (items, _) = await dataSource.SearchByTagAsync(genre, 0, "rank", ct);
+            var ranked = RankUnmarked(items, context);
+            return ranked.Count == 0
+                ? null
+                : new TodayThemeContent(
+                    $"你看完的作品里最常见的题材是“{genre}” · 你还没标记的高分作品",
+                    ranked.Select(anime => new TodayThemeCandidate(anime, BuildMeta(anime))).ToList(),
+                    TodayThemeRowKind.Mark);
+        }
+
+        /// <summary>
+        /// 统计题材用的作品：看完的作品里个人评分达到 <see cref="HighRating"/> 的；
+        /// 一部都没有时用全部看完的。最近看完的在前，最多 <see cref="GenreSeedCount"/> 部。
+        /// </summary>
+        internal static IReadOnlyList<int> SelectGenreSeeds(
+            TodayThemeContext context,
+            IReadOnlyDictionary<int, double> ratings)
+        {
+            var completed = context.Statuses
+                .Where(pair => pair.Value == AnimeTrackingStatus.Completed)
+                .Select(pair => pair.Key)
+                .ToList();
+            var liked = completed.Where(id => ratings.GetValueOrDefault(id) >= HighRating).ToList();
+            return (liked.Count > 0 ? liked : completed)
+                .OrderByDescending(id => context.UpdatedAt.GetValueOrDefault(id))
+                .ThenBy(id => id)
+                .Take(GenreSeedCount)
+                .ToList();
+        }
+
+        /// <summary>
+        /// 每部作品的标签里，题材目录中的每个题材只算一次；出现最多的就是常看题材，
+        /// 相同时按目录顺序。一个都没有时返回 null。
+        /// </summary>
+        internal static string? PickFavoriteGenre(IEnumerable<IReadOnlyList<string>> tagsPerAnime)
+        {
+            var catalogOrder = RecommendationTagCatalog.Tags
+                .Select((tag, index) => (tag, index))
+                .ToDictionary(item => item.tag, item => item.index, StringComparer.OrdinalIgnoreCase);
+            return tagsPerAnime
+                .SelectMany(tags => tags
+                    .Select(tag => tag?.Trim() ?? "")
+                    .Where(GenreCatalog.Contains)
+                    .Distinct(StringComparer.OrdinalIgnoreCase))
+                .GroupBy(tag => tag, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(group => group.Count())
+                .ThenBy(group => catalogOrder[group.Key])
+                .Select(group => catalogOrder.Keys.First(key => string.Equals(key, group.Key, StringComparison.OrdinalIgnoreCase)))
+                .FirstOrDefault();
+        }
+
+        private async Task<TodayThemeContent?> BuildSameStudioAsync(
+            TodayThemeContext context,
+            CancellationToken ct)
+        {
+            var seeds = (await archive.GetArchiveListAsync(ct))
+                .Where(item => item.Archive.PersonalRating is not null
+                    && context.Statuses.GetValueOrDefault(item.Archive.AnimeId) != AnimeTrackingStatus.Blocked)
+                .OrderByDescending(item => item.Archive.PersonalRating)
+                .ThenByDescending(item => item.Archive.UpdatedAt)
+                .Take(StudioSeedCount)
+                .ToDictionary(item => item.Archive.AnimeId, item => item.Archive);
+
+            // 按日期挑出发作品；这一部找不到制作公司或没有可列的作品时换下一部。
+            foreach (var seedId in StableShuffle.ByDate(seeds.Keys, context.Date))
+            {
+                var seed = seeds[seedId];
+                foreach (var studio in (await dataSource.GetStudioAsync(seedId, ct)).Take(StudioCandidatesPerSeed))
+                {
+                    // 制作人员里的公司还包括出版社、发行商，只认在这部作品里负责动画制作的那一家。
+                    var works = await dataSource.GetPersonWorksAsync(studio.ID, ct);
+                    if (!works.Any(work => work.ID == seedId && IsAnimationProduction(work.Staff)))
+                        continue;
+
+                    var picked = SelectStudioWorks(works, seedId, context);
+                    if (picked.Count == 0)
+                        break;
+
+                    var anime = await ResolveAsync(picked.Select(work => (work.ID, (string?)work.Title)).ToList(), ct);
+                    return new TodayThemeContent(
+                        $"你打了 {seed.PersonalRating!.Value.ToString("0.#", CultureInfo.InvariantCulture)} 分的《{seed.TitleSnapshot}》出自 {studio.Name} · 你还没标记的",
+                        picked
+                            .Select(work => anime[work.ID])
+                            .OrderByDescending(item => item.Score ?? 0)
+                            .Select(item => new TodayThemeCandidate(item, BuildMeta(item)))
+                            .ToList(),
+                        TodayThemeRowKind.Mark,
+                        ShuffleByDate: false);
+                }
+            }
+
+            return null;
+        }
+
+        internal static bool IsAnimationProduction(string? staff)
+            => staff?.Contains("动画制作", StringComparison.Ordinal) == true;
+
+        /// <summary>这家公司负责动画制作的其他作品里，没有任何标记、不是今日一抽那部的，最多若干部。</summary>
+        internal static IReadOnlyList<PersonWork> SelectStudioWorks(
+            IEnumerable<PersonWork> works,
+            int seedId,
+            TodayThemeContext context)
+            => works
+                .Where(work => work.ID != seedId
+                    && IsAnimationProduction(work.Staff)
+                    && context.Statuses.GetValueOrDefault(work.ID) == AnimeTrackingStatus.None
+                    && work.ID != context.ExcludedAnimeId)
+                .DistinctBy(work => work.ID)
+                .Take(LocalPoolSize)
+                .ToList();
+
+        private static IReadOnlyDictionary<int, double> RatingsById(IEnumerable<ArchiveListItem> items)
+            => items
+                .Where(item => item.Archive.PersonalRating is not null)
+                .ToDictionary(item => item.Archive.AnimeId, item => item.Archive.PersonalRating!.Value);
 
         // ======== 共用 ========
 
