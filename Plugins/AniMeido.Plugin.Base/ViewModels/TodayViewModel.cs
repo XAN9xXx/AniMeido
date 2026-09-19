@@ -169,14 +169,15 @@ public partial class TodayViewModel : ObservableObject
         TrackingService tracking,
         ActionCenterService actionCenter,
         PlanReminderCoordinator reminders,
-        BrowseHistoryService browseHistory)
+        BrowseHistoryService browseHistory,
+        ArchiveService archive)
     {
         _dataSource = dataSource;
         _tracking = tracking;
         _actionCenter = actionCenter;
         _reminders = reminders;
         _browseHistory = browseHistory;
-        Theme = new TodayThemeViewModel(dataSource, tracking);
+        Theme = new TodayThemeViewModel(dataSource, tracking, browseHistory, archive, actionCenter);
     }
 
     /// <summary>今日主题：单独加载，慢或失败都不影响今天页其他部分。</summary>

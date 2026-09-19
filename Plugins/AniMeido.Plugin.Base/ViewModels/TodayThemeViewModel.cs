@@ -127,7 +127,8 @@ namespace AniMeido.Plugin.Base.ViewModels
     {
         internal const int BatchSize = 6;
 
-        // 候选在一次运行中按“日期 + 主题”缓存：切换页面再回来不重新请求。
+        // Bangumi 主题的候选在一次运行中按“日期 + 主题”缓存：切换页面再回来不重新请求。
+        // 本地主题不缓存，评完分、看完了的作品下次加载就不再出现。
         private static readonly object CacheGate = new();
         private static readonly Dictionary<(DateOnly Date, TodayThemeKind Kind), TodayThemeContent> ContentCache = [];
 
@@ -140,9 +141,14 @@ namespace AniMeido.Plugin.Base.ViewModels
         private TodayThemeKind _shownKind;
         private bool _loaded;
 
-        internal TodayThemeViewModel(IAnimeDataSource dataSource, TrackingService tracking)
+        internal TodayThemeViewModel(
+            IAnimeDataSource dataSource,
+            TrackingService tracking,
+            BrowseHistoryService browseHistory,
+            ArchiveService archive,
+            ActionCenterService actionCenter)
         {
-            _service = new TodayThemeService(dataSource);
+            _service = new TodayThemeService(dataSource, tracking, browseHistory, archive, actionCenter);
             _tracking = tracking;
         }
 
@@ -230,10 +236,17 @@ namespace AniMeido.Plugin.Base.ViewModels
             IsLoading = false;
         }
 
-        /// <summary>页面回到前台时调用：被取消、还没有结果的加载重新开始；失败的等用户点重试。</summary>
+        /// <summary>
+        /// 页面回到前台时调用（例如从详情页或档案馆返回，页面实例被复用）：
+        /// 被取消、还没有结果的加载重新开始；正在显示本地主题时重新读取，
+        /// 刚在别处评了分、改了标记的作品随之更新。失败的等用户点重试。
+        /// </summary>
         public void ResumeIfNeeded()
         {
-            if (!_loaded && !IsFailed && _cts is null)
+            if (_cts is not null || IsFailed)
+                return;
+
+            if (!_loaded || IsLocalSource)
                 _ = LoadAsync();
         }
 
@@ -267,13 +280,19 @@ namespace AniMeido.Plugin.Base.ViewModels
             NextThemeText = $"明天：{TodayThemeCatalog.GetTitle(TodayThemeSchedule.For(date.AddDays(1)).Kind)}";
             try
             {
-                var statuses = (await _tracking.GetAllTrackingAsync())
-                    .ToDictionary(row => row.AnimeId, row => row.Status);
+                var rows = await _tracking.GetAllTrackingAsync();
+                var statuses = rows.ToDictionary(row => row.AnimeId, row => row.Status);
                 var dailyPick = await TryLoadDailyPickAsync();
                 var context = new TodayThemeContext(
                     date,
                     statuses,
-                    dailyPick is { } pick && pick.Date == date ? pick.AnimeId : null);
+                    dailyPick is { } pick && pick.Date == date ? pick.AnimeId : null)
+                {
+                    UpdatedAt = rows
+                        .Select(row => (row.AnimeId, At: TodayThemeService.ParseTimestamp(row.UpdatedAt)))
+                        .Where(row => row.At is not null)
+                        .ToDictionary(row => row.AnimeId, row => row.At!.Value),
+                };
 
                 var shownKind = kind;
                 var isFallback = false;
@@ -392,14 +411,15 @@ namespace AniMeido.Plugin.Base.ViewModels
             TodayThemeContext context,
             CancellationToken ct)
         {
+            var cacheable = !TodayThemeCatalog.IsLocal(kind);
             lock (CacheGate)
             {
-                if (ContentCache.TryGetValue((context.Date, kind), out var cached))
+                if (cacheable && ContentCache.TryGetValue((context.Date, kind), out var cached))
                     return cached;
             }
 
             var content = await _service.BuildAsync(kind, context, ct);
-            if (content is not null)
+            if (cacheable && content is not null)
             {
                 lock (CacheGate)
                 {

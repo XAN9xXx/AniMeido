@@ -25,10 +25,12 @@ public sealed partial class TodayPage : Page, INavigationAware
     // 页面上最大的封面宽度，封面按它解码。
     private const double CoverDecodeWidth = 60;
     private readonly ActionCenterService _actionCenter;
+    private readonly ArchiveService _archive;
     private readonly PlanReminderCoordinator _reminders;
     private readonly IPluginNavigator _navigator;
     private readonly IAnimePlaybackLauncher _playbackLauncher;
     private bool _isPlaybackAvailabilitySubscribed;
+    private bool _wasLoaded;
     private readonly HashSet<FrameworkElement> _hoveredThemeRows = [];
     private double _contentWidth = double.PositiveInfinity;
     private CancellationTokenSource? _loadCancellation;
@@ -39,10 +41,12 @@ public sealed partial class TodayPage : Page, INavigationAware
         ActionCenterService actionCenter,
         PlanReminderCoordinator reminders,
         BrowseHistoryService browseHistory,
+        ArchiveService archive,
         IPluginNavigator navigator,
         IAnimePlaybackLauncher playbackLauncher)
     {
         _actionCenter = actionCenter;
+        _archive = archive;
         _reminders = reminders;
         _navigator = navigator;
         _playbackLauncher = playbackLauncher;
@@ -51,7 +55,8 @@ public sealed partial class TodayPage : Page, INavigationAware
             tracking,
             actionCenter,
             reminders,
-            browseHistory);
+            browseHistory,
+            archive);
         InitializeComponent();
         ViewModel.IsPlaybackAvailable = playbackLauncher.IsAvailable;
         ApplyLayout();
@@ -77,8 +82,11 @@ public sealed partial class TodayPage : Page, INavigationAware
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // 从详情页返回时复用的是同一个页面，离开时取消的主题加载在这里补上。
-        ViewModel.Theme.ResumeIfNeeded();
+        // 从详情页或档案馆返回时复用的是同一个页面：离开时取消的主题加载在这里补上，
+        // 本地主题重新读取。第一次显示由导航触发加载，这里不重复。
+        if (_wasLoaded)
+            ViewModel.Theme.ResumeIfNeeded();
+        _wasLoaded = true;
         try
         {
             await ViewModel.RemoveBlockedEntriesAsync();
@@ -598,8 +606,7 @@ public sealed partial class TodayPage : Page, INavigationAware
 
         if (item.RowKind == TodayThemeRowKind.Rate)
         {
-            // 评分在档案馆里完成；档案馆按作品 ID 直接定位。
-            _navigator.Navigate(typeof(ArchivePage), item.Anime.ID);
+            await OpenArchiveForRatingAsync(item.Anime);
             return;
         }
 
@@ -614,6 +621,25 @@ public sealed partial class TodayPage : Page, INavigationAware
         {
             await ApplyThemeStatusSafelyAsync(item, status);
         }
+    }
+
+    /// <summary>
+    /// 评分在档案馆里完成。与详情页一致：还没有档案的先建一份空档案，档案馆才能直接选中它。
+    /// </summary>
+    private async Task OpenArchiveForRatingAsync(Anime anime)
+    {
+        try
+        {
+            if (await _archive.GetArchiveAsync(anime.ID) is null)
+                await _archive.UpsertArchiveAsync(anime.ID, anime.Title, null, string.Empty);
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException ex)
+        {
+            ShowNotification($"无法打开档案：{ex.Message}", InfoBarSeverity.Error);
+            return;
+        }
+
+        _navigator.Navigate(typeof(ArchivePage), anime.ID);
     }
 
     private async Task ApplyThemeStatusSafelyAsync(TodayThemeItem item, AnimeTrackingStatus status)

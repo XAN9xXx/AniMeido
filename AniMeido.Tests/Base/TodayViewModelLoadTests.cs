@@ -28,7 +28,8 @@ public sealed class TodayViewModelLoadTests : DbTestBase
             tracking,
             actionCenter,
             reminders,
-            new BrowseHistoryService(DbFactory));
+            new BrowseHistoryService(DbFactory),
+            new ArchiveService(DbFactory));
 
         await vm.LoadAsync();
 

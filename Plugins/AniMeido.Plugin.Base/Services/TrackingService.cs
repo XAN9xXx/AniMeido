@@ -375,6 +375,37 @@ namespace AniMeido.Plugin.Base.Services
             await command.ExecuteNonQueryAsync();
         }
 
+        /// <summary>
+        /// 读取全部状态变化记录（今日主题“一年前的今天”使用），不含移除标记。
+        /// 时间可能来自导入，格式不一，这里逐条解析，解析不了的跳过。
+        /// </summary>
+        public async Task<IReadOnlyList<(int AnimeId, AnimeTrackingStatus NewStatus, DateTimeOffset ChangedAt)>>
+            GetTrackingEventsAsync(CancellationToken cancellationToken = default)
+        {
+            using var connection = await _dbFactory.OpenAsync(cancellationToken);
+
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT AnimeId, NewStatus, ChangedAt FROM tracking_events";
+            var events = new List<(int, AnimeTrackingStatus, DateTimeOffset)>();
+            using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (reader.IsDBNull(2)
+                    || !DateTimeOffset.TryParse(
+                        reader.GetString(2),
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AssumeUniversal,
+                        out var changedAt))
+                {
+                    continue;
+                }
+
+                events.Add((reader.GetInt32(0), (AnimeTrackingStatus)reader.GetInt32(1), changedAt));
+            }
+
+            return events;
+        }
+
         private const string TodayThemeKey = "today_theme";
 
         private sealed record TodayThemeStateJson(
