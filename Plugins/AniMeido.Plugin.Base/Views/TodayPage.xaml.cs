@@ -6,6 +6,8 @@ using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 
 namespace AniMeido.Plugin.Base.Views;
 
@@ -14,8 +16,10 @@ public sealed partial class TodayPage : Page, INavigationAware
     // 本周条带放到今日放送右侧所需的最小内容宽度，以及条带在右侧时的宽度（7 × 92 + 6 × 8）。
     private const double WeekStripBesideWidth = 1180;
     private const double WeekStripWidth = 692;
-    // 最近观看与补番计划并排所需的最小内容宽度。
+    // 左栏（最近观看、今日主题）与右栏（补番计划）并排所需的最小内容宽度。
     private const double ActivitySideBySideWidth = 1000;
+    // 左右栏之间、上下排列时各块之间的间距。
+    private const double ActivitySpacing = 16;
     // 补番计划独占整行时，低于这个宽度也改用紧凑行。
     private const double WidePlanRowWidth = 640;
     // 页面上最大的封面宽度，封面按它解码。
@@ -25,6 +29,7 @@ public sealed partial class TodayPage : Page, INavigationAware
     private readonly IPluginNavigator _navigator;
     private readonly IAnimePlaybackLauncher _playbackLauncher;
     private bool _isPlaybackAvailabilitySubscribed;
+    private readonly HashSet<FrameworkElement> _hoveredThemeRows = [];
     private double _contentWidth = double.PositiveInfinity;
     private CancellationTokenSource? _loadCancellation;
 
@@ -72,6 +77,8 @@ public sealed partial class TodayPage : Page, INavigationAware
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // 从详情页返回时复用的是同一个页面，离开时取消的主题加载在这里补上。
+        ViewModel.Theme.ResumeIfNeeded();
         try
         {
             await ViewModel.RemoveBlockedEntriesAsync();
@@ -99,6 +106,8 @@ public sealed partial class TodayPage : Page, INavigationAware
         _loadCancellation?.Cancel();
         _loadCancellation?.Dispose();
         _loadCancellation = null;
+        ViewModel.Theme.CancelLoad();
+        _hoveredThemeRows.Clear();
         if (!_isPlaybackAvailabilitySubscribed)
         {
             return;
@@ -167,10 +176,9 @@ public sealed partial class TodayPage : Page, INavigationAware
     }
 
     /// <summary>
-    /// 按内容宽度调整布局：本周条带宽时在今日放送右侧、窄时移到下方；
-    /// 播放器可用且宽度足够时最近观看与补番计划并排，否则上下排列，
-    /// 播放器不可用时补番计划独占整行；补番计划并排或整行过窄时，
-    /// 操作按钮换到标题下方。
+    /// 按内容宽度调整布局：本周条带宽时在今日放送右侧、窄时移到下方。
+    /// 宽度足够时左栏是最近观看（播放器可用时）和今日主题，右栏是补番计划；
+    /// 窄时从上到下依次排列。补番计划并排或整行过窄时，操作按钮换到标题下方。
     /// </summary>
     private void ApplyLayout()
     {
@@ -185,13 +193,14 @@ public sealed partial class TodayPage : Page, INavigationAware
             : new Thickness(0, 16, 0, 0);
 
         var hasPlayback = ViewModel.IsPlaybackAvailable;
-        var sideBySide = hasPlayback
-            && _contentWidth >= ActivitySideBySideWidth;
-        Grid.SetColumnSpan(PlaybackCard, sideBySide ? 1 : 2);
-        Grid.SetRow(PlanCard, hasPlayback && !sideBySide ? 1 : 0);
-        Grid.SetColumn(PlanCard, sideBySide ? 1 : 0);
-        Grid.SetColumnSpan(PlanCard, sideBySide ? 1 : 2);
-        ActivityGrid.RowSpacing = hasPlayback && !sideBySide ? 16 : 0;
+        var sideBySide = _contentWidth >= ActivitySideBySideWidth;
+        var themeRow = hasPlayback ? 1 : 0;
+        PlaceActivity(PlaybackCard, row: 0, column: 0, sideBySide, rowSpan: 1);
+        PlaceActivity(ThemeCard, themeRow, column: 0, sideBySide, rowSpan: 1);
+        if (sideBySide)
+            PlaceActivity(PlanCard, row: 0, column: 1, sideBySide, rowSpan: themeRow + 1);
+        else
+            PlaceActivity(PlanCard, themeRow + 1, column: 0, sideBySide, rowSpan: 1);
 
         var wideRows = !sideBySide && _contentWidth >= WidePlanRowWidth;
         var template = (DataTemplate)Resources[
@@ -200,6 +209,21 @@ public sealed partial class TodayPage : Page, INavigationAware
         {
             PlanList.ItemTemplate = template;
         }
+    }
+
+    /// <summary>并排时各占一栏；上下排列时占满整行。行间距用上边距表示，空行不留间距。</summary>
+    private static void PlaceActivity(
+        FrameworkElement card,
+        int row,
+        int column,
+        bool sideBySide,
+        int rowSpan)
+    {
+        Grid.SetRow(card, row);
+        Grid.SetRowSpan(card, rowSpan);
+        Grid.SetColumn(card, column);
+        Grid.SetColumnSpan(card, sideBySide ? 1 : 2);
+        card.Margin = new Thickness(0, row > 0 ? ActivitySpacing : 0, 0, 0);
     }
 
     private void OnAnimeButtonClick(object sender, RoutedEventArgs e)
@@ -563,6 +587,115 @@ public sealed partial class TodayPage : Page, INavigationAware
             await _reminders.RemoveReminderAsync(choice.Reminder);
             await ReloadSafelyAsync();
         }
+    }
+
+    // ======== 今日主题 ========
+
+    private async void OnThemePrimaryClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: TodayThemeItem item })
+            return;
+
+        if (item.RowKind == TodayThemeRowKind.Rate)
+        {
+            // 评分在档案馆里完成；档案馆按作品 ID 直接定位。
+            _navigator.Navigate(typeof(ArchivePage), item.Anime.ID);
+            return;
+        }
+
+        if (item.PrimaryStatus is { } status)
+            await ApplyThemeStatusSafelyAsync(item, status);
+    }
+
+    private async void OnThemeSecondaryClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: TodayThemeItem item }
+            && item.SecondaryStatus is { } status)
+        {
+            await ApplyThemeStatusSafelyAsync(item, status);
+        }
+    }
+
+    private async Task ApplyThemeStatusSafelyAsync(TodayThemeItem item, AnimeTrackingStatus status)
+    {
+        try
+        {
+            await ViewModel.Theme.ApplyStatusAsync(item, status);
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException ex)
+        {
+            ShowNotification($"标记失败：{ex.Message}", InfoBarSeverity.Error);
+            return;
+        }
+
+        // 补番会加进补番计划，关注会影响今日放送；刷新页面让它们跟上。
+        await ReloadSafelyAsync();
+    }
+
+    /// <summary>悬停时显示标记按钮，并暂时隐藏行尾的评分或状态，避免两者重叠。</summary>
+    private void OnThemeRowPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement row)
+            _hoveredThemeRows.Add(row);
+        SetThemeRowActionsVisible(sender, true);
+    }
+
+    private void OnThemeRowPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        var keepVisible = false;
+        if (sender is FrameworkElement row)
+        {
+            _hoveredThemeRows.Remove(row);
+            keepVisible = ContainsKeyboardFocus(row);
+        }
+
+        SetThemeRowActionsVisible(sender, keepVisible);
+    }
+
+    private void OnThemeRowFocusChanged(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement row)
+            return;
+
+        DispatcherQueue.TryEnqueue(() =>
+            SetThemeRowActionsVisible(
+                row,
+                _hoveredThemeRows.Contains(row) || ContainsKeyboardFocus(row)));
+    }
+
+    /// <summary>只认键盘焦点，鼠标点过按钮留下的焦点不让按钮一直显示。</summary>
+    private static bool ContainsKeyboardFocus(FrameworkElement element)
+    {
+        if (element.XamlRoot is null
+            || FocusManager.GetFocusedElement(element.XamlRoot)
+                is not Control { FocusState: FocusState.Keyboard } focused)
+        {
+            return false;
+        }
+
+        DependencyObject? current = focused;
+        while (current is not null)
+        {
+            if (ReferenceEquals(current, element))
+                return true;
+
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return false;
+    }
+
+    private static void SetThemeRowActionsVisible(object sender, bool visible)
+    {
+        if (sender is not FrameworkElement row)
+            return;
+
+        // 没有操作的行（例如只能打开详情）保持显示评分或状态。
+        visible &= row.DataContext is TodayThemeItem { HasActions: true };
+        if (row.FindName("ThemeRowActions") is UIElement actions)
+            actions.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        if (row.FindName("ThemeRowTrailing") is UIElement trailing)
+            trailing.Visibility = visible ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private async void OnNotificationSettingsClick(

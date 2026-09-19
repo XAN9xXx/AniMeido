@@ -302,11 +302,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         /// 不用 Random 或字符串哈希，它们在不同运行之间不保证一致，重启后会对不上。
         /// </summary>
         internal static IReadOnlyList<int> BuildDailyOrder(IEnumerable<int> animeIds, DateOnly date)
-            => animeIds
-                .Distinct()
-                .OrderBy(id => Mix(((ulong)(uint)date.DayNumber << 32) | (uint)id))
-                .ThenBy(id => id)
-                .ToList();
+            => StableShuffle.ByDate(animeIds, date);
 
         /// <summary>从 <paramref name="currentId"/> 之后开始找第一部符合条件的作品，到末尾回到开头；找不到返回 null。</summary>
         internal static int? FindNextDailyPick(
@@ -337,18 +333,6 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
 
             return -1;
-        }
-
-        // SplitMix64 的混合步骤：输入相同则结果相同，且分布足够打散。
-        private static ulong Mix(ulong value)
-        {
-            unchecked
-            {
-                value += 0x9E3779B97F4A7C15UL;
-                value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9UL;
-                value = (value ^ (value >> 27)) * 0x94D049BB133111EBUL;
-                return value ^ (value >> 31);
-            }
         }
     }
 }

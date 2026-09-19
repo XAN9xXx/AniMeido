@@ -190,6 +190,61 @@
             </StackPanel>
         </DataTemplate>
 
+        <!-- 今日主题的一行：整行进入详情；悬停时标记按钮盖住行尾的评分或状态（叠放，不嵌套） -->
+        <DataTemplate x:Key="ThemeRowTemplate" x:DataType="vm:TodayThemeItem">
+            <Grid PointerEntered="OnThemeRowPointerEntered"
+                  PointerExited="OnThemeRowPointerExited"
+                  GotFocus="OnThemeRowFocusChanged"
+                  LostFocus="OnThemeRowFocusChanged">
+                <Button Tag="{x:Bind Anime}" Click="OnAnimeButtonClick" Style="{StaticResource TodayTileButtonStyle}" Padding="8,7,12,7" AutomationProperties.Name="{x:Bind Anime.Title}">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                        <Border Width="44" Height="60" CornerRadius="5" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}">
+                            <Image DataContext="{x:Bind Anime}" Stretch="UniformToFill" Loaded="OnCoverLoaded" DataContextChanged="OnCoverDataContextChanged" Unloaded="OnCoverUnloaded"/>
+                        </Border>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Text="{x:Bind Anime.Title}" FontWeight="SemiBold" MaxLines="1" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{x:Bind Meta}" Style="{StaticResource TodayCaptionStyle}" MaxLines="1" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{x:Bind Note}" Visibility="{x:Bind HasNote}" FontSize="12" MaxLines="1" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                        </StackPanel>
+                        <Grid x:Name="ThemeRowTrailing" Grid.Column="2" VerticalAlignment="Center">
+                            <TextBlock Text="{x:Bind StatusText, Mode=OneWay}" Visibility="{x:Bind HasStatus, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                            <TextBlock Text="{x:Bind ScoreText}" Visibility="{x:Bind ShowScore, Mode=OneWay}" FontWeight="SemiBold" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                        </Grid>
+                    </Grid>
+                </Button>
+                <StackPanel x:Name="ThemeRowActions"
+                            Opacity="{x:Bind ActionOpacity, Mode=OneWay}"
+                            Orientation="Horizontal"
+                            Spacing="4"
+                            Margin="0,0,10,0"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center"
+                            Visibility="Collapsed">
+                    <Button Content="{x:Bind PrimaryLabel, Mode=OneWay}"
+                            Tag="{x:Bind}"
+                            Visibility="{x:Bind HasPrimary, Mode=OneWay}"
+                            Click="OnThemePrimaryClick"
+                            Style="{StaticResource AccentButtonStyle}"
+                            Padding="10,2"
+                            FontSize="12"/>
+                    <Button Content="{x:Bind SecondaryLabel, Mode=OneWay}"
+                            Tag="{x:Bind}"
+                            Visibility="{x:Bind HasSecondary, Mode=OneWay}"
+                            Click="OnThemeSecondaryClick"
+                            Padding="10,2"
+                            FontSize="12"/>
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+
+        <!-- 轮换进度：当前主题是一小段横条，其余是圆点 -->
+        <DataTemplate x:Key="ThemeDotTemplate" x:DataType="vm:TodayThemeDot">
+            <Grid Height="6" VerticalAlignment="Center">
+                <Rectangle Width="16" RadiusX="3" RadiusY="3" Fill="{ThemeResource AccentFillColorDefaultBrush}" Visibility="{x:Bind IsCurrent}"/>
+                <Ellipse Width="6" Fill="{ThemeResource ControlStrongStrokeColorDisabledBrush}" Visibility="{x:Bind IsOther}"/>
+            </Grid>
+        </DataTemplate>
+
         <DataTemplate x:Key="BrowseEntryTemplate" x:DataType="vm:TodayBrowseEntry">
             <Button Tag="{x:Bind Anime}" Click="OnAnimeButtonClick" Style="{StaticResource TodayTileButtonStyle}" Height="76" Padding="8">
                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
@@ -262,8 +317,9 @@
                     </Grid>
                 </Border>
 
-                <!-- 最近观看仅在播放器插件可用时出现；不可用时补番计划占满整行，布局由 code-behind 调整 -->
-                <Grid x:Name="ActivityGrid" ColumnDefinitions="3*,2*" RowDefinitions="Auto,Auto" ColumnSpacing="16" RowSpacing="16">
+                <!-- 最近观看仅在播放器插件可用时出现。最近观看与今日主题在左栏，补番计划在右栏；
+                     窄时从上到下排列。位置与间距由 code-behind 调整 -->
+                <Grid x:Name="ActivityGrid" ColumnDefinitions="3*,2*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="16">
                     <Border x:Name="PlaybackCard" Style="{StaticResource TodaySectionCardStyle}" VerticalAlignment="Top" Visibility="{x:Bind ViewModel.IsPlaybackAvailable, Mode=OneWay}">
                         <StackPanel Spacing="12">
                             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
@@ -277,6 +333,44 @@
                                 <Rectangle Grid.Column="1" Height="1" VerticalAlignment="Center" Fill="{ThemeResource DividerStrokeColorDefaultBrush}"/>
                             </Grid>
                             <ItemsControl ItemsSource="{x:Bind ViewModel.ContinueWatching, Mode=OneWay}" ItemTemplate="{StaticResource PlaybackEntryTemplate}"/>
+                        </StackPanel>
+                    </Border>
+                    <Border x:Name="ThemeCard" Grid.Row="1" Style="{StaticResource TodaySectionCardStyle}" VerticalAlignment="Top">
+                        <StackPanel Spacing="12">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                <StackPanel Spacing="2">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="今日主题" Style="{StaticResource TodayCaptionStyle}" VerticalAlignment="Center"/>
+                                        <Border Padding="7,0" CornerRadius="8" Background="{ThemeResource SubtleFillColorSecondaryBrush}" VerticalAlignment="Center">
+                                            <TextBlock Text="{x:Bind ViewModel.Theme.SourceText, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </Border>
+                                        <Border Padding="7,0" CornerRadius="8" Background="{ThemeResource SubtleFillColorSecondaryBrush}" VerticalAlignment="Center" Visibility="{x:Bind ViewModel.Theme.IsFallback, Mode=OneWay}">
+                                            <TextBlock Text="替补" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </Border>
+                                    </StackPanel>
+                                    <TextBlock Text="{x:Bind ViewModel.Theme.Title, Mode=OneWay}" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                    <TextBlock Text="{x:Bind ViewModel.Theme.Caption, Mode=OneWay}" Style="{StaticResource TodayCaptionStyle}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="10" HorizontalAlignment="Right" VerticalAlignment="Top">
+                                    <ItemsRepeater ItemsSource="{x:Bind ViewModel.Theme.CycleDots, Mode=OneWay}" ItemTemplate="{StaticResource ThemeDotTemplate}" HorizontalAlignment="Right" Margin="0,6,0,0"
+                                                   AutomationProperties.Name="主题轮换进度">
+                                        <ItemsRepeater.Layout>
+                                            <StackLayout Orientation="Horizontal" Spacing="4"/>
+                                        </ItemsRepeater.Layout>
+                                    </ItemsRepeater>
+                                    <Button Content="换一批" Command="{x:Bind ViewModel.Theme.NextBatchCommand}" Visibility="{x:Bind ViewModel.Theme.CanShowNextBatch, Mode=OneWay}" HorizontalAlignment="Right" Padding="10,2" FontSize="12"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Visibility="{x:Bind ViewModel.Theme.HasStatusText, Mode=OneWay}">
+                                <TextBlock Text="{x:Bind ViewModel.Theme.StatusText, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                <Button Grid.Column="1" Content="重试" Command="{x:Bind ViewModel.Theme.RetryCommand}" Visibility="{x:Bind ViewModel.Theme.IsFailed, Mode=OneWay}" Padding="10,2" FontSize="12"/>
+                            </Grid>
+                            <ItemsRepeater x:Name="ThemeRows" ItemsSource="{x:Bind ViewModel.Theme.Items, Mode=OneWay}" ItemTemplate="{StaticResource ThemeRowTemplate}">
+                                <ItemsRepeater.Layout>
+                                    <UniformGridLayout x:Name="ThemeRowsLayout" MaximumRowsOrColumns="2" MinItemWidth="260" MinItemHeight="76" MinColumnSpacing="10" MinRowSpacing="8" ItemsStretch="Fill"/>
+                                </ItemsRepeater.Layout>
+                            </ItemsRepeater>
+                            <TextBlock Text="{x:Bind ViewModel.Theme.NextThemeText, Mode=OneWay}" Style="{StaticResource TodayCaptionStyle}"/>
                         </StackPanel>
                     </Border>
                     <Border x:Name="PlanCard" Grid.Column="1" Style="{StaticResource TodaySectionCardStyle}" VerticalAlignment="Top">

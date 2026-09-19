@@ -176,7 +176,11 @@ public partial class TodayViewModel : ObservableObject
         _actionCenter = actionCenter;
         _reminders = reminders;
         _browseHistory = browseHistory;
+        Theme = new TodayThemeViewModel(dataSource, tracking);
     }
+
+    /// <summary>今日主题：单独加载，慢或失败都不影响今天页其他部分。</summary>
+    public TodayThemeViewModel Theme { get; }
 
     public string TodayLabel => DateTime.Today.ToString(
         "M月d日 dddd",
@@ -187,6 +191,7 @@ public partial class TodayViewModel : ObservableObject
     {
         var loadVersion = Interlocked.Increment(ref _loadVersion);
         OnPropertyChanged(nameof(TodayLabel));
+        _ = Theme.LoadAsync();
         IsLoading = true;
         ErrorMessage = null;
         _scheduleFailed = false;

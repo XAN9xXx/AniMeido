@@ -375,6 +375,72 @@ namespace AniMeido.Plugin.Base.Services
             await command.ExecuteNonQueryAsync();
         }
 
+        private const string TodayThemeKey = "today_theme";
+
+        private sealed record TodayThemeStateJson(
+            string Date,
+            string Theme,
+            bool Fallback,
+            IReadOnlyList<int> AnimeIds);
+
+        /// <summary>读取今天页“今日主题”记下的主题与这一批作品；没有记录或无法解析时返回 null。</summary>
+        public async Task<TodayThemeState?> LoadTodayThemeAsync()
+        {
+            using var connection = await _dbFactory.OpenAsync();
+
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Value FROM config WHERE Key = @key";
+            command.Parameters.AddWithValue("@key", TodayThemeKey);
+            if (await command.ExecuteScalarAsync() is not string json
+                || string.IsNullOrEmpty(json))
+            {
+                return null;
+            }
+
+            try
+            {
+                var state = JsonSerializer.Deserialize<TodayThemeStateJson>(json, ConfigJsonOptions);
+                return state is not null
+                    && DateOnly.TryParseExact(
+                        state.Date,
+                        "yyyy-MM-dd",
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.None,
+                        out var date)
+                    && Enum.TryParse<TodayThemeKind>(state.Theme, out var theme)
+                    && Enum.IsDefined(theme)
+                    ? new TodayThemeState(date, theme, state.Fallback, state.AnimeIds ?? [])
+                    : null;
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>记下今天显示的主题与这一批作品，重启后同一天按它恢复。</summary>
+        public async Task SaveTodayThemeAsync(TodayThemeState state)
+        {
+            var json = JsonSerializer.Serialize(
+                new TodayThemeStateJson(
+                    state.Date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+                    state.Theme.ToString(),
+                    state.IsFallback,
+                    state.AnimeIds),
+                ConfigJsonOptions);
+
+            using var connection = await _dbFactory.OpenAsync();
+
+            var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT OR REPLACE INTO config (Key, Value)
+                VALUES (@key, @value)
+                """;
+            command.Parameters.AddWithValue("@key", TodayThemeKey);
+            command.Parameters.AddWithValue("@value", json);
+            await command.ExecuteNonQueryAsync();
+        }
+
         private static async Task SynchronizePlanAsync(
             SqliteConnection connection,
             SqliteTransaction transaction,
