@@ -226,6 +226,70 @@ public sealed class CurrentSeasonTimeMachineTests : DbTestBase
         Assert.False(vm.IsTimeMachineLoading);
     }
 
+    [Fact]
+    public void OrderForDisplay_PutsUnseenFirstAndStartsOverWhenAllSeen()
+    {
+        var pool = new[] { 1, 2, 3, 4 }
+            .Select(id => new TimeMachineEntry(id, Item(id, 7.0)))
+            .ToList();
+
+        var ordered = CurrentSeasonViewModel.OrderForDisplay(pool, new HashSet<int> { 1, 2 }, new Random(7), out var startOver);
+        Assert.False(startOver);
+        Assert.Equal(new[] { 3, 4 }, ordered.Take(2).Select(entry => entry.Anime.ID).Order());
+        Assert.Equal(new[] { 1, 2 }, ordered.Skip(2).Select(entry => entry.Anime.ID).Order());
+
+        var again = CurrentSeasonViewModel.OrderForDisplay(pool, new HashSet<int> { 1, 2, 3, 4 }, new Random(7), out startOver);
+        Assert.True(startOver);
+        Assert.Equal(new[] { 1, 2, 3, 4 }, again.Select(entry => entry.Anime.ID).Order());
+    }
+
+    [Fact]
+    public async Task TimeMachine_RestartPrefersWorksNotShownBefore()
+    {
+        // 候选只有 101、102 两部有评分：第二次启动换一部，第三次启动都显示过了，从头再来。
+        await RunProductionMigrationAsync();
+        var tracking = new TrackingService(DbFactory);
+        var first = await LoadOneAsync(tracking);
+
+        CurrentSeasonViewModel.ResetTimeMachineSession();
+        var second = await LoadOneAsync(tracking);
+        Assert.NotEqual(first, second);
+
+        CurrentSeasonViewModel.ResetTimeMachineSession();
+        var third = await LoadOneAsync(tracking);
+        var (year, season) = SeasonHelper.GetCurrentSeason();
+        var saved = await tracking.LoadTimeMachineShownAsync();
+        Assert.Equal(new[] { third }, saved[new PastSeasonTarget(year - 10, season)]);
+    }
+
+    [Fact]
+    public async Task TimeMachine_ShownRecordKeepsOnlyCurrentSeasons()
+    {
+        await RunProductionMigrationAsync();
+        var tracking = new TrackingService(DbFactory);
+        await tracking.SaveTimeMachineShownAsync(new Dictionary<PastSeasonTarget, IReadOnlyList<int>>
+        {
+            [new PastSeasonTarget(2000, Season.Winter)] = [1, 2],
+        });
+
+        var shown = await LoadOneAsync(tracking);
+
+        var (year, season) = SeasonHelper.GetCurrentSeason();
+        var saved = await tracking.LoadTimeMachineShownAsync();
+        Assert.DoesNotContain(new PastSeasonTarget(2000, Season.Winter), saved.Keys);
+        Assert.Equal(new[] { shown }, saved[new PastSeasonTarget(year - 10, season)]);
+    }
+
+    /// <summary>容量 1、十年前：加载并等“显示过”写完，返回显示的那一部。</summary>
+    private static async Task<int> LoadOneAsync(TrackingService tracking)
+    {
+        var vm = new CurrentSeasonViewModel(new SeasonSource(), tracking);
+        vm.SetDiscoverCapacity(1);
+        await vm.LoadTimeMachineAsync();
+        await vm.PendingTimeMachineShownSave;
+        return vm.TimeMachinePicks.Single().Anime.ID;
+    }
+
     private static Anime Item(int id, double? score) => new(
         id,
         $"老番{id}",

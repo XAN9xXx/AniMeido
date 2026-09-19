@@ -406,6 +406,65 @@ namespace AniMeido.Plugin.Base.Services
             return events;
         }
 
+        private const string TimeMachineShownKey = "time_machine_shown";
+
+        private sealed record TimeMachineShownJson(int Year, string Season, IReadOnlyList<int> AnimeIds);
+
+        /// <summary>
+        /// 读取番剧时光机每一季显示过的作品（跨重启），用于下次优先抽没显示过的；
+        /// 没有记录或无法解析时返回空。
+        /// </summary>
+        public async Task<IReadOnlyDictionary<PastSeasonTarget, IReadOnlyList<int>>> LoadTimeMachineShownAsync()
+        {
+            using var connection = await _dbFactory.OpenAsync();
+
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Value FROM config WHERE Key = @key";
+            command.Parameters.AddWithValue("@key", TimeMachineShownKey);
+            if (await command.ExecuteScalarAsync() is not string json
+                || string.IsNullOrEmpty(json))
+            {
+                return new Dictionary<PastSeasonTarget, IReadOnlyList<int>>();
+            }
+
+            try
+            {
+                return (JsonSerializer.Deserialize<List<TimeMachineShownJson>>(json, ConfigJsonOptions) ?? [])
+                    .Where(item => Enum.TryParse<Season>(item.Season, out var season) && Enum.IsDefined(season))
+                    .GroupBy(item => new PastSeasonTarget(item.Year, Enum.Parse<Season>(item.Season)))
+                    .ToDictionary(
+                        group => group.Key,
+                        group => (IReadOnlyList<int>)group.SelectMany(item => item.AnimeIds ?? []).Distinct().ToList());
+            }
+            catch (JsonException)
+            {
+                return new Dictionary<PastSeasonTarget, IReadOnlyList<int>>();
+            }
+        }
+
+        /// <summary>记下番剧时光机每一季显示过的作品。</summary>
+        public async Task SaveTimeMachineShownAsync(IReadOnlyDictionary<PastSeasonTarget, IReadOnlyList<int>> shown)
+        {
+            var json = JsonSerializer.Serialize(
+                shown
+                    .OrderBy(pair => pair.Key.Year)
+                    .ThenBy(pair => pair.Key.Season)
+                    .Select(pair => new TimeMachineShownJson(pair.Key.Year, pair.Key.Season.ToString(), pair.Value))
+                    .ToList(),
+                ConfigJsonOptions);
+
+            using var connection = await _dbFactory.OpenAsync();
+
+            var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT OR REPLACE INTO config (Key, Value)
+                VALUES (@key, @value)
+                """;
+            command.Parameters.AddWithValue("@key", TimeMachineShownKey);
+            command.Parameters.AddWithValue("@value", json);
+            await command.ExecuteNonQueryAsync();
+        }
+
         private const string TodayThemeKey = "today_theme";
 
         private sealed record TodayThemeStateJson(
