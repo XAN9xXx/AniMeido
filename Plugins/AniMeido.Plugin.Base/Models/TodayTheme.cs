@@ -27,6 +27,17 @@
         bool IsFallback,
         IReadOnlyList<int> AnimeIds);
 
+    /// <summary>主题的数据从哪里来。</summary>
+    internal enum TodayThemeSource
+    {
+        /// <summary>只用 Bangumi 数据（标记只用来排除已标记的作品）。</summary>
+        Bangumi,
+        /// <summary>只用你的本地记录。</summary>
+        Personal,
+        /// <summary>从你的记录出发，再到 Bangumi 找作品。</summary>
+        Mixed,
+    }
+
     /// <summary>主题的名称与数据来源。</summary>
     internal static class TodayThemeCatalog
     {
@@ -38,7 +49,7 @@
             TodayThemeKind.RevisitedBrowse => "你看过好几次的",
             TodayThemeKind.LastSeasonTop => "上一季的高分作品",
             TodayThemeKind.UnratedThisSeason => "本季还没评分的",
-            TodayThemeKind.FavoriteGenre => "你常看题材的高分作品",
+            TodayThemeKind.FavoriteGenre => "你偏爱题材的高分作品",
             TodayThemeKind.OneYearAgoSeason => "一年前的这一季",
             TodayThemeKind.Movies => "挑一部剧场版",
             TodayThemeKind.OneYearAgoToday => "一年前的今天",
@@ -46,12 +57,31 @@
             _ => "搁置最久的在看",
         };
 
-        /// <summary>只用本地记录的主题；数据不够时当天改用替补。</summary>
-        public static bool IsLocal(TodayThemeKind kind) => kind
-            is TodayThemeKind.RevisitedBrowse
-            or TodayThemeKind.UnratedThisSeason
-            or TodayThemeKind.OneYearAgoToday
-            or TodayThemeKind.Stalled;
+        public static TodayThemeSource GetSource(TodayThemeKind kind) => kind switch
+        {
+            TodayThemeKind.RevisitedBrowse
+                or TodayThemeKind.UnratedThisSeason
+                or TodayThemeKind.OneYearAgoToday
+                or TodayThemeKind.Stalled => TodayThemeSource.Personal,
+            TodayThemeKind.FavoriteGenre
+                or TodayThemeKind.SameStudio => TodayThemeSource.Mixed,
+            _ => TodayThemeSource.Bangumi,
+        };
+
+        /// <summary>面板上标注的数据来源。</summary>
+        public static string GetSourceText(TodayThemeKind kind) => GetSource(kind) switch
+        {
+            TodayThemeSource.Personal => "你的记录",
+            TodayThemeSource.Mixed => "你的记录 · Bangumi",
+            _ => "Bangumi",
+        };
+
+        /// <summary>
+        /// 依赖你的标记、评分、浏览或播放记录。这些随时会变，内容不跨加载缓存，
+        /// 回到页面时重新计算。
+        /// </summary>
+        public static bool UsesPersonalData(TodayThemeKind kind)
+            => GetSource(kind) != TodayThemeSource.Bangumi;
     }
 
     /// <summary>

@@ -646,7 +646,9 @@ public sealed partial class TodayPage : Page, INavigationAware
     {
         try
         {
-            await ViewModel.Theme.ApplyStatusAsync(item, status);
+            // 上一次还没写完时这次点击不执行，也就不必刷新。
+            if (!await ViewModel.Theme.ApplyStatusAsync(item, status))
+                return;
         }
         catch (Microsoft.Data.Sqlite.SqliteException ex)
         {

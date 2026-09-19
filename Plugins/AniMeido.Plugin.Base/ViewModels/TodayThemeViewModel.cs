@@ -127,8 +127,8 @@ namespace AniMeido.Plugin.Base.ViewModels
     {
         internal const int BatchSize = 6;
 
-        // Bangumi 主题的候选在一次运行中按“日期 + 主题”缓存：切换页面再回来不重新请求。
-        // 本地主题不缓存，评完分、看完了的作品下次加载就不再出现。
+        // 只用 Bangumi 数据的主题，候选在一次运行中按“日期 + 主题”缓存：切换页面再回来不重新请求。
+        // 依赖个人数据的主题不缓存：评了分、改了标记，下次加载就按新的记录计算。
         private static readonly object CacheGate = new();
         private static readonly Dictionary<(DateOnly Date, TodayThemeKind Kind), TodayThemeContent> ContentCache = [];
 
@@ -140,6 +140,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         private DateOnly _date;
         private TodayThemeKind _shownKind;
         private bool _loaded;
+        private bool _usesPersonalData;
 
         internal TodayThemeViewModel(
             IAnimeDataSource dataSource,
@@ -159,7 +160,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         private string _caption = "";
 
         [ObservableProperty]
-        private bool _isLocalSource;
+        private string _sourceText = "";
 
         [ObservableProperty]
         private bool _isFallback;
@@ -182,8 +183,6 @@ namespace AniMeido.Plugin.Base.ViewModels
         [ObservableProperty]
         private bool _canShowNextBatch;
 
-        public string SourceText => IsLocalSource ? "你的记录" : "Bangumi";
-
         public string StatusText => IsLoading
             ? "正在准备今天的主题…"
             : IsFailed
@@ -194,8 +193,6 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         /// <summary>这一次加载，测试用来等待它完成。</summary>
         internal Task PendingLoad { get; private set; } = Task.CompletedTask;
-
-        partial void OnIsLocalSourceChanged(bool value) => OnPropertyChanged(nameof(SourceText));
 
         partial void OnItemsChanged(ObservableCollection<TodayThemeItem> value) => RaiseStatusText();
 
@@ -209,13 +206,15 @@ namespace AniMeido.Plugin.Base.ViewModels
             OnPropertyChanged(nameof(HasStatusText));
         }
 
-        /// <summary>测试用：清空本次运行中缓存的候选。</summary>
+        /// <summary>测试用：清空本次运行中缓存的候选与题材搜索结果。</summary>
         internal static void ResetSessionCache()
         {
             lock (CacheGate)
             {
                 ContentCache.Clear();
             }
+
+            TodayThemeService.ResetSessionCache();
         }
 
         /// <summary>加载今天的主题。重复调用会取消上一次。</summary>
@@ -238,7 +237,7 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         /// <summary>
         /// 页面回到前台时调用（例如从详情页或档案馆返回，页面实例被复用）：
-        /// 被取消、还没有结果的加载重新开始；正在显示本地主题时重新读取，
+        /// 被取消、还没有结果的加载重新开始；正在显示依赖个人数据的主题时重新计算，
         /// 刚在别处评了分、改了标记的作品随之更新。失败的等用户点重试。
         /// </summary>
         public void ResumeIfNeeded()
@@ -246,7 +245,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             if (_cts is not null || IsFailed)
                 return;
 
-            if (!_loaded || IsLocalSource)
+            if (!_loaded || _usesPersonalData)
                 _ = LoadAsync();
         }
 
@@ -270,7 +269,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 Title = TodayThemeCatalog.GetTitle(kind);
                 Caption = "";
-                IsLocalSource = TodayThemeCatalog.IsLocal(kind);
+                SourceText = TodayThemeCatalog.GetSourceText(kind);
                 IsFallback = false;
             }
 
@@ -297,7 +296,8 @@ namespace AniMeido.Plugin.Base.ViewModels
                 var shownKind = kind;
                 var isFallback = false;
                 var content = await GetContentAsync(kind, context, cts.Token);
-                if (content is null)
+                // 轮到的就是替补主题时不再重复查询，直接显示它的空状态。
+                if (content is null && kind != TodayThemeCatalog.Fallback)
                 {
                     shownKind = TodayThemeCatalog.Fallback;
                     isFallback = true;
@@ -311,7 +311,8 @@ namespace AniMeido.Plugin.Base.ViewModels
                 Caption = isFallback
                     ? $"今天轮到“{TodayThemeCatalog.GetTitle(kind)}”，但暂时没有符合条件的作品"
                     : content?.Caption ?? "";
-                IsLocalSource = TodayThemeCatalog.IsLocal(shownKind);
+                SourceText = TodayThemeCatalog.GetSourceText(shownKind);
+                _usesPersonalData = TodayThemeCatalog.UsesPersonalData(shownKind);
                 IsFallback = isFallback;
 
                 _order = BuildOrder(content, context, keep);
@@ -379,12 +380,12 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         /// <summary>
         /// 执行行上的标记操作。“补番 / 关注”再点一次取消；“看完了 / 弃番”直接写入。
-        /// 写入失败时抛出，由页面提示。
+        /// 上一次还没写完时不执行，返回 false；写入失败时抛出，由页面提示。
         /// </summary>
-        public async Task ApplyStatusAsync(TodayThemeItem item, AnimeTrackingStatus status)
+        public async Task<bool> ApplyStatusAsync(TodayThemeItem item, AnimeTrackingStatus status)
         {
             if (item.IsSavingStatus)
-                return;
+                return false;
 
             item.IsSavingStatus = true;
             try
@@ -399,6 +400,8 @@ namespace AniMeido.Plugin.Base.ViewModels
                     await _tracking.SetStatusAsync(item.Anime.ID, status);
                     item.Status = status;
                 }
+
+                return true;
             }
             finally
             {
@@ -411,7 +414,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             TodayThemeContext context,
             CancellationToken ct)
         {
-            var cacheable = !TodayThemeCatalog.IsLocal(kind);
+            var cacheable = !TodayThemeCatalog.UsesPersonalData(kind);
             lock (CacheGate)
             {
                 if (cacheable && ContentCache.TryGetValue((context.Date, kind), out var cached))

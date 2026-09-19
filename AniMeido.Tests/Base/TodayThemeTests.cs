@@ -393,7 +393,7 @@ public sealed class TodayThemeTests : DbTestBase
     }
 
     [Fact]
-    public void SelectGenreSeeds_PrefersHighlyRatedFinishedWorks()
+    public void SelectGenreSeeds_UsesHighRatingsOnlyWhenThereAreAtLeastThree()
     {
         var context = new TodayThemeContext(
             Start,
@@ -401,17 +401,25 @@ public sealed class TodayThemeTests : DbTestBase
             {
                 [1] = AnimeTrackingStatus.Completed,
                 [2] = AnimeTrackingStatus.Completed,
-                [3] = AnimeTrackingStatus.Watching,
+                [3] = AnimeTrackingStatus.Completed,
+                [4] = AnimeTrackingStatus.Completed,
+                [5] = AnimeTrackingStatus.Watching,
             },
             ExcludedAnimeId: null);
 
-        Assert.Equal(
-            new[] { 2 },
-            TodayThemeService.SelectGenreSeeds(context, new Dictionary<int, double> { [1] = 6, [2] = 9, [3] = 10 }));
-        // 没有评分高的：用全部看完的。
-        Assert.Equal(
-            new[] { 1, 2 },
-            TodayThemeService.SelectGenreSeeds(context, new Dictionary<int, double>()).Order());
+        // 看完且 8 分以上的有 3 部：只用它们（5 在追番中，不算）。
+        var liked = TodayThemeService.SelectGenreSeeds(
+            context,
+            new Dictionary<int, double> { [1] = 9, [2] = 8, [3] = 10, [4] = 6, [5] = 10 });
+        Assert.True(liked.FromHighRatings);
+        Assert.Equal(new[] { 1, 2, 3 }, liked.AnimeIds.Order());
+        Assert.StartsWith("你打了 8 分以上的 3 部作品里", TodayThemeService.DescribeGenreSample(liked));
+
+        // 只有 1 部：不足 3 部，用全部看完的，说明也随之改变。
+        var recent = TodayThemeService.SelectGenreSeeds(context, new Dictionary<int, double> { [1] = 9 });
+        Assert.False(recent.FromHighRatings);
+        Assert.Equal(new[] { 1, 2, 3, 4 }, recent.AnimeIds.Order());
+        Assert.StartsWith("你最近看完的 4 部作品里", TodayThemeService.DescribeGenreSample(recent));
     }
 
     [Fact]
@@ -447,12 +455,100 @@ public sealed class TodayThemeTests : DbTestBase
         await vm.LoadForDateAsync(date);
 
         Assert.False(vm.IsFallback);
+        Assert.Equal("你的记录 · Bangumi", vm.SourceText);
         Assert.Contains("《出发作品》出自 动画工作室", vm.Caption);
         Assert.Equal(new[] { 501, 502, 503 }, vm.Items.Select(item => item.Anime.ID).Order());
     }
 
     [Fact]
-    public async Task FavoriteGenre_SearchesMostCommonGenreOfLikedWorks()
+    public async Task SameStudio_IsRecomputedAfterRatingChanges()
+    {
+        // 依赖评分的主题不跨加载缓存：去掉唯一的评分后，同一天再加载就没有出发作品了。
+        await RunProductionMigrationAsync();
+        var archive = new ArchiveService(DbFactory);
+        await archive.UpsertArchiveAsync(401, "出发作品", 9.5, string.Empty);
+        var date = DateWith(TodayThemeKind.SameStudio);
+        var vm = NewViewModel(new ThemeSource(), new TrackingService(DbFactory));
+        await vm.LoadForDateAsync(date);
+        Assert.False(vm.IsFallback);
+
+        await archive.UpsertArchiveAsync(401, "出发作品", null, string.Empty);
+        await vm.LoadForDateAsync(date);
+
+        Assert.True(vm.IsFallback);
+        Assert.Equal("上一季的高分作品", vm.Title);
+    }
+
+    [Fact]
+    public async Task FavoriteGenre_FollowsRatingChangesAndReusesSearch()
+    {
+        await RunProductionMigrationAsync();
+        var tracking = new TrackingService(DbFactory);
+        foreach (var id in new[] { 601, 602, 603, 604, 605 })
+            await tracking.SetStatusAsync(id, AnimeTrackingStatus.Completed);
+        var source = new ThemeSource();
+        var date = DateWith(TodayThemeKind.FavoriteGenre);
+        var vm = NewViewModel(source, tracking);
+
+        // 还没有评分：按最近看完的 5 部统计，奇幻 3 部、治愈 2 部。
+        await vm.LoadForDateAsync(date);
+        Assert.Equal("你偏爱题材的高分作品", vm.Title);
+        Assert.StartsWith("你最近看完的 5 部作品里，最常见的题材是“奇幻”", vm.Caption);
+        Assert.Equal(1, source.SearchCount);
+
+        // 记录没变：沿用这一天的搜索结果。
+        await vm.LoadForDateAsync(date);
+        Assert.Equal(1, source.SearchCount);
+
+        // 给 3 部打了高分：改按高分作品统计，治愈 2 部、奇幻 1 部。
+        var archive = new ArchiveService(DbFactory);
+        foreach (var id in new[] { 601, 602, 603 })
+            await archive.UpsertArchiveAsync(id, $"作品{id}", 9, string.Empty);
+        await vm.LoadForDateAsync(date);
+
+        Assert.StartsWith("你打了 8 分以上的 3 部作品里，最常见的题材是“治愈”", vm.Caption);
+        Assert.Equal("治愈", source.LastTag);
+        Assert.Equal(2, source.SearchCount);
+    }
+
+    [Fact]
+    public async Task EmptyFallbackTheme_IsQueriedOnceAndNotMarkedAsFallback()
+    {
+        // 轮到的就是替补主题“上一季的高分作品”，它又没有内容时，不再查第二遍，也不标“替补”。
+        await RunProductionMigrationAsync();
+        var source = new ThemeSource { EmptySeasons = true };
+        var date = DateWith(TodayThemeKind.LastSeasonTop);
+        var vm = NewViewModel(source, new TrackingService(DbFactory));
+
+        await vm.LoadForDateAsync(date);
+
+        Assert.False(vm.IsFallback);
+        Assert.Equal("上一季的高分作品", vm.Title);
+        Assert.Empty(vm.Items);
+        Assert.True(vm.HasStatusText);
+        Assert.Equal(1, source.SeasonRequests);
+    }
+
+    [Fact]
+    public async Task ApplyStatus_DoesNothingWhileAWriteIsInProgress()
+    {
+        await RunProductionMigrationAsync();
+        var date = DateWith(TodayThemeKind.LastSeasonTop);
+        var vm = NewViewModel(new ThemeSource(), new TrackingService(DbFactory));
+        await vm.LoadForDateAsync(date);
+        var item = vm.Items[0];
+
+        item.IsSavingStatus = true;
+        Assert.False(await vm.ApplyStatusAsync(item, AnimeTrackingStatus.PlanToWatch));
+        Assert.Equal(AnimeTrackingStatus.None, item.Status);
+
+        item.IsSavingStatus = false;
+        Assert.True(await vm.ApplyStatusAsync(item, AnimeTrackingStatus.PlanToWatch));
+        Assert.Equal(AnimeTrackingStatus.PlanToWatch, item.Status);
+    }
+
+    [Fact]
+    public async Task FavoriteGenre_UsesRecentWorksWhenFewerThanThreeAreHighlyRated()
     {
         await RunProductionMigrationAsync();
         var tracking = new TrackingService(DbFactory);
@@ -466,7 +562,7 @@ public sealed class TodayThemeTests : DbTestBase
 
         Assert.False(vm.IsFallback);
         Assert.Equal("治愈", source.LastTag);
-        Assert.Contains("“治愈”", vm.Caption);
+        Assert.StartsWith("你最近看完的 1 部作品里，最常见的题材是“治愈”", vm.Caption);
         Assert.NotEmpty(vm.Items);
     }
 
@@ -502,15 +598,37 @@ public sealed class TodayThemeTests : DbTestBase
 
     private sealed class ThemeSource : IAnimeDataSource
     {
+        // 601 的标签里“治愈”是题材，“漫画改”是来源。
+        private static readonly Dictionary<int, string[]> TagsById = new()
+        {
+            [601] = ["漫画改", "治愈", "2024年4月"],
+            [602] = ["治愈"],
+            [603] = ["奇幻"],
+            [604] = ["奇幻"],
+            [605] = ["奇幻"],
+        };
+
         public bool Fails { get; init; }
+
+        /// <summary>每一季都没有作品。</summary>
+        public bool EmptySeasons { get; init; }
+
+        public int SeasonRequests { get; private set; }
+
+        public int SearchCount { get; private set; }
 
         private static T Unexpected<T>() => throw new NotSupportedException("Unexpected data-source request.");
 
         // 每一季 20 部带评分的作品。
         public Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct)
-            => Fails
+        {
+            SeasonRequests++;
+            return Fails
                 ? Task.FromException<List<Anime>>(new HttpRequestException("offline"))
-                : Task.FromResult(Enumerable.Range(101, 20).Select(id => Item(id, 6.0 + (id - 100) * 0.1)).ToList());
+                : Task.FromResult(EmptySeasons
+                    ? new List<Anime>()
+                    : Enumerable.Range(101, 20).Select(id => Item(id, 6.0 + (id - 100) * 0.1)).ToList());
+        }
 
         public string? LastTag { get; private set; }
 
@@ -518,15 +636,15 @@ public sealed class TodayThemeTests : DbTestBase
             string? airDateFrom = null, string? airDateTo = null)
         {
             LastTag = tag;
+            SearchCount++;
             return Fails
                 ? Task.FromException<(List<Anime>, int)>(new HttpRequestException("offline"))
                 : Task.FromResult((Enumerable.Range(201, 10).Select(id => Item(id, 8.0, AnimeMediaFormat.Movie)).ToList(), 10));
         }
 
-        // 601 的标签里“治愈”是题材，“漫画改”是来源。
         public Task<List<Tag>> GetTagsAsync(int animeID, CancellationToken ct)
-            => Task.FromResult(animeID == 601
-                ? new List<Tag> { new("漫画改"), new("治愈"), new("2024年4月") }
+            => Task.FromResult(TagsById.TryGetValue(animeID, out var tags)
+                ? tags.Select(name => new Tag(name)).ToList()
                 : new List<Tag>());
 
         // 401 的公司里，出版社排在前面，动画工作室在后面。

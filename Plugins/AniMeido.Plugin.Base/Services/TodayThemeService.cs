@@ -43,6 +43,11 @@ namespace AniMeido.Plugin.Base.Services
         string Meta,
         string Note = "");
 
+    /// <summary>统计偏爱题材用的作品。</summary>
+    /// <param name="AnimeIds">作品。</param>
+    /// <param name="FromHighRatings">来自你打了高分的作品；为 false 时是最近看完的作品。</param>
+    internal sealed record TodayGenreSample(IReadOnlyList<int> AnimeIds, bool FromHighRatings);
+
     /// <summary>一个主题的全部候选。</summary>
     /// <param name="Caption">标题下方说明这批作品是怎么来的。</param>
     /// <param name="Candidates">候选，换一批时在其中翻页。</param>
@@ -75,8 +80,10 @@ namespace AniMeido.Plugin.Base.Services
         internal const int StalledDays = 30;
         // “一年前的今天”取前后这么多天。
         internal const int OneYearAgoWindowDays = 7;
-        // “你常看题材”最多从这么多部看完的作品里统计标签。
+        // “你偏爱的题材”最多从这么多部看完的作品里统计标签。
         internal const int GenreSeedCount = 20;
+        // 打了高分的作品至少这么多部，才只按它们统计；否则用最近看完的作品。
+        internal const int MinHighRatedSeeds = 3;
         // “同一家制作公司”从评分最高的这么多部里按日期挑一部出发。
         internal const int StudioSeedCount = 5;
         // 每部出发作品最多看它的前几家公司，找出负责动画制作的那一家。
@@ -84,10 +91,24 @@ namespace AniMeido.Plugin.Base.Services
         // 个人评分达到这个分数才算“评分高”。
         internal const double HighRating = 8;
 
-        // 统计常看题材时不算改编来源：几乎每部作品都有，统计出来没有意义。
+        // 统计偏爱的题材时不算改编来源：几乎每部作品都有，统计出来没有意义。
         private static readonly HashSet<string> GenreCatalog = new(
             RecommendationTagCatalog.Tags.Where(tag => tag is not ("原创" or "漫画改" or "小说改")),
             StringComparer.OrdinalIgnoreCase);
+
+        // 按标签搜索没有接口缓存：一次运行中按“日期 + 题材”记住结果。
+        // 评分变了、偏爱的题材随之改变时才重新搜索。
+        private static readonly object GenreSearchGate = new();
+        private static readonly Dictionary<(DateOnly Date, string Genre), IReadOnlyList<Anime>> GenreSearchCache = [];
+
+        /// <summary>测试用：清空本次运行中记住的题材搜索结果。</summary>
+        internal static void ResetSessionCache()
+        {
+            lock (GenreSearchGate)
+            {
+                GenreSearchCache.Clear();
+            }
+        }
 
         public async Task<TodayThemeContent?> BuildAsync(
             TodayThemeKind kind,
@@ -375,14 +396,14 @@ namespace AniMeido.Plugin.Base.Services
             CancellationToken ct)
         {
             var ratings = RatingsById(await archive.GetArchiveListAsync(ct));
-            var seeds = SelectGenreSeeds(context, ratings);
-            if (seeds.Count == 0)
+            var sample = SelectGenreSeeds(context, ratings);
+            if (sample.AnimeIds.Count == 0)
                 return null;
 
             // 标签有 7 天缓存；单部失败只少统计这一部。
             var tagLists = new ConcurrentBag<IReadOnlyList<string>>();
             await Parallel.ForEachAsync(
-                seeds,
+                sample.AnimeIds,
                 new ParallelOptions { CancellationToken = ct, MaxDegreeOfParallelism = 4 },
                 async (animeId, token) =>
                 {
@@ -406,21 +427,47 @@ namespace AniMeido.Plugin.Base.Services
             if (PickFavoriteGenre(tagLists) is not { } genre)
                 return null;
 
-            var (items, _) = await dataSource.SearchByTagAsync(genre, 0, "rank", ct);
-            var ranked = RankUnmarked(items, context);
+            var ranked = RankUnmarked(await SearchGenreAsync(genre, context.Date, ct), context);
             return ranked.Count == 0
                 ? null
                 : new TodayThemeContent(
-                    $"你看完的作品里最常见的题材是“{genre}” · 你还没标记的高分作品",
+                    $"{DescribeGenreSample(sample)}，最常见的题材是“{genre}” · 你还没标记的高分作品",
                     ranked.Select(anime => new TodayThemeCandidate(anime, BuildMeta(anime))).ToList(),
                     TodayThemeRowKind.Mark);
         }
 
+        /// <summary>说明这个题材是从哪些作品里统计出来的。</summary>
+        internal static string DescribeGenreSample(TodayGenreSample sample)
+            => sample.FromHighRatings
+                ? $"你打了 {HighRating:0} 分以上的 {sample.AnimeIds.Count} 部作品里"
+                : $"你最近看完的 {sample.AnimeIds.Count} 部作品里";
+
+        private async Task<IReadOnlyList<Anime>> SearchGenreAsync(
+            string genre,
+            DateOnly date,
+            CancellationToken ct)
+        {
+            lock (GenreSearchGate)
+            {
+                if (GenreSearchCache.TryGetValue((date, genre), out var cached))
+                    return cached;
+            }
+
+            var (items, _) = await dataSource.SearchByTagAsync(genre, 0, "rank", ct);
+            lock (GenreSearchGate)
+            {
+                GenreSearchCache[(date, genre)] = items;
+            }
+
+            return items;
+        }
+
         /// <summary>
-        /// 统计题材用的作品：看完的作品里个人评分达到 <see cref="HighRating"/> 的；
-        /// 一部都没有时用全部看完的。最近看完的在前，最多 <see cref="GenreSeedCount"/> 部。
+        /// 统计偏爱题材用的作品：看完的作品里个人评分达到 <see cref="HighRating"/> 的至少有
+        /// <see cref="MinHighRatedSeeds"/> 部时只用它们；不够时用最近看完的作品，
+        /// 避免一两部作品就决定了题材。最近看完的在前，最多 <see cref="GenreSeedCount"/> 部。
         /// </summary>
-        internal static IReadOnlyList<int> SelectGenreSeeds(
+        internal static TodayGenreSample SelectGenreSeeds(
             TodayThemeContext context,
             IReadOnlyDictionary<int, double> ratings)
         {
@@ -429,11 +476,14 @@ namespace AniMeido.Plugin.Base.Services
                 .Select(pair => pair.Key)
                 .ToList();
             var liked = completed.Where(id => ratings.GetValueOrDefault(id) >= HighRating).ToList();
-            return (liked.Count > 0 ? liked : completed)
-                .OrderByDescending(id => context.UpdatedAt.GetValueOrDefault(id))
-                .ThenBy(id => id)
-                .Take(GenreSeedCount)
-                .ToList();
+            var fromHighRatings = liked.Count >= MinHighRatedSeeds;
+            return new TodayGenreSample(
+                (fromHighRatings ? liked : completed)
+                    .OrderByDescending(id => context.UpdatedAt.GetValueOrDefault(id))
+                    .ThenBy(id => id)
+                    .Take(GenreSeedCount)
+                    .ToList(),
+                fromHighRatings);
         }
 
         /// <summary>
