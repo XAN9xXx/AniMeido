@@ -450,14 +450,17 @@ public sealed class TodayThemeTests : DbTestBase
         await RunProductionMigrationAsync();
         await new ArchiveService(DbFactory).UpsertArchiveAsync(401, "出发作品", 9.5, string.Empty);
         var date = DateWith(TodayThemeKind.SameStudio);
-        var vm = NewViewModel(new ThemeSource(), new TrackingService(DbFactory));
+        var source = new ThemeSource();
+        var vm = NewViewModel(source, new TrackingService(DbFactory));
 
         await vm.LoadForDateAsync(date);
 
         Assert.False(vm.IsFallback);
         Assert.Equal("你的记录 · Bangumi", vm.SourceText);
         Assert.Contains("《出发作品》出自 动画工作室", vm.Caption);
-        Assert.Equal(new[] { 501, 502, 503 }, vm.Items.Select(item => item.Anime.ID).Order());
+        // 带评分的直接用，按评分排列；只有没带评分的 503 去查了一次详情。
+        Assert.Equal(new[] { 502, 501, 503 }, vm.Items.Select(item => item.Anime.ID));
+        Assert.Equal(1, source.DetailRequests);
     }
 
     [Fact]
@@ -659,9 +662,10 @@ public sealed class TodayThemeTests : DbTestBase
                 900 => new List<PersonWork> { new(401, "出发作品", "原作"), new(599, "别的书", "原作") },
                 901 => new List<PersonWork>
                 {
-                    new(401, "出发作品", "动画制作"),
-                    new(501, "作品501", "动画制作"),
-                    new(502, "作品502", "动画制作"),
+                    new(401, "出发作品", "动画制作", null, 9.5),
+                    new(501, "作品501", "动画制作", null, 7.5),
+                    new(502, "作品502", "动画制作", null, 8.9),
+                    // 在线接口不带评分，这一部要单独查详情。
                     new(503, "作品503", "动画制作"),
                     new(504, "作品504", "製作"),
                 },
@@ -669,8 +673,13 @@ public sealed class TodayThemeTests : DbTestBase
             });
 
         public Task<List<Anime>> GetCurrentBroadcastScheduleAsync(CancellationToken ct) => Unexpected<Task<List<Anime>>>();
+        public int DetailRequests { get; private set; }
+
         public Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct)
-            => Task.FromResult<Anime?>(Item(animeID, 7.0));
+        {
+            DetailRequests++;
+            return Task.FromResult<Anime?>(Item(animeID, 7.0));
+        }
         public Task<List<VoiceActor>> GetCVsAsync(int animeID, CancellationToken ct) => Unexpected<Task<List<VoiceActor>>>();
         public Task<List<CharacterRole>> GetCharacterRolesAsync(int animeID, CancellationToken ct) => Unexpected<Task<List<CharacterRole>>>();
         public Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct)

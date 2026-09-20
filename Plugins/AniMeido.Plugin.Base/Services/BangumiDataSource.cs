@@ -356,6 +356,19 @@ namespace AniMeido.Plugin.Base.Services
         };
 
         // 将DTO SubjectResponse映射为Anime的辅助方法
+        /// <summary>
+        /// 人物作品：本地 Archive 会带上评分与日期，在线接口没有，这两项保持为 null，
+        /// 由调用方决定是否再查详情。
+        /// </summary>
+        private static PersonWork MapFromRelatedSubject(RelatedSubjectResponse item)
+            => new(
+                item.Id,
+                ResolveTitle(item.NameCn, item.Name),
+                item.Staff,
+                ResolveImageUrl(item.Image),
+                item.Rating?.Score is > 0 ? item.Rating.Score : null,
+                DateTime.TryParse(item.Date, out var date) ? DateOnly.FromDateTime(date) : null);
+
         private static Anime MapFromSubject(SubjectResponse item, int? year = null, int? seasonMonth = null)
         {
             DateOnly? parsedDate = DateTime.TryParse(item.Date, out var dt) ? DateOnly.FromDateTime(dt) : null;
@@ -711,7 +724,7 @@ namespace AniMeido.Plugin.Base.Services
                     if (result is null) return new List<PersonWork>();
                     return result
                         .Where(s => s.Type == 2) // 仅动画
-                        .Select(s => new PersonWork(s.Id, ResolveTitle(s.NameCn, s.Name), s.Staff, ResolveImageUrl(s.Image)))
+                        .Select(MapFromRelatedSubject)
                         .ToList();
                 },
                 ct) ?? [];

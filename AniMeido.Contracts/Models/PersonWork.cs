@@ -7,5 +7,13 @@
     /// <param name="Title">作品标题。</param>
     /// <param name="Staff">该人物在此作品中的职责（如"配音"、"原作"）。</param>
     /// <param name="CoverURL">作品封面 URL。</param>
-    public record PersonWork(int ID, string Title, string? Staff, string? CoverURL = null);
+    /// <param name="Score">作品评分（0-10）；数据源没有提供时为 null。</param>
+    /// <param name="AirDate">作品的放送日期；数据源没有提供时为 null。</param>
+    public record PersonWork(
+        int ID,
+        string Title,
+        string? Staff,
+        string? CoverURL = null,
+        double? Score = null,
+        DateOnly? AirDate = null);
 }

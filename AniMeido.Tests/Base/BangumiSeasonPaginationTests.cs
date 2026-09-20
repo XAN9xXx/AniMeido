@@ -1,4 +1,4 @@
-using AniMeido.Contracts.Models;
+﻿using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -23,7 +23,8 @@ public sealed class BangumiSeasonPaginationTests : DbTestBase
         };
         var apiClient = new BangumiApiClient(
             new StubHttpClientFactory(client),
-            NullLogger<BangumiApiClient>.Instance);
+            NullLogger<BangumiApiClient>.Instance,
+            new FreshArchive());
         var dataSource = new BangumiDataSource(
             NullLogger<BangumiDataSource>.Instance,
             apiClient,
@@ -153,6 +154,14 @@ public sealed class BangumiSeasonPaginationTests : DbTestBase
         Assert.NotNull(data);
         using var document = JsonDocument.Parse(data);
         return document.RootElement.GetArrayLength();
+    }
+
+    /// <summary>这些用例不测新鲜度判断，固定为“数据新鲜”，避免额外的健康检查请求。</summary>
+    private sealed class FreshArchive : IArchiveFreshness
+    {
+        public bool PreferFallback => false;
+
+        public Task EnsureCheckedAsync(CancellationToken ct) => Task.CompletedTask;
     }
 
     private sealed class StubHttpClientFactory(HttpClient client)

@@ -534,11 +534,16 @@ namespace AniMeido.Plugin.Base.Services
                     if (picked.Count == 0)
                         break;
 
-                    var anime = await ResolveAsync(picked.Select(work => (work.ID, (string?)work.Title)).ToList(), ct);
+                    // 本地 Archive 的人物作品已带评分，不必再查详情；
+                    // 走在线接口时没有评分，只补缺的那几部。
+                    var missing = picked.Where(work => work.Score is null).ToList();
+                    var resolved = missing.Count == 0
+                        ? new Dictionary<int, Anime>()
+                        : await ResolveAsync(missing.Select(work => (work.ID, (string?)work.Title)).ToList(), ct);
                     return new TodayThemeContent(
                         $"你打了 {seed.PersonalRating!.Value.ToString("0.#", CultureInfo.InvariantCulture)} 分的《{seed.TitleSnapshot}》出自 {studio.Name} · 你还没标记的",
                         picked
-                            .Select(work => anime[work.ID])
+                            .Select(work => resolved.GetValueOrDefault(work.ID) ?? FromPersonWork(work))
                             .OrderByDescending(item => item.Score ?? 0)
                             .Select(item => new TodayThemeCandidate(item, BuildMeta(item)))
                             .ToList(),
@@ -549,6 +554,20 @@ namespace AniMeido.Plugin.Base.Services
 
             return null;
         }
+
+        /// <summary>人物作品已带评分时直接用它，不再查详情；形态未知，说明只显示年份。</summary>
+        internal static Anime FromPersonWork(PersonWork work)
+            => new(
+                work.ID,
+                work.Title,
+                null,
+                [],
+                work.AirDate,
+                work.CoverURL,
+                string.Empty,
+                work.AirDate?.Year ?? 0,
+                work.AirDate is { } date ? SeasonHelper.ToMonth(SeasonHelper.FromMonth(date.Month)) : 0,
+                Score: work.Score);
 
         internal static bool IsAnimationProduction(string? staff)
             => staff?.Contains("动画制作", StringComparison.Ordinal) == true;

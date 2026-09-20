@@ -1,4 +1,4 @@
-namespace AniMeido.Plugin.Base.Models.Bangumi
+﻿namespace AniMeido.Plugin.Base.Models.Bangumi
 {
     /// <summary>
     /// 人物参与的作品条目信息（GET /v0/persons/{id}/subjects 返回）。
@@ -10,5 +10,16 @@ namespace AniMeido.Plugin.Base.Models.Bangumi
     /// <param name="Staff">该人物在此作品中的职责。</param>
     /// <param name="Eps">参与章节。</param>
     /// <param name="Image">条目封面图片 URL。</param>
-    internal record RelatedSubjectResponse(int Id, string Name, string? NameCn, int Type, string? Staff, string? Eps, string? Image);
+    /// <param name="Rating">评分；本地 Archive 提供，在线接口没有这一项。</param>
+    /// <param name="Date">放送日期；本地 Archive 提供，在线接口没有这一项。</param>
+    internal record RelatedSubjectResponse(
+        int Id,
+        string Name,
+        string? NameCn,
+        int Type,
+        string? Staff,
+        string? Eps,
+        string? Image,
+        SubjectRating? Rating = null,
+        string? Date = null);
 }
