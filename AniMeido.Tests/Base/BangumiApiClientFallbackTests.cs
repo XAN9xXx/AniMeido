@@ -1,4 +1,4 @@
-using AniMeido.Plugin.Base.Services;
+﻿using AniMeido.Plugin.Base.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Net;
@@ -122,9 +122,17 @@ public sealed class BangumiApiClientFallbackTests
         Assert.Equal([BangumiApiClient.ArchiveClientName], factory.CreatedClientNames);
     }
 
+    /// <summary>这些用例只检查降级顺序，用固定“数据新鲜”的判断，避免每次请求都发健康检查。</summary>
     private static BangumiApiClient CreateClient(IHttpClientFactory factory)
     {
-        return new BangumiApiClient(factory, NullLogger<BangumiApiClient>.Instance);
+        return new BangumiApiClient(factory, NullLogger<BangumiApiClient>.Instance, new FreshArchive());
+    }
+
+    private sealed class FreshArchive : IArchiveFreshness
+    {
+        public bool PreferFallback => false;
+
+        public Task EnsureCheckedAsync(CancellationToken ct) => Task.CompletedTask;
     }
 
     private static NamedHttpClientFactory CreateFactory(
