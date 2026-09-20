@@ -1,4 +1,5 @@
-﻿using AniMeido.Plugin.Base.Services;
+﻿using AniMeido.Plugin.Base.Exceptions;
+using AniMeido.Plugin.Base.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Net;
@@ -120,6 +121,37 @@ public sealed class BangumiApiClientFallbackTests
 
         Assert.Equal(0, fallbackRequests);
         Assert.Equal([BangumiApiClient.ArchiveClientName], factory.CreatedClientNames);
+    }
+
+    [Fact]
+    public async Task RouteCounts_RecordWhichSourceAnsweredEachRequest()
+    {
+        var archiveFails = false;
+        var factory = CreateFactory(
+            (_, _) => archiveFails
+                ? Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable))
+                : Task.FromResult(JsonResponse("{\"value\":\"archive\"}")),
+            (_, _) => archiveFails
+                ? Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadGateway))
+                : Task.FromResult(JsonResponse("{\"value\":\"fallback\"}")));
+        var client = CreateClient(factory);
+
+        await client.GetJsonAsync<TestPayload>("/v0/subjects/1", CancellationToken.None);
+        Assert.Equal(new BangumiRouteCounts(1, 0, 0), client.RouteCounts);
+
+        // Archive 失败、代理成功。
+        var fallbackOnly = CreateFactory(
+            (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)),
+            (_, _) => Task.FromResult(JsonResponse("{\"value\":\"fallback\"}")));
+        var fallbackClient = CreateClient(fallbackOnly);
+        await fallbackClient.GetJsonAsync<TestPayload>("/v0/subjects/1", CancellationToken.None);
+        Assert.Equal(new BangumiRouteCounts(0, 1, 0), fallbackClient.RouteCounts);
+
+        // 两边都失败。
+        archiveFails = true;
+        await Assert.ThrowsAsync<BangumiApiException>(
+            () => client.GetJsonAsync<TestPayload>("/v0/subjects/1", CancellationToken.None));
+        Assert.Equal(new BangumiRouteCounts(1, 0, 1), client.RouteCounts);
     }
 
     /// <summary>这些用例只检查降级顺序，用固定“数据新鲜”的判断，避免每次请求都发健康检查。</summary>

@@ -5,6 +5,12 @@ using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.Services
 {
+    /// <summary>本次运行中各数据来源的结果计数，用于排查。</summary>
+    /// <param name="Archive">由本地 Archive 返回。</param>
+    /// <param name="Fallback">由在线代理返回。</param>
+    /// <param name="Failed">两个来源都失败。</param>
+    public sealed record BangumiRouteCounts(long Archive, long Fallback, long Failed);
+
     /// <summary>
     /// 按顺序访问本地 Archive 与在线 Bangumi API，并解析 JSON 响应。
     /// Archive 数据过旧时顺序反过来：先在线 API，Archive 退为备用。
@@ -36,6 +42,11 @@ namespace AniMeido.Plugin.Base.Services
         private readonly IHttpClientFactory _httpFactory;
         private readonly ILogger<BangumiApiClient> _logger;
         private readonly IArchiveFreshness _freshness;
+        private long _archiveCount;
+        private long _fallbackCount;
+        private long _failedCount;
+        // 最近一次成功的来源，换了来源时记一条日志，不必每条请求都记。
+        private string _lastServedBy = "";
 
         public BangumiApiClient(
             IHttpClientFactory httpFactory,
@@ -53,6 +64,12 @@ namespace AniMeido.Plugin.Base.Services
             _logger = logger;
             _freshness = freshness;
         }
+
+        /// <summary>本次运行中由各来源返回的次数，排查时用。</summary>
+        public BangumiRouteCounts RouteCounts => new(
+            Interlocked.Read(ref _archiveCount),
+            Interlocked.Read(ref _fallbackCount),
+            Interlocked.Read(ref _failedCount));
 
         /// <summary>
         /// 获取并解析 JSON。Archive 请求异常或返回无效响应时自动访问在线 API。
@@ -81,6 +98,21 @@ namespace AniMeido.Plugin.Base.Services
                 ct);
         }
 
+        /// <summary>记下这次由哪个来源返回；来源发生变化时记一条日志。</summary>
+        private void RecordServed(string clientName, string url)
+        {
+            if (clientName == ArchiveClientName)
+                Interlocked.Increment(ref _archiveCount);
+            else
+                Interlocked.Increment(ref _fallbackCount);
+
+            _logger.LogDebug("Bangumi request to {Client} succeeded for {Url}", clientName, url);
+            if (Interlocked.Exchange(ref _lastServedBy, clientName) == clientName)
+                return;
+
+            _logger.LogInformation("Bangumi requests are now served by {Client}", clientName);
+        }
+
         private async Task<T?> SendJsonAsync<T>(
             string url,
             Func<HttpRequestMessage> createRequest,
@@ -107,7 +139,9 @@ namespace AniMeido.Plugin.Base.Services
                     response.EnsureSuccessStatusCode();
 
                     var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                    return JsonSerializer.Deserialize<T>(json, JsonOptions);
+                    var value = JsonSerializer.Deserialize<T>(json, JsonOptions);
+                    RecordServed(clientName, url);
+                    return value;
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
@@ -132,6 +166,7 @@ namespace AniMeido.Plugin.Base.Services
                 break;
             }
 
+            Interlocked.Increment(ref _failedCount);
             _logger.LogError(
                 lastFailure,
                 "Bangumi Archive and online API requests both failed for {Url}",
