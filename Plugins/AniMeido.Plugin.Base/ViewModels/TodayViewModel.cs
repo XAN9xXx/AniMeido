@@ -111,6 +111,13 @@ public partial class TodayViewModel : ObservableObject
     public bool HasBrowsed => RecentBrowsed.Count > 0;
     public bool HasNotification => !string.IsNullOrWhiteSpace(NotificationMessage);
     public string PlanCountText => $"{Plans.Count} 部 · 按计划日期排列";
+    public bool HasOverflowPlans => OverflowPlans.Count > 0;
+    public string PlanStackHint => $"还有 {OverflowPlans.Count} 项";
+    public bool HasMultipleOverflowPlans => OverflowPlans.Count > 1;
+    public bool HasThirdStackCard => OverflowPlans.Count > 2;
+    public string FirstStackTitle => OverflowPlans.ElementAtOrDefault(0)?.Title ?? "";
+    public string SecondStackTitle => OverflowPlans.ElementAtOrDefault(1)?.Title ?? "";
+    public string ThirdStackTitle => OverflowPlans.ElementAtOrDefault(2)?.Title ?? "";
 
     partial void OnPersonalBroadcastsChanged(ObservableCollection<TodayAnimeEntry> value)
     {
@@ -124,6 +131,16 @@ public partial class TodayViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(HasNoPlans));
         OnPropertyChanged(nameof(PlanCountText));
+        var (visible, overflow) = SplitPlans(Plans);
+        VisiblePlans = new(visible);
+        OverflowPlans = new(overflow);
+        OnPropertyChanged(nameof(HasOverflowPlans));
+        OnPropertyChanged(nameof(HasMultipleOverflowPlans));
+        OnPropertyChanged(nameof(PlanStackHint));
+        OnPropertyChanged(nameof(HasThirdStackCard));
+        OnPropertyChanged(nameof(FirstStackTitle));
+        OnPropertyChanged(nameof(SecondStackTitle));
+        OnPropertyChanged(nameof(ThirdStackTitle));
     }
     partial void OnRecentActivityChanged(ObservableCollection<TodayAnimeEntry> value) => OnPropertyChanged(nameof(HasNoRecentActivity));
     partial void OnContinueWatchingChanged(ObservableCollection<TodayAnimeEntry> value) => OnPropertyChanged(nameof(HasUnstarted));
@@ -145,6 +162,12 @@ public partial class TodayViewModel : ObservableObject
 
     [ObservableProperty]
     private ObservableCollection<TodayPlanEntry> _plans = [];
+
+    [ObservableProperty]
+    private ObservableCollection<TodayPlanEntry> _visiblePlans = [];
+
+    [ObservableProperty]
+    private ObservableCollection<TodayPlanEntry> _overflowPlans = [];
 
     [ObservableProperty]
     private ObservableCollection<TodayAnimeEntry> _recentActivity = [];
@@ -182,6 +205,13 @@ public partial class TodayViewModel : ObservableObject
 
     /// <summary>今日主题：单独加载，慢或失败都不影响今天页其他部分。</summary>
     public TodayThemeViewModel Theme { get; }
+
+    internal const int VisiblePlanLimit = 3;
+
+    // 只切分视图，不轮换、不复制条目，也不改变原计划顺序。
+    internal static (IReadOnlyList<TodayPlanEntry> Visible, IReadOnlyList<TodayPlanEntry> Overflow)
+        SplitPlans(IReadOnlyList<TodayPlanEntry> plans)
+        => (plans.Take(VisiblePlanLimit).ToArray(), plans.Skip(VisiblePlanLimit).ToArray());
 
     public string TodayLabel => DateTime.Today.ToString(
         "M月d日 dddd",

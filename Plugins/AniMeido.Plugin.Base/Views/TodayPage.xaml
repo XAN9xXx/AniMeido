@@ -3,6 +3,7 @@
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:vm="using:AniMeido.Plugin.Base.ViewModels"
+      xmlns:views="using:AniMeido.Plugin.Base.Views"
       Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
     <Page.Resources>
         <Style x:Key="TodaySectionCardStyle" TargetType="Border" BasedOn="{StaticResource AniMeidoContentCardStyle}">
@@ -30,13 +31,6 @@
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
         </Style>
-        <Style x:Key="TodayPlanItemStyle" TargetType="ListViewItem">
-            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="Margin" Value="0"/>
-            <Setter Property="MinHeight" Value="0"/>
-        </Style>
-
         <!-- 今天的个人相关放送：封面、标题、个人状态与放送星期；日历接口不提供简介 -->
         <DataTemplate x:Key="BroadcastEntryTemplate" x:DataType="vm:TodayAnimeEntry">
             <Button Tag="{x:Bind Anime}" Click="OnAnimeButtonClick" Style="{StaticResource TodayTileButtonStyle}" Height="104">
@@ -110,11 +104,11 @@
              宽行的按钮在行尾，行按钮右侧留出按钮区；紧凑行的按钮在底部，行按钮下方留出按钮区。 -->
         <DataTemplate x:Key="PlanRowWideTemplate" x:DataType="vm:TodayPlanEntry">
             <StackPanel Spacing="8" Padding="0,0,0,8">
-                <TextBlock Text="{x:Bind GroupHeader}" Visibility="{x:Bind HasGroupHeader}" FontWeight="SemiBold" Margin="2,6,0,0" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 <Grid>
-                    <Button Tag="{x:Bind}" Click="OnPlanDetailsClick" Style="{StaticResource TodayTileButtonStyle}" Padding="10,10,290,10" AutomationProperties.Name="{x:Bind Title}">
+                    <Border CornerRadius="8" Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}" IsHitTestVisible="False"/>
+                    <Button Tag="{x:Bind}" Click="OnPlanDetailsClick" Style="{StaticResource TodayTileButtonStyle}" Padding="8,8,254,8" AutomationProperties.Name="{x:Bind Title}">
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
-                                <Border Width="44" Height="62" CornerRadius="6" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}">
+                                <Border Width="36" Height="50" CornerRadius="6" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}">
                                     <Image DataContext="{x:Bind Anime}" Stretch="UniformToFill" Loaded="OnCoverLoaded" DataContextChanged="OnCoverDataContextChanged" Unloaded="OnCoverUnloaded"/>
                                 </Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="6">
@@ -125,14 +119,14 @@
                         </Grid>
                     </Button>
                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0">
-                            <Button Content="开始补番" Tag="{x:Bind}" Click="OnStartPlanClick" Style="{StaticResource AccentButtonStyle}"/>
-                            <Button Tag="{x:Bind}" Click="OnEditPlanClick">
+                            <Button Content="开始补番" Padding="10,4" FontSize="12" Tag="{x:Bind}" Click="OnStartPlanClick" Style="{StaticResource AccentButtonStyle}"/>
+                            <Button Tag="{x:Bind}" Click="OnEditPlanClick" Padding="8,4" FontSize="12">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <FontIcon Glyph="&#xE70F;" FontSize="13"/>
                                     <TextBlock Text="编辑"/>
                                 </StackPanel>
                             </Button>
-                            <DropDownButton>
+                            <DropDownButton Padding="8,4" FontSize="12">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <FontIcon Glyph="&#xEA8F;" FontSize="13"/>
                                     <TextBlock Text="提醒"/>
@@ -151,29 +145,29 @@
 
         <DataTemplate x:Key="PlanRowCompactTemplate" x:DataType="vm:TodayPlanEntry">
             <StackPanel Spacing="8" Padding="0,0,0,8">
-                <TextBlock Text="{x:Bind GroupHeader}" Visibility="{x:Bind HasGroupHeader}" FontWeight="SemiBold" Margin="2,6,0,0" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                <Grid>
-                    <Button Tag="{x:Bind}" Click="OnPlanDetailsClick" Style="{StaticResource TodayTileButtonStyle}" Padding="10,10,10,52" VerticalContentAlignment="Top" AutomationProperties.Name="{x:Bind Title}">
-                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
-                                <Border Width="44" Height="62" CornerRadius="6" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}">
-                                    <Image DataContext="{x:Bind Anime}" Stretch="UniformToFill" Loaded="OnCoverLoaded" DataContextChanged="OnCoverDataContextChanged" Unloaded="OnCoverUnloaded"/>
-                                </Border>
-                                <StackPanel Grid.Column="1" VerticalAlignment="Top" Spacing="6">
+                <Grid MinHeight="82">
+                    <Border CornerRadius="8" Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}" IsHitTestVisible="False"/>
+                    <Button Tag="{x:Bind}" Click="OnPlanDetailsClick" Style="{StaticResource TodayTileButtonStyle}" Padding="56,8,8,42" VerticalContentAlignment="Top" AutomationProperties.Name="{x:Bind Title}">
+                        <Grid>
+                                <StackPanel VerticalAlignment="Top" Spacing="6">
                                     <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" MaxLines="1" TextTrimming="CharacterEllipsis"/>
                                     <TextBlock Text="{x:Bind Meta}" Visibility="{x:Bind HasNormalMeta}" Style="{StaticResource TodayCaptionStyle}" MaxLines="1" TextTrimming="CharacterEllipsis"/>
                                     <TextBlock Text="{x:Bind Meta}" Visibility="{x:Bind HasOverdueMeta}" FontSize="12" MaxLines="1" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
                                 </StackPanel>
                         </Grid>
                     </Button>
-                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,10,10">
-                            <Button Content="开始补番" Tag="{x:Bind}" Click="OnStartPlanClick" Style="{StaticResource AccentButtonStyle}"/>
-                            <Button Tag="{x:Bind}" Click="OnEditPlanClick">
+                    <Border IsHitTestVisible="False" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="10,0,0,0" Width="36" Height="50" CornerRadius="6" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}">
+                            <Image DataContext="{x:Bind Anime}" Stretch="UniformToFill" Loaded="OnCoverLoaded" DataContextChanged="OnCoverDataContextChanged" Unloaded="OnCoverUnloaded"/>
+                    </Border>
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,8,6">
+                            <Button Content="开始补番" Padding="10,4" FontSize="12" Tag="{x:Bind}" Click="OnStartPlanClick" Style="{StaticResource AccentButtonStyle}"/>
+                            <Button Tag="{x:Bind}" Click="OnEditPlanClick" Padding="8,4" FontSize="12">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <FontIcon Glyph="&#xE70F;" FontSize="13"/>
                                     <TextBlock Text="编辑"/>
                                 </StackPanel>
                             </Button>
-                            <DropDownButton>
+                            <DropDownButton Padding="8,4" FontSize="12">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <FontIcon Glyph="&#xEA8F;" FontSize="13"/>
                                     <TextBlock Text="提醒"/>
@@ -261,7 +255,7 @@
     </Page.Resources>
 
     <Grid Padding="24,20,24,24">
-        <ScrollViewer VerticalScrollBarVisibility="Hidden" VerticalScrollMode="Enabled" HorizontalScrollBarVisibility="Disabled">
+        <ScrollViewer ViewChanged="OnPageScrollChanged" VerticalScrollBarVisibility="Hidden" VerticalScrollMode="Enabled" HorizontalScrollBarVisibility="Disabled">
             <StackPanel x:Name="ContentPanel" Spacing="16" SizeChanged="OnContentSizeChanged">
                 <!-- 页头与消息条放在无间距容器里：消息条关闭时折叠，不再留出空白 -->
                 <StackPanel>
@@ -335,7 +329,7 @@
                             <ItemsControl ItemsSource="{x:Bind ViewModel.ContinueWatching, Mode=OneWay}" ItemTemplate="{StaticResource PlaybackEntryTemplate}"/>
                         </StackPanel>
                     </Border>
-                    <Border x:Name="ThemeCard" Grid.Row="1" Style="{StaticResource TodaySectionCardStyle}" VerticalAlignment="Top">
+                    <Border x:Name="ThemeCard" Grid.Row="1" Style="{StaticResource TodaySectionCardStyle}" VerticalAlignment="Stretch">
                         <StackPanel Spacing="12">
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                                 <StackPanel Spacing="2">
@@ -373,30 +367,37 @@
                             <TextBlock Text="{x:Bind ViewModel.Theme.NextThemeText, Mode=OneWay}" Style="{StaticResource TodayCaptionStyle}"/>
                         </StackPanel>
                     </Border>
-                    <Border x:Name="PlanCard" Grid.Column="1" Style="{StaticResource TodaySectionCardStyle}" VerticalAlignment="Top">
-                        <StackPanel Spacing="12">
-                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-                                <TextBlock Text="补番计划" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                                <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.PlanCountText, Mode=OneWay}" Style="{StaticResource TodayCaptionStyle}" VerticalAlignment="Center" MaxLines="1" TextTrimming="CharacterEllipsis"/>
+                    <!-- 前三项直接显示；其余由底部卡包展开。与今日主题共用一行，自动等高。 -->
+                    <Grid x:Name="PlanCard" Grid.Column="1" VerticalAlignment="Stretch">
+                        <Border x:Name="PlanSurface" Style="{StaticResource TodaySectionCardStyle}" TabFocusNavigation="Cycle" KeyDown="OnPlanStackKeyDown">
+                            <Grid RowDefinitions="Auto,*,Auto" RowSpacing="12">
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                    <TextBlock Text="补番计划" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                    <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.PlanCountText, Mode=OneWay}" Style="{StaticResource TodayCaptionStyle}" VerticalAlignment="Center" MaxLines="1" TextTrimming="CharacterEllipsis"/>
+                                </Grid>
+                                <ScrollViewer x:Name="PlanScroll" Grid.Row="1" VerticalScrollBarVisibility="Hidden"
+                                              HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled"
+                                              VerticalScrollMode="Disabled" ZoomMode="Disabled">
+                                    <StackPanel>
+                                        <TextBlock Text="暂无待开始的补番计划。" Visibility="{x:Bind ViewModel.HasNoPlans, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        <ItemsControl x:Name="VisiblePlanList" ItemsSource="{x:Bind ViewModel.Plans, Mode=OneWay}"
+                                                      ItemTemplate="{StaticResource PlanRowCompactTemplate}" SizeChanged="OnVisiblePlanListSizeChanged">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><views:TodayPlanStackPanel Loaded="OnPlanPanelLoaded" Tapped="OnPlanDeckTapped" Background="Transparent" IsTabStop="True" KeyDown="OnPlanDeckKeyDown"/></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </ScrollViewer>
+                                <StackPanel x:Name="PlanFooter" Grid.Row="2" Spacing="8">
+                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" Visibility="{x:Bind ViewModel.HasNotification, Mode=OneWay}">
+                                        <FontIcon Glyph="&#xE946;" FontSize="14" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.NotificationMessage, Mode=OneWay}" Style="{StaticResource TodayCaptionStyle}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                        <HyperlinkButton Grid.Column="2" Content="通知设置" Click="OnNotificationSettingsClick" Padding="4,2" FontSize="12"/>
+                                    </Grid>
+                                </StackPanel>
                             </Grid>
-                            <TextBlock Text="暂无待开始的补番计划。" Visibility="{x:Bind ViewModel.HasNoPlans, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <!-- 行模板由 code-behind 按宽度在宽/紧凑之间切换 -->
-                            <ListView x:Name="PlanList" MaxHeight="620" ItemsSource="{x:Bind ViewModel.Plans, Mode=OneWay}" ItemTemplate="{StaticResource PlanRowWideTemplate}"
-                                      ItemContainerStyle="{StaticResource TodayPlanItemStyle}" SelectionMode="None"
-                                      ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollMode="Enabled">
-                                <ListView.Resources>
-                                    <!-- 行本身已是浅底面板，不再叠加列表项的悬停与按下底色 -->
-                                    <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent"/>
-                                    <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent"/>
-                                </ListView.Resources>
-                            </ListView>
-                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" Visibility="{x:Bind ViewModel.HasNotification, Mode=OneWay}">
-                                <FontIcon Glyph="&#xE946;" FontSize="14" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.NotificationMessage, Mode=OneWay}" Style="{StaticResource TodayCaptionStyle}" TextWrapping="Wrap" VerticalAlignment="Center"/>
-                                <HyperlinkButton Grid.Column="2" Content="通知设置" Click="OnNotificationSettingsClick" Padding="4,2" FontSize="12"/>
-                            </Grid>
-                        </StackPanel>
-                    </Border>
+                        </Border>
+                    </Grid>
                 </Grid>
 
                 <Border Style="{StaticResource TodaySectionCardStyle}">
@@ -420,5 +421,8 @@
                 </Border>
             </StackPanel>
         </ScrollViewer>
+        <!-- 展开时迁入同一个 PlanSurface；没有第二套列表或卡片。 -->
+        <Popup x:Name="PlanStackPopup" IsLightDismissEnabled="True" ShouldConstrainToRootBounds="False"
+               Opened="OnPlanStackOpened" Closed="OnPlanStackClosed"/>
     </Grid>
 </Page>

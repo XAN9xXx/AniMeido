@@ -20,8 +20,6 @@ public sealed partial class TodayPage : Page, INavigationAware
     private const double ActivitySideBySideWidth = 1000;
     // 左右栏之间、上下排列时各块之间的间距。
     private const double ActivitySpacing = 16;
-    // 补番计划独占整行时，低于这个宽度也改用紧凑行。
-    private const double WidePlanRowWidth = 640;
     // 页面上最大的封面宽度，封面按它解码。
     private const double CoverDecodeWidth = 60;
     private readonly ActionCenterService _actionCenter;
@@ -70,6 +68,12 @@ public sealed partial class TodayPage : Page, INavigationAware
                 ErrorInfoBar.IsOpen =
                     !string.IsNullOrWhiteSpace(ViewModel.ErrorMessage);
             }
+            else if (args.PropertyName == nameof(TodayViewModel.Plans)
+                || (args.PropertyName == nameof(TodayViewModel.HasOverflowPlans)
+                    && !ViewModel.HasOverflowPlans))
+            {
+                PlanStackPopup.IsOpen = false;
+            }
             else if (args.PropertyName
                 == nameof(TodayViewModel.IsPlaybackAvailable))
             {
@@ -111,6 +115,7 @@ public sealed partial class TodayPage : Page, INavigationAware
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        PlanStackPopup.IsOpen = false;
         _loadCancellation?.Cancel();
         _loadCancellation?.Dispose();
         _loadCancellation = null;
@@ -143,7 +148,15 @@ public sealed partial class TodayPage : Page, INavigationAware
             && ViewModel.Plans.FirstOrDefault(
                 item => item.Plan.AnimeId == animeId) is { } entry)
         {
-            PlanList.ScrollIntoView(entry);
+            if (ViewModel.OverflowPlans.Contains(entry))
+            {
+                OpenPlanStack();
+                DispatcherQueue.TryEnqueue(() => ScrollToPlan(entry));
+            }
+            else
+            {
+                PlanCard.StartBringIntoView();
+            }
         }
     }
 
@@ -179,14 +192,15 @@ public sealed partial class TodayPage : Page, INavigationAware
 
     private void OnContentSizeChanged(object sender, SizeChangedEventArgs e)
     {
+        PlanStackPopup.IsOpen = false;
         _contentWidth = e.NewSize.Width;
         ApplyLayout();
     }
 
     /// <summary>
     /// 按内容宽度调整布局：本周条带宽时在今日放送右侧、窄时移到下方。
-    /// 宽度足够时左栏是最近观看（播放器可用时）和今日主题，右栏是补番计划；
-    /// 窄时从上到下依次排列。补番计划并排或整行过窄时，操作按钮换到标题下方。
+    /// 宽度足够时左栏是最近观看（播放器可用时）和今日主题，右栏是补番计划，
+    /// 窄时从上到下依次排列，计划区始终保留三项完整卡片。
     /// </summary>
     private void ApplyLayout()
     {
@@ -200,38 +214,24 @@ public sealed partial class TodayPage : Page, INavigationAware
             ? new Thickness(0)
             : new Thickness(0, 16, 0, 0);
 
-        var hasPlayback = ViewModel.IsPlaybackAvailable;
         var sideBySide = _contentWidth >= ActivitySideBySideWidth;
-        var themeRow = hasPlayback ? 1 : 0;
-        PlaceActivity(PlaybackCard, row: 0, column: 0, sideBySide, rowSpan: 1);
-        PlaceActivity(ThemeCard, themeRow, column: 0, sideBySide, rowSpan: 1);
-        if (sideBySide)
-            PlaceActivity(PlanCard, row: 0, column: 1, sideBySide, rowSpan: themeRow + 1);
-        else
-            PlaceActivity(PlanCard, themeRow + 1, column: 0, sideBySide, rowSpan: 1);
-
-        var wideRows = !sideBySide && _contentWidth >= WidePlanRowWidth;
-        var template = (DataTemplate)Resources[
-            wideRows ? "PlanRowWideTemplate" : "PlanRowCompactTemplate"];
-        if (!ReferenceEquals(PlanList.ItemTemplate, template))
-        {
-            PlanList.ItemTemplate = template;
-        }
+        var themeRow = ViewModel.IsPlaybackAvailable ? 1 : 0;
+        Grid.SetColumnSpan(PlaybackCard, sideBySide ? 1 : 2);
+        Grid.SetRow(ThemeCard, themeRow);
+        Grid.SetColumnSpan(ThemeCard, sideBySide ? 1 : 2);
+        ThemeCard.Margin = new Thickness(0, themeRow > 0 ? ActivitySpacing : 0, 0, 0);
+        Grid.SetRow(PlanCard, sideBySide ? themeRow : themeRow + 1);
+        Grid.SetColumn(PlanCard, sideBySide ? 1 : 0);
+        Grid.SetColumnSpan(PlanCard, sideBySide ? 1 : 2);
+        PlanCard.Margin = new Thickness(0, sideBySide && themeRow == 0 ? 0 : ActivitySpacing, 0, 0);
     }
-
-    /// <summary>并排时各占一栏；上下排列时占满整行。行间距用上边距表示，空行不留间距。</summary>
-    private static void PlaceActivity(
-        FrameworkElement card,
-        int row,
-        int column,
-        bool sideBySide,
-        int rowSpan)
+    private void OnVisiblePlanListSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        Grid.SetRow(card, row);
-        Grid.SetRowSpan(card, rowSpan);
-        Grid.SetColumn(card, column);
-        Grid.SetColumnSpan(card, sideBySide ? 1 : 2);
-        card.Margin = new Thickness(0, row > 0 ? ActivitySpacing : 0, 0, 0);
+        // 窄栏把按钮放到标题下面，避免挤掉封面和标题。
+        var template = (DataTemplate)Resources[
+            e.NewSize.Width >= 480 ? "PlanRowWideTemplate" : "PlanRowCompactTemplate"];
+        if (!ReferenceEquals(VisiblePlanList.ItemTemplate, template))
+            VisiblePlanList.ItemTemplate = template;
     }
 
     private void OnAnimeButtonClick(object sender, RoutedEventArgs e)
@@ -246,6 +246,7 @@ public sealed partial class TodayPage : Page, INavigationAware
     {
         if (TryGetPlan(sender, out var entry))
         {
+            PlanStackPopup.IsOpen = false;
             _navigator.Navigate(typeof(AnimeDetailPage), entry.Plan.AnimeId);
         }
     }
@@ -380,6 +381,7 @@ public sealed partial class TodayPage : Page, INavigationAware
 
     private async void OnEditPlanClick(object sender, RoutedEventArgs e)
     {
+        PlanStackPopup.IsOpen = false;
         if (!TryGetPlan(sender, out var entry))
         {
             return;
@@ -462,6 +464,7 @@ public sealed partial class TodayPage : Page, INavigationAware
         object sender,
         RoutedEventArgs e)
     {
+        PlanStackPopup.IsOpen = false;
         if (!TryGetPlan(sender, out var entry))
         {
             return;
@@ -555,6 +558,7 @@ public sealed partial class TodayPage : Page, INavigationAware
         object sender,
         RoutedEventArgs e)
     {
+        PlanStackPopup.IsOpen = false;
         if (!TryGetPlan(sender, out var entry))
         {
             return;
