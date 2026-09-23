@@ -385,11 +385,14 @@ public partial class TodayViewModel : ObservableObject
             return;
         }
 
-        var loadVersion = _loadVersion;
+        // 与整页加载共用版本：重叠的刷新以最后一次为准，先开始、后完成的一次不再写回。
+        var loadVersion = Interlocked.Increment(ref _loadVersion);
         bool IsCurrent() => loadVersion == _loadVersion && !cancellationToken.IsCancellationRequested;
         try
         {
             var trackingRows = await _tracking.GetAllTrackingAsync();
+            // 刚标成补番的作品还没有计划记录，与整页加载一样先补建，再读取计划。
+            await EnsureMissingPlansAsync(trackingRows, _seasonal, cancellationToken);
             var plans = await _actionCenter.GetPlansAsync(cancellationToken: cancellationToken);
             var reminders = await _actionCenter.GetRemindersAsync(
                 state: PlanReminderState.Pending,

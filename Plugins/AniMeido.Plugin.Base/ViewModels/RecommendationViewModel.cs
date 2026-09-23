@@ -79,8 +79,9 @@ public partial class RecommendationViewModel : ObservableObject
         _loadGeneration++;
         _refreshGeneration++;
         _tagRequests.Clear();
-        // 加载被打断时画像可能还没读完，不能用它覆盖已保存的画像。
-        if (!interrupted)
+        // 画像还没读出过时不能用初始的空画像覆盖已保存的画像；读出之后即使刷新被打断也要写回，
+        // 返回后的快速恢复只从 _browse.Profile 取画像。
+        if (_profileLoaded)
             _browse.Profile = Profile.ToArray();
         IsBusy = false;
         IsRefreshing = false;
@@ -226,12 +227,16 @@ public partial class RecommendationViewModel : ObservableObject
     private int _refreshGeneration;
     private int _onboardingTagOffset;
     private bool _resumeNeedsReload;
+    private bool _profileLoaded;
 
     [ObservableProperty]
     private ObservableCollection<RecommendationItem> _items = [];
 
     [ObservableProperty]
     private ObservableCollection<RecommendationFeatureProfile> _profile = [];
+
+    // 字段初始值只是空占位；被真实画像赋值过之后，离开页面时才写回浏览状态。
+    partial void OnProfileChanged(ObservableCollection<RecommendationFeatureProfile> value) => _profileLoaded = true;
 
     [ObservableProperty]
     private ObservableCollection<RecommendationHiddenAnime> _hiddenAnime = [];
