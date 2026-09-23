@@ -76,6 +76,17 @@ public sealed partial class ArchivePage : Page, INavigationAware
     private void OnArchiveCoverLoaded(object sender, RoutedEventArgs e)
         => _ = ConfigureArchiveCoverAsync(sender as Image);
 
+    private void OnReviewCoverLoaded(object sender, RoutedEventArgs e)
+        => _ = ConfigureArchiveCoverAsync(sender as Image, 200);
+
+    private void OnReviewCoverDataContextChanged(
+        FrameworkElement sender,
+        DataContextChangedEventArgs args)
+    {
+        _ = args;
+        _ = ConfigureArchiveCoverAsync(sender as Image, 200);
+    }
+
     private void OnArchiveCoverDataContextChanged(
         FrameworkElement sender,
         DataContextChangedEventArgs args)
@@ -84,37 +95,47 @@ public sealed partial class ArchivePage : Page, INavigationAware
         _ = ConfigureArchiveCoverAsync(sender as Image);
     }
 
-    private async Task ConfigureArchiveCoverAsync(Image? image)
+    private async Task ConfigureArchiveCoverAsync(
+        Image? image,
+        int decodeWidth = 56)
     {
-        if (image?.DataContext is not ArchiveListItem item
-            || _pageLifetime is null)
+        var animeId = image?.DataContext switch
+        {
+            ArchiveListItem item => item.Archive.AnimeId,
+            AnnualReviewMoment moment => moment.AnimeId,
+            _ => (int?)null,
+        };
+        if (image is null || animeId is null || _pageLifetime is null)
         {
             if (image is not null)
                 ManagedImageLoader.Cancel(image);
             return;
         }
 
-        var animeId = item.Archive.AnimeId;
         var cancellationToken = _pageLifetime.Token;
         ManagedImageLoader.Cancel(image);
         try
         {
-            if (!_coverRequests.TryGetValue(animeId, out var request))
+            if (!_coverRequests.TryGetValue(animeId.Value, out var request))
             {
-                request = FetchArchiveCoverAsync(animeId, cancellationToken);
-                _coverRequests.Add(animeId, request);
+                request = FetchArchiveCoverAsync(animeId.Value, cancellationToken);
+                _coverRequests.Add(animeId.Value, request);
             }
 
             var anime = await request;
             if (!cancellationToken.IsCancellationRequested
-                && image.DataContext is ArchiveListItem current
-                && current.Archive.AnimeId == animeId)
+                && (image.DataContext switch
+                {
+                    ArchiveListItem current => current.Archive.AnimeId == animeId,
+                    AnnualReviewMoment current => current.AnimeId == animeId,
+                    _ => false,
+                }))
             {
                 ManagedImageLoader.ConfigureCover(
                     image,
-                    animeId,
+                    animeId.Value,
                     anime?.CoverURL,
-                    56);
+                    decodeWidth);
             }
         }
         catch (OperationCanceledException)
@@ -125,7 +146,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
             or IOException or InvalidOperationException
             or TaskCanceledException or JsonException)
         {
-            _coverRequests.Remove(animeId);
+            _coverRequests.Remove(animeId.Value);
             ManagedImageLoader.Cancel(image);
         }
     }
@@ -320,15 +341,29 @@ public sealed partial class ArchivePage : Page, INavigationAware
                 var year = double.IsNaN(ReviewYear.Value)
                     ? DateTime.Now.Year
                     : (int)ReviewYear.Value;
-                var review = await _archive.GetStatisticsAsync(
-                    year,
+                var reviewTask = _archive.GetStatisticsAsync(
+                    year, cancellationToken);
+                var reviewArchivesTask = _archive.GetArchiveListAsync(
                     cancellationToken);
+                var momentsTask = _archive.GetReviewMomentsAsync(
+                    year, cancellationToken: cancellationToken);
+                var reviewScreenshotsTask = _archive.GetScreenshotsAsync(
+                    cancellationToken: cancellationToken,
+                    year: year);
+                await Task.WhenAll(
+                    reviewTask, reviewArchivesTask, momentsTask,
+                    reviewScreenshotsTask);
                 if (IsPanelResultCurrent(
                         panel,
                         generation,
                         cancellationToken))
                 {
-                    ReviewText.Text = FormatStatistics(review);
+                    RenderReview(
+                        year,
+                        await reviewTask,
+                        await reviewArchivesTask,
+                        await momentsTask,
+                        await reviewScreenshotsTask);
                 }
                 break;
             case ArchivePanelKind.Screenshots:
@@ -467,28 +502,50 @@ public sealed partial class ArchivePage : Page, INavigationAware
         StatisticsStatusChangesText.Text = $"{statistics.TrackingChangeCount} 次";
     }
 
-    private static string FormatStatistics(ArchiveStatistics statistics)
+    private void RenderReview(
+        int year,
+        ArchiveStatistics statistics,
+        IReadOnlyList<ArchiveListItem> archives,
+        IReadOnlyList<AnnualReviewMoment> moments,
+        IReadOnlyList<AnimeScreenshot> screenshots)
     {
-        var started = statistics.RecordingStartedAt?.ToLocalTime()
-            .ToString("yyyy-MM-dd", CultureInfo.CurrentCulture)
-            ?? "尚无记录";
-        var tags = statistics.TagCounts.Count == 0
-            ? "暂无"
-            : string.Join(
-                "、",
-                statistics.TagCounts.Take(8)
-                    .Select(item => $"{item.Key}（{item.Value}）"));
-        return $"""
-            统计起点：{started}
-            档案：{statistics.ArchiveCount}
-            已评分：{statistics.RatedCount}
-            感想：{statistics.EntryCount}
-            截图：{statistics.ScreenshotCount}
-            状态变化：{statistics.TrackingChangeCount}
-            完成集数：{statistics.CompletedEpisodeCount}
-            估算观看时长：{statistics.EstimatedWatchMinutes} 分钟
-            常用个人标签：{tags}
-            """;
+        ReviewHeroYear.Text = year.ToString(CultureInfo.CurrentCulture);
+        ReviewYearState.Text = year switch
+        {
+            var selected when selected < DateTime.Now.Year => "这一年已结束",
+            var selected when selected > DateTime.Now.Year => "这一年尚未开始",
+            _ => $"截至 {DateTime.Now:M月d日} · 本年度尚未结束",
+        };
+        ReviewRecordingStart.Text = statistics.RecordingStartedAt is { } started
+            ? $"记录起点：{started.ToLocalTime():yyyy/MM/dd}"
+            : "记录起点：暂无";
+        ReviewArchiveCount.Text = $"{statistics.ArchiveCount} 部";
+        ReviewEntryCount.Text = $"{statistics.EntryCount} 条";
+        ReviewScreenshotCount.Text = $"{statistics.ScreenshotCount} 张";
+        var minutes = Math.Max(0, statistics.EstimatedWatchMinutes);
+        ReviewWatchDuration.Text = $"{minutes / 60} 小时 {minutes % 60} 分钟";
+
+        var covers = archives
+            .Where(item => item.Archive.CreatedAt.ToLocalTime().Year == year)
+            .OrderByDescending(item => item.Archive.CreatedAt)
+            .Take(3)
+            .ToArray();
+        ReviewCovers.ItemsSource = covers;
+        ReviewCoversEmpty.Visibility = covers.Length == 0
+            ? Visibility.Visible : Visibility.Collapsed;
+        ReviewMoments.ItemsSource = moments;
+        ReviewMomentsEmpty.Visibility = moments.Count == 0
+            ? Visibility.Visible : Visibility.Collapsed;
+
+        var images = screenshots
+            .Where(item => item.FileExists
+                && item.CapturedAt.ToLocalTime().Year == year)
+            .Take(2)
+            .ToArray();
+        ReviewScreenshots.ItemsSource = images;
+        ReviewScreenshotsEmpty.Visibility = images.Length == 0
+            ? Visibility.Visible : Visibility.Collapsed;
+        ApplyPlaybackAvailability();
     }
 
     private void ApplyArchiveFilter()
@@ -1257,7 +1314,33 @@ public sealed partial class ArchivePage : Page, INavigationAware
             return;
         }
 
+        if (double.IsNaN(ReviewYear.Value))
+            return;
+
         await RefreshPanelsAsync(ArchivePanelKind.Review);
+    }
+
+    private void OnReviewPreviousYearClick(object sender, RoutedEventArgs e)
+    {
+        var year = double.IsNaN(ReviewYear.Value)
+            ? DateTime.Now.Year : (int)ReviewYear.Value;
+        ReviewYear.Value = Math.Max(2000, year - 1);
+    }
+
+    private void OnReviewNextYearClick(object sender, RoutedEventArgs e)
+    {
+        var year = double.IsNaN(ReviewYear.Value)
+            ? DateTime.Now.Year : (int)ReviewYear.Value;
+        ReviewYear.Value = Math.Min(2100, year + 1);
+    }
+
+    private async void OnReviewMoreScreenshotsClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        ScreenshotYearFilter.Value = ReviewYear.Value;
+        ShowPanel("screenshots");
+        await EnsureActivePanelAsync();
     }
 
     private void OnPageLoaded(object sender, RoutedEventArgs e)
@@ -1325,6 +1408,17 @@ public sealed partial class ArchivePage : Page, INavigationAware
         StatisticsWatchCard.Visibility = available
             ? Visibility.Visible : Visibility.Collapsed;
         Grid.SetColumnSpan(StatisticsTagsCard, available ? 1 : 2);
+        ReviewScreenshotsCard.Visibility = available
+            ? Visibility.Visible : Visibility.Collapsed;
+        Grid.SetColumnSpan(ReviewMomentsCard, available ? 1 : 2);
+        ReviewScreenshotStat.Visibility = available
+            ? Visibility.Visible : Visibility.Collapsed;
+        ReviewWatchStat.Visibility = available
+            ? Visibility.Visible : Visibility.Collapsed;
+        var statWidth = available
+            ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        ReviewStatsGrid.ColumnDefinitions[2].Width = statWidth;
+        ReviewStatsGrid.ColumnDefinitions[3].Width = statWidth;
         ArchiveTimelineTitle.Text = available
             ? "观看时间线" : "档案时间线";
         AddManualWatchButton.Visibility = available
@@ -1346,17 +1440,23 @@ public sealed partial class ArchivePage : Page, INavigationAware
         object sender,
         RoutedEventArgs e)
     {
-        var year = (int)ReviewYear.Value;
+        var year = double.IsNaN(ReviewYear.Value)
+            ? DateTime.Now.Year : (int)ReviewYear.Value;
         var statistics = await _archive.GetStatisticsAsync(year);
-        var screenshots = (await _archive.GetScreenshotsAsync())
-            .Where(item => item.FileExists
-                && item.CapturedAt.ToLocalTime().Year == year)
-            .Take(12)
-            .ToArray();
+        var moments = await _archive.GetReviewMomentsAsync(year, 8);
+        var playbackAvailable = _playbackLauncher.IsAvailable;
+        var screenshots = playbackAvailable
+            ? (await _archive.GetScreenshotsAsync(year: year))
+                .Where(item => item.FileExists)
+                .Take(12)
+                .ToArray()
+            : [];
         var html = await BuildReviewHtmlAsync(
             year,
             statistics,
-            screenshots);
+            moments,
+            screenshots,
+            playbackAvailable);
         var picker = new FileSavePicker
         {
             SuggestedFileName = $"AniMeido-{year}-年度回顾",
@@ -1643,45 +1743,71 @@ public sealed partial class ArchivePage : Page, INavigationAware
     private static async Task<string> BuildReviewHtmlAsync(
         int year,
         ArchiveStatistics statistics,
-        IReadOnlyList<AnimeScreenshot> screenshots)
+        IReadOnlyList<AnnualReviewMoment> moments,
+        IReadOnlyList<AnimeScreenshot> screenshots,
+        bool playbackAvailable)
     {
         var title = WebUtility.HtmlEncode($"{year} 年 AniMeido 年度回顾");
         var tags = WebUtility.HtmlEncode(string.Join(
             "、",
             statistics.TagCounts.Take(8).Select(item => item.Key)));
+        var momentCards = new StringBuilder();
+        foreach (var moment in moments)
+        {
+            var date = WebUtility.HtmlEncode(moment.DateText);
+            var anime = WebUtility.HtmlEncode(moment.AnimeTitle);
+            var body = WebUtility.HtmlEncode(moment.Entry.Body);
+            momentCards.Append(
+                $"<article class=\"moment\"><small>{date} · {anime}</small><p>{body}</p></article>");
+        }
         var images = new StringBuilder();
         foreach (var screenshot in screenshots)
         {
-            var bytes = await File.ReadAllBytesAsync(
-                screenshot.FilePath);
-            var caption = WebUtility.HtmlEncode(
-                screenshot.ContextNote);
-            images.Append(
-                $"<figure><img src=\"data:image/png;base64,{Convert.ToBase64String(bytes)}\" alt=\"截图\"><figcaption>{caption}</figcaption></figure>");
+            try
+            {
+                var bytes = await File.ReadAllBytesAsync(screenshot.FilePath);
+                var caption = WebUtility.HtmlEncode(
+                    screenshot.ContextNote.Length > 0
+                        ? screenshot.ContextNote
+                        : screenshot.AnimeTitle ?? "截图");
+                images.Append(
+                    $"<figure><img src=\"data:image/png;base64,{Convert.ToBase64String(bytes)}\" alt=\"截图\"><figcaption>{caption}</figcaption></figure>");
+            }
+            catch (IOException)
+            {
+                // A screenshot can disappear after it was listed.
+            }
         }
+        var duration = $"{statistics.EstimatedWatchMinutes / 60} 小时 {statistics.EstimatedWatchMinutes % 60} 分钟";
+        var playbackCards = playbackAvailable
+            ? $"<div class=\"card\"><strong>{statistics.ScreenshotCount}</strong><small>截图记录</small></div>"
+                + $"<div class=\"card\"><strong>{duration}</strong><small>估算观看时长</small></div>"
+            : string.Empty;
+        var gallery = playbackAvailable
+            ? $"<h2>镜头里的回忆</h2><div class=\"gallery\">{images}</div>"
+            : string.Empty;
         return $$"""
             <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
             <title>{{title}}</title><style>
             body{font-family:"Segoe UI","Microsoft YaHei",sans-serif;
-            max-width:900px;margin:48px auto;padding:0 24px;color:#24243a}
-            .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-            .card{background:#f1f0fa;border-radius:12px;padding:20px}
-            .gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+            max-width:960px;margin:48px auto;padding:0 24px;
+            color:#f2f5f9;background:#202225;line-height:1.6}
+            h1{font-size:2.5rem;color:#91ccf5}h2{margin-top:36px}
+            .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+            .card,.moment,figure{background:#303338;border-radius:12px;padding:20px}
+            .gallery{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
             figure{margin:0}img{width:100%;aspect-ratio:16/9;object-fit:cover;
-            border-radius:8px}figcaption{font-size:.8rem;color:#68677b}
-            strong{font-size:2rem;display:block}small{color:#68677b}
+            border-radius:8px}figcaption,small{color:#c8d3dc}
+            strong{font-size:2rem;color:#91ccf5;display:block}
+            .moment{margin-bottom:10px}.moment p{white-space:pre-wrap;margin-bottom:0}
             </style></head><body><h1>{{title}}</h1>
-            <p>仅统计 AniMeido 中真实保存的播放器事件与手工补录。</p>
             <div class="cards">
-            <div class="card"><strong>{{statistics.ArchiveCount}}</strong><small>动画档案</small></div>
-            <div class="card"><strong>{{statistics.CompletedEpisodeCount}}</strong><small>完成集数</small></div>
-            <div class="card"><strong>{{statistics.EstimatedWatchMinutes}}</strong><small>估算观看分钟</small></div>
-            <div class="card"><strong>{{statistics.EntryCount}}</strong><small>观看感想</small></div>
-            <div class="card"><strong>{{statistics.ScreenshotCount}}</strong><small>截图</small></div>
-            <div class="card"><strong>{{statistics.RatedCount}}</strong><small>已评分档案</small></div>
-            <div class="card"><strong>{{statistics.TrackingChangeCount}}</strong><small>状态变化</small></div>
-            </div><h2>常用标签</h2><p>{{tags}}</p>
-            <h2>年度截图</h2><div class="gallery">{{images}}</div></body></html>
+            <div class="card"><strong>{{statistics.ArchiveCount}}</strong><small>新增档案</small></div>
+            <div class="card"><strong>{{statistics.EntryCount}}</strong><small>写下感想</small></div>
+            {{playbackCards}}
+            </div><h2>这一年留下的片段</h2>{{momentCards}}
+            {{gallery}}
+            <h2>年度新增档案的个人标签</h2><p>{{tags}}</p></body></html>
             """;
     }
 

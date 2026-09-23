@@ -396,6 +396,48 @@ public sealed class ArchiveService
         return entries;
     }
 
+    public async Task<IReadOnlyList<AnnualReviewMoment>> GetReviewMomentsAsync(
+        int year,
+        int limit = 3,
+        CancellationToken cancellationToken = default)
+    {
+        var (start, end) = LocalYearRangeUtc(year);
+        await using var connection = await _dbFactory.OpenAsync(
+            cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT e.EntryId, e.AnimeId, e.OccurredAt, e.EpisodeNumber,
+                   e.Body, e.CreatedAt, e.UpdatedAt, a.TitleSnapshot
+            FROM archive_entries e
+            LEFT JOIN anime_archives a ON a.AnimeId = e.AnimeId
+            WHERE e.OccurredAt >= @start AND e.OccurredAt < @end
+            ORDER BY e.OccurredAt DESC
+            LIMIT @limit
+            """;
+        command.Parameters.AddWithValue("@start", start);
+        command.Parameters.AddWithValue("@end", end);
+        command.Parameters.AddWithValue("@limit", limit);
+        var moments = new List<AnnualReviewMoment>();
+        await using var reader = await command.ExecuteReaderAsync(
+            cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var entry = new ArchiveEntry(
+                reader.GetString(0),
+                reader.GetInt32(1),
+                ParseTimestamp(reader.GetString(2)),
+                reader.IsDBNull(3) ? null : reader.GetInt32(3),
+                reader.GetString(4),
+                ParseTimestamp(reader.GetString(5)),
+                ParseTimestamp(reader.GetString(6)));
+            moments.Add(new AnnualReviewMoment(
+                entry,
+                reader.IsDBNull(7) ? $"作品 #{entry.AnimeId}" : reader.GetString(7)));
+        }
+
+        return moments;
+    }
+
     public async Task UpdateEntryAsync(
         string entryId,
         DateTimeOffset occurredAt,
@@ -593,8 +635,11 @@ public sealed class ArchiveService
 
     public async Task<IReadOnlyList<AnimeScreenshot>> GetScreenshotsAsync(
         int? animeId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int? year = null)
     {
+        var bounds = year is null ? (Start: (string?)null, End: (string?)null)
+            : LocalYearRangeUtc(year.Value);
         await using var connection = await _dbFactory.OpenAsync(
             cancellationToken);
         await using var command = connection.CreateCommand();
@@ -603,12 +648,20 @@ public sealed class ArchiveService
                    ProcessName, Width, Height, AnimeId, AnimeTitle,
                    EpisodeNumber, PlaybackPositionSeconds, ContextNote
             FROM screenshots
-            WHERE @animeId IS NULL OR AnimeId = @animeId
+            WHERE (@animeId IS NULL OR AnimeId = @animeId)
+              AND (@start IS NULL OR
+                   (CapturedAt >= @start AND CapturedAt < @end))
             ORDER BY CapturedAt DESC
             """;
         command.Parameters.AddWithValue(
             "@animeId",
             animeId is null ? DBNull.Value : animeId.Value);
+        command.Parameters.AddWithValue(
+            "@start",
+            bounds.Start is null ? DBNull.Value : bounds.Start);
+        command.Parameters.AddWithValue(
+            "@end",
+            bounds.End is null ? DBNull.Value : bounds.End);
         var items = new List<AnimeScreenshot>();
         await using var reader = await command.ExecuteReaderAsync(
             cancellationToken);
@@ -1031,10 +1084,8 @@ public sealed class ArchiveService
     {
         await using var connection = await _dbFactory.OpenAsync(
             cancellationToken);
-        DateTimeOffset? start = year is null
-            ? null
-            : new DateTimeOffset(year.Value, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        var end = start?.AddYears(1);
+        var bounds = year is null ? (Start: (string?)null, End: (string?)null)
+            : LocalYearRangeUtc(year.Value);
         static string DateFilter(string column) =>
             $"(@start IS NULL OR ({column} >= @start AND {column} < @end))";
 
@@ -1076,10 +1127,10 @@ public sealed class ArchiveService
             """;
         summaryCommand.Parameters.AddWithValue(
             "@start",
-            start is null ? DBNull.Value : start.Value.ToString("O"));
+            bounds.Start is null ? DBNull.Value : bounds.Start);
         summaryCommand.Parameters.AddWithValue(
             "@end",
-            end is null ? DBNull.Value : end.Value.ToString("O"));
+            bounds.End is null ? DBNull.Value : bounds.End);
         await using var summaryReader = await summaryCommand.ExecuteReaderAsync(
             cancellationToken);
         await summaryReader.ReadAsync(cancellationToken);
@@ -1134,10 +1185,10 @@ public sealed class ArchiveService
             """;
         tagCommand.Parameters.AddWithValue(
             "@start",
-            start is null ? DBNull.Value : start.Value.ToString("O"));
+            bounds.Start is null ? DBNull.Value : bounds.Start);
         tagCommand.Parameters.AddWithValue(
             "@end",
-            end is null ? DBNull.Value : end.Value.ToString("O"));
+            bounds.End is null ? DBNull.Value : bounds.End);
         await using var tagReader = await tagCommand.ExecuteReaderAsync(
             cancellationToken);
         while (await tagReader.ReadAsync(cancellationToken))
@@ -1155,6 +1206,18 @@ public sealed class ArchiveService
             completedFromPlayer + completedManual,
             estimatedPlayerMinutes + manualMinutes,
             tagCounts);
+    }
+
+    private static (string Start, string End) LocalYearRangeUtc(int year)
+    {
+        static string ToUtc(DateTime localDate) => new DateTimeOffset(
+            localDate,
+            TimeZoneInfo.Local.GetUtcOffset(localDate))
+            .ToUniversalTime().ToString("O");
+
+        return (
+            ToUtc(new DateTime(year, 1, 1)),
+            ToUtc(new DateTime(year + 1, 1, 1)));
     }
 
     internal static void ValidateRating(double? rating)

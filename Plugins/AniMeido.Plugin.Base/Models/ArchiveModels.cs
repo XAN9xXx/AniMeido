@@ -25,6 +25,15 @@ public sealed record ArchiveEntry(
         : $"第 {EpisodeNumber} 集";
 }
 
+public sealed record AnnualReviewMoment(ArchiveEntry Entry, string AnimeTitle)
+{
+    public int AnimeId => Entry.AnimeId;
+
+    public string DateText => Entry.OccurredAt.ToLocalTime().ToString("M月d日");
+
+    public string Preview => Entry.Body.Replace('\r', ' ').Replace('\n', ' ').Trim();
+}
+
 public sealed record ManualWatchEvent(
     string EventId,
     int AnimeId,
@@ -71,7 +80,15 @@ public sealed record AnimeScreenshot(
     int? EpisodeNumber,
     double? PlaybackPositionSeconds,
     string ContextNote,
-    bool FileExists);
+    bool FileExists)
+{
+    public string ReviewTitle => string.IsNullOrWhiteSpace(AnimeTitle)
+        ? "未关联作品" : AnimeTitle;
+
+    public string ReviewCaption => string.IsNullOrWhiteSpace(ContextNote)
+        ? CapturedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")
+        : ContextNote;
+}
 
 public sealed record ArchiveListItem(
     AnimeArchive Archive,

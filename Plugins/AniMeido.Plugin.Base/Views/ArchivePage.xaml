@@ -480,33 +480,189 @@
             </ScrollViewer>
 
             <ScrollViewer x:Name="ReviewPanel" Visibility="Collapsed">
-                <StackPanel MaxWidth="920"
-                            HorizontalAlignment="Left"
-                            Spacing="16">
-                    <Grid ColumnDefinitions="*,200">
-                        <StackPanel>
-                            <TextBlock Text="年度回顾"
-                                       Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                            <TextBlock Text="回看这一年留下的观看记录与个人内容"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        </StackPanel>
-                        <NumberBox x:Name="ReviewYear"
-                                   Grid.Column="1"
-                                   Header="年份"
-                                   Minimum="2000"
-                                   Maximum="2100"
-                                   ValueChanged="OnReviewYearChanged"/>
-                    </Grid>
+                <StackPanel Spacing="16" Padding="0,0,4,4">
                     <Border Style="{StaticResource AniMeidoCardStyle}">
-                        <TextBlock x:Name="ReviewText"
-                                   FontSize="16"
-                                   LineHeight="28"
-                                   TextWrapping="Wrap"/>
+                        <StackPanel Spacing="16">
+                            <Grid ColumnDefinitions="Auto,Auto,160,Auto,*,Auto"
+                                  ColumnSpacing="10">
+                                <TextBlock Text="年度回顾"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                <Button Grid.Column="1" Content="‹" Click="OnReviewPreviousYearClick"
+                                        VerticalAlignment="Center"
+                                        ToolTipService.ToolTip="上一年"/>
+                                <NumberBox x:Name="ReviewYear" Grid.Column="2"
+                                           Minimum="2000" Maximum="2100"
+                                           SpinButtonPlacementMode="Hidden"
+                                           VerticalAlignment="Center"
+                                           ValueChanged="OnReviewYearChanged"/>
+                                <Button Grid.Column="3" Content="›" Click="OnReviewNextYearClick"
+                                        VerticalAlignment="Center"
+                                        ToolTipService.ToolTip="下一年"/>
+                                <Button Grid.Column="5" Content="导出 HTML"
+                                        Style="{StaticResource AccentButtonStyle}"
+                                        Click="OnExportReviewClick"/>
+                            </Grid>
+                            <Rectangle Height="1"
+                                       Fill="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                            <Grid ColumnDefinitions="1.4*,*" ColumnSpacing="20">
+                                <StackPanel Spacing="7" VerticalAlignment="Center">
+                                    <TextBlock x:Name="ReviewHeroYear"
+                                               FontSize="60" FontWeight="Bold"
+                                               Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                    <TextBlock x:Name="ReviewYearState"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <TextBlock x:Name="ReviewRecordingStart"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                                <Grid Grid.Column="1" MinHeight="160">
+                                    <TextBlock x:Name="ReviewCoversEmpty"
+                                               Text="这一年还没有新增档案"
+                                               VerticalAlignment="Center"
+                                               HorizontalAlignment="Center"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <ItemsControl x:Name="ReviewCovers">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <ItemsWrapGrid Orientation="Horizontal"
+                                                               HorizontalAlignment="Right"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Width="102" Height="150" CornerRadius="7"
+                                                        Margin="0,0,8,8"
+                                                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                                        ToolTipService.ToolTip="{Binding Title}">
+                                                    <Image Stretch="UniformToFill"
+                                                           Loaded="OnReviewCoverLoaded"
+                                                           DataContextChanged="OnReviewCoverDataContextChanged"/>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Grid>
+                            </Grid>
+                            <Rectangle Height="1"
+                                       Fill="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                            <Grid x:Name="ReviewStatsGrid"
+                                  ColumnDefinitions="*,*,*,*" ColumnSpacing="14">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="新增档案"/>
+                                    <TextBlock x:Name="ReviewArchiveCount" FontSize="29"
+                                               FontWeight="SemiBold"
+                                               Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="4">
+                                    <TextBlock Text="写下感想"/>
+                                    <TextBlock x:Name="ReviewEntryCount" FontSize="29"
+                                               FontWeight="SemiBold"
+                                               Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                </StackPanel>
+                                <StackPanel x:Name="ReviewScreenshotStat"
+                                            Grid.Column="2" Spacing="4">
+                                    <TextBlock Text="截图记录"/>
+                                    <TextBlock x:Name="ReviewScreenshotCount" FontSize="29"
+                                               FontWeight="SemiBold"
+                                               Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                </StackPanel>
+                                <StackPanel x:Name="ReviewWatchStat"
+                                            Grid.Column="3" Spacing="4">
+                                    <TextBlock Text="估算观看时长"/>
+                                    <TextBlock x:Name="ReviewWatchDuration" FontSize="24"
+                                               FontWeight="SemiBold"
+                                               Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
                     </Border>
-                    <Button Content="导出为自包含 HTML"
-                            Style="{StaticResource AccentButtonStyle}"
-                            HorizontalAlignment="Left"
-                            Click="OnExportReviewClick"/>
+                    <Grid ColumnDefinitions="1.1*,*" ColumnSpacing="16">
+                        <Border x:Name="ReviewMomentsCard"
+                                Style="{StaticResource AniMeidoCardStyle}">
+                            <StackPanel Spacing="12">
+                                <TextBlock Text="这一年留下的片段"
+                                           Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                <TextBlock x:Name="ReviewMomentsEmpty"
+                                           Text="这一年还没有写下感想"
+                                           Visibility="Collapsed"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <ItemsControl x:Name="ReviewMoments">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid ColumnDefinitions="14,66,*" ColumnSpacing="10"
+                                                  MinHeight="94">
+                                                <Border Width="2" HorizontalAlignment="Center"
+                                                        Margin="0,-4,0,-4"
+                                                        Background="{ThemeResource AniMeidoAccentBrush}"/>
+                                                <Ellipse Width="10" Height="10"
+                                                         VerticalAlignment="Top" Margin="0,10,0,0"
+                                                         Fill="{ThemeResource AniMeidoAccentBrush}"/>
+                                                <Border Grid.Column="1" Width="60" Height="78"
+                                                        CornerRadius="5"
+                                                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                                    <Image Stretch="UniformToFill"
+                                                           Loaded="OnReviewCoverLoaded"
+                                                           DataContextChanged="OnReviewCoverDataContextChanged"/>
+                                                </Border>
+                                                <StackPanel Grid.Column="2" Spacing="3">
+                                                    <TextBlock Text="{Binding DateText}"
+                                                               FontSize="12"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                    <TextBlock Text="{Binding AnimeTitle}"
+                                                               FontWeight="SemiBold"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="{Binding Preview}"
+                                                               MaxLines="2" TextWrapping="WrapWholeWords"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                        <Border x:Name="ReviewScreenshotsCard" Grid.Column="1"
+                                Style="{StaticResource AniMeidoCardStyle}">
+                            <StackPanel Spacing="12">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Text="镜头里的回忆"
+                                               Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                    <Button Grid.Column="1" Content="查看更多截图 ›"
+                                            Click="OnReviewMoreScreenshotsClick"/>
+                                </Grid>
+                                <TextBlock x:Name="ReviewScreenshotsEmpty"
+                                           Text="这一年还没有截图"
+                                           Visibility="Collapsed"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <ItemsControl x:Name="ReviewScreenshots">
+                                    <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                            <ItemsWrapGrid Orientation="Horizontal"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Width="220" Spacing="4"
+                                                        Margin="0,0,10,10">
+                                                <Border Height="120" CornerRadius="6"
+                                                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                                    <Image Stretch="UniformToFill"
+                                                           Loaded="OnScreenshotImageLoaded"
+                                                           DataContextChanged="OnScreenshotImageDataContextChanged"/>
+                                                </Border>
+                                                <TextBlock Text="{Binding ReviewTitle}"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding ReviewCaption}"
+                                                           MaxLines="2" TextWrapping="Wrap"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
                 </StackPanel>
             </ScrollViewer>
 
