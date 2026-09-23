@@ -9,6 +9,7 @@ namespace AniMeido.Plugin.Base.Views;
 // 一套真实卡片同时承担扇形与竖列布局；展开只改变位置，不重建控件。
 public sealed class TodayPlanStackPanel : Panel
 {
+    internal bool IsAnimating { get; set; }
     private bool _expanded;
     public bool Expanded
     {
@@ -56,12 +57,15 @@ public sealed class TodayPlanStackPanel : Panel
             var rear = index >= 3;
             var top = rear && !Expanded ? thirdTop : y;
             child.Arrange(new Rect(0, top, finalSize.Width, height));
-            if (child.RenderTransform is not CompositeTransform transform)
-                child.RenderTransform = transform = new CompositeTransform();
-            child.RenderTransformOrigin = new Point(0, 0);
-            transform.Rotation = rear ? Math.Min(index - 2, 3) * 3 * (Expanded ? 0 : 1) : 0;
+            if (!IsAnimating)
+            {
+                if (child.RenderTransform is not CompositeTransform transform)
+                    child.RenderTransform = transform = new CompositeTransform();
+                child.RenderTransformOrigin = new Point(0, 0);
+                transform.Rotation = rear ? Math.Min(index - 2, 3) * 3 * (Expanded ? 0 : 1) : 0;
+                child.Opacity = index >= 6 && !Expanded ? 0 : 1;
+            }
             Canvas.SetZIndex(child, Children.Count - index);
-            child.Opacity = index >= 6 && !Expanded ? 0 : 1;
             // 收起的后排不可触发详情/开始补番；露出的区域由面板处理展开。
             child.IsHitTestVisible = !rear || Expanded;
             SetCardTabStops(child, !rear || Expanded);

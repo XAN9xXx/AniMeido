@@ -1,13 +1,13 @@
 ﻿using System.Runtime.InteropServices;
 using AniMeido.Plugin.Base.ViewModels;
-using AniMeido.Plugin.Base.Services;
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Windowing;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media.Animation;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Foundation;
 using Windows.UI.ViewManagement;
 
@@ -15,6 +15,10 @@ namespace AniMeido.Plugin.Base.Views;
 
 public sealed partial class TodayPage
 {
+    private Image? _planHandoffImage;
+    private bool _capturingPlan;
+    private int _planOpenGeneration;
+    private int _planHandoffFrames;
     private Storyboard? _planStackAnimation;
     private TodayPlanStackPanel? _planPanel;
     private bool _closingPlanStack;
@@ -22,74 +26,106 @@ public sealed partial class TodayPage
     private double _collapsedStackHeight;
     private double _expandedStackHeight;
     private AppWindow? _planOwnerWindow;
-    private readonly Grid _planPopupHost = new();
-    private readonly Border _planBackdrop = new() { IsHitTestVisible = false };
-    private Brush? _planBackground;
-    private Brush? _planStroke;
+    private InputActivationListener? _planActivationListener;
 
     private void OnPlanPanelLoaded(object sender, RoutedEventArgs e)
         => _planPanel = (TodayPlanStackPanel)sender;
 
-    private void OnPlanDeckTapped(object sender, TappedRoutedEventArgs e)
+    private async void OnPlanDeckTapped(object sender, TappedRoutedEventArgs e)
     {
         if (!PlanStackPopup.IsOpen && ViewModel.HasOverflowPlans && ReferenceEquals(e.OriginalSource, sender))
         {
-            OpenPlanStack();
             e.Handled = true;
+            await OpenPlanStackAsync();
         }
     }
 
-    private void OnPlanDeckKeyDown(object sender, KeyRoutedEventArgs e)
+    private async void OnPlanDeckKeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (!PlanStackPopup.IsOpen && ViewModel.HasOverflowPlans
             && ReferenceEquals(e.OriginalSource, sender)
             && e.Key is Windows.System.VirtualKey.Enter or Windows.System.VirtualKey.Space)
         {
-            OpenPlanStack();
             e.Handled = true;
+            await OpenPlanStackAsync();
         }
     }
 
-    private void OpenPlanStack()
+    private async Task OpenPlanStackAsync()
     {
-        if (!IsLoaded || PlanStackPopup.IsOpen || _planPanel is null || PlanSurface.ActualWidth <= 0)
+        if (!IsLoaded || _capturingPlan || PlanStackPopup.IsOpen || _planPanel is null || PlanSurface.ActualWidth <= 0)
             return;
+
+        // Popup 内容不能直接用 RenderTargetBitmap 捕获；在迁移前保存原位折叠画面。
+        var generation = ++_planOpenGeneration;
+        var originalSize = new Size(PlanVisual.ActualWidth, PlanVisual.ActualHeight);
+        var originalPosition = PlanVisual.TransformToVisual(null).TransformPoint(new Point());
+        var bitmap = new RenderTargetBitmap();
+        _capturingPlan = true;
+        try
+        {
+            await bitmap.RenderAsync(PlanVisual);
+        }
+        catch (Exception exception) when (exception is COMException or InvalidOperationException or ArgumentException)
+        {
+            // 截图只是视觉增强，失败不阻止卡包操作。
+            bitmap = null;
+        }
+        finally
+        {
+            _capturingPlan = false;
+        }
+        if (!IsLoaded || generation != _planOpenGeneration || PlanStackPopup.IsOpen
+            || !ViewModel.HasOverflowPlans
+            || originalSize != new Size(PlanVisual.ActualWidth, PlanVisual.ActualHeight)
+            || originalPosition != PlanVisual.TransformToVisual(null).TransformPoint(new Point())) return;
+        if (bitmap is { PixelWidth: > 0, PixelHeight: > 0 })
+        {
+            _planHandoffImage = new Image
+            {
+                Source = bitmap, Width = originalSize.Width, Height = originalSize.Height,
+                Stretch = Stretch.Fill, IsHitTestVisible = false,
+            };
+        }
 
         var origin = PlanSurface.TransformToVisual(null).TransformPoint(new Point());
         _collapsedStackHeight = PlanSurface.ActualHeight;
         var width = PlanSurface.ActualWidth;
         var availableHeight = AvailablePlanStackHeight(origin);
         var chromeHeight = _collapsedStackHeight - PlanScroll.ActualHeight;
+        // 最多容纳五张完整卡片；更多作品保留在同一列表中，由浮层内部滚动。
+        var visibleRowsHeight = _planPanel.Children.Take(5).Sum(row => row.DesiredSize.Height);
         _expandedStackHeight = Math.Max(1, Math.Min(availableHeight,
-            Math.Max(_collapsedStackHeight, _planPanel.ExpandedHeight + chromeHeight)));
+            Math.Max(_collapsedStackHeight, visibleRowsHeight + chromeHeight)));
 
         PlanStackPopup.HorizontalOffset = 0;
         PlanStackPopup.VerticalOffset = 0;
         var popupOrigin = PlanStackPopup.TransformToVisual(null).TransformPoint(new Point());
-        PlanStackPopup.HorizontalOffset = origin.X - popupOrigin.X;
-        PlanStackPopup.VerticalOffset = origin.Y - popupOrigin.Y;
+        // 点击层覆盖整个客户区（含侧栏），真实卡包仍在原坐标；不复制底下页面。
+        PlanStackPopup.HorizontalOffset = -popupOrigin.X;
+        PlanStackPopup.VerticalOffset = -popupOrigin.Y;
+        PlanDismissCanvas.Width = Math.Max(XamlRoot.Size.Width, origin.X + width);
+        PlanDismissCanvas.Height = Math.Max(XamlRoot.Size.Height, origin.Y + _expandedStackHeight);
+        Canvas.SetLeft(PlanVisual, origin.X);
+        Canvas.SetTop(PlanVisual, origin.Y);
 
         // 仅留下透明尺寸占位，底板、标题、卡片和通知栏一起迁移，原位没有副本。
         _movingPlanSurface = true;
         PlanCard.Height = _collapsedStackHeight;
-        PlanSurface.Width = width;
-        PlanSurface.Height = _expandedStackHeight;
-        _planBackground = PlanSurface.Background;
-        _planStroke = PlanSurface.BorderBrush;
-        _planBackdrop.Background = _planBackground;
-        _planBackdrop.BorderBrush = _planStroke;
-        _planBackdrop.BorderThickness = PlanSurface.BorderThickness;
-        _planBackdrop.CornerRadius = PlanSurface.CornerRadius;
-        _planPopupHost.Width = width;
-        _planPopupHost.Height = _expandedStackHeight;
-        _planPopupHost.Children.Add(_planBackdrop);
-        MovePlanSurface(() =>
-        {
-            PlanCard.Children.Remove(PlanSurface);
-            _planPopupHost.Children.Add(PlanSurface);
-            PlanStackPopup.Child = _planPopupHost;
-        });
+        PlanVisual.Width = width;
+        PlanVisual.Height = _expandedStackHeight;
+        PlanCard.Children.Remove(PlanVisual);
+        PlanDismissCanvas.Children.Add(PlanVisual);
         PlanScroll.VerticalScrollMode = ScrollMode.Enabled;
+        // 仅在浮层尚未显示时准备展开布局。显示后再 Arrange 到 (0, 0)
+        // 会覆盖 Popup 分配的位置，使整个卡包在收起动画期间短暂错位。
+        _planPanel.Expanded = true;
+        var popupSize = new Size(PlanDismissCanvas.Width, PlanDismissCanvas.Height);
+        PlanDismissCanvas.Measure(popupSize);
+        PlanDismissCanvas.Arrange(new Rect(new Point(), popupSize));
+        PlanDismissCanvas.UpdateLayout();
+        // 原位底板与浮层底板是同一个不透明控件；先准备首帧，再显示原生浮层。
+        AnimatePlanStack(closing: false, startImmediately: false);
         PlanStackPopup.IsOpen = true;
         _movingPlanSurface = false;
     }
@@ -99,6 +135,8 @@ public sealed partial class TodayPage
         var windowId = XamlRoot.ContentIslandEnvironment.AppWindowId;
         _planOwnerWindow = AppWindow.GetFromWindowId(windowId);
         _planOwnerWindow.Changed += OnPlanOwnerChanged;
+        _planActivationListener = InputActivationListener.GetForWindowId(windowId);
+        _planActivationListener.InputActivationChanged += OnPlanActivationChanged;
         var handle = Microsoft.UI.Win32Interop.GetWindowFromWindowId(windowId);
         var scale = XamlRoot.RasterizationScale;
         var point = new Windows.Graphics.PointInt32(
@@ -115,6 +153,34 @@ public sealed partial class TodayPage
             PlanStackPopup.IsOpen = false;
     }
 
+    private void OnPlanOutsidePressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (IsWithinPlanSurface(e.OriginalSource as DependencyObject)) return;
+        e.Handled = true;
+        ClosePlanStack();
+    }
+
+    private void OnPlanOutsideWheel(object sender, PointerRoutedEventArgs e)
+    {
+        if (IsWithinPlanSurface(e.OriginalSource as DependencyObject)) return;
+        e.Handled = true;
+        ClosePlanStack();
+    }
+
+    private bool IsWithinPlanSurface(DependencyObject? source)
+    {
+        for (var current = source; current is not null; current = VisualTreeHelper.GetParent(current))
+            if (ReferenceEquals(current, PlanVisual)) return true;
+        return false;
+    }
+
+    private void OnPlanActivationChanged(InputActivationListener sender, InputActivationListenerActivationChangedEventArgs args)
+    {
+        // 点击别的应用或 Alt+Tab 也先收起；不依赖全局鼠标钩子。
+        if (sender.State == InputActivationState.Deactivated)
+            ClosePlanStack();
+    }
+
     [DllImport("user32.dll", EntryPoint = "ClientToScreen")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool PlanClientToScreen(nint window, ref Windows.Graphics.PointInt32 point);
@@ -122,32 +188,31 @@ public sealed partial class TodayPage
     private void OnPlanStackOpened(object sender, object e)
     {
         _planPanel?.Focus(FocusState.Programmatic);
-        AnimatePlanStack(closing: false);
+        _planStackAnimation?.Begin();
     }
 
-    private void AnimatePlanStack(bool closing)
+    private void AnimatePlanStack(bool closing, bool startImmediately = true)
     {
         if (_planPanel is null) return;
         _planStackAnimation?.Stop();
-        // 浮层和列表只布局一次；逐帧工作仅为渲染变换，不再动画 Height 或自定义布局属性。
-        _planPanel.Expanded = true;
-        PlanSurface.UpdateLayout();
+        // 已显示浮层的位置由 Popup 管理；收起只做渲染变换，不能重新 Arrange 根容器。
         if (!new UISettings().AnimationsEnabled)
         {
-            if (closing) PlanStackPopup.IsOpen = false;
+            if (closing)
+            {
+                RestorePlanSurface();
+                PlanStackPopup.IsOpen = false;
+            }
             return;
         }
         var animation = new Storyboard();
         var ratio = Math.Clamp(_collapsedStackHeight / _expandedStackHeight, 0.01, 1);
         var scale = new ScaleTransform { ScaleY = closing ? 1 : ratio };
-        _planBackdrop.RenderTransform = scale;
-        _planBackdrop.Visibility = Visibility.Visible;
-        PlanSurface.Background = null;
-        PlanSurface.BorderBrush = null;
+        PlanBackdrop.RenderTransform = scale;
         var clipScale = new ScaleTransform { ScaleY = closing ? 1 : ratio };
         PlanSurface.Clip = new RectangleGeometry
         {
-            Rect = new Rect(0, 0, PlanSurface.Width, _expandedStackHeight), Transform = clipScale,
+            Rect = new Rect(0, 0, PlanVisual.Width, _expandedStackHeight), Transform = clipScale,
         };
         var footer = new TranslateTransform { Y = closing ? 0 : _collapsedStackHeight - _expandedStackHeight };
         PlanFooter.RenderTransform = footer;
@@ -156,6 +221,13 @@ public sealed partial class TodayPage
         AddStackMotion(animation, footer, nameof(TranslateTransform.Y),
             closing ? 0 : _collapsedStackHeight - _expandedStackHeight,
             closing ? _collapsedStackHeight - _expandedStackHeight : 0);
+        if (closing && PlanScroll.VerticalOffset > 0)
+        {
+            // 列表滚动过时，用渲染位移衔接回顶部，避免 ChangeView 在收起前跳一下。
+            var scrollReturn = new TranslateTransform();
+            VisiblePlanList.RenderTransform = scrollReturn;
+            AddStackMotion(animation, scrollReturn, nameof(TranslateTransform.Y), 0, PlanScroll.VerticalOffset);
+        }
         var thirdTop = _planPanel.Children.Take(2).Sum(child => child.DesiredSize.Height);
         var y = thirdTop;
         for (var index = 2; index < _planPanel.Children.Count; index++)
@@ -178,62 +250,41 @@ public sealed partial class TodayPage
             y += row.DesiredSize.Height;
         }
         PlanScroll.IsHitTestVisible = false;
+        _planPanel.IsAnimating = true;
         _planStackAnimation = animation;
         animation.Completed += (_, _) =>
         {
             if (!ReferenceEquals(_planStackAnimation, animation)) return;
+            // 收起时保持最后一帧直到浮层关闭，不能先恢复展开图再隐藏。
+            if (closing)
+            {
+                CompletePlanStackClose();
+                return;
+            }
             animation.Stop();
             _planStackAnimation = null;
             ResetPlanMotion();
             PlanScroll.IsHitTestVisible = true;
-            if (closing) PlanStackPopup.IsOpen = false;
-            else if (_closingPlanStack) AnimatePlanStack(closing: true);
+            if (_closingPlanStack) AnimatePlanStack(closing: true);
             else if (_pendingPlan is { } entry) ScrollToPlan(entry);
         };
-        animation.Begin();
+        if (startImmediately) animation.Begin();
     }
 
     private void ResetPlanMotion()
     {
         PlanSurface.Clip = null;
-        PlanSurface.Background = _planBackground;
-        PlanSurface.BorderBrush = _planStroke;
-        _planBackdrop.Visibility = Visibility.Collapsed;
+        PlanBackdrop.RenderTransform = null;
         PlanFooter.RenderTransform = null;
+        VisiblePlanList.RenderTransform = null;
         if (_planPanel is null) return;
+        _planPanel.IsAnimating = false;
         foreach (var row in _planPanel.Children)
         {
             row.RenderTransform = new CompositeTransform();
             row.Opacity = 1;
         }
         _planPanel.InvalidateArrange();
-    }
-
-    private void MovePlanSurface(Action move)
-    {
-        var covers = PlanImages(PlanSurface)
-            .Select(image => (Image: image, Context: image.DataContext, Source: image.Source)).ToArray();
-        move();
-        // 跨 XamlRoot 的卸载/加载事件可能交错。等待它们结束，再恢复请求与原位图。
-        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
-        {
-            if (!IsLoaded) return;
-            foreach (var cover in covers)
-            {
-                if (!cover.Image.IsLoaded || !ReferenceEquals(cover.Context, cover.Image.DataContext)) continue;
-                ManagedImageLoader.Cancel(cover.Image, clearSource: false);
-                ConfigureCover(cover.Image);
-                if (cover.Source is not null) cover.Image.Source = cover.Source;
-            }
-        });
-    }
-
-    private static IEnumerable<Image> PlanImages(DependencyObject parent)
-    {
-        if (parent is Image image) yield return image;
-        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
-            foreach (var child in PlanImages(VisualTreeHelper.GetChild(parent, index)))
-                yield return child;
     }
 
     private static void AddStackMotion(Storyboard storyboard, DependencyObject target,
@@ -270,43 +321,99 @@ public sealed partial class TodayPage
 
     private void ClosePlanStack()
     {
+        if (_capturingPlan)
+        {
+            ++_planOpenGeneration;
+            return;
+        }
         if (!PlanStackPopup.IsOpen || _closingPlanStack)
             return;
         _closingPlanStack = true;
-        PlanScroll.ChangeView(null, 0, null, disableAnimation: true);
         if (_planStackAnimation is null)
             AnimatePlanStack(closing: true);
     }
 
+    private void CompletePlanStackClose()
+    {
+        if (_planHandoffImage is not { } image)
+        {
+            RestorePlanSurface();
+            PlanStackPopup.IsOpen = false;
+            return;
+        }
+        // 静态过渡画面留在原生浮层内，实际控件移回主窗口；没有第二套交互列表。
+        Canvas.SetLeft(image, Canvas.GetLeft(PlanVisual));
+        Canvas.SetTop(image, Canvas.GetTop(PlanVisual));
+        PlanDismissCanvas.Children.Add(image);
+        RestorePlanSurface();
+        _planHandoffFrames = 0;
+        CompositionTarget.Rendering += OnPlanHandoffRendering;
+    }
+
+    private void OnPlanHandoffRendering(object? sender, object e)
+    {
+        // Rendering 在呈现前通知；至少跨过一次渲染机会，而不是用固定毫秒延迟。
+        if (++_planHandoffFrames < 2) return;
+        CompositionTarget.Rendering -= OnPlanHandoffRendering;
+        PlanStackPopup.IsOpen = false;
+    }
+
+    private void RestorePlanSurface()
+    {
+        if (_movingPlanSurface || PlanCard.Children.Contains(PlanVisual)) return;
+        _movingPlanSurface = true;
+        try
+        {
+            // 离树后再停止动画、复原变换，不能让重置后的展开状态露在浮层里。
+            // 保留固定尺寸的透明浮层直到关闭，避免 Child=null 使原生窗口提前缩成零尺寸。
+            PlanDismissCanvas.Children.Remove(PlanVisual);
+            _planStackAnimation?.Stop();
+            _planStackAnimation = null;
+            if (_planPanel is not null) _planPanel.Expanded = false;
+            PlanScroll.VerticalScrollMode = ScrollMode.Disabled;
+            PlanScroll.IsHitTestVisible = true;
+            ResetPlanMotion();
+            // 先设置最终尺寸再入树，只做一次归位布局；中间过程不切换卡片模板。
+            PlanVisual.ClearValue(Canvas.LeftProperty);
+            PlanVisual.ClearValue(Canvas.TopProperty);
+            PlanVisual.Width = double.NaN;
+            PlanVisual.Height = double.NaN;
+            PlanCard.Height = double.NaN;
+            PlanCard.Children.Add(PlanVisual);
+            PlanCard.UpdateLayout();
+            PlanScroll.ChangeView(null, 0, null, disableAnimation: true);
+        }
+        finally
+        {
+            _movingPlanSurface = false;
+        }
+    }
+
     private void OnPlanStackClosed(object sender, object e)
     {
-        _movingPlanSurface = true;
-        _planStackAnimation?.Stop();
-        _planStackAnimation = null;
+        ++_planOpenGeneration;
+        CompositionTarget.Rendering -= OnPlanHandoffRendering;
+        // 窗口变化、页面离开等直接关闭路径也必须归位；动画路径不重复迁移。
+        RestorePlanSurface();
+        if (_planHandoffImage is { } image)
+        {
+            PlanDismissCanvas.Children.Remove(image);
+            image.Source = null;
+            _planHandoffImage = null;
+        }
         _closingPlanStack = false;
         _pendingPlan = null;
+        if (_planActivationListener is not null)
+        {
+            _planActivationListener.InputActivationChanged -= OnPlanActivationChanged;
+            _planActivationListener = null;
+        }
         if (_planOwnerWindow is not null)
         {
             _planOwnerWindow.Changed -= OnPlanOwnerChanged;
             _planOwnerWindow = null;
         }
-        if (_planPanel is not null)
-            _planPanel.Expanded = false;
-        PlanScroll.ChangeView(null, 0, null, disableAnimation: true);
-        PlanScroll.VerticalScrollMode = ScrollMode.Disabled;
-        PlanScroll.IsHitTestVisible = true;
-        ResetPlanMotion();
-        MovePlanSurface(() =>
-        {
-            _planPopupHost.Children.Remove(PlanSurface);
-            _planPopupHost.Children.Clear();
-            PlanStackPopup.Child = null;
-            if (!PlanCard.Children.Contains(PlanSurface)) PlanCard.Children.Add(PlanSurface);
-        });
-        PlanSurface.Width = double.NaN;
-        PlanSurface.Height = double.NaN;
-        PlanCard.Height = double.NaN;
-        _movingPlanSurface = false;
+        if (!_movingPlanSurface) UpdatePlanRowTemplate();
         if (IsLoaded && ViewModel.HasOverflowPlans)
             _planPanel?.Focus(FocusState.Programmatic);
     }

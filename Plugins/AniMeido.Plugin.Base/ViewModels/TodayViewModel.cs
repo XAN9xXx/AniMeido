@@ -72,8 +72,7 @@ public sealed record TodayPlanEntry(
 
 public partial class TodayViewModel : ObservableObject
 {
-    private static readonly SemaphoreSlim LegacyPlanGate = new(1, 1);
-    private static bool _legacyPlansInitialized;
+    private static readonly SemaphoreSlim MissingPlanGate = new(1, 1);
     private readonly IAnimeDataSource _dataSource;
     private readonly TrackingService _tracking;
     private readonly ActionCenterService _actionCenter;
@@ -318,7 +317,7 @@ public partial class TodayViewModel : ObservableObject
             _personalIds = personalIds;
             UpdateBroadcastSummary();
 
-            await EnsureLegacyPlansOnceAsync(
+            await EnsureMissingPlansAsync(
                 trackingRows,
                 seasonal,
                 cancellationToken);
@@ -524,7 +523,7 @@ public partial class TodayViewModel : ObservableObject
         => !cancellationToken.IsCancellationRequested
             && loadVersion == _loadVersion;
 
-    private async Task EnsureLegacyPlansOnceAsync(
+    private async Task EnsureMissingPlansAsync(
         IReadOnlyList<(
             int AnimeId,
             AnimeTrackingStatus Status,
@@ -532,15 +531,10 @@ public partial class TodayViewModel : ObservableObject
         IReadOnlyList<Anime> seasonal,
         CancellationToken cancellationToken)
     {
-        if (_legacyPlansInitialized)
-            return;
-
-        await LegacyPlanGate.WaitAsync(cancellationToken);
+        // 补番状态可能在今日页首次加载后新增；每次加载都只检查尚无计划记录的作品。
+        await MissingPlanGate.WaitAsync(cancellationToken);
         try
         {
-            if (_legacyPlansInitialized)
-                return;
-
             var currentPlans = await _actionCenter.GetPlansAsync(
                 includeArchived: true,
                 cancellationToken);
@@ -566,12 +560,10 @@ public partial class TodayViewModel : ObservableObject
                     sortOrder: 0,
                     cancellationToken);
             }
-
-            _legacyPlansInitialized = true;
         }
         finally
         {
-            LegacyPlanGate.Release();
+            MissingPlanGate.Release();
         }
     }
 

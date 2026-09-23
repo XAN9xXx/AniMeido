@@ -72,6 +72,7 @@ public sealed partial class TodayPage : Page, INavigationAware
                 || (args.PropertyName == nameof(TodayViewModel.HasOverflowPlans)
                     && !ViewModel.HasOverflowPlans))
             {
+                ++_planOpenGeneration;
                 PlanStackPopup.IsOpen = false;
             }
             else if (args.PropertyName
@@ -115,6 +116,7 @@ public sealed partial class TodayPage : Page, INavigationAware
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        ++_planOpenGeneration;
         PlanStackPopup.IsOpen = false;
         _loadCancellation?.Cancel();
         _loadCancellation?.Dispose();
@@ -150,7 +152,7 @@ public sealed partial class TodayPage : Page, INavigationAware
         {
             if (ViewModel.OverflowPlans.Contains(entry))
             {
-                OpenPlanStack();
+                await OpenPlanStackAsync();
                 DispatcherQueue.TryEnqueue(() => ScrollToPlan(entry));
             }
             else
@@ -192,6 +194,9 @@ public sealed partial class TodayPage : Page, INavigationAware
 
     private void OnContentSizeChanged(object sender, SizeChangedEventArgs e)
     {
+        // 卡包迁移/归位只改变高度时，不重跑页面布局或打断动画。
+        if (_movingPlanSurface || e.NewSize.Width <= 0 || Math.Abs(e.NewSize.Width - _contentWidth) < 0.5)
+            return;
         PlanStackPopup.IsOpen = false;
         _contentWidth = e.NewSize.Width;
         ApplyLayout();
@@ -227,9 +232,17 @@ public sealed partial class TodayPage : Page, INavigationAware
     }
     private void OnVisiblePlanListSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        // 窄栏把按钮放到标题下面，避免挤掉封面和标题。
+        if (!_movingPlanSurface && !PlanStackPopup.IsOpen)
+            UpdatePlanRowTemplate();
+    }
+
+    private void UpdatePlanRowTemplate()
+    {
+        // 忽略离树过程的零宽度及迟到的 SizeChanged，避免宽/窄模板反复重建全部卡片。
+        var width = VisiblePlanList.ActualWidth;
+        if (width <= 0) return;
         var template = (DataTemplate)Resources[
-            e.NewSize.Width >= 480 ? "PlanRowWideTemplate" : "PlanRowCompactTemplate"];
+            width >= 480 ? "PlanRowWideTemplate" : "PlanRowCompactTemplate"];
         if (!ReferenceEquals(VisiblePlanList.ItemTemplate, template))
             VisiblePlanList.ItemTemplate = template;
     }
@@ -296,14 +309,6 @@ public sealed partial class TodayPage : Page, INavigationAware
         if (sender is Image image && image.IsLoaded)
         {
             ConfigureCover(image);
-        }
-    }
-
-    private void OnCoverUnloaded(object sender, RoutedEventArgs e)
-    {
-        if (sender is Image image)
-        {
-            ManagedImageLoader.Cancel(image);
         }
     }
 

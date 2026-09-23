@@ -39,6 +39,32 @@ public sealed class TodayViewModelLoadTests : DbTestBase
         Assert.Null(vm.ErrorMessage);
     }
 
+    [Fact]
+    public async Task NewCatchUpStatusAfterFirstLoad_AppearsOnNextLoad()
+    {
+        await RunProductionMigrationAsync();
+        var actionCenter = new ActionCenterService(DbFactory);
+        var tracking = new TrackingService(DbFactory);
+        await actionCenter.UpsertPlanAsync(80, "原有计划", AnimePlanPriority.Normal, null, 0);
+        await tracking.SetStatusAsync(80, AnimeTrackingStatus.PlanToWatch);
+        using var reminders = new PlanReminderCoordinator(
+            actionCenter, new NoopNotificationService(), new NoopNavigator());
+        var vm = new TodayViewModel(
+            new OfflineSource(), tracking, actionCenter, reminders,
+            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory));
+
+        await vm.LoadAsync();
+        Assert.Single(vm.Plans);
+
+        // 关注管理新增补番状态时没有对应计划记录；下一次加载必须补齐。
+        await tracking.SetStatusAsync(81, AnimeTrackingStatus.PlanToWatch);
+        await vm.LoadAsync();
+
+        Assert.Equal(2, vm.Plans.Count);
+        Assert.Contains(vm.Plans, entry => entry.Plan.AnimeId == 81);
+        Assert.Equal(2, (await actionCenter.GetPlansAsync()).Count);
+    }
+
     private sealed class OfflineSource : IAnimeDataSource
     {
         private static Task<T> Offline<T>()
