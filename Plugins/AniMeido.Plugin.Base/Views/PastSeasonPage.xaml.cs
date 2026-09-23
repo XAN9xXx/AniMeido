@@ -3,193 +3,114 @@ using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
+using AniMeido.Plugin.Base.Views.Controls;
+using Microsoft.Extensions.Logging;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using VirtualKey = Windows.System.VirtualKey;
 
 namespace AniMeido.Plugin.Base.Views
 {
     public sealed partial class PastSeasonPage : Page, INavigationAware
     {
         private const int EarliestSupportedYear = 1900;
+        // 连点季度箭头时，停下这么久才加载，只加载最后停下的那一季。
+        private static readonly TimeSpan SeasonLoadDelay = TimeSpan.FromMilliseconds(250);
+        // 加载超过这么久才显示骨架，本地数据秒开时不闪一下。
+        private static readonly TimeSpan SkeletonDelay = TimeSpan.FromMilliseconds(150);
+        // 拖动窗口边缘时合并卡片宽度的重算。
+        private static readonly TimeSpan GridLayoutDelay = TimeSpan.FromMilliseconds(100);
+        // 工具栏窄于这个宽度时排成两行（一行需要放下六个形态标签和全部控件）。
+        private const double ToolbarSingleRowWidth = 1480;
+        // 卡片外边距（左右各 6）与列表项右边距 4。
+        private const double CardSlotExtra = 16;
+        // 卡片封面以下的高度：文字区、边框与上下外边距，用于骨架占位。
+        private const double CardBelowCoverHeight = 96;
+        private const int SkeletonCount = 18;
+        private const VirtualKey PreviousSeasonKey = (VirtualKey)219; // [
+        private const VirtualKey NextSeasonKey = (VirtualKey)221;     // ]
+
+        private static readonly PastSeasonTarget EarliestSeason = new(EarliestSupportedYear, Season.Winter);
+
         private readonly PastSeasonViewModel _viewModel;
         public PastSeasonViewModel ViewModel => _viewModel;
         private readonly CacheService _cacheService;
-        private readonly List<Anime> _allAnime = new();
-        private HashSet<int> _blockedIds = new();
-        private DragDropService _dragDrop;
-        private TrackingService _tracking;
-        private IPluginNavigator _pluginNavigator;
+        private readonly DragDropService _dragDrop;
+        private readonly IPluginNavigator _pluginNavigator;
+        private readonly ILogger<PastSeasonPage> _logger;
+        private readonly DispatcherQueueTimer _seasonLoadTimer;
+        private readonly DispatcherQueueTimer _skeletonTimer;
+        private readonly DispatcherQueueTimer _gridLayoutTimer;
         private CancellationTokenSource? _loadCts;
         private int _loadVersion;
-        private bool _isRebuilding; // 防止 ComboBox 重建期间事件穿透
+        private PastSeasonTarget _selected;
+        private int _flyoutYear;
+        private double _cardWidth = AnimeCardPresentation.DefaultCardWidth;
+        private bool? _toolbarIsSingleRow;
+        private bool _isSyncingControls;
 
         public PastSeasonPage(
             IAnimeDataSource dataSource,
             CacheService cacheService,
             DragDropService dragDropService,
             TrackingService trackingService,
-            IPluginNavigator pluginNavigator)
+            IPluginNavigator pluginNavigator,
+            ILogger<PastSeasonPage> logger)
         {
-            _viewModel = new PastSeasonViewModel(dataSource);
+            _viewModel = new PastSeasonViewModel(dataSource, trackingService);
             _cacheService = cacheService;
             _dragDrop = dragDropService;
-            _tracking = trackingService;
             _pluginNavigator = pluginNavigator;
+            _logger = logger;
             InitializeComponent();
+
+            _seasonLoadTimer = CreateTimer(SeasonLoadDelay, () => _ = LoadSelectedSeasonSafelyAsync());
+            _skeletonTimer = CreateTimer(SkeletonDelay, ShowSkeletonIfLoading);
+            _gridLayoutTimer = CreateTimer(GridLayoutDelay, ApplyCardWidth);
+
+            _selected = LatestSeason();
+            SkeletonRepeater.ItemsSource = Enumerable.Range(0, SkeletonCount).ToArray();
+            InitializeSortControls();
+            UpdateSeasonControls();
 
             ViewModel.PropertyChanged += (s, e) =>
             {
-                switch (e.PropertyName)
+                if (e.PropertyName is nameof(PastSeasonViewModel.IsLoading)
+                    or nameof(PastSeasonViewModel.IsError))
                 {
-                    case nameof(PastSeasonViewModel.IsLoading):
-                        // 覆盖层显隐由 LoadSeasonAsync 直接控制，不依赖 PropertyChanged 回调
-                        if (!ViewModel.IsLoading)
-                            UpdateViewState();
-                        break;
-
-                    case nameof(PastSeasonViewModel.ErrorMessage):
-                    case nameof(PastSeasonViewModel.IsError):
-                        UpdateOverlayState();
-                        UpdateViewState();
-                        break;
-
-                    case nameof(PastSeasonViewModel.HasData):
-                        UpdateViewState();
-                        break;
+                    UpdateSkeleton();
                 }
             };
-
-            InitializeComboBoxes();
         }
 
-        private void UpdateViewState()
+        private DispatcherQueueTimer CreateTimer(TimeSpan interval, Action tick)
         {
-            if (ViewModel.IsError)
-            {
-                ErrorInfoBar.Message = ViewModel.ErrorMessage;
-                ErrorInfoBar.IsOpen = true;
-                EmptyState.Visibility = Visibility.Collapsed;
-            }
-            else
-            {
-                ErrorInfoBar.IsOpen = false;
-                EmptyState.Visibility = !ViewModel.IsLoading && ViewModel.AnimeList.Count == 0
-                    ? Visibility.Visible
-                    : Visibility.Collapsed;
-                EmptyStateText.Text = ViewModel.HasData
-                    ? "没有符合当前筛选条件的动画"
-                    : "该季度暂无番剧数据";
-            }
-        }
-
-        private void UpdateOverlayState()
-        {
-            bool showOverlay = ViewModel.IsLoading || ViewModel.IsError;
-            LoadingOverlay.Visibility = showOverlay ? Visibility.Visible : Visibility.Collapsed;
-            LoadingRing.IsActive = ViewModel.IsLoading;
-
-            if (ViewModel.IsError)
-            {
-                LoadingFailedImage.Visibility = Visibility.Visible;
-                LoadingRing.Visibility = Visibility.Collapsed;
-                LoadingHint.Text = $"{ViewModel.ErrorMessage}\n\n点击重试";
-            }
-            else if (ViewModel.IsLoading)
-            {
-                LoadingFailedImage.Visibility = Visibility.Collapsed;
-                LoadingRing.Visibility = Visibility.Visible;
-                LoadingHint.Text = "加载中…";
-            }
-            else
-            {
-                LoadingFailedImage.Visibility = Visibility.Collapsed;
-                LoadingHint.Text = "";
-            }
-        }
-
-        private async void OnLoadingOverlayTapped(object sender, TappedRoutedEventArgs e)
-        {
-            if (ViewModel.IsError)
-            {
-                await LoadSelectedSeasonSafelyAsync();
-            }
-        }
-
-        private void InitializeComboBoxes()
-        {
-            MediaFormatComboBox.Items.Add(new ComboBoxItem
-            {
-                Content = "全部形态",
-                Tag = "all",
-            });
-            foreach (var format in new[]
-            {
-                AnimeMediaFormat.Television,
-                AnimeMediaFormat.Movie,
-                AnimeMediaFormat.Ova,
-                AnimeMediaFormat.Ona,
-                AnimeMediaFormat.Unknown,
-            })
-            {
-                MediaFormatComboBox.Items.Add(new ComboBoxItem
-                {
-                    Content = AnimeReleaseClassifier.GetMediaFormatText(format),
-                    Tag = format,
-                });
-            }
-            MediaFormatComboBox.SelectedIndex = 0;
-
-            var latestCompleted = GetLatestCompletedSeason(DateTime.Now);
-            for (int y = EarliestSupportedYear;
-                y <= latestCompleted.Year;
-                y++)
-            {
-                YearComboBox.Items.Add(y);
-            }
-
-            YearComboBox.SelectedItem = latestCompleted.Year;
-            RebuildSeasonItems(
-                latestCompleted.Year,
-                latestCompleted.Season);
-
-            YearComboBox.SelectionChanged += OnYearSelectionChanged;
-            SeasonComboBox.SelectionChanged += OnSeasonSelectionChanged;
-
+            var timer = DispatcherQueue.CreateTimer();
+            timer.Interval = interval;
+            timer.IsRepeating = false;
+            timer.Tick += (s, e) => tick();
+            return timer;
         }
 
         /// <summary>
         /// 从放送日历的番剧时光机进入时，直接定位到指定季度；
-        /// 从主导航进入时没有参数，保持默认的最近一个已完结季度。
+        /// 从主导航进入时没有参数，保持当前季度（首次为最近一个已完结季度）。
         /// </summary>
         public async Task OnNavigatedToAsync(object? parameter)
         {
-            if (parameter is not PastSeasonTarget target)
-                return;
-
-            var latestCompleted = GetLatestCompletedSeason(DateTime.Now);
-            if (target.Year < EarliestSupportedYear
-                || (target.Year, target.Season).CompareTo((latestCompleted.Year, latestCompleted.Season)) > 0)
+            if (parameter is not PastSeasonTarget target
+                || !PastSeasonBrowse.IsWithin(target, EarliestSeason, LatestSeason()))
             {
                 return;
             }
 
-            // 程序设置选中项时暂停联动加载，选好后只加载一次。
-            YearComboBox.SelectionChanged -= OnYearSelectionChanged;
-            YearComboBox.SelectedItem = target.Year;
-            YearComboBox.SelectionChanged += OnYearSelectionChanged;
-            RebuildSeasonItems(target.Year, SelectableSeason(target, latestCompleted));
+            _selected = target;
+            UpdateSeasonControls();
             await LoadSelectedSeasonSafelyAsync();
         }
-
-        /// <summary>
-        /// RebuildSeasonItems 把传入的季度同时当作最新可选季度；
-        /// 目标在往年时这个限制不生效，直接传入；在今年时只能传今年最新的已完结季度之内。
-        /// </summary>
-        private static Season SelectableSeason(PastSeasonTarget target, (int Year, Season Season) latestCompleted)
-            => target.Year < latestCompleted.Year || target.Season <= latestCompleted.Season
-                ? target.Season
-                : latestCompleted.Season;
 
         internal static (int Year, Season Season) GetLatestCompletedSeason(
             DateTime now)
@@ -203,75 +124,132 @@ namespace AniMeido.Plugin.Base.Views
             };
         }
 
-        private void RebuildSeasonItems(int year, Season? defaultSeason = null)
+        private static PastSeasonTarget LatestSeason()
         {
-            _isRebuilding = true;
-
-            // 禁用 ComboBox 后再修改 Items，避免 WinUI 内部处理清除/重建时计算无效 transform
-            SeasonComboBox.IsEnabled = false;
-            SeasonComboBox.SelectionChanged -= OnSeasonSelectionChanged;
-            SeasonComboBox.Items.Clear();
-
-            var allSeasons = new[] { Season.Winter, Season.Spring, Season.Summer, Season.Fall };
-            var latestCompleted = GetLatestCompletedSeason(DateTime.Now);
-            var maxSeason = defaultSeason
-                ?? (year < latestCompleted.Year
-                    ? Season.Fall
-                    : latestCompleted.Season);
-            var validSeasons = year < latestCompleted.Year
-                ? allSeasons
-                : allSeasons.TakeWhile(s => s <= maxSeason).ToArray();
-
-            foreach (var season in validSeasons)
-            {
-                SeasonComboBox.Items.Add(new ComboBoxItem
-                {
-                    Content = season switch
-                    {
-                        Season.Winter => "冬 (1-3月)",
-                        Season.Spring => "春 (4-6月)",
-                        Season.Summer => "夏 (7-9月)",
-                        Season.Fall => "秋 (10-12月)",
-                        _ => season.ToString()
-                    },
-                    Tag = season
-                });
-            }
-
-            // 选中默认季度
-            for (int i = 0; i < SeasonComboBox.Items.Count; i++)
-            {
-                if (((ComboBoxItem)SeasonComboBox.Items[i]).Tag is Season s && s == maxSeason)
-                {
-                    SeasonComboBox.SelectedIndex = i;
-                    SeasonComboBox.SelectionChanged += OnSeasonSelectionChanged;
-                    SeasonComboBox.IsEnabled = true;
-                    _isRebuilding = false;
-                    return;
-                }
-            }
-            SeasonComboBox.SelectedIndex = SeasonComboBox.Items.Count - 1;
-            SeasonComboBox.SelectionChanged += OnSeasonSelectionChanged;
-            SeasonComboBox.IsEnabled = true;
-            _isRebuilding = false;
+            var (year, season) = GetLatestCompletedSeason(DateTime.Now);
+            return new PastSeasonTarget(year, season);
         }
 
-        private async Task LoadSeasonAsync(
-            int year,
-            Season season,
-            bool forceRefresh = false)
+        // ======== 季度切换 ========
+
+        private void OnPrevSeasonClick(object sender, RoutedEventArgs e) => StepSeason(-1);
+
+        private void OnNextSeasonClick(object sender, RoutedEventArgs e) => StepSeason(1);
+
+        /// <summary>逐季切换：标签立即更新，停下片刻后才加载。</summary>
+        private void StepSeason(int delta)
         {
-            // 立即显示加载覆盖层（不依赖 PropertyChanged 的异步回调延迟）
-            LoadingOverlay.Visibility = Visibility.Visible;
-            LoadingRing.IsActive = true;
-            LoadingRing.Visibility = Visibility.Visible;
-            LoadingFailedImage.Visibility = Visibility.Collapsed;
-            LoadingHint.Text = "加载中…";
-            SetFilterControlsEnabled(false);
-            _allAnime.Clear();
-            ViewModel.ReplaceVisibleAnime([]);
-            StatsCard.Visibility = Visibility.Collapsed;
-            FilterCard.Visibility = Visibility.Collapsed;
+            if (PastSeasonBrowse.Step(_selected, delta, EarliestSeason, LatestSeason()) is not { } next)
+                return;
+
+            _selected = next;
+            UpdateSeasonControls();
+            _seasonLoadTimer.Stop();
+            _seasonLoadTimer.Start();
+        }
+
+        /// <summary>从面板选定季度：立即加载。</summary>
+        private void SelectSeason(PastSeasonTarget target)
+        {
+            SeasonFlyout.Hide();
+            _selected = PastSeasonBrowse.Clamp(target, EarliestSeason, LatestSeason());
+            UpdateSeasonControls();
+            _ = LoadSelectedSeasonSafelyAsync();
+        }
+
+        private void UpdateSeasonControls()
+        {
+            var latest = LatestSeason();
+            SeasonLabel.Text = $"{_selected.Year} {PastSeasonBrowse.SeasonName(_selected.Season)}";
+            SeasonMonthsLabel.Text = PastSeasonBrowse.SeasonMonths(_selected.Season);
+            PrevSeasonButton.IsEnabled = PastSeasonBrowse.Step(_selected, -1, EarliestSeason, latest) is not null;
+            NextSeasonButton.IsEnabled = PastSeasonBrowse.Step(_selected, 1, EarliestSeason, latest) is not null;
+        }
+
+        private void OnSeasonFlyoutOpening(object sender, object e)
+        {
+            var latest = LatestSeason();
+            FlyoutYearBox.Minimum = EarliestSupportedYear;
+            FlyoutYearBox.Maximum = latest.Year;
+            SetFlyoutYear(_selected.Year);
+        }
+
+        private void SetFlyoutYear(int year)
+        {
+            var latest = LatestSeason();
+            _flyoutYear = Math.Clamp(year, EarliestSupportedYear, latest.Year);
+            _isSyncingControls = true;
+            FlyoutYearBox.Value = _flyoutYear;
+            _isSyncingControls = false;
+            FlyoutPrevYearButton.IsEnabled = _flyoutYear > EarliestSupportedYear;
+            FlyoutNextYearButton.IsEnabled = _flyoutYear < latest.Year;
+            RebuildFlyoutSeasonButtons(latest);
+        }
+
+        private void RebuildFlyoutSeasonButtons(PastSeasonTarget latest)
+        {
+            FlyoutSeasonGrid.Children.Clear();
+            foreach (var season in new[] { Season.Winter, Season.Spring, Season.Summer, Season.Fall })
+            {
+                var target = new PastSeasonTarget(_flyoutYear, season);
+                var content = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
+                content.Children.Add(new TextBlock
+                {
+                    Text = PastSeasonBrowse.SeasonName(season),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                });
+                content.Children.Add(new TextBlock
+                {
+                    Text = PastSeasonBrowse.SeasonMonths(season),
+                    FontSize = 11,
+                    Opacity = 0.7,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                });
+                var button = new Button
+                {
+                    Content = content,
+                    Tag = target,
+                    IsEnabled = PastSeasonBrowse.IsWithin(target, EarliestSeason, latest),
+                    Style = (Style)(target == _selected
+                        ? Application.Current.Resources["AccentButtonStyle"]
+                        : Resources["SeasonPickButtonStyle"]),
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    Padding = new Thickness(0, 6, 0, 6),
+                };
+                button.Click += OnFlyoutSeasonClick;
+                Grid.SetColumn(button, (int)season - 1);
+                FlyoutSeasonGrid.Children.Add(button);
+            }
+        }
+
+        private void OnFlyoutSeasonClick(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button { Tag: PastSeasonTarget target })
+                SelectSeason(target);
+        }
+
+        private void OnFlyoutPrevYearClick(object sender, RoutedEventArgs e) => SetFlyoutYear(_flyoutYear - 1);
+
+        private void OnFlyoutNextYearClick(object sender, RoutedEventArgs e) => SetFlyoutYear(_flyoutYear + 1);
+
+        private void OnFlyoutYearChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+        {
+            if (_isSyncingControls || double.IsNaN(args.NewValue))
+                return;
+
+            SetFlyoutYear((int)Math.Round(args.NewValue));
+        }
+
+        private void OnLatestSeasonClick(object sender, RoutedEventArgs e) => SelectSeason(LatestSeason());
+
+        // ======== 加载 ========
+
+        private Task LoadSelectedSeasonSafelyAsync(bool forceRefresh = false)
+            => LoadSeasonSafelyAsync(_selected, forceRefresh);
+
+        private async Task LoadSeasonAsync(PastSeasonTarget target, bool forceRefresh)
+        {
+            _seasonLoadTimer.Stop();
 
             // 取消上一轮请求
             _loadCts?.Cancel();
@@ -279,77 +257,34 @@ namespace AniMeido.Plugin.Base.Views
             var loadCts = new CancellationTokenSource();
             _loadCts = loadCts;
             var version = Interlocked.Increment(ref _loadVersion);
+            ErrorInfoBar.IsOpen = false;
+
+            // 换季度时清空搜索词；形态、排序与“隐藏看过”保留。
+            if (ViewModel.Season != target && !string.IsNullOrEmpty(FilterBox.Text))
+            {
+                _isSyncingControls = true;
+                FilterBox.Text = "";
+                _isSyncingControls = false;
+            }
 
             if (forceRefresh)
             {
                 await _cacheService.RemoveCacheAsync(
-                    BangumiDataSource.GetSeasonCacheKey(year, season));
+                    BangumiDataSource.GetSeasonCacheKey(target.Year, target.Season));
                 if (version != _loadVersion)
                     return;
             }
 
-            await ViewModel.LoadPastSeasonAnimeAsync(year, season, loadCts.Token);
-
-            // 如果已有更新的请求，丢弃此结果（此时 IsLoading 可能已被旧请求设为 false）
-            if (version != _loadVersion) return;
-            _allAnime.Clear();
-            _allAnime.AddRange(ViewModel.LoadedAnime);
-            ApplyFilter(FilterBox.Text);
-            FilterCard.Visibility = ViewModel.HasData
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-            StatsCard.Visibility = ViewModel.HasData
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-            UpdateViewState();
-
-            // 数据加载完成，隐藏覆盖层
-            LoadingOverlay.Visibility = Visibility.Collapsed;
-            LoadingRing.IsActive = false;
-            SetFilterControlsEnabled(true);
-        }
-
-        private async void OnYearSelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (YearComboBox.SelectedItem is not int year) return;
-            RebuildSeasonItems(year);
-
-            // 年份变更后立即加载新季度数据
-            if (SeasonComboBox.SelectedItem is ComboBoxItem item && item.Tag is Season season)
-            {
-                await LoadSeasonSafelyAsync(year, season);
-            }
-        }
-
-        private async void OnSeasonSelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            // 组合框重建期间的穿透事件被忽略，避免级联取消
-            if (_isRebuilding) return;
-            if (YearComboBox.SelectedItem is not int year) return;
-            if (SeasonComboBox.SelectedItem is not ComboBoxItem item || item.Tag is not Season season) return;
-            await LoadSeasonSafelyAsync(year, season);
-        }
-
-        private Task LoadSelectedSeasonSafelyAsync(bool forceRefresh = false)
-        {
-            if (YearComboBox.SelectedItem is int year
-                && SeasonComboBox.SelectedItem is ComboBoxItem
-                    { Tag: Season season })
-            {
-                return LoadSeasonSafelyAsync(year, season, forceRefresh);
-            }
-
-            return Task.CompletedTask;
+            await ViewModel.LoadPastSeasonAnimeAsync(target.Year, target.Season, loadCts.Token);
         }
 
         private async Task LoadSeasonSafelyAsync(
-            int year,
-            Season season,
+            PastSeasonTarget target,
             bool forceRefresh = false)
         {
             try
             {
-                await LoadSeasonAsync(year, season, forceRefresh);
+                await LoadSeasonAsync(target, forceRefresh);
             }
             catch (OperationCanceledException)
             {
@@ -357,132 +292,265 @@ namespace AniMeido.Plugin.Base.Views
 #pragma warning disable CA1031 // UI 事件边界统一显示加载失败，避免 async void 终止进程。
             catch (Exception ex)
             {
+                _logger.LogError(ex, "Library season {Year}/{Season} failed to load", target.Year, target.Season);
                 ErrorInfoBar.Message = $"加载失败：{ex.Message}";
                 ErrorInfoBar.IsOpen = true;
-                LoadingOverlay.Visibility = Visibility.Collapsed;
-                LoadingRing.IsActive = false;
-                SetFilterControlsEnabled(true);
             }
 #pragma warning restore CA1031
         }
 
-        private async void OnRefreshClick(object sender, RoutedEventArgs e)
+        private void OnRefreshClick(object sender, RoutedEventArgs e)
+            => _ = LoadSelectedSeasonSafelyAsync(forceRefresh: true);
+
+        private void OnRetryClick(object sender, RoutedEventArgs e)
+            => _ = LoadSelectedSeasonSafelyAsync();
+
+        private void UpdateSkeleton()
         {
-            try
+            if (ViewModel.IsLoading)
             {
-                await LoadSelectedSeasonSafelyAsync(forceRefresh: true);
+                _skeletonTimer.Stop();
+                _skeletonTimer.Start();
             }
-#pragma warning disable CA1031 // UI 边界统一显示刷新失败，避免异常终止进程
-            catch (Exception ex)
+            else
             {
-                ErrorInfoBar.Message = $"刷新失败：{ex.Message}";
-                ErrorInfoBar.IsOpen = true;
-                LoadingOverlay.Visibility = Visibility.Collapsed;
-                LoadingRing.IsActive = false;
-                SetFilterControlsEnabled(true);
+                _skeletonTimer.Stop();
+                SkeletonRepeater.Visibility = Visibility.Collapsed;
             }
-#pragma warning restore CA1031
         }
 
-        private void OnAnimeCardClicked(object? sender, Views.Controls.AnimeCardClickedEventArgs e)
+        private void ShowSkeletonIfLoading()
+        {
+            if (ViewModel.IsLoading)
+                SkeletonRepeater.Visibility = Visibility.Visible;
+        }
+
+        private void OnAnimeCardClicked(object? sender, AnimeCardClickedEventArgs e)
         {
             _pluginNavigator.Navigate(typeof(AnimeDetailPage), e.Anime.ID);
         }
 
-        private async Task LoadDragConfigAndBlockedAsync()
+        // ======== 筛选与排序 ========
+
+        private void InitializeSortControls()
         {
-            try
+            foreach (var (key, label) in new[]
             {
-                await _dragDrop.ReloadConfigAsync();
-                _blockedIds = await _tracking.GetBlockedAnimeIdsAsync();
-                // 原始季度数据独立于当前显示结果，返回页面时仅重新应用可见性规则。
-                if (_allAnime.Count > 0)
-                {
-                    ApplyFilter(FilterBox.Text);
-                }
-            }
-#pragma warning disable CA1031 // 拖放/屏蔽配置加载失败不阻塞页面
-            catch (Exception ex)
+                (PastSeasonSortKey.Score, "评分"),
+                (PastSeasonSortKey.AirDate, "开播日期"),
+                (PastSeasonSortKey.Title, "标题"),
+            })
             {
-                System.Diagnostics.Debug.WriteLine($"[PastSeasonPage] LoadDragConfigAndBlockedAsync failed: {ex.Message}");
+                SortComboBox.Items.Add(new ComboBoxItem { Content = label, Tag = key });
             }
-#pragma warning restore CA1031
+
+            SortComboBox.SelectedIndex = 0;
+            SortComboBox.SelectionChanged += OnSortSelectionChanged;
+            UpdateSortDirectionButton();
         }
 
-        // ======== 自定义拖放 ========
+        private void OnSortSelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (SortComboBox.SelectedItem is ComboBoxItem { Tag: PastSeasonSortKey key })
+            {
+                ViewModel.SetSortKey(key);
+                UpdateSortDirectionButton();
+            }
+        }
+
+        private void OnSortDirectionClick(object sender, RoutedEventArgs e)
+        {
+            ViewModel.ToggleSortDirection();
+            UpdateSortDirectionButton();
+        }
+
+        private void UpdateSortDirectionButton()
+        {
+            SortDirectionIcon.Glyph = ViewModel.SortAscending ? "" : "";
+            var text = PastSeasonBrowse.SortDirectionText(ViewModel.SortKey, ViewModel.SortAscending);
+            ToolTipService.SetToolTip(SortDirectionButton, text);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SortDirectionButton, text);
+        }
+
+        private void OnFormatChipClick(object sender, RoutedEventArgs e)
+        {
+            if (sender is not ToggleButton { Tag: PastSeasonFormatChip chip } button)
+                return;
+
+            // 再点已选中的标签不取消选中，保持“始终选中一项”。
+            if (chip.IsSelected)
+            {
+                button.IsChecked = true;
+                return;
+            }
+
+            ViewModel.SelectFormat(chip.Format);
+        }
+
+        private void OnHideCompletedToggled(object sender, RoutedEventArgs e)
+        {
+            if (!_isSyncingControls)
+                ViewModel.SetHideCompleted(HideCompletedSwitch.IsOn);
+        }
+
+        private void OnFilterTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+        {
+            if (!_isSyncingControls)
+                ViewModel.SetQuery(sender.Text);
+        }
+
+        private void OnClearFiltersClick(object sender, RoutedEventArgs e)
+        {
+            _isSyncingControls = true;
+            FilterBox.Text = "";
+            HideCompletedSwitch.IsOn = false;
+            _isSyncingControls = false;
+            ViewModel.ClearFilters();
+        }
+
+        // ======== 键盘 ========
+
+        /// <summary>[ ] 逐季切换；焦点在输入框里时让给文字输入。</summary>
+        private void OnRootKeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (e.Key is not (PreviousSeasonKey or NextSeasonKey) || IsTextInputFocused())
+                return;
+
+            StepSeason(e.Key == PreviousSeasonKey ? -1 : 1);
+            e.Handled = true;
+        }
+
+        private bool IsTextInputFocused()
+            => XamlRoot is not null
+                && FocusManager.GetFocusedElement(XamlRoot) is TextBox or PasswordBox or RichEditBox or NumberBox;
+
+        private void OnFindAcceleratorInvoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+        {
+            FilterBox.Focus(FocusState.Keyboard);
+            args.Handled = true;
+        }
+
+        // ======== 布局 ========
+
+        /// <summary>工具栏宽时一行，窄时季度与形态一行、其余一行。</summary>
+        private void OnToolbarSizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            var singleRow = e.NewSize.Width >= ToolbarSingleRowWidth;
+            if (_toolbarIsSingleRow == singleRow)
+                return;
+
+            _toolbarIsSingleRow = singleRow;
+            // 第二行为空时行间距仍会占位，单行时去掉。
+            ToolbarGrid.RowSpacing = singleRow ? 0 : 10;
+            Grid.SetRow(SecondaryTools, singleRow ? 0 : 1);
+            Grid.SetColumn(SecondaryTools, singleRow ? 1 : 0);
+            Grid.SetColumnSpan(SecondaryTools, singleRow ? 1 : 2);
+            Grid.SetColumnSpan(PrimaryTools, singleRow ? 1 : 2);
+            FilterBox.Width = singleRow ? 220 : double.NaN;
+        }
+
+        private void OnGridSizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            _gridLayoutTimer.Stop();
+            _gridLayoutTimer.Start();
+        }
+
+        /// <summary>按网格宽度算出每行几张、每张多宽，让卡片铺满整行。</summary>
+        private void ApplyCardWidth()
+        {
+            var available = AnimeGridView.ActualWidth
+                - AnimeGridView.Padding.Left
+                - AnimeGridView.Padding.Right;
+            if (available <= 0)
+                return;
+
+            var slot = AnimeCardPresentation.DefaultCardWidth + CardSlotExtra;
+            var columns = Math.Max(1, (int)Math.Floor(available / slot));
+            var width = Math.Max(
+                AnimeCardPresentation.DefaultCardWidth,
+                Math.Floor(available / columns) - CardSlotExtra);
+            if (Math.Abs(width - _cardWidth) < 0.5
+                && AnimeGridView.ItemsPanelRoot is ItemsWrapGrid { ItemWidth: > 0 })
+            {
+                return;
+            }
+
+            _cardWidth = width;
+            if (AnimeGridView.ItemsPanelRoot is ItemsWrapGrid panel)
+            {
+                panel.ItemWidth = width + CardSlotExtra;
+                foreach (var child in panel.Children)
+                {
+                    if (child is GridViewItem { ContentTemplateRoot: AnimeCard card })
+                        card.CardWidth = width;
+                }
+
+                panel.InvalidateMeasure();
+            }
+
+            SkeletonLayout.MinItemWidth = width + CardSlotExtra;
+            SkeletonLayout.MinItemHeight = AnimeCardPresentation.CoverHeightFor(width) + CardBelowCoverHeight;
+        }
+
+        private void OnGridContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+        {
+            if (args.ItemContainer?.ContentTemplateRoot is AnimeCard card && card.CardWidth != _cardWidth)
+                card.CardWidth = _cardWidth;
+        }
+
+        // ======== 生命周期与自定义拖放 ========
 
         private IDisposable? _dropHostRegistration;
 
         private void OnPageLoaded(object sender, RoutedEventArgs e)
         {
-            if (sender is not Grid rootGrid)
-                return;
-
             _dropHostRegistration?.Dispose();
             _dropHostRegistration = _dragDrop.AttachStandardDragHost(
-                rootGrid,
+                RootGrid,
                 DragOverlay,
                 DragAction.PlanToWatch);
 
             // 确保 Unloaded 只注册一次
-            rootGrid.Unloaded -= OnRootGridUnloaded;
-            rootGrid.Unloaded += OnRootGridUnloaded;
+            RootGrid.Unloaded -= OnRootGridUnloaded;
+            RootGrid.Unloaded += OnRootGridUnloaded;
 
-            // 返回已缓存页面时重新读取屏蔽状态，移除刚屏蔽的条目。
-            _ = LoadDragConfigAndBlockedAsync();
-            if (!ViewModel.IsLoading && _allAnime.Count == 0)
+            // 返回已缓存页面时重新读取追番状态：刷新卡片标签，移除刚屏蔽的条目。
+            _ = LoadDragConfigAndStatusesAsync();
+            // 首次进入、上次加载失败或被离开打断，或离开前刚切了季度还没加载时，加载所选季度。
+            if (!ViewModel.IsLoading
+                && (ViewModel.Season != _selected || ViewModel.LoadedAnime.Count == 0))
             {
                 _ = LoadSelectedSeasonSafelyAsync();
             }
+        }
+
+        private async Task LoadDragConfigAndStatusesAsync()
+        {
+            try
+            {
+                await _dragDrop.ReloadConfigAsync();
+                if (!await ViewModel.ReloadStatusesAsync())
+                    _logger.LogWarning("Library tracking statuses could not be read; keeping the previous marks");
+            }
+#pragma warning disable CA1031 // 拖放配置与状态读取失败不阻塞页面
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Library drag config or tracking statuses failed to load");
+            }
+#pragma warning restore CA1031
         }
 
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
         {
             _dropHostRegistration?.Dispose();
             _dropHostRegistration = null;
+            _seasonLoadTimer.Stop();
+            _skeletonTimer.Stop();
+            _gridLayoutTimer.Stop();
             Interlocked.Increment(ref _loadVersion);
             _loadCts?.Cancel();
             _loadCts?.Dispose();
             _loadCts = null;
-        }
-
-        // ======== 即时过滤 ========
-
-        private void OnFilterTextChanged(object sender, TextChangedEventArgs e)
-        {
-            ApplyFilter(FilterBox.Text);
-        }
-
-        private void OnMediaFormatSelectionChanged(
-            object sender,
-            SelectionChangedEventArgs e)
-        {
-            ApplyFilter(FilterBox.Text);
-        }
-
-        private void ApplyFilter(string query)
-        {
-            var filtered = AnimeListPresentation.Filter(
-                _allAnime,
-                _blockedIds,
-                titleQuery: query);
-            if (MediaFormatComboBox.SelectedItem is ComboBoxItem
-                { Tag: AnimeMediaFormat format })
-            {
-                filtered = filtered
-                    .Where(anime => anime.MediaFormat == format)
-                    .ToArray();
-            }
-            ViewModel.ReplaceVisibleAnime(filtered);
-            TotalCountText.Text = filtered.Count.ToString();
-            UpdateViewState();
-        }
-
-        private void SetFilterControlsEnabled(bool enabled)
-        {
-            FilterBox.IsEnabled = enabled;
-            MediaFormatComboBox.IsEnabled = enabled;
-            RefreshButton.IsEnabled = enabled;
         }
     }
 }

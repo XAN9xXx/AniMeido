@@ -8,184 +8,279 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
     xmlns:controls="using:AniMeido.Plugin.Base.Views.Controls"
-    xmlns:contracts="using:AniMeido.Contracts.Models">
+    xmlns:vm="using:AniMeido.Plugin.Base.ViewModels">
 
-    <Grid AllowDrop="True"
-          Padding="24,20,24,24"
-          Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
-          Loaded="OnPageLoaded">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
-
-        <!-- 固定顶部区域：搜索过滤 + 年份季度选择器 -->
-        <StackPanel Grid.Row="0"
-                    Margin="0,0,0,16"
-                    Spacing="12">
-            <!-- 错误提示与标题参与同一纵向布局，避免互相覆盖。 -->
-            <InfoBar x:Name="ErrorInfoBar"
-                     Severity="Error"
-                     IsClosable="True"
-                     IsOpen="False"/>
-            <StackPanel Spacing="2">
-                <TextBlock Text="番剧库"
-                           Style="{StaticResource AniMeidoPageTitleStyle}"/>
-                <TextBlock Text="按年份、季度与形态浏览全部动画"
-                           Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
-            </StackPanel>
-            <!-- 搜索过滤 -->
-            <Border x:Name="FilterCard"
-                    Style="{StaticResource AniMeidoToolbarStyle}"
-                    Visibility="Collapsed">
-                <Grid ColumnDefinitions="Auto,*"
-                      ColumnSpacing="8">
-                    <FontIcon Glyph="&#xE721;"
-                              FontSize="14"
-                              VerticalAlignment="Center"
-                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <TextBox x:Name="FilterBox"
-                             Grid.Column="1"
-                             PlaceholderText="搜索当前列表…"
-                             BorderThickness="0"
-                             Background="Transparent"
-                             FontSize="14"
-                             TextChanged="OnFilterTextChanged"/>
-                </Grid>
-            </Border>
-            <!-- 年份季度选择器 (固定) -->
-            <Border Style="{StaticResource AniMeidoToolbarStyle}">
-                <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*" ColumnSpacing="12">
-                    <ComboBox x:Name="YearComboBox"
-                              Header="年份"
-                              Width="140"/>
-                    <ComboBox x:Name="SeasonComboBox"
-                              Grid.Column="1"
-                              Header="季度"
-                              Width="140"/>
-                    <ComboBox x:Name="MediaFormatComboBox"
-                              Grid.Column="2"
-                              Header="动画形态"
-                              Width="160"
-                              SelectionChanged="OnMediaFormatSelectionChanged"/>
-                    <Button x:Name="RefreshButton"
-                            Grid.Column="3"
-                            Content="刷新当前季度"
-                            Click="OnRefreshClick"
-                            VerticalAlignment="Bottom"/>
-                    <TextBlock Grid.Column="4"
-                               Text="选择季度后自动加载"
-                               VerticalAlignment="Bottom"
-                               Margin="0,0,0,8"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                </Grid>
-            </Border>
-        </StackPanel>
-        <!-- 内容区域 -->
-        <Grid Grid.Row="1">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
-
-                <!-- 统计信息 -->
-                <Border x:Name="StatsCard"
-                        Style="{StaticResource AniMeidoContentCardStyle}"
-                        Margin="0,0,0,12"
-                        Visibility="Collapsed">
-                    <StackPanel Orientation="Horizontal"
-                                Spacing="6">
-                        <TextBlock Text="当前显示"
-                                   FontSize="14"
-                                   VerticalAlignment="Center"/>
-                        <TextBlock x:Name="TotalCountText"
-                                   FontSize="28"
-                                   FontWeight="Bold"
-                                   VerticalAlignment="Center"/>
-                        <TextBlock Text="部动画"
-                                   FontSize="14"
-                                   VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Border>
-
-                <!-- 空状态提示 -->
-                <StackPanel x:Name="EmptyState"
-                            Grid.Row="1"
-                            Visibility="Collapsed"
-                            HorizontalAlignment="Center"
-                            Margin="0,40,0,0">
-                    <FontIcon Glyph="&#xE11A;"
-                              Style="{StaticResource AniMeidoEmptyStateIconStyle}"/>
-                    <TextBlock x:Name="EmptyStateText"
-                               Text="该季度暂无番剧数据"
-                               FontWeight="SemiBold"
-                               HorizontalAlignment="Center"
-                               Margin="0,12,0,0"/>
+    <Page.Resources>
+        <!-- 形态筛选标签：带本季数量，选中时为强调色 -->
+        <DataTemplate x:Key="FormatChipTemplate" x:DataType="vm:PastSeasonFormatChip">
+            <ToggleButton Tag="{x:Bind}"
+                          IsChecked="{x:Bind IsSelected}"
+                          Click="OnFormatChipClick"
+                          CornerRadius="14"
+                          Padding="12,4"
+                          AutomationProperties.Name="{x:Bind Label}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="{x:Bind Label}"/>
+                    <TextBlock Text="{x:Bind Count}" Opacity="0.7" FontSize="12" VerticalAlignment="Center"/>
                 </StackPanel>
+            </ToggleButton>
+        </DataTemplate>
 
-                <!-- 番剧网格 -->
-                <GridView x:Name="AnimeGridView"
-                          Grid.Row="1"
-                          ItemsSource="{x:Bind ViewModel.AnimeList, Mode=OneWay}"
-                          SelectionMode="None"
-                          ScrollViewer.VerticalScrollBarVisibility="Auto">
-                    <GridView.ItemContainerStyle>
-                        <Style TargetType="GridViewItem">
-                            <Setter Property="UseSystemFocusVisuals"
-                                    Value="False"/>
-                            <Setter Property="IsTabStop"
-                                    Value="False"/>
-                            <Setter Property="Margin"
-                                    Value="0,0,4,8"/>
-                        </Style>
-                    </GridView.ItemContainerStyle>
-                    <GridView.ItemTemplate>
-                        <DataTemplate x:DataType="contracts:Anime">
-                            <controls:AnimeCard ShowMediaFormatBadge="True"
-                                                CardClicked="OnAnimeCardClicked"/>
-                        </DataTemplate>
-                    </GridView.ItemTemplate>
-                </GridView>
+        <!-- 季度面板里的季度按钮 -->
+        <Style x:Key="SeasonPickButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="Padding" Value="0,6"/>
+        </Style>
+    </Page.Resources>
 
-        </Grid>
+    <Grid x:Name="RootGrid"
+          AllowDrop="True"
+          Padding="24,20,24,0"
+          Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+          RowDefinitions="Auto,Auto,Auto,*"
+          Loaded="OnPageLoaded"
+          KeyDown="OnRootKeyDown">
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Modifiers="Control" Key="F" Invoked="OnFindAcceleratorInvoked"/>
+        </Grid.KeyboardAccelerators>
 
-        <!-- 加载/重试覆盖层 -->
-        <Grid Grid.Row="1"
-              x:Name="LoadingOverlay"
-              Visibility="Collapsed"
-              Background="{ThemeResource AniMeidoOverlayScrimBrush}"
-              Tapped="OnLoadingOverlayTapped">
-            <StackPanel HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
+        <!-- 标题与本季计数 -->
+        <StackPanel Orientation="Horizontal" Spacing="14" Margin="0,0,0,12">
+            <TextBlock Text="番剧库" Style="{StaticResource AniMeidoPageTitleStyle}"/>
+            <TextBlock Text="{x:Bind ViewModel.SummaryText, Mode=OneWay}"
+                       Style="{StaticResource AniMeidoPageSubtitleStyle}"
+                       VerticalAlignment="Bottom"
+                       Margin="0,0,0,4"/>
+        </StackPanel>
+
+        <!-- 意外错误（刷新缓存失败等）；数据源失败显示在内容区 -->
+        <InfoBar x:Name="ErrorInfoBar"
+                 Grid.Row="1"
+                 Severity="Error"
+                 IsClosable="True"
+                 IsOpen="False"
+                 Margin="0,0,0,12"/>
+
+        <!-- 工具栏：宽时一行；窄时季度与形态一行，其余一行（由 code-behind 按宽度切换） -->
+        <Border x:Name="Toolbar"
+                Grid.Row="2"
+                Style="{StaticResource AniMeidoToolbarStyle}"
+                SizeChanged="OnToolbarSizeChanged">
+            <Grid x:Name="ToolbarGrid" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="16" RowSpacing="10">
+                <Grid x:Name="PrimaryTools" ColumnDefinitions="Auto,*" ColumnSpacing="16">
+                    <!-- 季度切换器：左右逐季翻，点中间选年份与季度 -->
+                    <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                        <Button x:Name="PrevSeasonButton"
+                                Click="OnPrevSeasonClick"
+                                Padding="8,7"
+                                ToolTipService.ToolTip="上一季（[）"
+                                AutomationProperties.Name="上一季">
+                            <FontIcon Glyph="&#xE76B;" FontSize="12"/>
+                        </Button>
+                        <Button x:Name="SeasonPickerButton" MinWidth="140" AutomationProperties.Name="选择季度">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock x:Name="SeasonLabel" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="SeasonMonthsLabel"
+                                           FontSize="12"
+                                           VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <FontIcon Glyph="&#xE70D;" FontSize="10" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <Button.Flyout>
+                                <Flyout x:Name="SeasonFlyout" Placement="BottomEdgeAlignedLeft" Opening="OnSeasonFlyoutOpening">
+                                    <StackPanel Width="272" Spacing="12">
+                                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                            <Button x:Name="FlyoutPrevYearButton"
+                                                    Click="OnFlyoutPrevYearClick"
+                                                    Padding="8,7"
+                                                    AutomationProperties.Name="上一年">
+                                                <FontIcon Glyph="&#xE76B;" FontSize="12"/>
+                                            </Button>
+                                            <NumberBox x:Name="FlyoutYearBox"
+                                                       Grid.Column="1"
+                                                       SpinButtonPlacementMode="Hidden"
+                                                       ValidationMode="InvalidInputOverwritten"
+                                                       ValueChanged="OnFlyoutYearChanged"
+                                                       AutomationProperties.Name="年份"/>
+                                            <Button x:Name="FlyoutNextYearButton"
+                                                    Grid.Column="2"
+                                                    Click="OnFlyoutNextYearClick"
+                                                    Padding="8,7"
+                                                    AutomationProperties.Name="下一年">
+                                                <FontIcon Glyph="&#xE76C;" FontSize="12"/>
+                                            </Button>
+                                        </Grid>
+                                        <Grid x:Name="FlyoutSeasonGrid" ColumnDefinitions="*,*,*,*" ColumnSpacing="6"/>
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Text="也可用 [ ] 键逐季切换"
+                                                       FontSize="12"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            <HyperlinkButton Grid.Column="1" Content="最新一季" Click="OnLatestSeasonClick"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
+                        <Button x:Name="NextSeasonButton"
+                                Click="OnNextSeasonClick"
+                                Padding="8,7"
+                                ToolTipService.ToolTip="下一季（]）"
+                                AutomationProperties.Name="下一季">
+                            <FontIcon Glyph="&#xE76C;" FontSize="12"/>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- 形态标签；放不下时横向滚动 -->
+                    <ScrollViewer Grid.Column="1"
+                                  HorizontalScrollMode="Auto"
+                                  HorizontalScrollBarVisibility="Hidden"
+                                  VerticalScrollMode="Disabled"
+                                  VerticalScrollBarVisibility="Disabled"
+                                  VerticalAlignment="Center">
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.FormatChips, Mode=OneWay}"
+                                      ItemTemplate="{StaticResource FormatChipTemplate}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="6"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+
+                <Grid x:Name="SecondaryTools" Grid.Column="1" ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="12">
+                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <TextBlock Text="排序"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,4,0"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <ComboBox x:Name="SortComboBox" MinWidth="112" AutomationProperties.Name="排序方式"/>
+                        <Button x:Name="SortDirectionButton" Click="OnSortDirectionClick" Padding="8,7">
+                            <FontIcon x:Name="SortDirectionIcon" FontSize="14"/>
+                        </Button>
+                    </StackPanel>
+                    <ToggleSwitch x:Name="HideCompletedSwitch"
+                                  Grid.Column="1"
+                                  OnContent="隐藏看过"
+                                  OffContent="隐藏看过"
+                                  MinWidth="0"
+                                  VerticalAlignment="Center"
+                                  Toggled="OnHideCompletedToggled">
+                        <ToggleSwitch.Resources>
+                            <x:Double x:Key="ToggleSwitchThemeMinWidth">0</x:Double>
+                        </ToggleSwitch.Resources>
+                    </ToggleSwitch>
+                    <AutoSuggestBox x:Name="FilterBox"
+                                    Grid.Column="3"
+                                    Width="220"
+                                    QueryIcon="Find"
+                                    PlaceholderText="在本季中搜索"
+                                    VerticalAlignment="Center"
+                                    TextChanged="OnFilterTextChanged"
+                                    AutomationProperties.Name="在本季中搜索"/>
+                    <Button x:Name="RefreshButton"
+                            Grid.Column="4"
+                            Click="OnRefreshClick"
+                            Padding="8,7"
+                            VerticalAlignment="Center"
+                            ToolTipService.ToolTip="刷新本季数据"
+                            AutomationProperties.Name="刷新本季数据">
+                        <FontIcon Glyph="&#xE72C;" FontSize="14"/>
+                    </Button>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- 内容区：网格、加载骨架、空结果与错误 -->
+        <Grid Grid.Row="3" Margin="0,12,0,0">
+            <GridView x:Name="AnimeGridView"
+                      ItemsSource="{x:Bind ViewModel.Entries, Mode=OneWay}"
+                      SelectionMode="None"
+                      Padding="0,0,0,24"
+                      ScrollViewer.VerticalScrollBarVisibility="Auto"
+                      SizeChanged="OnGridSizeChanged"
+                      ContainerContentChanging="OnGridContainerContentChanging">
+                <GridView.ItemContainerStyle>
+                    <Style TargetType="GridViewItem">
+                        <Setter Property="UseSystemFocusVisuals" Value="False"/>
+                        <Setter Property="IsTabStop" Value="False"/>
+                        <Setter Property="Margin" Value="0,0,4,8"/>
+                        <Setter Property="Padding" Value="0"/>
+                        <Setter Property="MinWidth" Value="0"/>
+                        <Setter Property="MinHeight" Value="0"/>
+                    </Style>
+                </GridView.ItemContainerStyle>
+                <GridView.ItemTemplate>
+                    <DataTemplate x:DataType="vm:PastSeasonEntry">
+                        <controls:AnimeCard DataContext="{x:Bind Anime}"
+                                            TrackingStatus="{x:Bind Status}"
+                                            ShowMediaFormatBadge="True"
+                                            ShowSeasonDate="True"
+                                            CardClicked="OnAnimeCardClicked"/>
+                    </DataTemplate>
+                </GridView.ItemTemplate>
+            </GridView>
+
+            <!-- 加载超过片刻才显示骨架，工具栏在加载时保持可用 -->
+            <ItemsRepeater x:Name="SkeletonRepeater" Visibility="Collapsed" IsHitTestVisible="False">
+                <ItemsRepeater.Layout>
+                    <UniformGridLayout x:Name="SkeletonLayout"
+                                       MinItemWidth="166"
+                                       MinItemHeight="290"
+                                       MinColumnSpacing="0"
+                                       MinRowSpacing="0"/>
+                </ItemsRepeater.Layout>
+                <ItemsRepeater.ItemTemplate>
+                    <DataTemplate x:DataType="x:Int32">
+                        <Grid Margin="6,6,10,14" RowDefinitions="*,Auto" RowSpacing="10">
+                            <Border CornerRadius="10" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}"/>
+                            <StackPanel Grid.Row="1" Spacing="6" Padding="4,0">
+                                <Border Height="12" CornerRadius="4" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}"/>
+                                <Border Height="10" Width="72" HorizontalAlignment="Left" CornerRadius="4" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}"/>
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </ItemsRepeater.ItemTemplate>
+            </ItemsRepeater>
+
+            <!-- 空结果：筛选造成的可以一键清除 -->
+            <StackPanel Visibility="{x:Bind ViewModel.HasNoResults, Mode=OneWay}"
+                        HorizontalAlignment="Center"
+                        Margin="0,48,0,0"
                         Spacing="12">
-                <ProgressRing x:Name="LoadingRing"
-                              Height="40"
-                              Width="40"
-                              HorizontalAlignment="Center"
-                              IsActive="True"/>
-                <Image x:Name="LoadingFailedImage"
-                       Source="ms-appx:///Assets/Loading_failed.png"
+                <FontIcon Glyph="&#xE11A;" Style="{StaticResource AniMeidoEmptyStateIconStyle}"/>
+                <TextBlock Text="{x:Bind ViewModel.EmptyText, Mode=OneWay}"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center"/>
+                <Button Content="清除筛选"
+                        HorizontalAlignment="Center"
+                        Visibility="{x:Bind ViewModel.CanClearFilters, Mode=OneWay}"
+                        Click="OnClearFiltersClick"/>
+            </StackPanel>
+
+            <!-- 数据源失败：说明原因并可重试 -->
+            <StackPanel Visibility="{x:Bind ViewModel.IsError, Mode=OneWay}"
+                        HorizontalAlignment="Center"
+                        Margin="0,48,0,0"
+                        MaxWidth="360"
+                        Spacing="12">
+                <Image Source="ms-appx:///Assets/Loading_failed.png"
                        Width="80"
                        Height="80"
-                       Stretch="Uniform"
-                       HorizontalAlignment="Center"
-                       Visibility="Collapsed"/>
-                <TextBlock x:Name="LoadingHint"
-                           FontSize="14"
-                           Foreground="{ThemeResource AniMeidoMutedTextBrush}"
-                           HorizontalAlignment="Center"
+                       Stretch="Uniform"/>
+                <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
                            TextWrapping="Wrap"
-                           MaxWidth="300"
-                           TextAlignment="Center"/>
+                           TextAlignment="Center"
+                           Foreground="{ThemeResource AniMeidoMutedTextBrush}"/>
+                <Button Content="重试" HorizontalAlignment="Center" Click="OnRetryClick"/>
             </StackPanel>
         </Grid>
 
         <Canvas x:Name="DragOverlay"
-                Grid.RowSpan="2"
+                Grid.RowSpan="4"
                 Visibility="Collapsed"
                 Background="Transparent"
                 AllowDrop="True"/>
     </Grid>
 </Page>
-
-
