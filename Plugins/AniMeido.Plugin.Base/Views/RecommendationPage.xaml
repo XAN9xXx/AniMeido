@@ -7,6 +7,7 @@
     xmlns:controls="using:AniMeido.Plugin.Base.Views.Controls"
     xmlns:models="using:AniMeido.Plugin.Base.Models"
     xmlns:viewModels="using:AniMeido.Plugin.Base.ViewModels"
+    xmlns:views="using:AniMeido.Plugin.Base.Views"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
     <Grid Padding="24,20,24,24"
@@ -222,47 +223,58 @@
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
-                                    <Grid Margin="0,0,0,6">
-                                        <Border Margin="8,6,0,-6" CornerRadius="8" BorderThickness="1"
-                                                BorderBrush="{ThemeResource ControlStrokeColorDefault}"
-                                                Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"/>
-                                        <Button x:Name="TagPackButton" HorizontalAlignment="Stretch"
-                                                HorizontalContentAlignment="Stretch" Padding="12"
-                                                Click="OnTagPackClick" PointerEntered="OnTagPackEntered" PointerExited="OnTagPackExited">
-                                            <StackPanel Spacing="5">
-                                                <TextBlock Text="{x:Bind ViewModel.TagSummary, Mode=OneWay}" FontWeight="SemiBold"/>
-                                                <TextBlock x:Name="TagPreviewText" Text="展开调整当前作品的标签偏好" TextTrimming="CharacterEllipsis" FontSize="12"/>
-                                            </StackPanel>
-                                            <FlyoutBase.AttachedFlyout>
-                                                <Flyout x:Name="TagPackFlyout" Placement="Bottom" Opened="OnTagFlyoutOpened" Closed="OnTagFlyoutClosed">
-                                                    <StackPanel x:Name="TagFlyoutContent" Width="360" Spacing="10"
-                                                                PointerEntered="OnTagContentEntered" PointerExited="OnTagContentExited"
-                                                                PointerPressed="OnTagContentPressed">
-                                                        <TextBlock Text="当前作品的标签偏好" FontSize="17" FontWeight="SemiBold"/>
-                                                        <TextBlock Text="未设置表示交给系统判断，不抵消推断。" TextWrapping="Wrap" FontSize="12"/>
-                                                        <ProgressRing x:Name="TagLoadingRing" Width="20" Height="20" MinWidth="20" MinHeight="20" Visibility="Collapsed" IsActive="{x:Bind ViewModel.IsLoadingTags, Mode=OneWay}"/>
+                                    <Grid x:Name="TagPackHost" Margin="0,0,0,6">
+                                        <Grid x:Name="TagPackVisual" PointerEntered="OnTagPackEntered" PointerExited="OnTagPackExited">
+                                            <Border x:Name="TagPackBackdrop" CornerRadius="10" BorderThickness="1"
+                                                    BorderBrush="{ThemeResource ControlStrokeColorDefault}"
+                                                    Background="{ThemeResource CardBackgroundFillColorDefault}" IsHitTestVisible="False"/>
+                                            <Border x:Name="TagPackSurface" CornerRadius="10" Padding="12" Background="Transparent"
+                                                    TabFocusNavigation="Cycle" KeyDown="OnTagStackKeyDown" Tapped="OnTagPackTapped">
+                                                <Grid RowDefinitions="Auto,*" RowSpacing="8">
+                                                    <StackPanel Spacing="3">
+                                                        <TextBlock Text="{x:Bind ViewModel.TagSummary, Mode=OneWay}" FontWeight="SemiBold"/>
+                                                        <TextBlock Text="未设置交由系统判断，不抵消推断" FontSize="12"
+                                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                        <ProgressRing x:Name="TagLoadingRing" Width="20" Height="20" MinWidth="20" MinHeight="20"
+                                                                      HorizontalAlignment="Left" Visibility="Collapsed" IsActive="{x:Bind ViewModel.IsLoadingTags, Mode=OneWay}"/>
                                                         <TextBlock x:Name="TagErrorText" Visibility="Collapsed" Text="{x:Bind ViewModel.TagError, Mode=OneWay}" TextWrapping="Wrap"/>
-                                                        <ScrollViewer MaxHeight="280" VerticalScrollBarVisibility="Hidden" VerticalScrollMode="Enabled" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled">
-                                                            <ItemsControl ItemsSource="{x:Bind ViewModel.SelectedTags, Mode=OneWay}">
-                                                                <ItemsControl.ItemTemplate>
-                                                                    <DataTemplate x:DataType="viewModels:RecommendationTagPreference">
-                                                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="0,0,0,8">
-                                                                            <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTipService.ToolTip="{x:Bind Name}"/>
-                                                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="3">
-                                                                                <ToggleButton Content="喜欢" Padding="8,5" MinWidth="0" IsChecked="{x:Bind IsLiked, Mode=OneWay}" Tag="{x:Bind}" IsEnabled="{x:Bind CanEdit, Mode=OneWay}" Click="OnTagLikeClick"/>
-                                                                                <ToggleButton Content="未设置" Padding="8,5" MinWidth="0" IsChecked="{x:Bind IsUnset, Mode=OneWay}" Tag="{x:Bind}" IsEnabled="{x:Bind CanEdit, Mode=OneWay}" Click="OnTagResetClick"/>
-                                                                                <ToggleButton Content="减少" Padding="8,5" MinWidth="0" IsChecked="{x:Bind IsReduced, Mode=OneWay}" Tag="{x:Bind}" IsEnabled="{x:Bind CanEdit, Mode=OneWay}" Click="OnTagReduceClick" ToolTipService.ToolTip="减少推荐"/>
-                                                                            </StackPanel>
-                                                                        </Grid>
-                                                                    </DataTemplate>
-                                                                </ItemsControl.ItemTemplate>
-                                                            </ItemsControl>
-                                                        </ScrollViewer>
-                                                        <Button x:Name="RetryTagsButton" Visibility="Collapsed" Content="重试" Click="OnRetryTagsClick"/>
+                                                        <Button x:Name="RetryTagsButton" Visibility="Collapsed" Content="重试" Click="OnRetryTagsClick" HorizontalAlignment="Left"/>
                                                     </StackPanel>
-                                                </Flyout>
-                                            </FlyoutBase.AttachedFlyout>
-                                        </Button>
+                                                    <ScrollViewer x:Name="TagPackScroll" Grid.Row="1" VerticalScrollBarVisibility="Hidden"
+                                                                  HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled"
+                                                                  VerticalScrollMode="Disabled" ZoomMode="Disabled">
+                                                        <ItemsControl x:Name="TagPackList" ItemsSource="{x:Bind ViewModel.SelectedTags, Mode=OneWay}">
+                                                            <ItemsControl.ItemsPanel>
+                                                                <ItemsPanelTemplate>
+                                                                    <views:TodayPlanStackPanel VisibleCardCount="1" FanAngleStep="1.5" HideRearContent="True"
+                                                                                               Loaded="OnTagPanelLoaded" Background="Transparent"
+                                                                                               IsTabStop="True" KeyDown="OnTagStackKeyDown"/>
+                                                                </ItemsPanelTemplate>
+                                                            </ItemsControl.ItemsPanel>
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate x:DataType="viewModels:RecommendationTagPreference">
+                                                                    <StackPanel Padding="0,0,0,8">
+                                                                        <Border CornerRadius="8" Padding="9,7" MinHeight="61"
+                                                                                Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}"
+                                                                                BorderBrush="{ThemeResource ControlStrokeColorDefault}" BorderThickness="1">
+                                                                            <StackPanel x:Name="CardPackFace" Spacing="5">
+                                                                                <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis"
+                                                                                           FontWeight="SemiBold" ToolTipService.ToolTip="{x:Bind Name}"/>
+                                                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                                                    <ToggleButton Content="喜欢" Padding="8,3" MinWidth="0" IsChecked="{x:Bind IsLiked, Mode=OneWay}" Tag="{x:Bind}" IsEnabled="{x:Bind CanEdit, Mode=OneWay}" Click="OnTagLikeClick"/>
+                                                                                    <ToggleButton Content="未设置" Padding="8,3" MinWidth="0" IsChecked="{x:Bind IsUnset, Mode=OneWay}" Tag="{x:Bind}" IsEnabled="{x:Bind CanEdit, Mode=OneWay}" Click="OnTagResetClick"/>
+                                                                                    <ToggleButton Content="减少" Padding="8,3" MinWidth="0" IsChecked="{x:Bind IsReduced, Mode=OneWay}" Tag="{x:Bind}" IsEnabled="{x:Bind CanEdit, Mode=OneWay}" Click="OnTagReduceClick" ToolTipService.ToolTip="减少推荐"/>
+                                                                                </StackPanel>
+                                                                            </StackPanel>
+                                                                        </Border>
+                                                                    </StackPanel>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </ScrollViewer>
+                                                </Grid>
+                                            </Border>
+                                        </Grid>
                                     </Grid>
                                     <Button Content="查看作品详情" HorizontalAlignment="Stretch" Click="OnSelectedDetailsClick"/>
                                     <TextBlock Text="调整这条推荐" FontWeight="SemiBold"/>
@@ -373,5 +385,10 @@
                     </ListView>
             </Grid>
         </Grid>
+        <Popup x:Name="TagStackPopup" IsLightDismissEnabled="False" ShouldConstrainToRootBounds="False"
+               Opened="OnTagStackOpened" Closed="OnTagStackClosed">
+            <Canvas x:Name="TagDismissCanvas" Background="Transparent"
+                    PointerPressed="OnTagOutsidePressed" PointerWheelChanged="OnTagOutsideWheel"/>
+        </Popup>
     </Grid>
 </Page>

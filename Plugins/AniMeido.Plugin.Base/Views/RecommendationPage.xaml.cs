@@ -24,7 +24,6 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     private bool _previewOpen;
     private bool _tagPinned;
     private bool _overTagEntry;
-    private bool _overTagContent;
     private readonly DispatcherTimer _tagOpenTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private readonly DispatcherTimer _tagCloseTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
 
@@ -69,7 +68,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
         _tagOpenTimer.Stop();
         _tagCloseTimer.Stop();
-        TagPackFlyout.Hide();
+        CloseTagStackImmediately();
         if (_listScroll is not null) _listScroll.ViewChanged -= OnListViewChanged;
         _listScroll = null;
         _scrollRestoreGeneration++;
@@ -101,7 +100,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     private void ShowSection(string section)
     {
         ViewModel.BrowseState.Section = section;
-        TagPackFlyout?.Hide();
+        CloseTagStackImmediately();
         RecommendationsPanel.Visibility = section == "recommendations"
             ? Visibility.Visible
             : Visibility.Collapsed;
@@ -292,6 +291,9 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     {
         if (e.PropertyName is nameof(RecommendationViewModel.IsLoadingTags)
             or nameof(RecommendationViewModel.TagError)) UpdateTagLoadingState();
+        if (e.PropertyName == nameof(RecommendationViewModel.TagSummary)
+            && TagStackPopup?.IsOpen == true)
+            DispatcherQueue.TryEnqueue(UpdateTagStackSize);
         if (e.PropertyName is nameof(RecommendationViewModel.SelectedItem)
             or nameof(RecommendationViewModel.HasItems)) UpdatePreview();
         if (e.PropertyName == nameof(RecommendationViewModel.SavingFollowingIds))
@@ -303,9 +305,6 @@ public sealed partial class RecommendationPage : Page, INavigationAware
             && ViewModel.SelectedItem is { } selected
             && RecommendationList.ContainerFromItem(selected) is DependencyObject container)
             RefreshFollowButtons(container);
-        if (e.PropertyName == nameof(RecommendationViewModel.TagSummary))
-            TagPreviewText.Text = ViewModel.SelectedTags.Count == 0 ? "展开查看作品标签"
-                : string.Join(" · ", ViewModel.SelectedTags.Take(3).Select(tag => tag.Name));
         if (e.PropertyName is nameof(RecommendationViewModel.Message)
             or nameof(RecommendationViewModel.HasError))
         {
@@ -346,8 +345,8 @@ public sealed partial class RecommendationPage : Page, INavigationAware
 
     private async void OnRecommendationSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        CloseTagStackImmediately();
         ViewModel.SelectedItem = RecommendationList.SelectedItem as RecommendationItem;
-        TagPackFlyout.Hide();
         UpdatePreview();
         if (_navigationCancellation is not null)
             await LoadTagsAsync();
@@ -390,7 +389,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
 
     private void OnClosePreviewClick(object sender, RoutedEventArgs e)
     {
-        TagPackFlyout.Hide();
+        CloseTagStackImmediately();
         _previewOpen = false;
         ApplyPreviewLayout();
         RecommendationList.Focus(FocusState.Programmatic);
@@ -565,71 +564,12 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         }
     }
 
-    private void OnTagPackEntered(object sender, PointerRoutedEventArgs e)
-    {
-        _overTagEntry = true;
-        _tagCloseTimer.Stop();
-        _tagOpenTimer.Start();
-    }
-
-    private void OnTagPackExited(object sender, PointerRoutedEventArgs e)
-    {
-        _overTagEntry = false;
-        _tagOpenTimer.Stop();
-        _tagCloseTimer.Start();
-    }
-
-    private void OnTagOpenTick(object? sender, object e)
-    {
-        _tagOpenTimer.Stop();
-        if (_overTagEntry && ViewModel.HasSelection) TagPackFlyout.ShowAt(TagPackButton);
-    }
-
-    private void OnTagCloseTick(object? sender, object e)
-    {
-        _tagCloseTimer.Stop();
-        if (!_tagPinned && !_overTagEntry && !_overTagContent) TagPackFlyout.Hide();
-    }
-
-    private void OnTagPackClick(object sender, RoutedEventArgs e)
-    {
-        _tagPinned = true;
-        _tagOpenTimer.Stop();
-        TagPackFlyout.ShowAt(TagPackButton);
-    }
-
-    private void OnTagContentEntered(object sender, PointerRoutedEventArgs e)
-    {
-        _overTagContent = true;
-        _tagCloseTimer.Stop();
-    }
-
-    private void OnTagContentExited(object sender, PointerRoutedEventArgs e)
-    {
-        _overTagContent = false;
-        _tagCloseTimer.Start();
-    }
-
-    private void OnTagContentPressed(object sender, PointerRoutedEventArgs e) => _tagPinned = true;
-    private void OnTagFlyoutOpened(object? sender, object e)
-    {
-        _tagCloseTimer.Stop();
-        UpdateTagLoadingState();
-    }
-
     private void UpdateTagLoadingState()
     {
         TagLoadingRing.Visibility = ViewModel.IsLoadingTags ? Visibility.Visible : Visibility.Collapsed;
         var hasError = !string.IsNullOrWhiteSpace(ViewModel.TagError);
         TagErrorText.Visibility = hasError ? Visibility.Visible : Visibility.Collapsed;
         RetryTagsButton.Visibility = hasError && !ViewModel.IsLoadingTags ? Visibility.Visible : Visibility.Collapsed;
-    }
-    private void OnTagFlyoutClosed(object? sender, object e)
-    {
-        _tagPinned = false;
-        _overTagContent = false;
-        _tagOpenTimer.Stop();
-        _tagCloseTimer.Stop();
     }
 
     private async void OnRetryTagsClick(object sender, RoutedEventArgs e) => await LoadTagsAsync();
@@ -639,7 +579,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
 
     private async Task SaveTagAsync(object sender, RecommendationAdjustment? adjustment)
     {
-        _tagPinned = true;
+        _tagPinned = TagStackPopup.IsOpen;
         if (sender is ToggleButton { Tag: RecommendationTagPreference tag })
         {
             // A click must not claim a saved preference before persistence succeeds.

@@ -10,6 +10,21 @@ namespace AniMeido.Plugin.Base.Views;
 public sealed class TodayPlanStackPanel : Panel
 {
     internal bool IsAnimating { get; set; }
+    public double FanAngleStep { get; set; } = 3;
+    public bool HideRearContent { get; set; }
+    private int _visibleCardCount = 3;
+    public int VisibleCardCount
+    {
+        get => _visibleCardCount;
+        set
+        {
+            var count = Math.Max(1, value);
+            if (_visibleCardCount == count) return;
+            _visibleCardCount = count;
+            InvalidateMeasure();
+        }
+    }
+
     private bool _expanded;
     public bool Expanded
     {
@@ -35,12 +50,12 @@ public sealed class TodayPlanStackPanel : Panel
             child.Measure(new Size(width, double.PositiveInfinity));
             ExpandedHeight += child.DesiredSize.Height;
         }
-        foreach (var child in Children.Take(3))
+        foreach (var child in Children.Take(VisibleCardCount))
             CollapsedHeight += child.DesiredSize.Height;
-        if (Children.Count > 3)
+        if (Children.Count > VisibleCardCount)
         {
-            var angle = Math.Min(3, Children.Count - 3) * 3 * Math.PI / 180;
-            var cardHeight = Math.Max(0, Children[2].DesiredSize.Height - 8);
+            var angle = Math.Min(3, Children.Count - VisibleCardCount) * FanAngleStep * Math.PI / 180;
+            var cardHeight = Math.Max(0, Children[VisibleCardCount - 1].DesiredSize.Height - 8);
             CollapsedHeight += Math.Max(0, Math.Sin(angle) * width + (Math.Cos(angle) - 1) * cardHeight);
         }
         return new Size(width, Expanded ? ExpandedHeight : CollapsedHeight);
@@ -49,24 +64,26 @@ public sealed class TodayPlanStackPanel : Panel
     protected override Size ArrangeOverride(Size finalSize)
     {
         var y = 0d;
-        var thirdTop = Children.Take(2).Sum(child => child.DesiredSize.Height);
+        var fanOriginTop = Children.Take(VisibleCardCount - 1).Sum(child => child.DesiredSize.Height);
         for (var index = 0; index < Children.Count; index++)
         {
             var child = Children[index];
             var height = child.DesiredSize.Height;
-            var rear = index >= 3;
-            var top = rear && !Expanded ? thirdTop : y;
+            var rear = index >= VisibleCardCount;
+            var top = rear && !Expanded ? fanOriginTop : y;
             child.Arrange(new Rect(0, top, finalSize.Width, height));
             if (!IsAnimating)
             {
                 if (child.RenderTransform is not CompositeTransform transform)
                     child.RenderTransform = transform = new CompositeTransform();
                 child.RenderTransformOrigin = new Point(0, 0);
-                transform.Rotation = rear ? Math.Min(index - 2, 3) * 3 * (Expanded ? 0 : 1) : 0;
-                child.Opacity = index >= 6 && !Expanded ? 0 : 1;
+                transform.Rotation = rear ? Math.Min(index - VisibleCardCount + 1, 3) * FanAngleStep * (Expanded ? 0 : 1) : 0;
+                child.Opacity = index >= VisibleCardCount + 3 && !Expanded ? 0 : 1;
+                if (HideRearContent && GetCardFace(child) is { } face)
+                    face.Opacity = rear && !Expanded ? 0 : 1;
             }
             Canvas.SetZIndex(child, Children.Count - index);
-            // 收起的后排不可触发详情/开始补番；露出的区域由面板处理展开。
+            // 收起的后排不可触发卡片操作；露出的区域由面板处理展开。
             child.IsHitTestVisible = !rear || Expanded;
             SetCardTabStops(child, !rear || Expanded);
             y += height;
@@ -84,5 +101,13 @@ public sealed class TodayPlanStackPanel : Panel
         }
         for (var index = 0; index < VisualTreeHelper.GetChildrenCount(element); index++)
             SetCardTabStops(VisualTreeHelper.GetChild(element, index), enabled);
+    }
+
+    internal static UIElement? GetCardFace(DependencyObject element)
+    {
+        if (element is FrameworkElement { Name: "CardPackFace" } face) return face;
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(element); index++)
+            if (GetCardFace(VisualTreeHelper.GetChild(element, index)) is { } childFace) return childFace;
+        return null;
     }
 }
