@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="AniMeido.Plugin.Base.Views.ArchivePage"
     x:Name="RootPage"
@@ -85,262 +85,237 @@
         </StackPanel>
 
         <Grid Grid.Row="3">
-            <Grid x:Name="ArchivesPanel"
-                  ColumnDefinitions="360,*"
-                  ColumnSpacing="16">
+            <Grid x:Name="ArchivesPanel" ColumnDefinitions="390,*" ColumnSpacing="18">
                 <Border Style="{StaticResource AniMeidoCardStyle}">
-                    <Grid RowDefinitions="Auto,Auto,*"
-                          RowSpacing="12">
+                    <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
                         <StackPanel Spacing="8">
-                            <TextBox x:Name="ArchiveFilter"
-                                     PlaceholderText="搜索标题或个人标签"
-                                     TextChanged="OnArchiveFilterChanged">
-                                <TextBox.Header>
-                                    <TextBlock Text="查找档案"
-                                               FontWeight="SemiBold"/>
-                                </TextBox.Header>
-                            </TextBox>
-                            <Expander Header="更多筛选">
+                            <TextBox x:Name="ArchiveFilter" PlaceholderText="搜索标题或个人标签"
+                                     TextChanged="OnArchiveFilterChanged"/>
+                            <Expander Header="筛选档案">
                                 <StackPanel Spacing="10" Padding="0,8,0,4">
-                                    <ComboBox x:Name="StatusFilter"
-                                              Header="追番状态"
+                                    <ComboBox x:Name="StatusFilter" Header="追番状态"
                                               HorizontalAlignment="Stretch"
                                               SelectionChanged="OnArchiveOptionChanged">
-                                        <x:String>全部状态</x:String>
-                                        <x:String>追番中</x:String>
-                                        <x:String>补番中</x:String>
-                                        <x:String>不感兴趣</x:String>
-                                        <x:String>关注</x:String>
-                                        <x:String>已看完</x:String>
+                                        <x:String>全部状态</x:String><x:String>追番中</x:String>
+                                        <x:String>补番中</x:String><x:String>不感兴趣</x:String>
+                                        <x:String>关注</x:String><x:String>已看完</x:String>
                                         <x:String>弃坑</x:String>
                                     </ComboBox>
-                                    <Grid ColumnDefinitions="*,*"
-                                          ColumnSpacing="8">
-                                        <NumberBox x:Name="MinimumRatingFilter"
-                                                   Header="最低评分"
-                                                   Minimum="0.5"
-                                                   Maximum="10"
-                                                   SmallChange="0.5"
+                                    <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                                        <NumberBox x:Name="MinimumRatingFilter" Header="最低评分"
+                                                   Minimum="0.5" Maximum="10" SmallChange="0.5"
                                                    ValueChanged="OnArchiveNumberFilterChanged"/>
-                                        <NumberBox x:Name="ArchiveYearFilter"
-                                                   Grid.Column="1"
-                                                   Header="建档年份"
-                                                   Minimum="2000"
-                                                   Maximum="2100"
+                                        <NumberBox x:Name="ArchiveYearFilter" Grid.Column="1"
+                                                   Header="建档年份" Minimum="2000" Maximum="2100"
                                                    ValueChanged="OnArchiveNumberFilterChanged"/>
                                     </Grid>
-                                    <Button Content="清除筛选"
-                                            HorizontalAlignment="Left"
+                                    <Button Content="清除筛选" HorizontalAlignment="Left"
                                             Click="OnClearArchiveFiltersClick"/>
                                 </StackPanel>
                             </Expander>
                         </StackPanel>
-
                         <Grid Grid.Row="1" ColumnDefinitions="*,Auto">
-                            <TextBlock Text="档案列表"
-                                       FontWeight="SemiBold"/>
-                            <TextBlock x:Name="ArchiveResultCount"
-                                       Grid.Column="1"
+                            <TextBlock Text="我的档案" FontWeight="SemiBold" FontSize="18"/>
+                            <TextBlock x:Name="ArchiveResultCount" Grid.Column="1"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </Grid>
-
                         <Grid Grid.Row="2">
-                            <ListView x:Name="ArchiveList"
-                                      SelectionMode="Single"
+                            <ListView x:Name="ArchiveList" SelectionMode="Single"
                                       SelectionChanged="OnArchiveSelectionChanged">
                                 <ListView.ItemTemplate>
                                     <DataTemplate>
-                                        <StackPanel Padding="4,6" Spacing="4">
-                                            <TextBlock Text="{Binding Title}"
-                                                       FontWeight="SemiBold"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock Text="{Binding Metadata}"
-                                                       FontSize="12"
-                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                            <TextBlock Text="{Binding TagSummary}"
-                                                       FontSize="12"
-                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                        </StackPanel>
+                                        <Grid Padding="3,7" ColumnDefinitions="62,*,Auto" ColumnSpacing="12"
+                                              MinHeight="88">
+                                            <Border CornerRadius="6"
+                                                    Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                                <Image Width="62" Height="82" Stretch="UniformToFill"
+                                                       Loaded="OnArchiveCoverLoaded"
+                                                       DataContextChanged="OnArchiveCoverDataContextChanged"/>
+                                            </Border>
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
+                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding TagSummary}" FontSize="12"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="4">
+                                                <TextBlock Text="{Binding RatingText}" FontSize="12"
+                                                           Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                                <TextBlock Text="{Binding EntryCountText}" FontSize="12"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </StackPanel>
+                                        </Grid>
                                     </DataTemplate>
                                 </ListView.ItemTemplate>
                             </ListView>
-                            <StackPanel x:Name="ArchiveListEmptyState"
-                                        Visibility="Collapsed"
-                                        HorizontalAlignment="Center"
-                                        VerticalAlignment="Center"
-                                        Spacing="8">
-                                <FontIcon Glyph="&#xE11A;"
-                                          Style="{StaticResource AniMeidoEmptyStateIconStyle}"/>
-                                <TextBlock Text="没有符合条件的档案"
-                                           FontWeight="SemiBold"/>
+                            <StackPanel x:Name="ArchiveListEmptyState" Visibility="Collapsed"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                                <FontIcon Glyph="&#xE11A;" Style="{StaticResource AniMeidoEmptyStateIconStyle}"/>
+                                <TextBlock Text="没有符合条件的档案" FontWeight="SemiBold"/>
                                 <TextBlock Text="尝试清除筛选，或先在番剧详情中建立档案"
-                                           MaxWidth="260"
-                                           TextAlignment="Center"
-                                           TextWrapping="Wrap"
+                                           MaxWidth="260" TextAlignment="Center" TextWrapping="Wrap"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </StackPanel>
                         </Grid>
                     </Grid>
                 </Border>
-
                 <Grid Grid.Column="1">
                     <Border x:Name="ArchiveSelectionEmptyState"
                             Style="{StaticResource AniMeidoCardStyle}">
-                        <StackPanel HorizontalAlignment="Center"
-                                    VerticalAlignment="Center"
-                                    Spacing="10">
-                            <FontIcon Glyph="&#xE8F1;"
-                                      Style="{StaticResource AniMeidoEmptyStateIconStyle}"/>
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                            <FontIcon Glyph="&#xE8F1;" Style="{StaticResource AniMeidoEmptyStateIconStyle}"/>
                             <TextBlock Text="选择一部番剧开始整理"
                                        Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                            <TextBlock Text="左侧只负责查找和选择；评分、笔记、感想与观看记录会在这里集中显示。"
-                                       MaxWidth="440"
-                                       TextAlignment="Center"
-                                       TextWrapping="Wrap"
+                            <TextBlock Text="在左侧选择作品，查看笔记、感想和时间线。"
+                                       MaxWidth="440" TextAlignment="Center" TextWrapping="Wrap"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
                     </Border>
-
-                    <ScrollViewer x:Name="ArchiveDetailPanel"
-                                  Visibility="Collapsed">
+                    <ScrollViewer x:Name="ArchiveDetailPanel" Visibility="Collapsed"
+                                  VerticalScrollBarVisibility="Auto">
                         <StackPanel Spacing="16" Padding="0,0,4,4">
                             <Border Style="{StaticResource AniMeidoCardStyle}">
-                                <StackPanel Spacing="14">
-                                    <Grid ColumnDefinitions="*,Auto">
-                                        <StackPanel Spacing="2">
-                                            <TextBlock x:Name="ArchiveTitle"
-                                                       Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                                            <TextBlock Text="个人档案"
+                                <Grid ColumnDefinitions="150,*,Auto" ColumnSpacing="18">
+                                    <Border CornerRadius="8"
+                                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                        <Image x:Name="ArchiveHeroCover" Width="150" Height="210"
+                                               Stretch="UniformToFill"/>
+                                    </Border>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="8">
+                                        <TextBlock x:Name="ArchiveTitle"
+                                                   Style="{StaticResource AniMeidoSectionTitleStyle}"
+                                                   TextWrapping="Wrap"/>
+                                        <TextBlock x:Name="ArchiveAnimeMetadata"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <TextBlock x:Name="ArchiveRatingText"
+                                                       Foreground="{ThemeResource AniMeidoAccentBrush}"
+                                                       FontWeight="SemiBold"/>
+                                            <TextBlock x:Name="ArchiveStatusText"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                         </StackPanel>
-                                        <Button Grid.Column="1"
-                                                Content="保存更改"
-                                                Style="{StaticResource AccentButtonStyle}"
-                                                Click="OnSaveArchiveClick"/>
-                                    </Grid>
-                                    <Grid ColumnDefinitions="220,*"
-                                          ColumnSpacing="12">
-                                        <NumberBox x:Name="RatingBox"
-                                                   Header="个人评分"
-                                                   Minimum="0.5"
-                                                   Maximum="10"
-                                                   SmallChange="0.5"
-                                                   SpinButtonPlacementMode="Compact"/>
-                                        <TextBox x:Name="TagsBox"
-                                                 Grid.Column="1"
-                                                 Header="个人标签"
-                                                 PlaceholderText="例如：治愈、作画、年度候选（用逗号分隔）"/>
-                                    </Grid>
-                                    <TextBox x:Name="SummaryBox"
-                                             Header="概要笔记"
-                                             PlaceholderText="记录整体印象、推荐理由或以后想重看的原因"
-                                             AcceptsReturn="True"
-                                             TextWrapping="Wrap"
-                                             MinHeight="120"/>
-                                </StackPanel>
-                            </Border>
-
-                            <Border Style="{StaticResource AniMeidoCardStyle}">
-                                <StackPanel Spacing="12">
-                                    <Grid ColumnDefinitions="*,Auto">
-                                        <StackPanel>
-                                            <TextBlock Text="感想时间线"
-                                                       Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                                            <TextBlock Text="按观看时刻记录多条感想"
-                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                        </StackPanel>
-                                        <Button Grid.Column="1"
-                                                Style="{StaticResource AccentButtonStyle}"
-                                                Click="OnAddEntryClick">
-                                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                                <FontIcon Glyph="&#xE710;" FontSize="13"/>
-                                                <TextBlock Text="新增感想"/>
-                                            </StackPanel>
-                                        </Button>
-                                    </Grid>
-                                    <ListView x:Name="EntryList"
-                                              MinHeight="100"
-                                              MaxHeight="300"
-                                              SelectionMode="Single"
-                                              SelectionChanged="OnEntrySelectionChanged">
-                                        <ListView.ItemTemplate>
-                                            <DataTemplate>
-                                                <Grid Padding="4,6"
-                                                      ColumnDefinitions="6,*"
-                                                      ColumnSpacing="10">
-                                                    <Border CornerRadius="3"
-                                                            Background="{ThemeResource AniMeidoAccentBrush}"/>
-                                                    <StackPanel Grid.Column="1" Spacing="4">
-                                                        <TextBlock Text="{Binding DisplayTime}"
-                                                                   FontSize="12"
-                                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                                        <TextBlock Text="{Binding EpisodeText}"
-                                                                   FontWeight="SemiBold"/>
-                                                        <TextBlock Text="{Binding Body}"
-                                                                   TextWrapping="Wrap"/>
-                                                    </StackPanel>
-                                                </Grid>
-                                            </DataTemplate>
-                                        </ListView.ItemTemplate>
-                                    </ListView>
-                                    <StackPanel Orientation="Horizontal"
-                                                HorizontalAlignment="Right"
-                                                Spacing="8">
-                                        <Button x:Name="EditEntryButton"
-                                                Content="编辑所选"
-                                                IsEnabled="False"
-                                                Click="OnEditEntryClick"/>
-                                        <Button x:Name="DeleteEntryButton"
-                                                Content="删除所选"
-                                                IsEnabled="False"
-                                                Click="OnDeleteEntryClick"/>
+                                        <TextBlock x:Name="ArchiveTagsText" TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                     </StackPanel>
-                                </StackPanel>
+                                    <Button Grid.Column="2" Content="编辑档案" VerticalAlignment="Top"
+                                            Click="OnEditArchiveClick"/>
+                                </Grid>
                             </Border>
-
-                            <Border Style="{StaticResource AniMeidoCardStyle}">
-                                <StackPanel Spacing="12">
-                                    <Grid ColumnDefinitions="*,Auto">
-                                        <StackPanel>
-                                            <TextBlock Text="观看历史"
-                                                       Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                                            <TextBlock Text="播放器事实与手工补录分开记录"
-                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
+                                <Border Style="{StaticResource AniMeidoCardStyle}">
+                                    <StackPanel Spacing="14">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <StackPanel Spacing="2">
+                                                <TextBlock Text="作品笔记"
+                                                           Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                                <TextBlock Text="一部作品一份长期笔记 · 支持 Markdown"
+                                                           FontSize="12"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Content="编辑" Click="OnEditNoteClick"/>
+                                        </Grid>
+                                        <Border Padding="20" CornerRadius="8"
+                                                Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                            <RichTextBlock x:Name="ArchiveNotePreview" TextWrapping="Wrap"
+                                                           FontFamily="Microsoft YaHei UI" FontSize="16"
+                                                           LineHeight="27" MinHeight="180"/>
+                                        </Border>
+                                        <StackPanel x:Name="ArchiveScreenshotSection"
+                                                    Visibility="Collapsed" Spacing="10">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <TextBlock Text="相关截图"
+                                                           Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                                <TextBlock x:Name="ArchiveScreenshotCount" Grid.Column="1"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </Grid>
+                                            <ItemsControl x:Name="ArchiveScreenshotStrip">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <StackPanel Orientation="Horizontal" Spacing="8"/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Width="180" Height="104" CornerRadius="5"
+                                                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                                        <Image Stretch="UniformToFill"
+                                                               Loaded="OnScreenshotImageLoaded"
+                                                               DataContextChanged="OnScreenshotImageDataContextChanged"/>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
                                         </StackPanel>
-                                        <Button Grid.Column="1"
-                                                Content="补录观看"
-                                                Click="OnAddManualEventClick"/>
-                                    </Grid>
-                                    <ListView x:Name="WatchHistoryList"
-                                              MinHeight="100"
-                                              MaxHeight="280"
-                                              SelectionMode="None">
-                                        <ListView.ItemTemplate>
-                                            <DataTemplate>
-                                                <Grid ColumnDefinitions="140,100,100,*"
-                                                      ColumnSpacing="8"
-                                                      Padding="4,7">
-                                                    <TextBlock Text="{Binding TimeText}"/>
-                                                    <TextBlock Grid.Column="1"
-                                                               Text="{Binding EpisodeText}"/>
-                                                    <TextBlock Grid.Column="2"
-                                                               Text="{Binding SourceText}"
-                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                                    <TextBlock Grid.Column="3"
-                                                               Text="{Binding Note}"
-                                                               TextTrimming="CharacterEllipsis"/>
-                                                </Grid>
-                                            </DataTemplate>
-                                        </ListView.ItemTemplate>
-                                    </ListView>
-                                </StackPanel>
-                            </Border>
+                                    </StackPanel>
+                                </Border>
+                                <Border Grid.Column="1" Style="{StaticResource AniMeidoCardStyle}">
+                                    <StackPanel Spacing="12">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock x:Name="ArchiveTimelineTitle"
+                                                       Text="观看时间线"
+                                                       Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                            <Button Grid.Column="1" Content="写感想"
+                                                    Style="{StaticResource AccentButtonStyle}"
+                                                    Click="OnAddEntryClick"/>
+                                        </Grid>
+                                        <ComboBox x:Name="ArchiveTimelineFilter" Header="显示"
+                                                  SelectionChanged="OnTimelineFilterChanged">
+                                            <x:String>全部</x:String><x:String>感想</x:String>
+                                            <ComboBoxItem x:Name="WatchHistoryFilterItem"
+                                                          Content="观看记录"/>
+                                            <x:String>状态变更</x:String>
+                                        </ComboBox>
+                                        <ListView x:Name="EntryList" MinHeight="220" MaxHeight="540"
+                                                  SelectionMode="Single"
+                                                  SelectionChanged="OnEntrySelectionChanged">
+                                            <ListView.ItemContainerStyle>
+                                                <Style TargetType="ListViewItem">
+                                                    <Setter Property="Padding" Value="0"/>
+                                                    <Setter Property="Margin" Value="0"/>
+                                                </Style>
+                                            </ListView.ItemContainerStyle>
+                                            <ListView.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Padding="4,0" ColumnDefinitions="14,*" ColumnSpacing="12"
+                                                          MinHeight="90">
+                                                        <Border Width="2" HorizontalAlignment="Center"
+                                                                Margin="0,-2,0,-2"
+                                                                Background="{ThemeResource AniMeidoAccentBrush}"/>
+                                                        <Ellipse Width="10" Height="10" VerticalAlignment="Top"
+                                                                 Margin="0,12,0,0"
+                                                                 Fill="{ThemeResource AniMeidoAccentBrush}"/>
+                                                        <StackPanel Grid.Column="1" Spacing="4"
+                                                                    Margin="0,10,0,12">
+                                                            <TextBlock Text="{Binding DisplayTime}" FontSize="12"
+                                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                            <TextBlock Text="{Binding Kind}" FontSize="12"
+                                                                       Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                                            <TextBlock Text="{Binding Heading}" FontWeight="SemiBold"
+                                                                       TextWrapping="Wrap"/>
+                                                            <TextBlock Text="{Binding Body}" TextWrapping="Wrap"
+                                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ListView.ItemTemplate>
+                                        </ListView>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                                            <Button x:Name="EditEntryButton" Content="编辑所选感想"
+                                                    IsEnabled="False" Click="OnEditEntryClick"/>
+                                            <Button x:Name="DeleteEntryButton" Content="删除所选"
+                                                    IsEnabled="False" Click="OnDeleteEntryClick"/>
+                                            <Button x:Name="AddManualWatchButton"
+                                                    Content="补录观看"
+                                                    Click="OnAddManualEventClick"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>
             </Grid>
-
             <ScrollViewer x:Name="StatisticsPanel" Visibility="Collapsed">
                 <StackPanel MaxWidth="920"
                             HorizontalAlignment="Left"

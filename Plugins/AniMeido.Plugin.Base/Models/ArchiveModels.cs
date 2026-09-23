@@ -1,4 +1,4 @@
-namespace AniMeido.Plugin.Base.Models;
+﻿namespace AniMeido.Plugin.Base.Models;
 
 public sealed record AnimeArchive(
     int AnimeId,
@@ -87,6 +87,38 @@ public sealed record ArchiveListItem(
             + $" · {EntryCount} 条感想 · {ScreenshotCount} 张截图";
 
     public string TagSummary => string.Join("、", Tags);
+
+    public string RatingText => Archive.PersonalRating is { } rating
+        ? $"我的评分 {rating:0.0}"
+        : "尚未评分";
+
+    public string EntryCountText => $"感想 {EntryCount}";
+
+    public string StatusText => TrackingStatus switch
+    {
+        AniMeido.Contracts.Models.AnimeTrackingStatus.Watching => "追番中",
+        AniMeido.Contracts.Models.AnimeTrackingStatus.PlanToWatch => "补番中",
+        AniMeido.Contracts.Models.AnimeTrackingStatus.NotInterested => "不感兴趣",
+        AniMeido.Contracts.Models.AnimeTrackingStatus.Following => "关注",
+        AniMeido.Contracts.Models.AnimeTrackingStatus.Completed => "已看完",
+        AniMeido.Contracts.Models.AnimeTrackingStatus.Dropped => "弃坑",
+        AniMeido.Contracts.Models.AnimeTrackingStatus.Blocked => "屏蔽",
+        _ => "未标记状态",
+    };
+}
+
+public sealed record ArchiveTrackingChange(
+    DateTimeOffset ChangedAt,
+    AniMeido.Contracts.Models.AnimeTrackingStatus NewStatus);
+
+public sealed record ArchiveTimelineItem(
+    DateTimeOffset OccurredAt,
+    string Kind,
+    string Heading,
+    string Body,
+    ArchiveEntry? Entry = null)
+{
+    public string DisplayTime => OccurredAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
 }
 
 public sealed record ArchiveStatistics(

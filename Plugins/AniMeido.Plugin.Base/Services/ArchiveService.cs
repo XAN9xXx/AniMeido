@@ -1,4 +1,4 @@
-using AniMeido.Plugin.Base.Models;
+﻿using AniMeido.Plugin.Base.Models;
 using Microsoft.Data.Sqlite;
 using System.Globalization;
 using System.Text.Json;
@@ -552,6 +552,43 @@ public sealed class ArchiveService
         }
 
         return results;
+    }
+
+    public async Task<IReadOnlyList<ArchiveTrackingChange>>
+        GetTrackingChangesAsync(
+            int animeId,
+            CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _dbFactory.OpenAsync(
+            cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT NewStatus, ChangedAt
+            FROM tracking_events
+            WHERE AnimeId = @animeId
+            ORDER BY ChangedAt DESC
+            """;
+        command.Parameters.AddWithValue("@animeId", animeId);
+        var changes = new List<ArchiveTrackingChange>();
+        await using var reader = await command.ExecuteReaderAsync(
+            cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (!reader.IsDBNull(1)
+                && DateTimeOffset.TryParse(
+                    reader.GetString(1),
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal,
+                    out var changedAt))
+            {
+                changes.Add(new ArchiveTrackingChange(
+                    changedAt,
+                    (AniMeido.Contracts.Models.AnimeTrackingStatus)
+                        reader.GetInt32(0)));
+            }
+        }
+
+        return changes;
     }
 
     public async Task<IReadOnlyList<AnimeScreenshot>> GetScreenshotsAsync(
