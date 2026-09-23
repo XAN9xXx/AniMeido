@@ -88,6 +88,8 @@ public sealed record AnimeScreenshot(
     public string ReviewCaption => string.IsNullOrWhiteSpace(ContextNote)
         ? CapturedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")
         : ContextNote;
+
+    public string CaptureClockText => CapturedAt.ToLocalTime().ToString("HH:mm");
 }
 
 public sealed record ArchiveListItem(

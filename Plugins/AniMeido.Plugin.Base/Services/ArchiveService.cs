@@ -940,6 +940,25 @@ public sealed class ArchiveService
         await transaction.CommitAsync(cancellationToken);
     }
 
+    public async Task RemoveScreenshotTagAsync(
+        string screenshotId,
+        string tag,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _dbFactory.OpenAsync(
+            cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            DELETE FROM screenshot_personal_tags
+            WHERE ScreenshotId = @screenshotId
+              AND TagId = (SELECT TagId FROM personal_tags
+                           WHERE Name = @tag COLLATE NOCASE)
+            """;
+        command.Parameters.AddWithValue("@screenshotId", screenshotId);
+        command.Parameters.AddWithValue("@tag", tag);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<string>> GetScreenshotTagsAsync(
         string screenshotId,
         CancellationToken cancellationToken = default)

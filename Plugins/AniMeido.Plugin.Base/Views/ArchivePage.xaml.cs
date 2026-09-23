@@ -6,6 +6,7 @@ using AniMeido.Plugin.Base.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Data;
 using System.Globalization;
 using System.Net;
 using System.Text;
@@ -23,8 +24,13 @@ public sealed partial class ArchivePage : Page, INavigationAware
     private readonly ScreenshotArchiveService _screenshots;
     private readonly ScreenshotShortcutAction _shortcut;
     private readonly IWindowHandleProvider _windowHandleProvider;
+    private readonly CollectionViewSource _screenshotGroups;
     private IReadOnlyList<ArchiveListItem> _allArchives = [];
     private IReadOnlyList<AnimeScreenshot> _allScreenshots = [];
+    private IReadOnlyList<AnimeScreenshot> _visibleScreenshots = [];
+    private string? _detailScreenshotId;
+    private bool _isScreenshotBatchMode;
+    private bool _suppressScreenshotSelectionChanged;
     private readonly Dictionary<string, IReadOnlyList<string>>
         _screenshotTags = new(StringComparer.Ordinal);
     private readonly Dictionary<ArchivePanelKind, PanelLoadState>
@@ -61,6 +67,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         _shortcut = shortcut;
         _windowHandleProvider = windowHandleProvider;
         InitializeComponent();
+        _screenshotGroups = (CollectionViewSource)Resources["ScreenshotGroupsSource"];
         StatusFilter.SelectedIndex = 0;
         ArchiveTimelineFilter.SelectedIndex = 0;
         ApplyPlaybackAvailability();
@@ -178,10 +185,13 @@ public sealed partial class ArchivePage : Page, INavigationAware
         ConfigureScreenshotImage(sender as Image);
     }
 
-    private static void ConfigureScreenshotImage(Image? image)
+    private void ConfigureScreenshotImage(Image? image)
     {
         if (image?.DataContext is AnimeScreenshot screenshot)
-            ManagedImageLoader.ConfigureLocal(image, screenshot.FilePath, 260);
+            ManagedImageLoader.ConfigureLocal(
+                image,
+                screenshot.FilePath,
+                ReferenceEquals(image, ScreenshotDetailImage) ? 600 : 350);
         else if (image is not null)
             ManagedImageLoader.Cancel(image);
     }
@@ -419,6 +429,9 @@ public sealed partial class ArchivePage : Page, INavigationAware
 
     private void ApplyScreenshotFilter()
     {
+        if (_screenshotGroups is null || ScreenshotList is null)
+            return;
+
         var selectedIds = ScreenshotList.SelectedItems
             .OfType<AnimeScreenshot>()
             .Select(item => item.ScreenshotId)
@@ -427,7 +440,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         var year = double.IsNaN(ScreenshotYearFilter.Value)
             ? null
             : (int?)ScreenshotYearFilter.Value;
-        var filteredScreenshots = _allScreenshots.Where(item =>
+        _visibleScreenshots = _allScreenshots.Where(item =>
             (year is null
                 || item.CapturedAt.ToLocalTime().Year == year)
             && (filter.Length == 0
@@ -447,12 +460,151 @@ public sealed partial class ArchivePage : Page, INavigationAware
                         filter,
                         StringComparison.CurrentCultureIgnoreCase)))))
             .ToArray();
-        ScreenshotList.ItemsSource = filteredScreenshots;
-        foreach (var item in filteredScreenshots.Where(item =>
-                     selectedIds.Contains(item.ScreenshotId)))
+
+        _suppressScreenshotSelectionChanged = true;
+        try
         {
-            ScreenshotList.SelectedItems.Add(item);
+            _screenshotGroups.Source = _visibleScreenshots
+                .GroupBy(item => item.CapturedAt.ToLocalTime().Date)
+                .Select(group => new ScreenshotDayGroup(group.Key, group))
+                .ToArray();
+            if (_isScreenshotBatchMode)
+            {
+                foreach (var item in _visibleScreenshots.Where(item =>
+                             selectedIds.Contains(item.ScreenshotId)))
+                {
+                    if (!ScreenshotList.SelectedItems.Contains(item))
+                        ScreenshotList.SelectedItems.Add(item);
+                }
+            }
+            else
+            {
+                ScreenshotList.SelectedItem = _visibleScreenshots.FirstOrDefault(
+                    item => selectedIds.Contains(item.ScreenshotId))
+                    ?? _visibleScreenshots.FirstOrDefault();
+            }
         }
+        finally
+        {
+            _suppressScreenshotSelectionChanged = false;
+        }
+
+        if (!_isScreenshotBatchMode)
+        {
+            _detailScreenshotId = (ScreenshotList.SelectedItem as AnimeScreenshot)
+                ?.ScreenshotId;
+        }
+        else if (!_visibleScreenshots.Any(item =>
+                     item.ScreenshotId == _detailScreenshotId))
+        {
+            _detailScreenshotId = (ScreenshotList.SelectedItem as AnimeScreenshot)
+                ?.ScreenshotId ?? _visibleScreenshots.FirstOrDefault()?.ScreenshotId;
+        }
+        ScreenshotCountText.Text = $"截图 · {_visibleScreenshots.Count} 张";
+        ScreenshotEmptyState.Visibility = _visibleScreenshots.Count == 0
+            ? Visibility.Visible : Visibility.Collapsed;
+        UpdateScreenshotDetails();
+    }
+
+    private void OnScreenshotSelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        if (_screenshotGroups is null || _suppressScreenshotSelectionChanged)
+            return;
+
+        if (e.AddedItems.OfType<AnimeScreenshot>().LastOrDefault() is { } item)
+            _detailScreenshotId = item.ScreenshotId;
+        else if (ScreenshotList.SelectedItem is AnimeScreenshot selected)
+            _detailScreenshotId = selected.ScreenshotId;
+        else if (!_isScreenshotBatchMode)
+            _detailScreenshotId = null;
+        UpdateScreenshotDetails();
+    }
+
+    private void OnScreenshotBatchClick(object sender, RoutedEventArgs e)
+    {
+        var detailId = _detailScreenshotId;
+        _isScreenshotBatchMode = !_isScreenshotBatchMode;
+        _suppressScreenshotSelectionChanged = true;
+        ScreenshotList.SelectionMode = _isScreenshotBatchMode
+            ? ListViewSelectionMode.Multiple : ListViewSelectionMode.Single;
+        ScreenshotBatchButton.Content = _isScreenshotBatchMode
+            ? "完成选择" : "批量选择";
+        ScreenshotBatchActions.Visibility = _isScreenshotBatchMode
+            ? Visibility.Visible : Visibility.Collapsed;
+        ScreenshotDetailMoreButton.Visibility = _isScreenshotBatchMode
+            ? Visibility.Collapsed : Visibility.Visible;
+        if (!_isScreenshotBatchMode)
+        {
+            ScreenshotList.SelectedItem = _visibleScreenshots.FirstOrDefault(
+                item => item.ScreenshotId == detailId);
+        }
+        _suppressScreenshotSelectionChanged = false;
+        _detailScreenshotId = detailId;
+        UpdateScreenshotDetails();
+    }
+
+    private AnimeScreenshot? GetDetailScreenshot()
+        => _visibleScreenshots.FirstOrDefault(item =>
+            item.ScreenshotId == _detailScreenshotId);
+
+    private void UpdateScreenshotDetails()
+    {
+        var item = GetDetailScreenshot();
+        ScreenshotDetailsEmptyState.Visibility = item is null
+            ? Visibility.Visible : Visibility.Collapsed;
+        ScreenshotDetailsPanel.Visibility = item is null
+            ? Visibility.Collapsed : Visibility.Visible;
+        ScreenshotSelectedCountText.Text = $"已选 {ScreenshotList.SelectedItems.Count} 张";
+        ScreenshotBatchTagButton.IsEnabled = ScreenshotList.SelectedItems.Count > 0;
+        ScreenshotBatchExportButton.IsEnabled = ScreenshotList.SelectedItems
+            .OfType<AnimeScreenshot>().Any(selected => selected.FileExists);
+        if (!ReferenceEquals(ScreenshotDetailImage.DataContext, item))
+            ScreenshotDetailImage.DataContext = item;
+        if (item is null)
+            return;
+
+        ScreenshotDetailAnime.Text = item.ReviewTitle;
+        ScreenshotDetailTime.Text = item.CapturedAt.ToLocalTime()
+            .ToString("yyyy/MM/dd HH:mm", CultureInfo.CurrentCulture);
+        ScreenshotDetailEpisode.Text = item.EpisodeNumber is { } episode
+            ? $"第 {episode} 集" : "未设置";
+        ScreenshotDetailPosition.Text = item.PlaybackPositionSeconds is { } seconds
+            ? TimeSpan.FromSeconds(seconds).ToString(@"hh\:mm\:ss", CultureInfo.CurrentCulture)
+            : "未记录";
+        ScreenshotDetailSize.Text = $"{item.Width} × {item.Height}";
+        var note = GetScreenshotNote(item);
+        ScreenshotDetailContext.Text = string.IsNullOrWhiteSpace(note)
+            ? "尚未添加备注" : note;
+        ScreenshotDetailFileState.Text = item.FileExists
+            ? string.Empty : "原图文件已缺失";
+        ScreenshotDetailFileState.Visibility = item.FileExists
+            ? Visibility.Collapsed : Visibility.Visible;
+        ScreenshotOpenButton.IsEnabled = item.FileExists;
+        ScreenshotExportButton.IsEnabled = item.FileExists;
+        var tags = _screenshotTags.GetValueOrDefault(item.ScreenshotId) ?? [];
+        if (!ReferenceEquals(ScreenshotDetailTags.ItemsSource, tags))
+            ScreenshotDetailTags.ItemsSource = tags;
+    }
+
+    private static string GetScreenshotNote(AnimeScreenshot item)
+    {
+        if (item.EpisodeNumber is not { } episode)
+            return item.ContextNote;
+
+        // Older captures repeated playback metadata in ContextNote. Keep the
+        // note field for user text; playback metadata has its own fields.
+        var generated = $"第 {episode} 集";
+        if (item.PlaybackPositionSeconds is { } seconds)
+        {
+            var position = TimeSpan.FromSeconds(seconds);
+            generated += " · " + (position.TotalHours >= 1
+                ? position.ToString(@"h\:mm\:ss")
+                : position.ToString(@"m\:ss"));
+        }
+        return string.Equals(item.ContextNote, generated, StringComparison.Ordinal)
+            ? string.Empty : item.ContextNote;
     }
 
     private void OnScreenshotFilterChanged(
@@ -1405,6 +1557,12 @@ public sealed partial class ArchivePage : Page, INavigationAware
     private void ApplyPlaybackAvailability()
     {
         var available = _playbackLauncher.IsAvailable;
+        var playbackVisibility = available
+            ? Visibility.Visible : Visibility.Collapsed;
+        ScreenshotDetailEpisodeLabel.Visibility = playbackVisibility;
+        ScreenshotDetailEpisode.Visibility = playbackVisibility;
+        ScreenshotDetailPositionLabel.Visibility = playbackVisibility;
+        ScreenshotDetailPosition.Visibility = playbackVisibility;
         StatisticsWatchCard.Visibility = available
             ? Visibility.Visible : Visibility.Collapsed;
         Grid.SetColumnSpan(StatisticsTagsCard, available ? 1 : 2);
@@ -1478,12 +1636,20 @@ public sealed partial class ArchivePage : Page, INavigationAware
         object sender,
         RoutedEventArgs e)
     {
-        if (ScreenshotList.SelectedItem is AnimeScreenshot item
-            && item.FileExists)
+        if (GetDetailScreenshot() is { FileExists: true } item)
         {
-            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(
-                item.FilePath);
-            await Windows.System.Launcher.LaunchFileAsync(file);
+            try
+            {
+                var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(
+                    item.FilePath);
+                await Windows.System.Launcher.LaunchFileAsync(file);
+            }
+            catch (Exception ex) when (ex is IOException
+                or UnauthorizedAccessException
+                or System.Runtime.InteropServices.COMException)
+            {
+                ShowStatus("原图当前无法打开。", InfoBarSeverity.Warning);
+            }
         }
     }
 
@@ -1491,7 +1657,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         object sender,
         RoutedEventArgs e)
     {
-        if (ScreenshotList.SelectedItem is not AnimeScreenshot item)
+        if (GetDetailScreenshot() is not { } item)
         {
             return;
         }
@@ -1507,21 +1673,27 @@ public sealed partial class ArchivePage : Page, INavigationAware
             Header = "番剧标题",
             Text = item.AnimeTitle ?? string.Empty,
         };
-        var episode = new NumberBox
+        NumberBox? episode = null;
+        if (_playbackLauncher.IsAvailable)
         {
-            Header = "集数",
-            Minimum = 1,
-            Value = item.EpisodeNumber ?? double.NaN,
-        };
+            episode = new NumberBox
+            {
+                Header = "集数",
+                Minimum = 1,
+                Value = item.EpisodeNumber ?? double.NaN,
+            };
+        }
         var context = new TextBox
         {
-            Header = "场合备注",
-            Text = item.ContextNote,
+            Header = "截图备注（可选）",
+            PlaceholderText = "记录这张截图想留下的内容",
+            Text = GetScreenshotNote(item),
         };
         var panel = new StackPanel { Spacing = 8 };
         panel.Children.Add(animeId);
         panel.Children.Add(title);
-        panel.Children.Add(episode);
+        if (episode is not null)
+            panel.Children.Add(episode);
         panel.Children.Add(context);
         var dialog = CreateDialog("编辑截图", panel, "保存");
         if (await dialog.ShowAsync() != ContentDialogResult.Primary)
@@ -1533,13 +1705,93 @@ public sealed partial class ArchivePage : Page, INavigationAware
             item.ScreenshotId,
             double.IsNaN(animeId.Value) ? null : (int)animeId.Value,
             title.Text,
-            double.IsNaN(episode.Value) ? null : (int)episode.Value,
+            episode is null ? item.EpisodeNumber
+                : double.IsNaN(episode.Value) ? null : (int)episode.Value,
             context.Text);
         await RefreshPanelsAsync(
             ArchivePanelKind.Screenshots,
             ArchivePanelKind.Archives,
             ArchivePanelKind.Statistics,
             ArchivePanelKind.Review);
+    }
+
+    private async void OnAddSelectedScreenshotTagClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (GetDetailScreenshot() is not { } item)
+            return;
+
+        var input = new TextBox { Header = "个人标签（逗号分隔）" };
+        var dialog = CreateDialog("添加截图标签", input, "添加");
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return;
+
+        var lifetime = _pageLifetime;
+        var saved = false;
+        try
+        {
+            await _archive.AddScreenshotTagsAsync(
+                [item.ScreenshotId], SplitTags(input.Text));
+            saved = true;
+            var tags = await _archive.GetScreenshotTagsAsync(item.ScreenshotId);
+            if (lifetime is null || !ReferenceEquals(_pageLifetime, lifetime)
+                || lifetime.IsCancellationRequested)
+            {
+                Invalidate(ArchivePanelKind.Screenshots);
+                return;
+            }
+            _screenshotTags[item.ScreenshotId] = tags;
+            ApplyScreenshotFilter();
+        }
+        catch (Exception ex) when (ex is SqliteException or IOException)
+        {
+            if (saved)
+                Invalidate(ArchivePanelKind.Screenshots);
+            if (ReferenceEquals(_pageLifetime, lifetime))
+                ShowStatus(saved
+                    ? "标签已保存，但列表未能刷新。"
+                    : ex.Message,
+                    saved ? InfoBarSeverity.Warning : InfoBarSeverity.Error);
+        }
+    }
+
+    private async void OnRemoveScreenshotTagClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: string tag } button
+            || GetDetailScreenshot() is not { } item)
+            return;
+
+        var lifetime = _pageLifetime;
+        button.IsEnabled = false;
+        var saved = false;
+        try
+        {
+            await _archive.RemoveScreenshotTagAsync(item.ScreenshotId, tag);
+            saved = true;
+            var tags = await _archive.GetScreenshotTagsAsync(item.ScreenshotId);
+            if (lifetime is null || !ReferenceEquals(_pageLifetime, lifetime)
+                || lifetime.IsCancellationRequested)
+            {
+                Invalidate(ArchivePanelKind.Screenshots);
+                return;
+            }
+            _screenshotTags[item.ScreenshotId] = tags;
+            ApplyScreenshotFilter();
+        }
+        catch (Exception ex) when (ex is SqliteException or IOException)
+        {
+            if (saved)
+                Invalidate(ArchivePanelKind.Screenshots);
+            if (ReferenceEquals(_pageLifetime, lifetime))
+                ShowStatus(saved
+                    ? "标签已移除，但列表未能刷新。"
+                    : ex.Message,
+                    saved ? InfoBarSeverity.Warning : InfoBarSeverity.Error);
+            button.IsEnabled = true;
+        }
     }
 
     private async void OnTagScreenshotsClick(
@@ -1581,10 +1833,22 @@ public sealed partial class ArchivePage : Page, INavigationAware
             .OfType<AnimeScreenshot>()
             .Where(item => item.FileExists)
             .ToArray();
-        if (selected.Length == 0)
-        {
+        await ExportScreenshotItemsAsync(selected);
+    }
+
+    private async void OnExportCurrentScreenshotClick(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (GetDetailScreenshot() is { FileExists: true } item)
+            await ExportScreenshotItemsAsync([item]);
+    }
+
+    private async Task ExportScreenshotItemsAsync(
+        IReadOnlyList<AnimeScreenshot> selected)
+    {
+        if (selected.Count == 0)
             return;
-        }
 
         var picker = new FolderPicker();
         picker.FileTypeFilter.Add("*");
@@ -1598,18 +1862,33 @@ public sealed partial class ArchivePage : Page, INavigationAware
             return;
         }
 
+        var exported = 0;
         foreach (var item in selected)
         {
-            var file = await Windows.Storage.StorageFile
-                .GetFileFromPathAsync(item.FilePath);
-            await file.CopyAsync(
-                folder,
-                file.Name,
-                Windows.Storage.NameCollisionOption.GenerateUniqueName);
+            try
+            {
+                var file = await Windows.Storage.StorageFile
+                    .GetFileFromPathAsync(item.FilePath);
+                await file.CopyAsync(
+                    folder,
+                    file.Name,
+                    Windows.Storage.NameCollisionOption.GenerateUniqueName);
+                exported++;
+            }
+            catch (Exception ex) when (ex is IOException
+                or UnauthorizedAccessException
+                or System.Runtime.InteropServices.COMException)
+            {
+                // Continue exporting other selected screenshots.
+            }
         }
 
-        ShowStatus($"已导出 {selected.Length} 张原图。",
-            InfoBarSeverity.Success);
+        ShowStatus(
+            exported == selected.Count
+                ? $"已复制 {exported} 张原图。"
+                : $"已复制 {exported} 张，{selected.Count - exported} 张未成功。",
+            exported == selected.Count
+                ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
     }
 
     private async void OnDeleteScreenshotClick(
@@ -1827,3 +2106,16 @@ public sealed partial class ArchivePage : Page, INavigationAware
 }
 
 public sealed record ArchiveTagBarData(string Name, int Count, double Percent);
+
+public sealed class ScreenshotDayGroup : List<AnimeScreenshot>
+{
+    public ScreenshotDayGroup(
+        DateTime date,
+        IEnumerable<AnimeScreenshot> screenshots)
+        : base(screenshots)
+    {
+        Header = $"{date:yyyy年M月d日} · {Count} 张";
+    }
+
+    public string Header { get; }
+}

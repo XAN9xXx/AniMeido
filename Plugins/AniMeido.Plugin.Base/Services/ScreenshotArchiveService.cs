@@ -1,4 +1,4 @@
-using AniMeido.Contracts.Desktop;
+﻿using AniMeido.Contracts.Desktop;
 using AniMeido.Contracts.Playback;
 using AniMeido.Plugin.Base.Models;
 using System.Security.Cryptography;
@@ -72,12 +72,6 @@ public sealed class ScreenshotArchiveService
 
         var hash = Convert.ToHexString(
             SHA256.HashData(captured.PngData));
-        var context = playback?.EpisodeNumber is { } episode
-            ? $"第 {episode} 集"
-                + (playback.PositionSeconds is { } position
-                    ? $" · {FormatPosition(position)}"
-                    : string.Empty)
-            : string.Empty;
         var screenshot = new AnimeScreenshot(
             id,
             path,
@@ -91,7 +85,7 @@ public sealed class ScreenshotArchiveService
             playback?.Title,
             playback?.EpisodeNumber,
             playback?.PositionSeconds,
-            context,
+            string.Empty,
             true);
         try
         {
@@ -125,9 +119,4 @@ public sealed class ScreenshotArchiveService
             screenshot.ScreenshotId,
             cancellationToken);
     }
-
-    private static string FormatPosition(double seconds)
-        => TimeSpan.FromSeconds(Math.Max(0, seconds)).TotalHours >= 1
-            ? TimeSpan.FromSeconds(seconds).ToString(@"h\:mm\:ss")
-            : TimeSpan.FromSeconds(seconds).ToString(@"m\:ss");
 }
