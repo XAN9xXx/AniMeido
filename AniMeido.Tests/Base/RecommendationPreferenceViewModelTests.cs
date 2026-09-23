@@ -180,6 +180,30 @@ public class RecommendationPreferenceViewModelTests : DbTestBase
         Assert.Equal(0, source.Calls);
     }
 
+    [Fact]
+    public async Task Suspend_ClearsInterruptedLoadStateAndAsksForReloadOnce()
+    {
+        await RunProductionMigrationAsync();
+        using var candidates = new RecommendationCandidateProvider(new NoNetworkSource(), NullLogger<RecommendationCandidateProvider>.Instance);
+        using var service = CreateService(candidates);
+        var state = CreateState();
+        var savedProfile = state.Profile;
+        var vm = new RecommendationViewModel(service, state)
+        {
+            // 模拟离开页面时整页刷新还没结束。
+            IsBusy = true,
+            IsRefreshing = true,
+        };
+
+        vm.Suspend();
+
+        Assert.False(vm.IsBusy);
+        Assert.False(vm.IsRefreshing);
+        Assert.Same(savedProfile, state.Profile);
+        Assert.True(vm.TakeResumeReload());
+        Assert.False(vm.TakeResumeReload());
+    }
+
     private RecommendationService CreateService(RecommendationCandidateProvider candidates) => new(
         DbFactory, new TrackingService(DbFactory), new SavedTagService(DbFactory),
         new ArchiveService(DbFactory), new BrowseHistoryService(DbFactory),

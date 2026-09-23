@@ -136,7 +136,7 @@ public sealed class GlobalShortcutManager : IDisposable
 #pragma warning disable CA1031 // A hook callback action must never terminate the listener process.
                     catch (Exception ex)
                     {
-                        _logger.LogError(
+                        _logger.LogWarning(
                             ex,
                             "Global shortcut action {ActionId} failed.",
                             action.Id);

@@ -126,12 +126,14 @@ public partial class TodayViewModel : ObservableObject
     }
     partial void OnBroadcastDaysChanged(ObservableCollection<TodayBroadcastDay> value) => OnPropertyChanged(nameof(HasBroadcastDays));
     partial void OnNextBroadcastTextChanged(string value) => OnPropertyChanged(nameof(HasNextBroadcast));
-    partial void OnPlansChanged(ObservableCollection<TodayPlanEntry> value)
+    partial void OnPlansChanged(ObservableCollection<TodayPlanEntry> value) => UpdatePlanSummary();
+
+    /// <summary>计划数量与卡包后排；原地替换条目后也要调用。</summary>
+    private void UpdatePlanSummary()
     {
         OnPropertyChanged(nameof(HasNoPlans));
         OnPropertyChanged(nameof(PlanCountText));
-        var (visible, overflow) = SplitPlans(Plans);
-        VisiblePlans = new(visible);
+        var (_, overflow) = SplitPlans(Plans);
         OverflowPlans = new(overflow);
         OnPropertyChanged(nameof(HasOverflowPlans));
         OnPropertyChanged(nameof(HasMultipleOverflowPlans));
@@ -161,9 +163,6 @@ public partial class TodayViewModel : ObservableObject
 
     [ObservableProperty]
     private ObservableCollection<TodayPlanEntry> _plans = [];
-
-    [ObservableProperty]
-    private ObservableCollection<TodayPlanEntry> _visiblePlans = [];
 
     [ObservableProperty]
     private ObservableCollection<TodayPlanEntry> _overflowPlans = [];
@@ -220,6 +219,7 @@ public partial class TodayViewModel : ObservableObject
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
         var loadVersion = Interlocked.Increment(ref _loadVersion);
+        IsLoadInterrupted = true;
         OnPropertyChanged(nameof(TodayLabel));
         _ = Theme.LoadAsync();
         IsLoading = true;
@@ -261,10 +261,8 @@ public partial class TodayViewModel : ObservableObject
                 .ToDictionary(group => group.Key, group => group.Count());
             var todayDate = DateOnly.FromDateTime(DateTime.Today);
             // 本地计划先显示，不等放送日程与作品详情；刷新时沿用已加载的封面，缺失的用占位。
-            var knownPlanAnime = Plans
-                .Where(entry => entry.Anime is not null)
-                .ToDictionary(entry => entry.Plan.AnimeId, entry => entry.Anime!);
-            Plans = new(BuildPlanEntries(
+            var knownPlanAnime = KnownPlanAnime();
+            ApplyPlanEntries(BuildPlanEntries(
                 plans.Where(plan => !blockedIds.Contains(plan.AnimeId)),
                 reminderCountByAnime,
                 knownPlanAnime,
@@ -295,27 +293,8 @@ public partial class TodayViewModel : ObservableObject
                 DateTime.Today.DayOfWeek);
             AllBroadcasts = new ObservableCollection<Anime>(
                 seasonal.Where(item => item.Weekday == today));
-            var personalIds = statusById
-                .Where(pair => pair.Value is
-                    AnimeTrackingStatus.Watching
-                    or AnimeTrackingStatus.PlanToWatch
-                    or AnimeTrackingStatus.Following)
-                .Select(pair => pair.Key)
-                .ToHashSet();
-            var weekdayText = DateTime.Today.ToString(
-                "ddd",
-                System.Globalization.CultureInfo.GetCultureInfo("zh-CN"));
-            // 放送卡片只展示封面、标题、个人状态与放送星期；日历接口不提供简介。
-            PersonalBroadcasts = new ObservableCollection<TodayAnimeEntry>(
-                AllBroadcasts
-                    .Where(item => personalIds.Contains(item.ID))
-                    .Select(item => new TodayAnimeEntry(item, weekdayText)
-                    {
-                        Badge = StatusLabels.GetValueOrDefault(statusById[item.ID], string.Empty),
-                    }));
             _seasonal = seasonal;
-            _personalIds = personalIds;
-            UpdateBroadcastSummary();
+            ApplyPersonalStatuses(statusById);
 
             await EnsureMissingPlansAsync(
                 trackingRows,
@@ -324,14 +303,10 @@ public partial class TodayViewModel : ObservableObject
             // Re-read after legacy plan creation, then reuse the existing bounded detail resolver for covers.
             plans = await _actionCenter.GetPlansAsync(cancellationToken: cancellationToken);
             var visiblePlans = plans.Where(plan => !blockedIds.Contains(plan.AnimeId)).ToList();
-            // 单部作品详情失败只缺这一张封面（ResolveAnimeAsync 内部降级），不影响计划列表。
-            var planAnime = (await ResolveAnimeAsync(visiblePlans.Select(plan => plan.AnimeId).ToList(),
-                seasonal.ToDictionary(anime => anime.ID), cancellationToken))
-                .ToDictionary(anime => anime.ID);
-            foreach (var (animeId, anime) in knownPlanAnime)
-                planAnime.TryAdd(animeId, anime);
+            // 只补还没有封面的计划；单部作品详情失败只缺这一张封面（ResolveAnimeAsync 内部降级）。
+            var planAnime = await ResolvePlanAnimeAsync(visiblePlans, knownPlanAnime, cancellationToken);
             if (!IsCurrentLoad(loadVersion, cancellationToken)) return;
-            Plans = new(BuildPlanEntries(visiblePlans, reminderCountByAnime, planAnime, todayDate));
+            ApplyPlanEntries(BuildPlanEntries(visiblePlans, reminderCountByAnime, planAnime, todayDate));
             var playbackTask = IsPlaybackAvailable
                 ? LoadPlaybackActivityAsync(
                     statusById,
@@ -361,6 +336,8 @@ public partial class TodayViewModel : ObservableObject
             {
                 NotificationMessage = ex.Message;
             }
+
+            MarkLoadFinished(loadVersion);
         }
         catch (OperationCanceledException)
             when (cancellationToken.IsCancellationRequested)
@@ -373,11 +350,79 @@ public partial class TodayViewModel : ObservableObject
             or System.Text.Json.JsonException)
         {
             ErrorMessage = $"今天页加载失败：{ex.Message}";
+            // 失败已经提示，由用户点刷新重试，返回页面时不自动重来。
+            MarkLoadFinished(loadVersion);
         }
         finally
         {
             if (loadVersion == _loadVersion)
                 IsLoading = false;
+        }
+    }
+
+    /// <summary>
+    /// 最近一次整页加载没有走完（例如离开页面时被取消）。页面按原实例返回时据此重新加载。
+    /// </summary>
+    public bool IsLoadInterrupted { get; private set; }
+
+    private void MarkLoadFinished(int loadVersion)
+    {
+        // 被新一次加载取代的旧加载不能替新加载报告完成。
+        if (loadVersion == _loadVersion)
+            IsLoadInterrupted = false;
+    }
+
+    /// <summary>
+    /// 在今日主题里改了标记之后调用：只重读标记、计划与提醒，刷新补番计划、今日放送与“还没开始看”。
+    /// 放送日程与封面沿用本次已加载的，不重跑今日主题、浏览记录、播放记录与提醒对账。
+    /// 整页加载还没结束时改为整页重新加载。
+    /// </summary>
+    public async Task RefreshAfterStatusChangeAsync(CancellationToken cancellationToken = default)
+    {
+        if (IsLoading)
+        {
+            await LoadAsync(cancellationToken);
+            return;
+        }
+
+        var loadVersion = _loadVersion;
+        bool IsCurrent() => loadVersion == _loadVersion && !cancellationToken.IsCancellationRequested;
+        try
+        {
+            var trackingRows = await _tracking.GetAllTrackingAsync();
+            var plans = await _actionCenter.GetPlansAsync(cancellationToken: cancellationToken);
+            var reminders = await _actionCenter.GetRemindersAsync(
+                state: PlanReminderState.Pending,
+                cancellationToken: cancellationToken);
+            if (!IsCurrent())
+                return;
+
+            var statusById = trackingRows.ToDictionary(row => row.AnimeId, row => row.Status);
+            var visiblePlans = plans
+                .Where(plan => statusById.GetValueOrDefault(plan.AnimeId) != AnimeTrackingStatus.Blocked)
+                .ToList();
+            var planAnime = await ResolvePlanAnimeAsync(visiblePlans, KnownPlanAnime(), cancellationToken);
+            if (!IsCurrent())
+                return;
+
+            ApplyPlanEntries(BuildPlanEntries(
+                visiblePlans,
+                reminders.GroupBy(item => item.AnimeId).ToDictionary(group => group.Key, group => group.Count()),
+                planAnime,
+                DateOnly.FromDateTime(DateTime.Today)));
+            ApplyPersonalStatuses(statusById);
+            // 标成看完、弃番或加进补番计划的作品不再算“还没开始看”。
+            var activePlanIds = plans.Select(plan => plan.AnimeId).ToHashSet();
+            var unstarted = ContinueWatching
+                .Where(entry => statusById.GetValueOrDefault(entry.Anime.ID)
+                        is AnimeTrackingStatus.Watching or AnimeTrackingStatus.PlanToWatch
+                    && !activePlanIds.Contains(entry.Anime.ID))
+                .ToList();
+            if (unstarted.Count != ContinueWatching.Count)
+                ContinueWatching = new ObservableCollection<TodayAnimeEntry>(unstarted);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
     }
 
@@ -403,7 +448,7 @@ public partial class TodayViewModel : ObservableObject
             RecentBrowsed.Where(
                 entry => !blocked.Contains(entry.Anime.ID)));
         // 组标题挂在每组首项上，过滤后要重新分组，否则标题可能丢失或数量不对。
-        Plans = new ObservableCollection<TodayPlanEntry>(GroupPlanEntries(
+        ApplyPlanEntries(GroupPlanEntries(
             Plans.Where(entry => !blocked.Contains(entry.Plan.AnimeId)),
             DateOnly.FromDateTime(DateTime.Today)));
         _seasonal = _seasonal.Where(anime => !blocked.Contains(anime.ID)).ToList();
@@ -612,6 +657,92 @@ public partial class TodayViewModel : ObservableObject
         });
 
         return result.OfType<Anime>().ToList();
+    }
+
+    /// <summary>当前计划列表里已经有的作品详情（封面等），刷新时沿用。</summary>
+    private Dictionary<int, Anime> KnownPlanAnime()
+        => Plans
+            .Where(entry => entry.Anime is not null)
+            .ToDictionary(entry => entry.Plan.AnimeId, entry => entry.Anime!);
+
+    /// <summary>在已知详情的基础上，只为还没有详情的计划补查（放送日程里有的直接用）。</summary>
+    private async Task<Dictionary<int, Anime>> ResolvePlanAnimeAsync(
+        IReadOnlyList<AnimePlan> plans,
+        IReadOnlyDictionary<int, Anime> known,
+        CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<int, Anime>(known);
+        var missing = plans
+            .Select(plan => plan.AnimeId)
+            .Where(animeId => !result.ContainsKey(animeId))
+            .ToList();
+        if (missing.Count == 0)
+            return result;
+
+        foreach (var anime in await ResolveAnimeAsync(
+                     missing,
+                     _seasonal.ToDictionary(item => item.ID),
+                     cancellationToken))
+        {
+            result[anime.ID] = anime;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 更新补番计划列表。计划与顺序都没变时只替换内容有变化的条目（例如补上了封面），
+    /// 不整体替换集合：整体替换会重建全部卡片，并让页面收起已展开的卡包。
+    /// </summary>
+    private void ApplyPlanEntries(IReadOnlyList<TodayPlanEntry> entries)
+    {
+        if (entries.Count != Plans.Count
+            || !entries.Select(entry => entry.Plan.AnimeId)
+                .SequenceEqual(Plans.Select(entry => entry.Plan.AnimeId)))
+        {
+            Plans = new(entries);
+            return;
+        }
+
+        var changed = false;
+        for (var index = 0; index < entries.Count; index++)
+        {
+            if (Equals(Plans[index], entries[index]))
+                continue;
+
+            Plans[index] = entries[index];
+            changed = true;
+        }
+
+        if (changed)
+            UpdatePlanSummary();
+    }
+
+    /// <summary>按标记重算今日放送里与你相关的作品和本周放送概况；内容没变时不替换列表。</summary>
+    private void ApplyPersonalStatuses(IReadOnlyDictionary<int, AnimeTrackingStatus> statusById)
+    {
+        var personalIds = statusById
+            .Where(pair => pair.Value is
+                AnimeTrackingStatus.Watching
+                or AnimeTrackingStatus.PlanToWatch
+                or AnimeTrackingStatus.Following)
+            .Select(pair => pair.Key)
+            .ToHashSet();
+        var weekdayText = DateTime.Today.ToString(
+            "ddd",
+            System.Globalization.CultureInfo.GetCultureInfo("zh-CN"));
+        // 放送卡片只展示封面、标题、个人状态与放送星期；日历接口不提供简介。
+        var broadcasts = AllBroadcasts
+            .Where(item => personalIds.Contains(item.ID))
+            .Select(item => new TodayAnimeEntry(item, weekdayText)
+            {
+                Badge = StatusLabels.GetValueOrDefault(statusById[item.ID], string.Empty),
+            })
+            .ToList();
+        if (!broadcasts.SequenceEqual(PersonalBroadcasts))
+            PersonalBroadcasts = new ObservableCollection<TodayAnimeEntry>(broadcasts);
+        _personalIds = personalIds;
+        UpdateBroadcastSummary();
     }
 
     private void UpdateBroadcastSummary()

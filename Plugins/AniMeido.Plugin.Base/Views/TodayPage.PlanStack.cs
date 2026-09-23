@@ -36,7 +36,7 @@ public sealed partial class TodayPage
         if (!PlanStackPopup.IsOpen && ViewModel.HasOverflowPlans && ReferenceEquals(e.OriginalSource, sender))
         {
             e.Handled = true;
-            await OpenPlanStackAsync();
+            await TryOpenPlanStackAsync();
         }
     }
 
@@ -47,8 +47,37 @@ public sealed partial class TodayPage
             && e.Key is Windows.System.VirtualKey.Enter or Windows.System.VirtualKey.Space)
         {
             e.Handled = true;
+            await TryOpenPlanStackAsync();
+        }
+    }
+
+    /// <summary>展开卡包；失败时把卡包归位并提示，不让异常冒到应用层。</summary>
+    private async Task TryOpenPlanStackAsync()
+    {
+        try
+        {
             await OpenPlanStackAsync();
         }
+#pragma warning disable CA1031 // 卡包展开只是呈现方式，任何失败都归位并提示，不打断今天页。
+        catch (Exception ex)
+        {
+            _movingPlanSurface = false;
+            if (PlanStackPopup.IsOpen)
+            {
+                // 关闭回调会归位卡包并退订窗口事件。
+                PlanStackPopup.IsOpen = false;
+            }
+            else
+            {
+                RestorePlanSurface();
+                PlanCard.Height = double.NaN;
+                DetachPlanWindowEvents();
+            }
+
+            if (IsLoaded)
+                ShowNotification($"补番计划没能展开：{ex.Message}", InfoBarSeverity.Warning);
+        }
+#pragma warning restore CA1031
     }
 
     private async Task OpenPlanStackAsync()
@@ -133,10 +162,14 @@ public sealed partial class TodayPage
     private double AvailablePlanStackHeight(Point origin)
     {
         var windowId = XamlRoot.ContentIslandEnvironment.AppWindowId;
-        _planOwnerWindow = AppWindow.GetFromWindowId(windowId);
-        _planOwnerWindow.Changed += OnPlanOwnerChanged;
-        _planActivationListener = InputActivationListener.GetForWindowId(windowId);
-        _planActivationListener.InputActivationChanged += OnPlanActivationChanged;
+        // 只订阅一次：浮层关闭时退订，展开中途失败时由 TryOpenPlanStackAsync 退订。
+        if (_planOwnerWindow is null)
+        {
+            _planOwnerWindow = AppWindow.GetFromWindowId(windowId);
+            _planOwnerWindow.Changed += OnPlanOwnerChanged;
+            _planActivationListener = InputActivationListener.GetForWindowId(windowId);
+            _planActivationListener.InputActivationChanged += OnPlanActivationChanged;
+        }
         var handle = Microsoft.UI.Win32Interop.GetWindowFromWindowId(windowId);
         var scale = XamlRoot.RasterizationScale;
         var point = new Windows.Graphics.PointInt32(
@@ -315,7 +348,17 @@ public sealed partial class TodayPage
             return;
         }
         _pendingPlan = null;
-        if (VisiblePlanList.ContainerFromIndex(ViewModel.Plans.IndexOf(entry)) is FrameworkElement row)
+        // 条目可能已被原地替换（例如补上封面），按作品查找位置。
+        var index = -1;
+        for (var position = 0; position < ViewModel.Plans.Count; position++)
+        {
+            if (ViewModel.Plans[position].Plan.AnimeId == entry.Plan.AnimeId)
+            {
+                index = position;
+                break;
+            }
+        }
+        if (index >= 0 && VisiblePlanList.ContainerFromIndex(index) is FrameworkElement row)
             row.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = false });
     }
 
@@ -403,6 +446,14 @@ public sealed partial class TodayPage
         }
         _closingPlanStack = false;
         _pendingPlan = null;
+        DetachPlanWindowEvents();
+        if (!_movingPlanSurface) UpdatePlanRowTemplate();
+        if (IsLoaded && ViewModel.HasOverflowPlans)
+            _planPanel?.Focus(FocusState.Programmatic);
+    }
+
+    private void DetachPlanWindowEvents()
+    {
         if (_planActivationListener is not null)
         {
             _planActivationListener.InputActivationChanged -= OnPlanActivationChanged;
@@ -413,9 +464,6 @@ public sealed partial class TodayPage
             _planOwnerWindow.Changed -= OnPlanOwnerChanged;
             _planOwnerWindow = null;
         }
-        if (!_movingPlanSurface) UpdatePlanRowTemplate();
-        if (IsLoaded && ViewModel.HasOverflowPlans)
-            _planPanel?.Focus(FocusState.Programmatic);
     }
 
     private void OnPlanStackKeyDown(object sender, KeyRoutedEventArgs e)

@@ -401,6 +401,8 @@ namespace AniMeido.Plugin.Base.ViewModels
                     item.Status = status;
                 }
 
+                // 标记过的作品不再换进来，“换一批”是否可用随之变化。
+                CanShowNextBatch = CountSelectable() > BatchSize;
                 return true;
             }
             finally

@@ -14,6 +14,8 @@ internal sealed class DiagnosticFileSink : ILogEventSink
     private readonly object _gate = new();
     private readonly string _root;
     private DateOnly _lastCleanupDay;
+    // 当天正在写的 warnings 文件序号，避免每条都从第一个文件逐个打开查找。
+    private (DateOnly Day, int Index) _warningFile;
 
     public DiagnosticFileSink(string root)
     {
@@ -69,7 +71,7 @@ internal sealed class DiagnosticFileSink : ILogEventSink
             bytes = Encoding.UTF8.GetBytes(
                 Encoding.UTF8.GetString(bytes, 0, MaxWarningEventBytes - 128)
                 + "\n[Warning truncated]\n");
-        for (var index = 0; ; index++)
+        for (var index = _warningFile.Day == day ? _warningFile.Index : 0; ; index++)
         {
             var name = index == 0 ? "warnings.log" : $"warnings.{index}.log";
             var path = Path.Combine(directory, name);
@@ -78,6 +80,7 @@ internal sealed class DiagnosticFileSink : ILogEventSink
                 continue;
 
             stream.Write(bytes);
+            _warningFile = (day, index);
             return;
         }
     }
@@ -127,26 +130,48 @@ internal sealed class DiagnosticFileSink : ILogEventSink
         return result.ToString();
     }
 
+    /// <summary>
+    /// 删除两天前的日志目录。每天只尝试一次；删不掉的目录（文件被占用、只读，
+    /// 或 PluginHost 正在删同一目录）跳过，不影响写入，也不会让之后每条日志都重试。
+    /// </summary>
     private void CleanupOldDays(DateOnly today)
     {
+        _lastCleanupDay = today;
         foreach (var level in new[] { "warning", "error" })
         {
             var directory = Path.Combine(_root, level);
-            if (!Directory.Exists(directory))
-                continue;
-
-            foreach (var path in Directory.EnumerateDirectories(directory))
+            try
             {
-                var name = Path.GetFileName(path);
-                if (DateOnly.TryParseExact(
-                        name, "yyyy-MM-dd", CultureInfo.InvariantCulture,
-                        DateTimeStyles.None, out var day)
-                    && day < today.AddDays(-2)
-                    && (File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0)
-                    Directory.Delete(path, recursive: true);
+                if (!Directory.Exists(directory))
+                    continue;
+
+                foreach (var path in Directory.EnumerateDirectories(directory))
+                {
+                    var name = Path.GetFileName(path);
+                    if (!DateOnly.TryParseExact(
+                            name, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                            DateTimeStyles.None, out var day)
+                        || day >= today.AddDays(-2))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0)
+                            Directory.Delete(path, recursive: true);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        Debug.WriteLine($"[DiagnosticLog] Cannot prune {path}: {ex.Message}");
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Debug.WriteLine($"[DiagnosticLog] Cannot prune logs: {ex.Message}");
             }
         }
-        _lastCleanupDay = today;
     }
 
     private static string DayName(DateOnly day)

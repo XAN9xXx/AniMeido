@@ -67,13 +67,32 @@ public partial class RecommendationViewModel : ObservableObject
         OnPropertyChanged(nameof(TagSummary));
     }
 
+    /// <summary>
+    /// 页面离开时调用：作废进行中的请求。旧请求收尾时代数已不符，不会复位加载状态，所以在这里复位；
+    /// 被打断的是整页加载或刷新时记下来，页面回来后重新加载。
+    /// </summary>
     public void Suspend()
     {
+        var interrupted = IsBusy || IsRefreshing;
+        _resumeNeedsReload |= interrupted;
         _selectionGeneration++;
         _loadGeneration++;
         _refreshGeneration++;
         _tagRequests.Clear();
-        _browse.Profile = Profile.ToArray();
+        // 加载被打断时画像可能还没读完，不能用它覆盖已保存的画像。
+        if (!interrupted)
+            _browse.Profile = Profile.ToArray();
+        IsBusy = false;
+        IsRefreshing = false;
+        IsLoadingTags = false;
+    }
+
+    /// <summary>离开前的整页加载或刷新是否被打断；读取后清除。</summary>
+    public bool TakeResumeReload()
+    {
+        var needsReload = _resumeNeedsReload;
+        _resumeNeedsReload = false;
+        return needsReload;
     }
 
     public async Task LoadSelectedTagsAsync(CancellationToken cancellationToken = default)
@@ -206,6 +225,7 @@ public partial class RecommendationViewModel : ObservableObject
 
     private int _refreshGeneration;
     private int _onboardingTagOffset;
+    private bool _resumeNeedsReload;
 
     [ObservableProperty]
     private ObservableCollection<RecommendationItem> _items = [];

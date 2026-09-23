@@ -100,7 +100,7 @@ public sealed class TrayIconService : IDisposable
         catch (Exception ex)
         {
             _startupException = ex;
-            _logger.LogError(ex, "Tray icon thread stopped unexpectedly.");
+            _logger.LogWarning(ex, "Tray icon thread stopped unexpectedly.");
         }
 #pragma warning restore CA1031
         finally

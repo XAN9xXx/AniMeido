@@ -324,7 +324,7 @@ public sealed class WindowsAppNotificationService :
 #pragma warning disable CA1031 // Notification actions cannot crash the App.
             catch (Exception ex)
             {
-                _logger.LogError(
+                _logger.LogWarning(
                     ex,
                     "Notification action {Action} failed.",
                     activation.Action);

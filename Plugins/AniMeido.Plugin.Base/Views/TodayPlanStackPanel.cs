@@ -40,6 +40,9 @@ public sealed class TodayPlanStackPanel : Panel
     public double ExpandedHeight { get; private set; }
     public double CollapsedHeight { get; private set; }
 
+    // 每张卡上次排列时的内容根、可交互状态与卡面；都没变时不再遍历它的视觉树。
+    private readonly Dictionary<UIElement, (DependencyObject? Root, bool Interactive, UIElement? Face)> _cardStates = [];
+
     protected override Size MeasureOverride(Size availableSize)
     {
         var width = double.IsFinite(availableSize.Width) ? availableSize.Width : 400;
@@ -65,6 +68,7 @@ public sealed class TodayPlanStackPanel : Panel
     {
         var y = 0d;
         var fanOriginTop = Children.Take(VisibleCardCount - 1).Sum(child => child.DesiredSize.Height);
+        var arranged = new HashSet<UIElement>();
         for (var index = 0; index < Children.Count; index++)
         {
             var child = Children[index];
@@ -72,6 +76,8 @@ public sealed class TodayPlanStackPanel : Panel
             var rear = index >= VisibleCardCount;
             var top = rear && !Expanded ? fanOriginTop : y;
             child.Arrange(new Rect(0, top, finalSize.Width, height));
+            var state = UpdateCardState(child, interactive: !rear || Expanded);
+            arranged.Add(child);
             if (!IsAnimating)
             {
                 if (child.RenderTransform is not CompositeTransform transform)
@@ -79,16 +85,43 @@ public sealed class TodayPlanStackPanel : Panel
                 child.RenderTransformOrigin = new Point(0, 0);
                 transform.Rotation = rear ? Math.Min(index - VisibleCardCount + 1, 3) * FanAngleStep * (Expanded ? 0 : 1) : 0;
                 child.Opacity = index >= VisibleCardCount + 3 && !Expanded ? 0 : 1;
-                if (HideRearContent && GetCardFace(child) is { } face)
+                if (HideRearContent && state.Face is { } face)
                     face.Opacity = rear && !Expanded ? 0 : 1;
             }
             Canvas.SetZIndex(child, Children.Count - index);
             // 收起的后排不可触发卡片操作；露出的区域由面板处理展开。
             child.IsHitTestVisible = !rear || Expanded;
-            SetCardTabStops(child, !rear || Expanded);
             y += height;
         }
+
+        foreach (var removed in _cardStates.Keys.Where(child => !arranged.Contains(child)).ToList())
+            _cardStates.Remove(removed);
         return finalSize;
+    }
+
+    /// <summary>
+    /// 只在卡片的可交互状态或内容（换了模板或条目）变化时重新设置按钮的 Tab 停靠并查找卡面，
+    /// 避免每次排列都遍历全部卡片的视觉树。
+    /// </summary>
+    private (DependencyObject? Root, bool Interactive, UIElement? Face) UpdateCardState(
+        UIElement child,
+        bool interactive)
+    {
+        var root = VisualTreeHelper.GetChildrenCount(child) > 0 ? VisualTreeHelper.GetChild(child, 0) : null;
+        if (_cardStates.TryGetValue(child, out var state)
+            && state.Interactive == interactive
+            && ReferenceEquals(state.Root, root))
+        {
+            return state;
+        }
+
+        SetCardTabStops(child, interactive);
+        var face = HideRearContent
+            ? ReferenceEquals(state.Root, root) && state.Face is not null ? state.Face : GetCardFace(child)
+            : null;
+        state = (root, interactive, face);
+        _cardStates[child] = state;
+        return state;
     }
 
     private static void SetCardTabStops(DependencyObject element, bool enabled)

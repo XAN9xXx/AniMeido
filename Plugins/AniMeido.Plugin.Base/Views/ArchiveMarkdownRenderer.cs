@@ -140,6 +140,14 @@ internal static class ArchiveMarkdownRenderer
                 case LineBreakInline:
                     output.Add(new LineBreak());
                     break;
+                case HtmlEntityInline entity:
+                    // “&amp;”这类实体按解码后的字符显示，不能丢掉。
+                    output.Add(new Run { Text = entity.Transcoded.ToString() });
+                    break;
+                case AutolinkInline autolink:
+                    // <https://…> 只显示链接文字，不可点击。
+                    output.Add(new Run { Text = autolink.Url });
+                    break;
                 case EmphasisInline emphasis:
                     var span = new Span();
                     if (emphasis.DelimiterCount >= 2)

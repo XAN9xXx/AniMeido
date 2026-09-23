@@ -124,7 +124,6 @@ public sealed partial class ArchivePage : Page, INavigationAware
         }
 
         var cancellationToken = _pageLifetime.Token;
-        ManagedImageLoader.Cancel(image);
         try
         {
             if (!_coverRequests.TryGetValue(animeId.Value, out var request))
@@ -133,6 +132,10 @@ public sealed partial class ArchivePage : Page, INavigationAware
                 _coverRequests.Add(animeId.Value, request);
             }
 
+            // 详情已取到时同步配置：同一封面不会被清空重载。
+            // 还要等待时先清掉，复用的容器不留上一部作品的封面。
+            if (!request.IsCompletedSuccessfully)
+                ManagedImageLoader.Cancel(image);
             var anime = await request;
             if (!cancellationToken.IsCancellationRequested
                 && (image.DataContext switch
@@ -290,7 +293,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         {
             if (IsPanelCurrent(panel, generation, lifetime))
             {
-                _logger.LogError(ex, "Archive panel {Panel} failed to load", panel);
+                _logger.LogWarning(ex, "Archive panel {Panel} failed to load", panel);
                 ShowStatus(ex.Message, InfoBarSeverity.Error);
             }
         }
@@ -798,13 +801,16 @@ public sealed partial class ArchivePage : Page, INavigationAware
     private async void OnArchiveSelectionChanged(
         object sender,
         SelectionChangedEventArgs e)
+        => await ShowArchiveDetailsAsync(ArchiveList.SelectedItem as ArchiveListItem);
+
+    /// <summary>显示选中作品的详情，并读取它的时间线、截图与封面。</summary>
+    private async Task ShowArchiveDetailsAsync(ArchiveListItem? selectedArchive)
     {
         _selectionCancellation?.Cancel();
         _selectionCancellation?.Dispose();
         _selectionCancellation = new CancellationTokenSource();
         var cancellationToken = _selectionCancellation.Token;
         var selectionVersion = Interlocked.Increment(ref _selectionVersion);
-        var selectedArchive = ArchiveList.SelectedItem as ArchiveListItem;
         _selectedArchive = selectedArchive;
         if (selectedArchive is null)
         {
@@ -874,7 +880,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         {
             if (selectionVersion == _selectionVersion)
             {
-                _logger.LogError(ex, "Archive details failed to load");
+                _logger.LogWarning(ex, "Archive details failed to load");
                 ShowStatus($"档案详情加载失败：{ex.Message}", InfoBarSeverity.Error);
             }
         }
@@ -1113,8 +1119,17 @@ public sealed partial class ArchivePage : Page, INavigationAware
             LineHeight = 27,
         };
         ArchiveMarkdownRenderer.Render(preview, source.Text);
-        source.TextChanged += (_, _) =>
+        // 停止输入片刻后再重绘预览，长笔记逐键整篇重绘会拖慢输入。
+        var previewTimer = DispatcherQueue.CreateTimer();
+        previewTimer.Interval = TimeSpan.FromMilliseconds(150);
+        previewTimer.IsRepeating = false;
+        previewTimer.Tick += (_, _) =>
             ArchiveMarkdownRenderer.Render(preview, source.Text);
+        source.TextChanged += (_, _) =>
+        {
+            previewTimer.Stop();
+            previewTimer.Start();
+        };
         var editorColumn = new StackPanel { Spacing = 10 };
         editorColumn.Children.Add(new TextBlock
         {
@@ -1189,7 +1204,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
                 or ArgumentException)
             {
                 args.Cancel = true;
-                _logger.LogError(ex, "Archive note failed to save");
+                _logger.LogWarning(ex, "Archive note failed to save");
                 ShowStatus($"笔记保存失败：{ex.Message}", InfoBarSeverity.Error);
             }
             finally
@@ -1198,6 +1213,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
             }
         };
         await dialog.ShowAsync();
+        previewTimer.Stop();
     }
 
     private async void OnAddEntryClick(object sender, RoutedEventArgs e)
@@ -1520,12 +1536,11 @@ public sealed partial class ArchivePage : Page, INavigationAware
             _isPlaybackAvailabilitySubscribed = true;
         }
         ApplyPlaybackAvailability();
-        if (_selectedArchive is { } selected && _pageLifetime is { } lifetime)
+        // 离开时取消了选中作品的时间线、截图与封面请求；返回后重新读取，
+        // 之后追加或修改感想时时间线也能照常刷新。
+        if (_selectedArchive is { } selected && _selectionCancellation is null)
         {
-            _ = ConfigureHeroCoverAsync(
-                selected.Archive.AnimeId,
-                _selectionVersion,
-                lifetime.Token);
+            _ = ShowArchiveDetailsAsync(selected);
         }
         _ = EnsureActivePanelAsync();
     }
@@ -1551,7 +1566,14 @@ public sealed partial class ArchivePage : Page, INavigationAware
             _playbackLauncher.AvailabilityChanged -= OnPlaybackAvailabilityChanged;
             _isPlaybackAvailabilitySubscribed = false;
         }
-        _coverRequests.Clear();
+        // 已取到的详情只是数据，返回页面时继续复用；未完成或失败的请求随页面一起作废。
+        foreach (var animeId in _coverRequests
+                     .Where(pair => !pair.Value.IsCompletedSuccessfully)
+                     .Select(pair => pair.Key)
+                     .ToList())
+        {
+            _coverRequests.Remove(animeId);
+        }
         ManagedImageLoader.Cancel(ArchiveHeroCover);
     }
 

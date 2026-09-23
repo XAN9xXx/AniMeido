@@ -161,6 +161,54 @@ public sealed class PastSeasonBrowseTests
     public void Summary_ShowsFilteredCountOnlyWhenFiltered(int shown, int total, string expected)
         => Assert.Equal(expected, PastSeasonBrowse.Summary(Latest, shown, total));
 
+    [Fact]
+    public void SyncInPlace_KeepsUnchangedItemsAndReplacesChangedStatus()
+    {
+        var a = Anime(1, "甲");
+        var b = Anime(2, "乙");
+        var c = Anime(3, "丙");
+        var current = new System.Collections.ObjectModel.ObservableCollection<PastSeasonEntry>(Entries(a, b, c));
+        var untouched = current[0];
+        var actions = new List<System.Collections.Specialized.NotifyCollectionChangedAction>();
+        current.CollectionChanged += (_, e) => actions.Add(e.Action);
+
+        var synced = PastSeasonBrowse.SyncInPlace(current, new[]
+        {
+            new PastSeasonEntry(a, AnimeTrackingStatus.None),
+            new PastSeasonEntry(b, AnimeTrackingStatus.Watching),
+            new PastSeasonEntry(c, AnimeTrackingStatus.None),
+        });
+
+        Assert.True(synced);
+        Assert.Same(untouched, current[0]);
+        Assert.Equal(AnimeTrackingStatus.Watching, current[1].Status);
+        Assert.Equal([System.Collections.Specialized.NotifyCollectionChangedAction.Replace], actions);
+    }
+
+    [Fact]
+    public void SyncInPlace_RemovesAndInsertsToMatchTarget()
+    {
+        var a = Anime(1, "甲");
+        var b = Anime(2, "乙");
+        var c = Anime(3, "丙");
+        var d = Anime(4, "丁");
+        var current = new System.Collections.ObjectModel.ObservableCollection<PastSeasonEntry>(Entries(a, b, c));
+
+        var synced = PastSeasonBrowse.SyncInPlace(current, Entries(a, d, c));
+
+        Assert.True(synced);
+        Assert.Equal(new[] { 1, 4, 3 }, current.Select(entry => entry.Anime.ID));
+    }
+
+    [Fact]
+    public void SyncInPlace_RefusesDuplicateIds()
+    {
+        var a = Anime(1, "甲");
+        var current = new System.Collections.ObjectModel.ObservableCollection<PastSeasonEntry>(Entries(a));
+
+        Assert.False(PastSeasonBrowse.SyncInPlace(current, Entries(a, a)));
+    }
+
     private static Anime Anime(
         int id,
         string title,

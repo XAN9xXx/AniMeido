@@ -418,7 +418,7 @@ internal sealed class PluginHostSession : IAsyncDisposable
 #pragma warning disable CA1031 // Deferred cleanup has its own logging boundary.
         catch (Exception ex)
         {
-            _logger.LogError(
+            _logger.LogWarning(
                 ex,
                 "Deferred PluginHost {PluginId} cleanup faulted.",
                 PluginId);
@@ -470,7 +470,7 @@ internal sealed class PluginHostSession : IAsyncDisposable
         }
         catch (AggregateException ex)
         {
-            _logger.LogError(
+            _logger.LogWarning(
                 ex,
                 "PluginHost {PluginId} startup cancellation callback faulted; "
                     + "continuing teardown.",
@@ -684,7 +684,7 @@ internal sealed class PluginHostSession : IAsyncDisposable
 #pragma warning disable CA1031 // Process exit events must not crash the App.
         catch (Exception ex)
         {
-            _logger.LogError(
+            _logger.LogWarning(
                 ex,
                 "Failed to handle PluginHost {PluginId} exit.",
                 PluginId);
@@ -791,7 +791,7 @@ internal sealed class PluginHostSession : IAsyncDisposable
 #pragma warning disable CA1031 // Background task faults are logged and do not crash the App.
         catch (Exception ex)
         {
-            _logger.LogError(
+            _logger.LogWarning(
                 ex,
                 "PluginHost {PluginId} {Operation} faulted.",
                 PluginId,

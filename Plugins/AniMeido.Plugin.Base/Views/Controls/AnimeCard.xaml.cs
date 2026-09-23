@@ -47,6 +47,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
         private bool _hasKeyboardFocus;
         private object? _hoverStateOwner;
         private readonly ScaleTransform _cardScale = new();
+        private readonly Storyboard _scaleStoryboard;
 
         // click-vs-drag 输入状态
         private bool _pointerDown;
@@ -190,6 +191,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
             InitializeComponent();
             RenderTransformOrigin = new Point(0.5, 0.5);
             RenderTransform = _cardScale;
+            _scaleStoryboard = CreateScaleStoryboard(_cardScale);
             _highScoreBrush = ScoreBadge.Background;
 
             DataContextChanged += (s, e) =>
@@ -593,25 +595,39 @@ namespace AniMeido.Plugin.Base.Views.Controls
         /// <summary>
         /// 用 XAML 缩放变换做悬停/按下缩放。合成动画的缩放只拉伸已渲染的画面，
         /// 文字会发虚；依赖动画每帧按当前比例重新渲染，文字保持清晰。
-        /// 新动画从当前值接续，不先停止旧动画，避免跳回原始大小。
+        /// 每张卡复用同一个 Storyboard：先记下正在显示的比例，停止后写回为本地值，
+        /// 再从这个值开始新一段，既不会跳回原始大小，也不会同时跑多组动画。
         /// </summary>
         private void AnimateScale(double to, int milliseconds)
+        {
+            var currentX = _cardScale.ScaleX;
+            var currentY = _cardScale.ScaleY;
+            _scaleStoryboard.Stop();
+            _cardScale.ScaleX = currentX;
+            _cardScale.ScaleY = currentY;
+
+            var duration = new Duration(TimeSpan.FromMilliseconds(milliseconds));
+            foreach (var animation in _scaleStoryboard.Children.OfType<DoubleAnimation>())
+            {
+                animation.To = to;
+                animation.Duration = duration;
+            }
+
+            _scaleStoryboard.Begin();
+        }
+
+        private static Storyboard CreateScaleStoryboard(ScaleTransform target)
         {
             var storyboard = new Storyboard();
             foreach (var property in new[] { nameof(ScaleTransform.ScaleX), nameof(ScaleTransform.ScaleY) })
             {
-                var animation = new DoubleAnimation
-                {
-                    To = to,
-                    Duration = TimeSpan.FromMilliseconds(milliseconds),
-                    EnableDependentAnimation = true,
-                };
-                Storyboard.SetTarget(animation, _cardScale);
+                var animation = new DoubleAnimation { EnableDependentAnimation = true };
+                Storyboard.SetTarget(animation, target);
                 Storyboard.SetTargetProperty(animation, property);
                 storyboard.Children.Add(animation);
             }
 
-            storyboard.Begin();
+            return storyboard;
         }
 
         private void OnPointerCanceled(object sender, PointerRoutedEventArgs e)

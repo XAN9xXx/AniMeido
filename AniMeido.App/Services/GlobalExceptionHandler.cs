@@ -23,13 +23,13 @@ internal static class GlobalExceptionHandler
             Log.CloseAndFlush();
         }
         else
-            Log.Error(ex, "[AppDomain] 未处理异常");
+            Log.Warning(ex, "[AppDomain] 未处理异常");
     }
 
     private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
     {
         var ex = e.Exception?.InnerException ?? e.Exception;
-        Log.Error(ex, "[Task] 未观察任务异常");
+        Log.Warning(ex, "[Task] 未观察任务异常");
         e.SetObserved();
     }
 

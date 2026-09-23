@@ -76,7 +76,7 @@ public partial class App : Application
             or TimeoutException
             or OperationCanceledException)
         {
-            HostLog.Error("IPC connection failed", ex);
+            HostLog.Warning("IPC connection failed", ex);
         }
 #pragma warning disable CA1031 // 进程入口必须观察意外的连接错误并执行 finally 清理。
         catch (Exception ex)
@@ -99,7 +99,7 @@ public partial class App : Application
 #pragma warning disable CA1031 // The host must exit even if a plugin cleanup path fails.
                         catch (Exception ex)
                         {
-                            HostLog.Error("Plugin cleanup failed", ex);
+                            HostLog.Warning("Plugin cleanup failed", ex);
                         }
 #pragma warning restore CA1031
                         finally
@@ -111,7 +111,7 @@ public partial class App : Application
 #pragma warning disable CA1031 // 退出路径必须观察调度器异常。
                 catch (Exception ex)
                 {
-                    HostLog.Error("Plugin cleanup dispatch failed", ex);
+                    HostLog.Warning("Plugin cleanup dispatch failed", ex);
                     Exit();
                 }
 #pragma warning restore CA1031

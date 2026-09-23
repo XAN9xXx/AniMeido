@@ -326,8 +326,42 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     {
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        // 首次进入由 OnNavigatedToAsync 开始；返回时恢复的是同一个页面实例，
+        // 不会再调用它，离开时取消的内容在这里接上。
+        if (_navigationCancellation is null)
+        {
+            _ = ResumeAsync();
+            return;
+        }
+
         UpdatePreview();
         RestoreScroll();
+    }
+
+    private async Task ResumeAsync()
+    {
+        _navigationCancellation = new CancellationTokenSource();
+        var token = _navigationCancellation.Token;
+        _scrollRestorePending = true;
+        RefreshButton.IsEnabled = !ViewModel.IsRefreshing;
+        UpdateTagLoadingState();
+        try
+        {
+            if (ViewModel.TakeResumeReload())
+            {
+                await ViewModel.LoadAsync(token);
+                if (token.IsCancellationRequested) return;
+            }
+
+            UpdatePreview();
+            RestoreScroll();
+            // 在详情页里可能改了关注或其他标记：重新读取当前作品的标签与状态。
+            await LoadTagsAsync();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+#pragma warning disable CA1031 // 返回页面时的恢复失败只提示，不中断页面。
+        catch (Exception ex) { if (!token.IsCancellationRequested) ViewModel.ReportError(ex.Message); }
+#pragma warning restore CA1031
     }
 
     private void UpdatePreview()

@@ -39,7 +39,9 @@
           Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
           RowDefinitions="Auto,Auto,Auto,*"
           Loaded="OnPageLoaded"
-          KeyDown="OnRootKeyDown">
+          KeyDown="OnRootKeyDown"
+          KeyboardAcceleratorPlacementMode="Hidden">
+        <!-- 快捷键挂在整页上，不显示悬停提示，否则鼠标移到页面任何位置都会弹出“Ctrl+F”。 -->
         <Grid.KeyboardAccelerators>
             <KeyboardAccelerator Modifiers="Control" Key="F" Invoked="OnFindAcceleratorInvoked"/>
         </Grid.KeyboardAccelerators>

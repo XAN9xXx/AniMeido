@@ -67,7 +67,7 @@ namespace AniMeido.Plugin.Base.Services
             List<Anime> animes = new List<Anime>();
             if (result is null)
             {
-                _logger.LogError("Bangumi calendar API returned null.");
+                _logger.LogWarning("Bangumi calendar API returned null.");
                 throw new BangumiApiException("Bangumi calendar API returned null.");
             }
 
@@ -86,7 +86,7 @@ namespace AniMeido.Plugin.Base.Services
             var result = await _apiClient.GetJsonAsync<List<CalendarDayResponse>>("/calendar", ct).ConfigureAwait(false);
             if (result is null)
             {
-                _logger.LogError("Bangumi calendar API returned null.");
+                _logger.LogWarning("Bangumi calendar API returned null.");
                 throw new BangumiApiException("Bangumi calendar API returned null.");
             }
             return result;

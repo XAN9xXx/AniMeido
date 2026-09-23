@@ -164,7 +164,8 @@ namespace AniMeido.Plugin.Base.ViewModels
                 return false;
             }
 
-            Refresh();
+            // 从详情页返回时也会走到这里：原地同步网格，不替换集合，滚动位置得以保留。
+            Refresh(keepList: true);
             return true;
         }
 
@@ -226,14 +227,20 @@ namespace AniMeido.Plugin.Base.ViewModels
         }
 
         /// <summary>按当前季度、状态与筛选条件重算网格、形态标签与计数。</summary>
-        private void Refresh()
+        /// <param name="keepList">原地更新现有集合而不是替换它（替换会让网格回到顶部）。</param>
+        private void Refresh(bool keepList = false)
         {
             var visible = PastSeasonBrowse.Visible(LoadedAnime, _statuses, Query, HideCompleted);
-            FormatChips = PastSeasonBrowse.FormatChips(visible, SelectedFormat);
-            Entries = new ObservableCollection<PastSeasonEntry>(PastSeasonBrowse.Sort(
+            var chips = PastSeasonBrowse.FormatChips(visible, SelectedFormat);
+            if (!chips.SequenceEqual(FormatChips))
+                FormatChips = chips;
+
+            var sorted = PastSeasonBrowse.Sort(
                 PastSeasonBrowse.ByFormat(visible, SelectedFormat),
                 SortKey,
-                SortAscending));
+                SortAscending);
+            if (!keepList || !PastSeasonBrowse.SyncInPlace(Entries, sorted))
+                Entries = new ObservableCollection<PastSeasonEntry>(sorted);
 
             var total = LoadedAnime.Count(anime =>
                 _statuses.GetValueOrDefault(anime.ID) != AnimeTrackingStatus.Blocked);

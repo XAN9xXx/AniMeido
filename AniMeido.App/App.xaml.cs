@@ -165,7 +165,7 @@ namespace AniMeido.App
 #pragma warning disable CA1031 // Shutdown cleanup failure must not trap the window open.
             catch (Exception ex)
             {
-                Log.Error(ex, "应用关闭清理失败");
+                Log.Warning(ex, "应用关闭清理失败");
             }
 #pragma warning restore CA1031
             finally
@@ -249,7 +249,7 @@ namespace AniMeido.App
             catch (Exception ex) when (
                 ex is InvalidOperationException or TimeoutException)
             {
-                Log.Error(
+                Log.Warning(
                     ex,
                     "托盘图标启动失败，已关闭托盘驻留设置");
                 _desktopSettings = _desktopSettings with
@@ -282,7 +282,7 @@ namespace AniMeido.App
 #pragma warning disable CA1031 // Optional plugins must not prevent the core App from running.
             catch (Exception ex)
             {
-                Log.Error(ex, "PluginHost 启动失败，可选插件已跳过");
+                Log.Warning(ex, "PluginHost 启动失败，可选插件已跳过");
             }
 #pragma warning restore CA1031
         }
@@ -298,7 +298,7 @@ namespace AniMeido.App
                 return;
             }
 
-            Log.Error(
+            Log.Warning(
                 e.Exception,
                 "[UI] WinUI 未处理异常，目标页面 {TargetPage}",
                 e.Exception.Data["AniMeido.TargetPage"]);

@@ -54,6 +54,37 @@ public sealed class DiagnosticFileSinkTests
         }
     }
 
+    [Fact]
+    public void UndeletableOldDay_DoesNotBlockWriting()
+    {
+        var root = NewRoot();
+        try
+        {
+            var oldDay = DateTime.Now.AddDays(-3).ToString("yyyy-MM-dd");
+            var oldDirectory = Path.Combine(root, "warning", oldDay);
+            Directory.CreateDirectory(oldDirectory);
+            var lockedPath = Path.Combine(oldDirectory, "warnings.log");
+            File.WriteAllText(lockedPath, "old");
+
+            // 旧日志被别的程序占用时删不掉；这不能让当天的日志跟着丢失。
+            using (new FileStream(lockedPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            using (var logger = NewLogger(root))
+            {
+                logger.Warning("First warning");
+                logger.Warning("Second warning");
+            }
+
+            var day = DateTime.Now.ToString("yyyy-MM-dd");
+            var text = File.ReadAllText(Path.Combine(root, "warning", day, "warnings.log"));
+            Assert.Contains("First warning", text);
+            Assert.Contains("Second warning", text);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static Serilog.Core.Logger NewLogger(string root)
         => new LoggerConfiguration()
             .MinimumLevel.Warning()

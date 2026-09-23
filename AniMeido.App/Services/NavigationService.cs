@@ -172,7 +172,7 @@ namespace AniMeido.App.Services
 #pragma warning disable CA1031 // 页面通知异常不应影响导航流程
             catch (Exception ex)
             {
-                _logger.LogError(ex,
+                _logger.LogWarning(ex,
                     "OnNavigatedToAsync failed for page {PageType}",
                     aware.GetType().FullName);
 #pragma warning restore CA1031

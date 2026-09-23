@@ -336,7 +336,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         if (!File.Exists(hostPath))
         {
             SetStatus("PluginHost 可执行文件不存在");
-            _logger.LogError(
+            _logger.LogWarning(
                 "PluginHost executable was not found at {HostPath}.",
                 hostPath);
             return;
@@ -569,7 +569,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
 #pragma warning disable CA1031 // A failed optional host restart must not crash the App.
         catch (Exception ex)
         {
-            _logger.LogError(
+            _logger.LogWarning(
                 ex,
                 "PluginHost {PluginId} automatic restart failed.",
                 session.PluginId);
@@ -615,7 +615,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
             cancellationToken);
         foreach (var failure in failures)
         {
-            _logger.LogError(
+            _logger.LogWarning(
                 "Plugin {PluginId} failed in PluginHost: {Message}",
                 failure.PluginId,
                 failure.Message);
@@ -651,7 +651,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
             catch (Exception ex)
             {
                 failures.Add(ex);
-                _logger.LogError(
+                _logger.LogWarning(
                     ex,
                     "PluginHost {PluginId} disposal failed; continuing "
                         + "with remaining sessions.",
@@ -867,7 +867,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
 #pragma warning disable CA1031 // Deferred cleanup has its own logging boundary.
         catch (Exception ex)
         {
-            _logger.LogError(
+            _logger.LogWarning(
                 ex,
                 "Deferred PluginHost supervisor cleanup faulted.");
         }
@@ -893,7 +893,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         }
         catch (AggregateException ex)
         {
-            _logger.LogError(
+            _logger.LogWarning(
                 ex,
                 "PluginHost supervisor startup cancellation callback faulted; "
                     + "continuing teardown.");

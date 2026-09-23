@@ -45,7 +45,7 @@ public static class TaskExtensions
 #pragma warning disable CA1031 // fire-and-forget 需要捕获所有异常避免静默丢失
         catch (Exception ex)
         {
-            logger.LogError(ex, "Fire-and-forget task failed: {OperationName}", operationName);
+            logger.LogWarning(ex, "Fire-and-forget task failed: {OperationName}", operationName);
         }
 #pragma warning restore CA1031
     }

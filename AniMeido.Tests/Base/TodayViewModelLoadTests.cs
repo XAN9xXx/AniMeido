@@ -65,6 +65,72 @@ public sealed class TodayViewModelLoadTests : DbTestBase
         Assert.Equal(2, (await actionCenter.GetPlansAsync()).Count);
     }
 
+    [Fact]
+    public async Task Reload_KeepsPlanCollectionWhenNothingChanged()
+    {
+        // 整体替换计划集合会重建全部卡片并收起卡包；内容没变时必须保留原集合。
+        await RunProductionMigrationAsync();
+        var actionCenter = new ActionCenterService(DbFactory);
+        var tracking = new TrackingService(DbFactory);
+        await tracking.SetStatusAsync(80, AnimeTrackingStatus.PlanToWatch);
+        using var reminders = new PlanReminderCoordinator(
+            actionCenter, new NoopNotificationService(), new NoopNavigator());
+        var vm = new TodayViewModel(
+            new OfflineSource(), tracking, actionCenter, reminders,
+            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory));
+
+        await vm.LoadAsync();
+        var plans = vm.Plans;
+        await vm.LoadAsync();
+
+        Assert.Same(plans, vm.Plans);
+        Assert.Single(vm.Plans);
+    }
+
+    [Fact]
+    public async Task RefreshAfterStatusChange_ShowsNewPlan()
+    {
+        await RunProductionMigrationAsync();
+        var actionCenter = new ActionCenterService(DbFactory);
+        var tracking = new TrackingService(DbFactory);
+        await tracking.SetStatusAsync(80, AnimeTrackingStatus.PlanToWatch);
+        using var reminders = new PlanReminderCoordinator(
+            actionCenter, new NoopNotificationService(), new NoopNavigator());
+        var vm = new TodayViewModel(
+            new OfflineSource(), tracking, actionCenter, reminders,
+            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory));
+        await vm.LoadAsync();
+
+        // 今日主题里点“补番”会写入补番状态并建立计划。
+        await tracking.SetStatusAsync(81, AnimeTrackingStatus.PlanToWatch);
+        await vm.RefreshAfterStatusChangeAsync();
+
+        Assert.Equal(2, vm.Plans.Count);
+        Assert.Contains(vm.Plans, entry => entry.Plan.AnimeId == 81);
+    }
+
+    [Fact]
+    public async Task CancelledLoad_IsReportedAsInterruptedUntilNextFullLoad()
+    {
+        // 离开页面会取消主加载；按原实例返回时靠这个标记决定是否重新加载。
+        await RunProductionMigrationAsync();
+        var actionCenter = new ActionCenterService(DbFactory);
+        var tracking = new TrackingService(DbFactory);
+        using var reminders = new PlanReminderCoordinator(
+            actionCenter, new NoopNotificationService(), new NoopNavigator());
+        var vm = new TodayViewModel(
+            new OfflineSource(), tracking, actionCenter, reminders,
+            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await vm.LoadAsync(cancellation.Token);
+        Assert.True(vm.IsLoadInterrupted);
+
+        await vm.LoadAsync();
+        Assert.False(vm.IsLoadInterrupted);
+    }
+
     private sealed class OfflineSource : IAnimeDataSource
     {
         private static Task<T> Offline<T>()

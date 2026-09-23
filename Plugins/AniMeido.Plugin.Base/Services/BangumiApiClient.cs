@@ -179,7 +179,7 @@ namespace AniMeido.Plugin.Base.Services
             }
 
             Interlocked.Increment(ref _failedCount);
-            _logger.LogError(
+            _logger.LogWarning(
                 lastFailure,
                 "Bangumi Archive and online API requests both failed");
             throw new BangumiApiException(

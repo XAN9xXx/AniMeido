@@ -292,7 +292,7 @@ namespace AniMeido.Plugin.Base.Views
 #pragma warning disable CA1031 // UI 事件边界统一显示加载失败，避免 async void 终止进程。
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Library season {Year}/{Season} failed to load", target.Year, target.Season);
+                _logger.LogWarning(ex, "Library season {Year}/{Season} failed to load", target.Year, target.Season);
                 ErrorInfoBar.Message = $"加载失败：{ex.Message}";
                 ErrorInfoBar.IsOpen = true;
             }

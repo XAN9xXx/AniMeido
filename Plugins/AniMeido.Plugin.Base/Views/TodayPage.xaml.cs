@@ -87,10 +87,16 @@ public sealed partial class TodayPage : Page, INavigationAware
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // 从详情页或档案馆返回时复用的是同一个页面：离开时取消的主题加载在这里补上，
-        // 本地主题重新读取。第一次显示由导航触发加载，这里不重复。
+        // 从详情页或档案馆返回时复用的是同一个页面，不会再触发导航加载。
+        // 离开时主加载被取消的，整页重新加载（会一并加载今日主题）；
+        // 否则只补上被取消的主题加载，本地主题重新读取。第一次显示由导航触发加载，这里不重复。
         if (_wasLoaded)
-            ViewModel.Theme.ResumeIfNeeded();
+        {
+            if (ViewModel.IsLoadInterrupted)
+                _ = ReloadSafelyAsync();
+            else
+                ViewModel.Theme.ResumeIfNeeded();
+        }
         _wasLoaded = true;
         try
         {
@@ -150,9 +156,9 @@ public sealed partial class TodayPage : Page, INavigationAware
             && ViewModel.Plans.FirstOrDefault(
                 item => item.Plan.AnimeId == animeId) is { } entry)
         {
-            if (ViewModel.OverflowPlans.Contains(entry))
+            if (ViewModel.OverflowPlans.Any(plan => plan.Plan.AnimeId == animeId))
             {
-                await OpenPlanStackAsync();
+                await TryOpenPlanStackAsync();
                 DispatcherQueue.TryEnqueue(() => ScrollToPlan(entry));
             }
             else
@@ -665,8 +671,21 @@ public sealed partial class TodayPage : Page, INavigationAware
             return;
         }
 
-        // 补番会加进补番计划，关注会影响今日放送；刷新页面让它们跟上。
-        await ReloadSafelyAsync();
+        // 补番会加进补番计划，关注会影响今日放送：只刷新受影响的部分。
+        try
+        {
+            await ViewModel.RefreshAfterStatusChangeAsync(
+                _loadCancellation?.Token ?? CancellationToken.None);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+#pragma warning disable CA1031 // UI 事件边界将恢复性错误转换为页面提示。
+        catch (Exception ex)
+        {
+            ShowNotification($"今天页刷新失败：{ex.Message}", InfoBarSeverity.Error);
+        }
+#pragma warning restore CA1031
     }
 
     /// <summary>悬停时显示标记按钮，并暂时隐藏行尾的评分或状态，避免两者重叠。</summary>

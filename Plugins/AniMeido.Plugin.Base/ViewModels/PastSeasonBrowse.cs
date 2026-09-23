@@ -1,4 +1,5 @@
-﻿using System.Globalization;
+﻿using System.Collections.ObjectModel;
+using System.Globalization;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 
@@ -146,6 +147,59 @@ public static class PastSeasonBrowse
         return ordered
             .Concat(entries.Where(entry => !selector(entry).HasValue))
             .ToList();
+    }
+
+    /// <summary>
+    /// 把 <paramref name="current"/> 原地改成 <paramref name="target"/>：移除不再显示的、插入新出现的、
+    /// 替换状态变了的，其余保持不动，网格因此不会回到顶部。
+    /// 任一方有重复作品时无法按作品对应，返回 false，由调用方整体替换。
+    /// </summary>
+    public static bool SyncInPlace(
+        ObservableCollection<PastSeasonEntry> current,
+        IReadOnlyList<PastSeasonEntry> target)
+    {
+        var targetIds = target.Select(entry => entry.Anime.ID).ToHashSet();
+        if (targetIds.Count != target.Count
+            || current.Select(entry => entry.Anime.ID).Distinct().Count() != current.Count)
+        {
+            return false;
+        }
+
+        for (var index = current.Count - 1; index >= 0; index--)
+        {
+            if (!targetIds.Contains(current[index].Anime.ID))
+                current.RemoveAt(index);
+        }
+
+        for (var index = 0; index < target.Count; index++)
+        {
+            var wanted = target[index];
+            if (index >= current.Count || current[index].Anime.ID != wanted.Anime.ID)
+            {
+                var found = -1;
+                for (var later = index + 1; later < current.Count; later++)
+                {
+                    if (current[later].Anime.ID == wanted.Anime.ID)
+                    {
+                        found = later;
+                        break;
+                    }
+                }
+
+                if (found < 0)
+                {
+                    current.Insert(index, wanted);
+                    continue;
+                }
+
+                current.Move(found, index);
+            }
+
+            if (!Equals(current[index], wanted))
+                current[index] = wanted;
+        }
+
+        return true;
     }
 
     /// <summary>前后移动若干季；超出 [<paramref name="earliest"/>, <paramref name="latest"/>] 时返回 null。</summary>
