@@ -317,25 +317,165 @@
                 </Grid>
             </Grid>
             <ScrollViewer x:Name="StatisticsPanel" Visibility="Collapsed">
-                <StackPanel MaxWidth="920"
-                            HorizontalAlignment="Left"
-                            Spacing="16">
-                    <StackPanel>
-                        <TextBlock Text="个人统计"
-                                   Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                        <TextBlock Text="只汇总 AniMeido 实际记录的数据"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </StackPanel>
+                <StackPanel Spacing="16" Padding="0,0,4,4">
                     <Border Style="{StaticResource AniMeidoCardStyle}">
-                        <TextBlock x:Name="StatisticsText"
-                                   FontSize="16"
-                                   LineHeight="28"
-                                   TextWrapping="Wrap"/>
+                        <StackPanel Spacing="20">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Spacing="3">
+                                    <TextBlock Text="个人统计"
+                                               Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                    <TextBlock Text="档案、笔记、标签与观看汇总"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                                <TextBlock x:Name="StatisticsStartText"
+                                           Grid.Column="1"
+                                           VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </Grid>
+                            <Rectangle Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                            <Grid ColumnDefinitions="*,1,*,1,*,1,*" ColumnSpacing="16">
+                                <StackPanel Spacing="7">
+                                    <FontIcon Glyph="&#xE8F1;" FontSize="22"
+                                              HorizontalAlignment="Left"
+                                              Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                    <TextBlock Text="档案"/>
+                                    <TextBlock x:Name="StatisticsArchiveCountText"
+                                               FontSize="32" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                </StackPanel>
+                                <Rectangle Grid.Column="1" Width="1"
+                                           Fill="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                                <StackPanel Grid.Column="2" Spacing="7">
+                                    <FontIcon Glyph="&#xE734;" FontSize="22"
+                                              HorizontalAlignment="Left"
+                                              Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                    <TextBlock Text="已评分"/>
+                                    <TextBlock x:Name="StatisticsRatedCountText"
+                                               FontSize="32" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                </StackPanel>
+                                <Rectangle Grid.Column="3" Width="1"
+                                           Fill="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                                <StackPanel Grid.Column="4" Spacing="7">
+                                    <FontIcon Glyph="&#xE70B;" FontSize="22"
+                                              HorizontalAlignment="Left"
+                                              Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                    <TextBlock Text="观看感想"/>
+                                    <TextBlock x:Name="StatisticsEntryCountText"
+                                               FontSize="32" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                </StackPanel>
+                                <Rectangle Grid.Column="5" Width="1"
+                                           Fill="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                                <StackPanel Grid.Column="6" Spacing="7">
+                                    <FontIcon Glyph="&#xE722;" FontSize="22"
+                                              HorizontalAlignment="Left"
+                                              Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                    <TextBlock Text="截图记录"/>
+                                    <TextBlock x:Name="StatisticsScreenshotCountText"
+                                               FontSize="32" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
                     </Border>
-                    <InfoBar IsOpen="True"
-                             IsClosable="False"
-                             Severity="Informational"
-                             Message="观看时长来自播放器完成事件与手工补录，是估算值。"/>
+
+                    <Grid ColumnDefinitions="1.3*,*" ColumnSpacing="16">
+                        <Border x:Name="StatisticsTagsCard"
+                                Style="{StaticResource AniMeidoCardStyle}">
+                            <StackPanel Spacing="14">
+                                <StackPanel Spacing="3">
+                                    <TextBlock Text="常用个人标签"
+                                               Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                    <TextBlock Text="按带有该标签的档案数量统计"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                                <TextBlock x:Name="StatisticsTagsEmpty"
+                                           Text="还没有个人标签"
+                                           Visibility="Collapsed"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <ItemsControl x:Name="StatisticsTagList">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid ColumnDefinitions="92,*,36"
+                                                  ColumnSpacing="10" Margin="0,5">
+                                                <TextBlock Text="{Binding Name}"
+                                                           VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <ProgressBar Grid.Column="1" Maximum="100"
+                                                             Value="{Binding Percent}"
+                                                             Height="16" VerticalAlignment="Center"
+                                                             Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                                <TextBlock Grid.Column="2" Text="{Binding Count}"
+                                                           VerticalAlignment="Center"
+                                                           HorizontalAlignment="Right"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                        <Border x:Name="StatisticsWatchCard" Grid.Column="1"
+                                Style="{StaticResource AniMeidoCardStyle}">
+                            <StackPanel Spacing="15">
+                                <TextBlock Text="观看记录汇总"
+                                           Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                <Grid ColumnDefinitions="44,*" ColumnSpacing="12">
+                                    <FontIcon Glyph="&#xE768;" FontSize="27"
+                                              Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                    <StackPanel Grid.Column="1" Spacing="4">
+                                        <TextBlock Text="已记录完成集数"/>
+                                        <TextBlock x:Name="StatisticsCompletedText"
+                                                   FontSize="30" FontWeight="SemiBold"
+                                                   Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                    </StackPanel>
+                                </Grid>
+                                <Rectangle Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                                <Grid ColumnDefinitions="44,*" ColumnSpacing="12">
+                                    <FontIcon Glyph="&#xE823;" FontSize="27"
+                                              Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                    <StackPanel Grid.Column="1" Spacing="4">
+                                        <TextBlock Text="估算观看时长"/>
+                                        <TextBlock x:Name="StatisticsDurationText"
+                                                   FontSize="28" FontWeight="SemiBold"
+                                                   Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <Border Style="{StaticResource AniMeidoCardStyle}">
+                        <Grid ColumnDefinitions="*,220" ColumnSpacing="28">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="记录完整度"
+                                           Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                <TextBlock Text="已评分档案占全部档案的比例"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="14">
+                                    <ProgressBar x:Name="StatisticsCoverageBar"
+                                                 Maximum="100" Height="16"
+                                                 VerticalAlignment="Center"
+                                                 Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                    <TextBlock x:Name="StatisticsCoveragePercentText"
+                                               Grid.Column="1"
+                                               Foreground="{ThemeResource AniMeidoAccentBrush}"
+                                               FontWeight="SemiBold"/>
+                                </Grid>
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <TextBlock x:Name="StatisticsCoverageText"/>
+                                    <TextBlock x:Name="StatisticsUnratedText"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="6">
+                                <TextBlock Text="状态变化"/>
+                                <TextBlock x:Name="StatisticsStatusChangesText"
+                                           FontSize="30" FontWeight="SemiBold"
+                                           Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </ScrollViewer>
 

@@ -313,7 +313,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
                         generation,
                         cancellationToken))
                 {
-                    StatisticsText.Text = FormatStatistics(statistics);
+                    RenderStatistics(statistics);
                 }
                 break;
             case ArchivePanelKind.Review:
@@ -429,6 +429,43 @@ public sealed partial class ArchivePage : Page, INavigationAware
         NumberBox sender,
         NumberBoxValueChangedEventArgs args)
         => ApplyScreenshotFilter();
+
+    private void RenderStatistics(ArchiveStatistics statistics)
+    {
+        StatisticsStartText.Text = statistics.RecordingStartedAt is { } started
+            ? $"统计起点 {started.ToLocalTime():yyyy/MM/dd}"
+            : "尚无记录";
+        StatisticsArchiveCountText.Text = $"{statistics.ArchiveCount} 部";
+        StatisticsRatedCountText.Text = $"{statistics.RatedCount} 部";
+        StatisticsEntryCountText.Text = $"{statistics.EntryCount} 条";
+        StatisticsScreenshotCountText.Text = $"{statistics.ScreenshotCount} 张";
+
+        var tags = statistics.TagCounts
+            .OrderByDescending(item => item.Value)
+            .ThenBy(item => item.Key, StringComparer.CurrentCulture)
+            .Take(6)
+            .ToArray();
+        var maximum = tags.Length == 0 ? 0 : tags[0].Value;
+        StatisticsTagList.ItemsSource = tags.Select(item => new ArchiveTagBarData(
+            item.Key,
+            item.Value,
+            maximum > 0 ? item.Value * 100d / maximum : 0)).ToArray();
+        StatisticsTagsEmpty.Visibility = tags.Length == 0
+            ? Visibility.Visible : Visibility.Collapsed;
+
+        StatisticsCompletedText.Text = $"{statistics.CompletedEpisodeCount} 集";
+        var minutes = Math.Max(0, statistics.EstimatedWatchMinutes);
+        StatisticsDurationText.Text = $"{minutes / 60} 小时 {minutes % 60} 分钟";
+
+        var coverage = statistics.ArchiveCount > 0
+            ? Math.Clamp(statistics.RatedCount * 100d / statistics.ArchiveCount, 0, 100)
+            : 0;
+        StatisticsCoverageBar.Value = coverage;
+        StatisticsCoveragePercentText.Text = $"{coverage:0}%";
+        StatisticsCoverageText.Text = $"{statistics.RatedCount} / {statistics.ArchiveCount} 部";
+        StatisticsUnratedText.Text = $"{Math.Max(0, statistics.ArchiveCount - statistics.RatedCount)} 部未评分";
+        StatisticsStatusChangesText.Text = $"{statistics.TrackingChangeCount} 次";
+    }
 
     private static string FormatStatistics(ArchiveStatistics statistics)
     {
@@ -1285,6 +1322,9 @@ public sealed partial class ArchivePage : Page, INavigationAware
     private void ApplyPlaybackAvailability()
     {
         var available = _playbackLauncher.IsAvailable;
+        StatisticsWatchCard.Visibility = available
+            ? Visibility.Visible : Visibility.Collapsed;
+        Grid.SetColumnSpan(StatisticsTagsCard, available ? 1 : 2);
         ArchiveTimelineTitle.Text = available
             ? "观看时间线" : "档案时间线";
         AddManualWatchButton.Visibility = available
@@ -1659,3 +1699,5 @@ public sealed partial class ArchivePage : Page, INavigationAware
         return true;
     }
 }
+
+public sealed record ArchiveTagBarData(string Name, int Count, double Percent);
