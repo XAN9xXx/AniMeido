@@ -294,15 +294,15 @@ public sealed partial class RecommendationPage : Page, INavigationAware
             or nameof(RecommendationViewModel.TagError)) UpdateTagLoadingState();
         if (e.PropertyName is nameof(RecommendationViewModel.SelectedItem)
             or nameof(RecommendationViewModel.HasItems)) UpdatePreview();
-        if (e.PropertyName == nameof(RecommendationViewModel.SavingWatchlistIds))
+        if (e.PropertyName == nameof(RecommendationViewModel.SavingFollowingIds))
         {
-            RefreshWantButtons(RecommendationList);
-            UpdateSelectedWantButton();
+            RefreshFollowButtons(RecommendationList);
+            UpdateSelectedFollowButton();
         }
-        if (e.PropertyName == nameof(RecommendationViewModel.WatchlistLabel)
+        if (e.PropertyName == nameof(RecommendationViewModel.FollowLabel)
             && ViewModel.SelectedItem is { } selected
             && RecommendationList.ContainerFromItem(selected) is DependencyObject container)
-            RefreshWantButtons(container);
+            RefreshFollowButtons(container);
         if (e.PropertyName == nameof(RecommendationViewModel.TagSummary))
             TagPreviewText.Text = ViewModel.SelectedTags.Count == 0 ? "展开查看作品标签"
                 : string.Join(" · ", ViewModel.SelectedTags.Take(3).Select(tag => tag.Name));
@@ -341,7 +341,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         if (item is null) ManagedImageLoader.Cancel(PreviewCover);
         else ManagedImageLoader.ConfigureCover(PreviewCover, item.Anime.ID, item.Anime.CoverURL, 110);
         ApplyPreviewLayout();
-        UpdateSelectedWantButton();
+        UpdateSelectedFollowButton();
     }
 
     private async void OnRecommendationSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -403,52 +403,52 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         _navigator.Navigate(typeof(AnimeDetailPage), item.Anime.ID);
     }
 
-    private async void OnWantClick(object sender, RoutedEventArgs e)
+    private async void OnFollowClick(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: RecommendationItem item } button) return;
 
-        await RunActionAsync(() => ViewModel.AddToWatchlistAsync(item, CurrentToken), serialize: false);
-        if (button.Tag is RecommendationItem current) UpdateWantButton(button, current);
+        await RunActionAsync(() => ViewModel.ToggleFollowingAsync(item, CurrentToken), serialize: false);
+        if (button.Tag is RecommendationItem current) UpdateFollowButton(button, current);
     }
 
-    private void OnWantLoaded(object sender, RoutedEventArgs e)
+    private void OnFollowLoaded(object sender, RoutedEventArgs e)
     {
         if (sender is Button { Tag: RecommendationItem item } button)
-            UpdateWantButton(button, item);
+            UpdateFollowButton(button, item);
     }
 
-    private void OnWantDataContextChanged(FrameworkElement sender, DataContextChangedEventArgs args)
+    private void OnFollowDataContextChanged(FrameworkElement sender, DataContextChangedEventArgs args)
     {
         if (sender is Button button && args.NewValue is RecommendationItem item)
-            UpdateWantButton(button, item);
+            UpdateFollowButton(button, item);
     }
 
-    private async void OnSelectedWantClick(object sender, RoutedEventArgs e)
+    private async void OnSelectedFollowClick(object sender, RoutedEventArgs e)
     {
         if (ViewModel.SelectedItem is not { } item) return;
-        await RunActionAsync(() => ViewModel.AddToWatchlistAsync(item, CurrentToken), serialize: false);
+        await RunActionAsync(() => ViewModel.ToggleFollowingAsync(item, CurrentToken), serialize: false);
         if (RecommendationList.ContainerFromItem(item) is DependencyObject container)
-            RefreshWantButtons(container);
+            RefreshFollowButtons(container);
     }
 
-    private void RefreshWantButtons(DependencyObject root)
+    private void RefreshFollowButtons(DependencyObject root)
     {
-        if (root is Button { Name: "WantButton", Tag: RecommendationItem item } button)
-            UpdateWantButton(button, item);
+        if (root is Button { Name: "FollowButton", Tag: RecommendationItem item } button)
+            UpdateFollowButton(button, item);
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-            RefreshWantButtons(VisualTreeHelper.GetChild(root, i));
+            RefreshFollowButtons(VisualTreeHelper.GetChild(root, i));
     }
 
-    private void UpdateWantButton(Button button, RecommendationItem item)
+    private void UpdateFollowButton(Button button, RecommendationItem item)
     {
-        button.Content = ViewModel.BrowseState.TrackingLabels.GetValueOrDefault(item.Anime.ID, "+ 想看");
-        button.IsEnabled = !ViewModel.SavingWatchlistIds.Contains(item.Anime.ID);
+        button.Content = ViewModel.BrowseState.TrackingLabels.GetValueOrDefault(item.Anime.ID, "+ 关注");
+        button.IsEnabled = !ViewModel.SavingFollowingIds.Contains(item.Anime.ID);
     }
 
-    private void UpdateSelectedWantButton()
+    private void UpdateSelectedFollowButton()
     {
-        SelectedWantButton.IsEnabled = ViewModel.SelectedItem is { } item
-            && !ViewModel.SavingWatchlistIds.Contains(item.Anime.ID);
+        SelectedFollowButton.IsEnabled = ViewModel.SelectedItem is { } item
+            && !ViewModel.SavingFollowingIds.Contains(item.Anime.ID);
     }
 
     private void OnSelectedSkipClick(object sender, RoutedEventArgs e)

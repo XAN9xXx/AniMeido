@@ -84,32 +84,33 @@ public class RecommendationBrowseStateTests
         1, [], true, true);
 }
 
-public class RecommendationWatchlistTests : DbTestBase
+public class RecommendationFollowingTests : DbTestBase
 {
     [Fact]
-    public async Task AddToPlan_DoesNotOverwriteAnExistingStatus()
+    public async Task Follow_DoesNotOverwriteAnExistingStatus()
     {
         await RunProductionMigrationAsync();
         var tracking = new TrackingService(DbFactory);
         await tracking.SetStatusAsync(42, AnimeTrackingStatus.Watching);
         Assert.Equal((AnimeTrackingStatus.Watching, false),
-            await tracking.AddToPlanIfMissingAsync(42, CancellationToken.None));
+            await tracking.ToggleFollowingAsync(42, CancellationToken.None));
         Assert.Equal(AnimeTrackingStatus.Watching, await tracking.GetStatusAsync(42));
     }
 
     [Fact]
-    public async Task AddToPlan_RepeatedCallsKeepOneTrackingEvent()
+    public async Task Follow_SecondCallRemovesOnlyFollowingStatus()
     {
         await RunProductionMigrationAsync();
         var tracking = new TrackingService(DbFactory);
-        Assert.Equal((AnimeTrackingStatus.PlanToWatch, true),
-            await tracking.AddToPlanIfMissingAsync(42, CancellationToken.None));
-        Assert.Equal((AnimeTrackingStatus.PlanToWatch, false),
-            await tracking.AddToPlanIfMissingAsync(42, CancellationToken.None));
-        Assert.Equal(AnimeTrackingStatus.PlanToWatch, await tracking.GetStatusAsync(42));
+        Assert.Equal((AnimeTrackingStatus.Following, true),
+            await tracking.ToggleFollowingAsync(42, CancellationToken.None));
+        Assert.Equal((null, true),
+            await tracking.ToggleFollowingAsync(42, CancellationToken.None));
+        Assert.Null(await tracking.GetStatusAsync(42));
         using var connection = await DbFactory.OpenAsync();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM tracking_events WHERE AnimeId = 42";
         Assert.Equal(1L, Convert.ToInt64(await command.ExecuteScalarAsync()));
+        Assert.Empty(await new ActionCenterService(DbFactory).GetPlansAsync());
     }
 }

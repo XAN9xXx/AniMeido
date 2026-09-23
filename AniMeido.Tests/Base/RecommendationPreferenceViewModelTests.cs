@@ -88,7 +88,7 @@ public class RecommendationPreferenceViewModelTests : DbTestBase
     }
 
     [Fact]
-    public async Task ExistingWatchlistEntry_IsReportedWithoutClaimingANewWrite()
+    public async Task FollowingClick_TogglesAndKeepsCurrentRecommendation()
     {
         await RunProductionMigrationAsync();
         using var candidates = new RecommendationCandidateProvider(new NoNetworkSource(), NullLogger<RecommendationCandidateProvider>.Instance);
@@ -97,12 +97,15 @@ public class RecommendationPreferenceViewModelTests : DbTestBase
         await vm.LoadAsync();
         var item = vm.Items[0];
 
-        await vm.AddToWatchlistAsync(item, CancellationToken.None);
-        Assert.Equal("已加入想看，当前列表保留。", vm.Message);
-        await vm.AddToWatchlistAsync(item, CancellationToken.None);
+        await vm.ToggleFollowingAsync(item, CancellationToken.None);
+        Assert.Equal("已关注，当前列表保留。", vm.Message);
+        await vm.ToggleFollowingAsync(item, CancellationToken.None);
 
-        Assert.Equal("这部作品已在想看列表中。", vm.Message);
-        Assert.Empty(vm.SavingWatchlistIds);
+        Assert.Equal("已取消关注，当前列表保留。", vm.Message);
+        Assert.Equal("+ 关注", vm.FollowLabel);
+        Assert.False(vm.BrowseState.TrackingLabels.ContainsKey(item.Anime.ID));
+        Assert.Empty(vm.SavingFollowingIds);
+        Assert.Null(await new TrackingService(DbFactory).GetStatusAsync(item.Anime.ID));
         Assert.Contains(item, vm.Items);
     }
 

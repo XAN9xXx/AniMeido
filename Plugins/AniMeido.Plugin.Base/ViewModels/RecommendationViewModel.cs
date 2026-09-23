@@ -41,10 +41,10 @@ public partial class RecommendationViewModel : ObservableObject
     private string? _tagError;
 
     [ObservableProperty]
-    private string _watchlistLabel = "+ 想看";
+    private string _followLabel = "+ 关注";
 
-    private readonly HashSet<int> _savingWatchlistIds = [];
-    public IReadOnlySet<int> SavingWatchlistIds => _savingWatchlistIds;
+    private readonly HashSet<int> _savingFollowingIds = [];
+    public IReadOnlySet<int> SavingFollowingIds => _savingFollowingIds;
 
     private bool _isSavingPreference;
     public bool HasSelection => SelectedItem is not null;
@@ -62,8 +62,8 @@ public partial class RecommendationViewModel : ObservableObject
                     && profile.Feature.Key == reason.Feature.Key)?.Adjustment)) ?? []);
         TagError = null;
         IsLoadingTags = false;
-        WatchlistLabel = value is not null && _browse.TrackingLabels.TryGetValue(value.Anime.ID, out var label)
-            ? label : "+ 想看";
+        FollowLabel = value is not null && _browse.TrackingLabels.TryGetValue(value.Anime.ID, out var label)
+            ? label : "+ 关注";
         OnPropertyChanged(nameof(TagSummary));
     }
 
@@ -91,14 +91,14 @@ public partial class RecommendationViewModel : ObservableObject
         {
             var status = await _recommendations.GetTrackingStatusAsync(item.Anime.ID);
             if (!IsCurrent()) return;
-            WatchlistLabel = status switch
+            FollowLabel = status switch
             {
-                null => "+ 想看",
-                AnimeTrackingStatus.PlanToWatch => "已加入想看",
-                _ => "已有追番状态",
+                null => "+ 关注",
+                AnimeTrackingStatus.Following => "已关注",
+                _ => "已有标记",
             };
             if (status is null) _browse.TrackingLabels.Remove(item.Anime.ID);
-            else _browse.TrackingLabels[item.Anime.ID] = WatchlistLabel;
+            else _browse.TrackingLabels[item.Anime.ID] = FollowLabel;
             if (!_tagRequests.TryGetValue(item.Anime.ID, out request))
             {
                 request = _recommendations.GetPreviewTagsAsync(item.Anime.ID, cancellationToken);
@@ -153,25 +153,34 @@ public partial class RecommendationViewModel : ObservableObject
         }
     }
 
-    public async Task AddToWatchlistAsync(RecommendationItem item, CancellationToken cancellationToken)
+    public async Task ToggleFollowingAsync(RecommendationItem item, CancellationToken cancellationToken)
     {
-        if (!_savingWatchlistIds.Add(item.Anime.ID)) return;
-        OnPropertyChanged(nameof(SavingWatchlistIds));
+        if (!_savingFollowingIds.Add(item.Anime.ID)) return;
+        OnPropertyChanged(nameof(SavingFollowingIds));
         try
         {
-            var (status, added) = await _recommendations.AddToWatchlistAsync(item.Anime.ID, cancellationToken);
-            var label = status == AnimeTrackingStatus.PlanToWatch ? "已加入想看" : "已有追番状态";
-            _browse.TrackingLabels[item.Anime.ID] = label;
+            var (status, changed) = await _recommendations.ToggleFollowingAsync(item.Anime.ID, cancellationToken);
             if (cancellationToken.IsCancellationRequested) return;
-            if (SelectedItem?.Anime.ID == item.Anime.ID) WatchlistLabel = label;
-            Message = status == AnimeTrackingStatus.PlanToWatch
-                ? added ? "已加入想看，当前列表保留。" : "这部作品已在想看列表中。"
-                : "此作品已有追番状态，未覆盖。";
+            var label = status switch
+            {
+                null => "+ 关注",
+                AnimeTrackingStatus.Following => "已关注",
+                _ => "已有标记",
+            };
+            if (status is null) _browse.TrackingLabels.Remove(item.Anime.ID);
+            else _browse.TrackingLabels[item.Anime.ID] = label;
+            if (SelectedItem?.Anime.ID == item.Anime.ID) FollowLabel = label;
+            Message = status switch
+            {
+                null when changed => "已取消关注，当前列表保留。",
+                AnimeTrackingStatus.Following when changed => "已关注，当前列表保留。",
+                _ => "此作品已有其他标记，未覆盖。",
+            };
         }
         finally
         {
-            _savingWatchlistIds.Remove(item.Anime.ID);
-            OnPropertyChanged(nameof(SavingWatchlistIds));
+            _savingFollowingIds.Remove(item.Anime.ID);
+            OnPropertyChanged(nameof(SavingFollowingIds));
         }
     }
 

@@ -53,12 +53,12 @@ public sealed class RecommendationService : IDisposable
     public Task<AnimeTrackingStatus?> GetTrackingStatusAsync(int animeId)
         => _tracking.GetStatusAsync(animeId);
 
-    public async Task<(AnimeTrackingStatus Status, bool Added)> AddToWatchlistAsync(int animeId,
+    public async Task<(AnimeTrackingStatus? Status, bool Changed)> ToggleFollowingAsync(int animeId,
         CancellationToken cancellationToken = default)
     {
-        var status = await _tracking.AddToPlanIfMissingAsync(animeId, cancellationToken);
-        if (status.Added) await _cache.RemoveCacheAsync(SnapshotCacheKey);
-        return status;
+        var result = await _tracking.ToggleFollowingAsync(animeId, cancellationToken);
+        if (result.Changed) await _cache.RemoveCacheAsync(SnapshotCacheKey);
+        return result;
     }
 
     public IReadOnlyList<RecommendationFeatureProfile> LastProfile

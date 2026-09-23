@@ -146,8 +146,8 @@ namespace AniMeido.Plugin.Base.Services
                 cancellationToken);
         }
 
-        /// <summary>Adds a plan only when no tracking record exists, in one write transaction.</summary>
-        internal async Task<(AnimeTrackingStatus Status, bool Added)> AddToPlanIfMissingAsync(
+        /// <summary>Toggle only the Following mark without replacing another tracking status.</summary>
+        internal async Task<(AnimeTrackingStatus? Status, bool Changed)> ToggleFollowingAsync(
             int animeId, CancellationToken cancellationToken)
         {
             using var connection = await _dbFactory.OpenAsync(cancellationToken);
@@ -158,13 +158,23 @@ namespace AniMeido.Plugin.Base.Services
             command.Parameters.AddWithValue("@animeId", animeId);
             var existing = await command.ExecuteScalarAsync(cancellationToken);
             if (existing is not null and not DBNull)
-                return ((AnimeTrackingStatus)Convert.ToInt32(existing), false);
+            {
+                var status = (AnimeTrackingStatus)Convert.ToInt32(existing);
+                if (status != AnimeTrackingStatus.Following)
+                    return (status, false);
+
+                command.CommandText = "DELETE FROM tracking WHERE AnimeId = @animeId AND Status = @following";
+                command.Parameters.AddWithValue("@following", (int)AnimeTrackingStatus.Following);
+                await command.ExecuteNonQueryAsync(cancellationToken);
+                transaction.Commit();
+                return (null, true);
+            }
 
             await SetStatusInTransactionAsync(connection, transaction, animeId,
-                AnimeTrackingStatus.PlanToWatch, DateTime.UtcNow.ToString("O"),
+                AnimeTrackingStatus.Following, DateTime.UtcNow.ToString("O"),
                 recordEvent: true, recordOnlyOnChange: true, eventId: null, cancellationToken);
             transaction.Commit();
-            return (AnimeTrackingStatus.PlanToWatch, true);
+            return (AnimeTrackingStatus.Following, true);
         }
 
         public async Task<AnimeTrackingStatus?> GetStatusAsync(int animeId)
