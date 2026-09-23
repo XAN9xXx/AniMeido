@@ -1,4 +1,4 @@
-using AniMeido.Contracts.Notifications;
+﻿using AniMeido.Contracts.Notifications;
 using Microsoft.Extensions.Logging;
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
@@ -67,7 +67,7 @@ public sealed class WindowsAppNotificationService :
         cancellationToken.ThrowIfCancellationRequested();
         if (!NotificationsEnabled)
         {
-            throw new InvalidOperationException("Windows 通知当前不可用或已关闭。");
+            throw new InvalidOperationException("当前设备的通知不可用或已关闭。");
         }
 
         var notification = BuildNotification(request);

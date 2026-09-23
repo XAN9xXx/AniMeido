@@ -1,4 +1,4 @@
-using AniMeido.Contracts;
+﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Notifications;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Views;
@@ -231,7 +231,6 @@ public sealed class PlanReminderCoordinator : IDisposable
                 },
                 [
                     new AppNotificationAction("稍后 1 小时", "snooze"),
-                    new AppNotificationAction("开始补番", "start"),
                 ]),
             cancellationToken);
 
@@ -249,23 +248,6 @@ public sealed class PlanReminderCoordinator : IDisposable
             out var reminderId);
         switch (activation.Action)
         {
-            case "start":
-                if (string.IsNullOrWhiteSpace(reminderId)
-                    || !await _actionCenter.TryMarkReminderHandledAsync(
-                        reminderId,
-                        cancellationToken))
-                {
-                    break;
-                }
-
-                await _actionCenter.StartPlanAsync(
-                    animeId,
-                    cancellationToken);
-                await _notifications.CancelGroupAsync(
-                    GetNotificationGroup(animeId),
-                    cancellationToken);
-                break;
-
             case "snooze":
                 if (string.IsNullOrWhiteSpace(reminderId)
                     || !await _actionCenter.TryMarkReminderHandledAsync(

@@ -1,4 +1,5 @@
-using AniMeido.App.Services;
+﻿using AniMeido.App.Services;
+using AniMeido.Plugin.Base.Services;
 
 namespace AniMeido.Tests
 {
@@ -23,7 +24,7 @@ namespace AniMeido.Tests
             var cmd = conn.CreateCommand();
             cmd.CommandText = "PRAGMA user_version";
             var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            Assert.Equal(7, version);
+            Assert.Equal(DatabaseSchema.CurrentVersion, version);
 
             // 检查所有表是否存在
             cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name";
@@ -180,7 +181,7 @@ namespace AniMeido.Tests
             await verifyConn.OpenAsync();
             var versionCmd = verifyConn.CreateCommand();
             versionCmd.CommandText = "PRAGMA user_version";
-            Assert.Equal(7, Convert.ToInt32(await versionCmd.ExecuteScalarAsync()));
+            Assert.Equal(DatabaseSchema.CurrentVersion, Convert.ToInt32(await versionCmd.ExecuteScalarAsync()));
 
             // 验证 Distinct TagName 被保留（"原创"只出现一次）
             var tagCmd = verifyConn.CreateCommand();
@@ -207,11 +208,11 @@ namespace AniMeido.Tests
             var cmd = conn.CreateCommand();
             cmd.CommandText = "PRAGMA user_version";
             var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            Assert.Equal(7, version);
+            Assert.Equal(DatabaseSchema.CurrentVersion, version);
         }
 
         [Fact]
-        public async Task RepeatedV7Initialization_PreservesRecordsAndConfig()
+        public async Task RepeatedCurrentVersionInitialization_PreservesRecordsAndConfig()
         {
             await RunProductionMigrationAsync();
 
@@ -242,7 +243,7 @@ namespace AniMeido.Tests
                 "SELECT Value FROM config WHERE Key = 'fixture-key'";
             Assert.Equal("fixture-value", await command2.ExecuteScalarAsync());
             command2.CommandText = "PRAGMA user_version";
-            Assert.Equal(7, Convert.ToInt32(await command2.ExecuteScalarAsync()));
+            Assert.Equal(DatabaseSchema.CurrentVersion, Convert.ToInt32(await command2.ExecuteScalarAsync()));
         }
 
         [Fact]
@@ -357,7 +358,7 @@ namespace AniMeido.Tests
             await verify.OpenAsync();
             var verifyCommand = verify.CreateCommand();
             verifyCommand.CommandText = "PRAGMA user_version";
-            Assert.Equal(7, Convert.ToInt32(await verifyCommand.ExecuteScalarAsync()));
+            Assert.Equal(DatabaseSchema.CurrentVersion, Convert.ToInt32(await verifyCommand.ExecuteScalarAsync()));
             verifyCommand.CommandText =
                 "SELECT Status FROM tracking WHERE AnimeID = 622206";
             Assert.Equal(3, Convert.ToInt32(await verifyCommand.ExecuteScalarAsync()));
@@ -369,6 +370,49 @@ namespace AniMeido.Tests
             Assert.NotEmpty(Directory.GetFiles(
                 Paths.BackupDirectory,
                 "AniMeido-*.db"));
+        }
+
+        [Fact]
+        public async Task Migration_FromV7ToV8_RestoresOnlyLegacyStartedCatchUpPlans()
+        {
+            await RunProductionMigrationAsync();
+
+            await using (var connection =
+                new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString))
+            {
+                await connection.OpenAsync();
+                var command = connection.CreateCommand();
+                command.CommandText = """
+                    INSERT INTO tracking(AnimeID, Status, UpdatedAt) VALUES
+                        (801, 2, '2026-09-01T00:00:00Z'),
+                        (802, 5, '2026-09-01T00:00:00Z'),
+                        (803, 2, '2026-09-01T00:00:00Z');
+                    INSERT INTO anime_plans(
+                        AnimeId, TitleSnapshot, Priority, CreatedAt,
+                        UpdatedAt, StartedAt, ArchivedAt) VALUES
+                        (801, '旧版已开始', 1, '2026-09-01T00:00:00Z',
+                         '2026-09-01T00:00:00Z', '2026-09-02T00:00:00Z',
+                         '2026-09-02T00:00:00Z'),
+                        (802, '已经看完', 1, '2026-09-01T00:00:00Z',
+                         '2026-09-01T00:00:00Z', '2026-09-02T00:00:00Z',
+                         '2026-09-02T00:00:00Z'),
+                        (803, '其他归档', 1, '2026-09-01T00:00:00Z',
+                         '2026-09-01T00:00:00Z', NULL,
+                         '2026-09-02T00:00:00Z');
+                    PRAGMA user_version = 7;
+                    """;
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await RunProductionMigrationAsync();
+
+            var plans = new ActionCenterService(DbFactory);
+            Assert.Equal(801, Assert.Single(await plans.GetPlansAsync()).AnimeId);
+            var restored = await plans.GetPlanAsync(801);
+            Assert.NotNull(restored?.StartedAt);
+            Assert.Null(restored.ArchivedAt);
+            Assert.NotNull((await plans.GetPlanAsync(802))?.ArchivedAt);
+            Assert.NotNull((await plans.GetPlanAsync(803))?.ArchivedAt);
         }
     }
 }

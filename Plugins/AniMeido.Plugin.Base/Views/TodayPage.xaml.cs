@@ -361,35 +361,6 @@ public sealed partial class TodayPage : Page, INavigationAware
         }
     }
 
-    private async void OnStartPlanClick(
-        object sender,
-        RoutedEventArgs e)
-    {
-        if (!TryGetPlan(sender, out var entry))
-        {
-            return;
-        }
-
-        try
-        {
-            await _actionCenter.StartPlanAsync(entry.Plan.AnimeId);
-        }
-        catch (Exception ex) when (
-            ex is Microsoft.Data.Sqlite.SqliteException
-            or InvalidOperationException)
-        {
-            ShowNotification(
-                $"开始补番失败：{ex.Message}",
-                InfoBarSeverity.Error);
-            return;
-        }
-
-        ShowNotification(
-            "已开始补番，计划已归档，待发送提醒已取消。",
-            InfoBarSeverity.Success);
-        await ReloadSafelyAsync();
-    }
-
     private async void OnEditPlanClick(object sender, RoutedEventArgs e)
     {
         PlanStackPopup.IsOpen = false;
@@ -437,7 +408,7 @@ public sealed partial class TodayPage : Page, INavigationAware
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = $"编辑《{entry.Title}》",
+            Title = $"调整《{entry.Title}》的计划",
             Content = panel,
             PrimaryButtonText = "保存",
             CloseButtonText = "取消",
@@ -478,6 +449,14 @@ public sealed partial class TodayPage : Page, INavigationAware
         PlanStackPopup.IsOpen = false;
         if (!TryGetPlan(sender, out var entry))
         {
+            return;
+        }
+
+        if (!_reminders.NotificationsAvailable)
+        {
+            ShowNotification(
+                "当前设备的通知不可用，无法添加提醒；补番计划仍会保留。",
+                InfoBarSeverity.Warning);
             return;
         }
 

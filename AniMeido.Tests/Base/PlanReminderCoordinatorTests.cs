@@ -1,5 +1,4 @@
-using AniMeido.Contracts;
-using AniMeido.Contracts.Models;
+﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Notifications;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
@@ -68,7 +67,7 @@ public sealed class PlanReminderCoordinatorTests : DbTestBase
     }
 
     [Fact]
-    public async Task StartAction_UpdatesTrackingAndCancelsPlanNotifications()
+    public async Task LegacyStartAction_OnlyOpensPlan()
     {
         await RunProductionMigrationAsync();
         var actionCenter = new ActionCenterService(DbFactory);
@@ -88,6 +87,9 @@ public sealed class PlanReminderCoordinatorTests : DbTestBase
         var reminder = await coordinator.AddAbsoluteReminderAsync(
             plan!,
             DateTimeOffset.Now.AddDays(1));
+        Assert.DoesNotContain(
+            notifications.Requests.Single().Actions,
+            action => action.Action == "start");
 
         await notifications.ActivateAsync(
             new AppNotificationActivation(
@@ -100,9 +102,15 @@ public sealed class PlanReminderCoordinatorTests : DbTestBase
                 }));
 
         var status = await new TrackingService(DbFactory).GetStatusAsync(20);
-        // 从通知开始补番同样不改变作品归属：老番仍是补番中，不会变成追番中。
-        Assert.Equal(AnimeTrackingStatus.PlanToWatch, status);
-        Assert.Contains("anime-plan-20", notifications.CancelledGroups);
+        Assert.Null(status);
+        var currentPlan = await actionCenter.GetPlanAsync(20);
+        Assert.NotNull(currentPlan);
+        Assert.Null(currentPlan.StartedAt);
+        Assert.Null(currentPlan.ArchivedAt);
+        Assert.Empty(notifications.CancelledGroups);
+        Assert.Equal(
+            PlanReminderState.Handled,
+            Assert.Single(await actionCenter.GetRemindersAsync(animeId: 20)).State);
         Assert.Equal(20, navigator.Parameter);
     }
 

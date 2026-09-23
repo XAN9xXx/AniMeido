@@ -1,3 +1,4 @@
+﻿using AniMeido.Contracts.Models;
 using Microsoft.Data.Sqlite;
 
 namespace AniMeido.Plugin.Base.Services;
@@ -8,7 +9,7 @@ namespace AniMeido.Plugin.Base.Services;
 /// </summary>
 public static class DatabaseSchema
 {
-    public const int CurrentVersion = 7;
+    public const int CurrentVersion = 8;
 
     public static async Task CreateInitialBusinessTablesBeforeConfigAsync(
         SqliteConnection connection)
@@ -307,6 +308,29 @@ public static class DatabaseSchema
                     """;
                 await cmd.ExecuteNonQueryAsync();
                 version = 7;
+            }
+            if (version < 8)
+            {
+                // 旧版“开始补番”把计划归档，但作品仍处于补番中。
+                // 该操作已移除，仅恢复这些仍在补番中的历史计划。
+                cmd.CommandText = """
+                    UPDATE anime_plans
+                    SET ArchivedAt = NULL
+                    WHERE StartedAt IS NOT NULL
+                        AND ArchivedAt IS NOT NULL
+                        AND EXISTS (
+                            SELECT 1 FROM tracking
+                            WHERE tracking.AnimeID = anime_plans.AnimeId
+                                AND tracking.Status = @catchUpStatus
+                        );
+
+                    PRAGMA user_version = 8;
+                    """;
+                cmd.Parameters.AddWithValue(
+                    "@catchUpStatus",
+                    (int)AnimeTrackingStatus.PlanToWatch);
+                await cmd.ExecuteNonQueryAsync();
+                version = 8;
             }
             tx.Commit();
         }

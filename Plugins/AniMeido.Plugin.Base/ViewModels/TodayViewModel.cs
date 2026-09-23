@@ -330,7 +330,7 @@ public partial class TodayViewModel : ObservableObject
                 await _reminders.ReconcileAsync(cancellationToken);
                 NotificationMessage = _reminders.NotificationsAvailable
                     ? null
-                    : "Windows 通知当前不可用，计划仍会在今天页显示。";
+                    : "当前设备的通知不可用，补番计划仍会在今天页显示。";
             }
             catch (InvalidOperationException ex)
             {

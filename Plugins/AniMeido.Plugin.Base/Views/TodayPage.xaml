@@ -106,7 +106,7 @@
             <StackPanel Spacing="8" Padding="0,0,0,8">
                 <Grid>
                     <Border CornerRadius="8" Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}" IsHitTestVisible="False"/>
-                    <Button Tag="{x:Bind}" Click="OnPlanDetailsClick" Style="{StaticResource TodayTileButtonStyle}" Padding="8,8,254,8" AutomationProperties.Name="{x:Bind Title}">
+                    <Button Tag="{x:Bind}" Click="OnPlanDetailsClick" Style="{StaticResource TodayTileButtonStyle}" Padding="8,8,202,8" AutomationProperties.Name="{x:Bind Title}">
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
                                 <Border Width="36" Height="50" CornerRadius="6" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}">
                                     <Image DataContext="{x:Bind Anime}" Stretch="UniformToFill" Loaded="OnCoverLoaded" DataContextChanged="OnCoverDataContextChanged"/>
@@ -119,11 +119,10 @@
                         </Grid>
                     </Button>
                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0">
-                            <Button Content="开始补番" Padding="10,4" FontSize="12" Tag="{x:Bind}" Click="OnStartPlanClick" Style="{StaticResource AccentButtonStyle}"/>
                             <Button Tag="{x:Bind}" Click="OnEditPlanClick" Padding="8,4" FontSize="12">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <FontIcon Glyph="&#xE70F;" FontSize="13"/>
-                                    <TextBlock Text="编辑"/>
+                                    <TextBlock Text="调整计划"/>
                                 </StackPanel>
                             </Button>
                             <DropDownButton Padding="8,4" FontSize="12">
@@ -160,11 +159,10 @@
                             <Image DataContext="{x:Bind Anime}" Stretch="UniformToFill" Loaded="OnCoverLoaded" DataContextChanged="OnCoverDataContextChanged"/>
                     </Border>
                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,8,6">
-                            <Button Content="开始补番" Padding="10,4" FontSize="12" Tag="{x:Bind}" Click="OnStartPlanClick" Style="{StaticResource AccentButtonStyle}"/>
                             <Button Tag="{x:Bind}" Click="OnEditPlanClick" Padding="8,4" FontSize="12">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <FontIcon Glyph="&#xE70F;" FontSize="13"/>
-                                    <TextBlock Text="编辑"/>
+                                    <TextBlock Text="调整计划"/>
                                 </StackPanel>
                             </Button>
                             <DropDownButton Padding="8,4" FontSize="12">
@@ -382,7 +380,7 @@
                                                   HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled"
                                                   VerticalScrollMode="Disabled" ZoomMode="Disabled">
                                         <StackPanel>
-                                            <TextBlock Text="暂无待开始的补番计划。" Visibility="{x:Bind ViewModel.HasNoPlans, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            <TextBlock Text="暂无补番计划。" Visibility="{x:Bind ViewModel.HasNoPlans, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                             <ItemsControl x:Name="VisiblePlanList" ItemsSource="{x:Bind ViewModel.Plans, Mode=OneWay}"
                                                           ItemTemplate="{StaticResource PlanRowCompactTemplate}" SizeChanged="OnVisiblePlanListSizeChanged">
                                                 <ItemsControl.ItemsPanel>

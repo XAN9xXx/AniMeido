@@ -148,69 +148,6 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
             : null;
     }
 
-    public async Task StartPlanAsync(
-        int animeId,
-        CancellationToken cancellationToken = default)
-    {
-        using var connection =
-            await _dbFactory.OpenAsync(cancellationToken);
-        using var transaction = connection.BeginTransaction();
-        var now = FormatTimestamp(DateTimeOffset.UtcNow);
-        using (var tracking = connection.CreateCommand())
-        {
-            tracking.Transaction = transaction;
-            tracking.CommandText = """
-                INSERT INTO tracking(AnimeId, Status, UpdatedAt)
-                VALUES(@animeId, @status, @now)
-                ON CONFLICT(AnimeId) DO UPDATE SET
-                    Status = excluded.Status,
-                    UpdatedAt = excluded.UpdatedAt
-                """;
-            tracking.Parameters.AddWithValue("@animeId", animeId);
-            // 开始执行补番计划不改变作品归属：老番仍是补番中，不会变成追番中。
-            tracking.Parameters.AddWithValue(
-                "@status",
-                (int)AnimeTrackingStatus.PlanToWatch);
-            tracking.Parameters.AddWithValue("@now", now);
-            await tracking.ExecuteNonQueryAsync(cancellationToken);
-        }
-
-        using (var plan = connection.CreateCommand())
-        {
-            plan.Transaction = transaction;
-            plan.CommandText = """
-                UPDATE anime_plans
-                SET StartedAt = COALESCE(StartedAt, @now),
-                    ArchivedAt = @now,
-                    UpdatedAt = @now
-                WHERE AnimeId = @animeId
-                """;
-            plan.Parameters.AddWithValue("@animeId", animeId);
-            plan.Parameters.AddWithValue("@now", now);
-            await plan.ExecuteNonQueryAsync(cancellationToken);
-        }
-
-        using (var reminders = connection.CreateCommand())
-        {
-            reminders.Transaction = transaction;
-            reminders.CommandText = """
-                UPDATE plan_reminders
-                SET State = @cancelled
-                WHERE AnimeId = @animeId AND State = @pending
-                """;
-            reminders.Parameters.AddWithValue("@animeId", animeId);
-            reminders.Parameters.AddWithValue(
-                "@cancelled",
-                (int)PlanReminderState.Cancelled);
-            reminders.Parameters.AddWithValue(
-                "@pending",
-                (int)PlanReminderState.Pending);
-            await reminders.ExecuteNonQueryAsync(cancellationToken);
-        }
-
-        transaction.Commit();
-    }
-
     public async Task AddReminderAsync(
         PlanReminder reminder,
         CancellationToken cancellationToken = default)

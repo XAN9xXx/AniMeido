@@ -1,7 +1,7 @@
-namespace AniMeido.Contracts.Notifications;
+﻿namespace AniMeido.Contracts.Notifications;
 
 /// <summary>
-/// App-provided capability for local Windows notifications.
+/// App-provided capability for local notifications.
 /// The contract intentionally contains no WinUI or Windows notification types.
 /// </summary>
 public interface IAppNotificationService
