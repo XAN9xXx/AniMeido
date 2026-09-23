@@ -47,6 +47,7 @@ namespace AniMeido.Plugin.Base.Services
         private long _failedCount;
         // 最近一次成功的来源，换了来源时记一条日志，不必每条请求都记。
         private string _lastServedBy = "";
+        private string _lastFailedPrimary = "";
 
         public BangumiApiClient(
             IHttpClientFactory httpFactory,
@@ -99,14 +100,14 @@ namespace AniMeido.Plugin.Base.Services
         }
 
         /// <summary>记下这次由哪个来源返回；来源发生变化时记一条日志。</summary>
-        private void RecordServed(string clientName, string url)
+        private void RecordServed(string clientName)
         {
             if (clientName == ArchiveClientName)
                 Interlocked.Increment(ref _archiveCount);
             else
                 Interlocked.Increment(ref _fallbackCount);
 
-            _logger.LogDebug("Bangumi request to {Client} succeeded for {Url}", clientName, url);
+            _logger.LogDebug("Bangumi request to {Client} succeeded", clientName);
             if (Interlocked.Exchange(ref _lastServedBy, clientName) == clientName)
                 return;
 
@@ -119,6 +120,7 @@ namespace AniMeido.Plugin.Base.Services
             CancellationToken ct)
         {
             Exception? lastFailure = null;
+            Exception? recoveredFailure = null;
             await _freshness.EnsureCheckedAsync(ct).ConfigureAwait(false);
             var clientNames = _freshness.PreferFallback ? FallbackFirst : ArchiveFirst;
 
@@ -140,7 +142,21 @@ namespace AniMeido.Plugin.Base.Services
 
                     var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
                     var value = JsonSerializer.Deserialize<T>(json, JsonOptions);
-                    RecordServed(clientName, url);
+                    RecordServed(clientName);
+                    if (recoveredFailure is not null
+                        && Interlocked.Exchange(ref _lastFailedPrimary, clientNames[0])
+                            != clientNames[0])
+                    {
+                        _logger.LogWarning(
+                            "Bangumi request recovered by {Client} after {FailedClient} failed with {FailureType}",
+                            clientName,
+                            clientNames[0],
+                            recoveredFailure.GetType().Name);
+                    }
+                    else if (recoveredFailure is null)
+                    {
+                        Interlocked.Exchange(ref _lastFailedPrimary, "");
+                    }
                     return value;
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -154,11 +170,7 @@ namespace AniMeido.Plugin.Base.Services
                     lastFailure = ex;
                     if (!isLast)
                     {
-                        _logger.LogWarning(
-                            ex,
-                            "Bangumi request to {Client} failed for {Url}; trying the next source",
-                            clientName,
-                            url);
+                        recoveredFailure = ex;
                         continue;
                     }
                 }
@@ -169,8 +181,7 @@ namespace AniMeido.Plugin.Base.Services
             Interlocked.Increment(ref _failedCount);
             _logger.LogError(
                 lastFailure,
-                "Bangumi Archive and online API requests both failed for {Url}",
-                url);
+                "Bangumi Archive and online API requests both failed");
             throw new BangumiApiException(
                 "Bangumi Archive and online API requests both failed",
                 lastFailure ?? new InvalidOperationException("No Bangumi data source was attempted"));

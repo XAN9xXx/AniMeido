@@ -4,6 +4,7 @@ using AniMeido.Contracts.Playback;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
@@ -24,6 +25,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
     private readonly ScreenshotArchiveService _screenshots;
     private readonly ScreenshotShortcutAction _shortcut;
     private readonly IWindowHandleProvider _windowHandleProvider;
+    private readonly ILogger<ArchivePage> _logger;
     private readonly CollectionViewSource _screenshotGroups;
     private IReadOnlyList<ArchiveListItem> _allArchives = [];
     private IReadOnlyList<AnimeScreenshot> _allScreenshots = [];
@@ -58,7 +60,8 @@ public sealed partial class ArchivePage : Page, INavigationAware
         IAnimePlaybackLauncher playbackLauncher,
         ScreenshotArchiveService screenshots,
         ScreenshotShortcutAction shortcut,
-        IWindowHandleProvider windowHandleProvider)
+        IWindowHandleProvider windowHandleProvider,
+        ILogger<ArchivePage> logger)
     {
         _archive = archive;
         _animeDataSource = animeDataSource;
@@ -66,6 +69,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         _screenshots = screenshots;
         _shortcut = shortcut;
         _windowHandleProvider = windowHandleProvider;
+        _logger = logger;
         InitializeComponent();
         _screenshotGroups = (CollectionViewSource)Resources["ScreenshotGroupsSource"];
         StatusFilter.SelectedIndex = 0;
@@ -286,6 +290,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         {
             if (IsPanelCurrent(panel, generation, lifetime))
             {
+                _logger.LogError(ex, "Archive panel {Panel} failed to load", panel);
                 ShowStatus(ex.Message, InfoBarSeverity.Error);
             }
         }
@@ -868,7 +873,10 @@ public sealed partial class ArchivePage : Page, INavigationAware
             or IOException or InvalidOperationException)
         {
             if (selectionVersion == _selectionVersion)
-                ShowStatus($"档案详情加载失败：{ex.Message}", InfoBarSeverity.Warning);
+            {
+                _logger.LogError(ex, "Archive details failed to load");
+                ShowStatus($"档案详情加载失败：{ex.Message}", InfoBarSeverity.Error);
+            }
         }
     }
 
@@ -1181,7 +1189,8 @@ public sealed partial class ArchivePage : Page, INavigationAware
                 or ArgumentException)
             {
                 args.Cancel = true;
-                ShowStatus($"笔记保存失败：{ex.Message}", InfoBarSeverity.Warning);
+                _logger.LogError(ex, "Archive note failed to save");
+                ShowStatus($"笔记保存失败：{ex.Message}", InfoBarSeverity.Error);
             }
             finally
             {

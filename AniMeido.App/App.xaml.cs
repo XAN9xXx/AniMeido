@@ -13,7 +13,7 @@ namespace AniMeido.App
     public partial class App : Application
     {
         private MainWindow? _window;
-        private bool _isRecoverableErrorShown;
+        private bool _isUiErrorDialogShown;
         private bool _shutdownStarted;
         private bool _shutdownCompleted;
         private bool _exitRequested;
@@ -24,9 +24,10 @@ namespace AniMeido.App
 
         public App()
         {
-            InitializeComponent();
+            StartupLogger.Initialize();
             GlobalExceptionHandler.Register();
             UnhandledException += OnAppUnhandledException;
+            InitializeComponent();
         }
 
         public static IServiceProvider? Services { get; private set; }
@@ -42,19 +43,18 @@ namespace AniMeido.App
             {
                 await InitializeApplicationAsync();
             }
-#pragma warning disable CA1031 // 启动失败应显示错误对话框而非崩溃
+#pragma warning disable CA1031 // 启动失败无法继续，显示独立于 WinUI 的错误对话框。
             catch (Exception ex)
             {
-                Log.Error(ex, "应用启动失败");
-                ShowRecoverableErrorDialog($"应用启动失败: {ex.Message}");
+                GlobalExceptionHandler.ShowFatalError(
+                    "AniMeido 启动失败，请查看错误日志。", IntPtr.Zero, ex);
+                Exit();
             }
 #pragma warning restore CA1031
         }
 
         private async Task InitializeApplicationAsync()
         {
-            StartupLogger.Initialize();
-
             var services = new ServiceCollection()
                 .AddAppServices();
 
@@ -289,17 +289,29 @@ namespace AniMeido.App
 
         private void OnAppUnhandledException(object? sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
         {
-            Log.Error(e.Exception, "[UI] WinUI 未处理异常");
-            ShowRecoverableErrorDialog($"[UI] 界面异常: {e.Exception.Message}");
+            if (_window is null)
+            {
+                GlobalExceptionHandler.ShowFatalError(
+                    "AniMeido 无法创建主窗口，请查看错误日志。", IntPtr.Zero, e.Exception);
+                e.Handled = true;
+                Exit();
+                return;
+            }
+
+            Log.Error(
+                e.Exception,
+                "[UI] WinUI 未处理异常，目标页面 {TargetPage}",
+                e.Exception.Data["AniMeido.TargetPage"]);
             e.Handled = true;
+            ShowUiErrorDialog();
         }
 
-        private void ShowRecoverableErrorDialog(string message)
+        private void ShowUiErrorDialog()
         {
-            if (_isRecoverableErrorShown) return;
-            _isRecoverableErrorShown = true;
+            if (_isUiErrorDialogShown) return;
+            _isUiErrorDialogShown = true;
 
-            _ = _window?.DispatcherQueue.TryEnqueue(async () =>
+            if (_window?.DispatcherQueue.TryEnqueue(async () =>
             {
                 try
                 {
@@ -308,25 +320,23 @@ namespace AniMeido.App
                         var dialog = new ContentDialog
                         {
                             Title = "发生异常",
-                            Content = $"AniMeido 遇到了一个可恢复的异常，应用可能部分功能不可用。\n\n{message}\n\n日志已保存到 AppData/Roaming/AniMeido/logs/",
-                            PrimaryButtonText = "重新加载",
+                            Content = "本次界面操作可能未完成，你可以继续使用应用。若问题重复出现，请查看错误日志。",
                             CloseButtonText = "继续使用",
                             DefaultButton = ContentDialogButton.Close,
                             XamlRoot = root
                         };
-                        var result = await dialog.ShowAsync();
-                        if (result == ContentDialogResult.Primary)
-                        {
-                            _isRecoverableErrorShown = false;
-                            RequestExit();
-                        }
+                        await dialog.ShowAsync();
                     }
                 }
 #pragma warning disable CA1031 // 弹窗异常不应影响应用状态
-                catch { }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "无法显示 UI 错误提示");
+                }
 #pragma warning restore CA1031
-                finally { _isRecoverableErrorShown = false; }
-            });
+                finally { _isUiErrorDialogShown = false; }
+            }) != true)
+                _isUiErrorDialogShown = false;
         }
     }
 }

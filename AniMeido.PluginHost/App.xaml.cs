@@ -1,4 +1,4 @@
-using Microsoft.UI.Dispatching;
+﻿using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using AniMeido.PluginProtocol;
 using System.IO.Pipes;
@@ -25,6 +25,7 @@ public partial class App : Application
         if (string.IsNullOrWhiteSpace(pipeName)
             || string.IsNullOrWhiteSpace(callbackPipeName))
         {
+            HostLog.Fatal("Required IPC pipe arguments are missing");
             Exit();
             return;
         }
@@ -75,29 +76,45 @@ public partial class App : Application
             or TimeoutException
             or OperationCanceledException)
         {
-            HostLog.Write($"IPC connection ended: {ex}");
+            HostLog.Error("IPC connection failed", ex);
         }
+#pragma warning disable CA1031 // 进程入口必须观察意外的连接错误并执行 finally 清理。
+        catch (Exception ex)
+        {
+            HostLog.Error("PluginHost connection failed unexpectedly", ex);
+        }
+#pragma warning restore CA1031
         finally
         {
             if (catalog is not null)
             {
-                await RunOnUiAsync(async () =>
+                try
                 {
-                    try
+                    await RunOnUiAsync(async () =>
                     {
-                        await catalog.DisposeAsync();
-                    }
+                        try
+                        {
+                            await catalog.DisposeAsync();
+                        }
 #pragma warning disable CA1031 // The host must exit even if a plugin cleanup path fails.
-                    catch (Exception ex)
-                    {
-                        HostLog.Write($"Plugin cleanup failed: {ex}");
-                    }
+                        catch (Exception ex)
+                        {
+                            HostLog.Error("Plugin cleanup failed", ex);
+                        }
 #pragma warning restore CA1031
-                    finally
-                    {
-                        Exit();
-                    }
-                });
+                        finally
+                        {
+                            Exit();
+                        }
+                    });
+                }
+#pragma warning disable CA1031 // 退出路径必须观察调度器异常。
+                catch (Exception ex)
+                {
+                    HostLog.Error("Plugin cleanup dispatch failed", ex);
+                    Exit();
+                }
+#pragma warning restore CA1031
             }
             else
             {
@@ -140,7 +157,7 @@ public partial class App : Application
         object sender,
         Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
     {
-        HostLog.Write($"Unhandled UI exception: {e.Exception}");
+        HostLog.Fatal("Unhandled UI exception", e.Exception);
         e.Handled = false;
     }
 }

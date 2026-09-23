@@ -151,7 +151,6 @@ namespace AniMeido.Plugin.Base.Services
                     && IsNetworkError(ex))
                 {
                     // 网络失败时尝试返回过期缓存降级
-                    _logger.LogWarning("Network request failed for cache key {Key}: {Msg}", cacheKey, ex.Message);
                     var stale = await _cacheService.GetCacheAllowExpiredAsync(cacheKey);
                     if (stale != null)
                     {
@@ -160,7 +159,9 @@ namespace AniMeido.Plugin.Base.Services
                             var staleResult = JsonSerializer.Deserialize<T>(stale, JsonOptions);
                             if (staleResult != null)
                             {
-                                _logger.LogInformation("Returning stale cache for {Key}", cacheKey);
+                                _logger.LogWarning(
+                                    "Network request failed for cache key {Key}; returning stale cache after {FailureType}",
+                                    cacheKey, ex.GetType().Name);
                                 return staleResult;
                             }
                         }
@@ -455,17 +456,15 @@ namespace AniMeido.Plugin.Base.Services
                 && IsNetworkError(ex))
             {
                 // 网络失败时尝试返回过期缓存降级
-                _logger.LogWarning("Network request failed for season {Year}/{Season}: {Msg}", year, season, ex.Message);
                 var staleResult = await ReadSeasonCacheAsync(
                     cacheKey,
                     allowExpired: true);
 #pragma warning restore CA1031
                 if (staleResult is not null)
                 {
-                    _logger.LogInformation(
-                        "Returning stale cache for season {Year}/{Season}",
-                        year,
-                        season);
+                    _logger.LogWarning(
+                        "Network request failed for season {Year}/{Season}; returning stale cache after {FailureType}",
+                        year, season, ex.GetType().Name);
                     return staleResult;
                 }
                 throw;

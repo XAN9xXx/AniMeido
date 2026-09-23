@@ -1,4 +1,4 @@
-using AniMeido.App.Helpers;
+﻿using AniMeido.App.Helpers;
 using AniMeido.Contracts;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml.Controls;
@@ -125,9 +125,17 @@ namespace AniMeido.App.Services
 
             _lastParameter = parameter;
 
-            var page = _pageFactory.CreatePage(pageType);
-
-            _frame.Content = page;
+            Page page;
+            try
+            {
+                page = _pageFactory.CreatePage(pageType);
+                _frame.Content = page;
+            }
+            catch (Exception ex)
+            {
+                ex.Data["AniMeido.TargetPage"] = pageType.FullName;
+                throw;
+            }
             CurrentPageType = pageType;
             Navigated?.Invoke(pageType);
 
@@ -165,8 +173,8 @@ namespace AniMeido.App.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex,
-                    "OnNavigatedToAsync failed for page {PageType} with parameter {Parameter}",
-                    aware.GetType().FullName, parameter);
+                    "OnNavigatedToAsync failed for page {PageType}",
+                    aware.GetType().FullName);
 #pragma warning restore CA1031
             }
         }

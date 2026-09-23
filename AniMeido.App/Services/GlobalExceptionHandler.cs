@@ -1,4 +1,4 @@
-using Serilog;
+﻿using Serilog;
 
 namespace AniMeido.App.Services;
 
@@ -17,7 +17,13 @@ internal static class GlobalExceptionHandler
     private static void OnCurrentDomainUnhandledException(object sender, System.UnhandledExceptionEventArgs e)
     {
         var ex = e.ExceptionObject as Exception;
-        Log.Fatal(ex, "[AppDomain] 未处理异常");
+        if (e.IsTerminating)
+        {
+            Log.Fatal(ex, "[AppDomain] 终止进程的未处理异常");
+            Log.CloseAndFlush();
+        }
+        else
+            Log.Error(ex, "[AppDomain] 未处理异常");
     }
 
     private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
@@ -30,9 +36,9 @@ internal static class GlobalExceptionHandler
     /// <summary>
     /// 致命错误弹窗（使用 Win32 MessageBox，不依赖 WinUI）。
     /// </summary>
-    public static void ShowFatalError(string message, IntPtr hWnd)
+    public static void ShowFatalError(string message, IntPtr hWnd, Exception? exception = null)
     {
-        Log.Fatal("应用程序将因不可恢复异常退出: {Message}", message);
+        Log.Fatal(exception, "应用程序将因不可恢复异常退出: {Message}", message);
         Log.CloseAndFlush();
         _ = NativeMethods.MessageBox(hWnd, message, "AniMeido - 不可恢复错误", 0x00000010);
     }

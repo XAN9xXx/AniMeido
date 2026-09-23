@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -556,19 +556,19 @@ internal static class ImageCacheHelper
         lock (EvictionScheduleLock)
         {
             _evictionDelayCancellation?.Cancel();
-            _evictionDelayCancellation?.Dispose();
             delayCancellation = new CancellationTokenSource();
             _evictionDelayCancellation = delayCancellation;
         }
-        _ = RunScheduledEvictionAsync(delayCancellation);
+        _ = RunScheduledEvictionAsync(delayCancellation, delayCancellation.Token);
     }
 
     private static async Task RunScheduledEvictionAsync(
-        CancellationTokenSource delayCancellation)
+        CancellationTokenSource delayCancellation,
+        CancellationToken cancellationToken)
     {
         try
         {
-            await Task.Delay(TimeSpan.FromSeconds(2), delayCancellation.Token)
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken)
                 .ConfigureAwait(false);
             if (!await EvictionLock.WaitAsync(0).ConfigureAwait(false))
                 return;
@@ -585,6 +585,13 @@ internal static class ImageCacheHelper
         catch (OperationCanceledException)
         {
         }
+#pragma warning disable CA1031 // 后台清理任务必须就地观察异常。
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError(
+                "Image cache eviction failed: {0}", ex);
+        }
+#pragma warning restore CA1031
         finally
         {
             lock (EvictionScheduleLock)
@@ -592,9 +599,9 @@ internal static class ImageCacheHelper
                 if (ReferenceEquals(_evictionDelayCancellation, delayCancellation))
                 {
                     _evictionDelayCancellation = null;
-                    delayCancellation.Dispose();
                 }
             }
+            delayCancellation.Dispose();
         }
     }
 }
