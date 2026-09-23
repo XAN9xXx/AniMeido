@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="AniMeido.Plugin.Base.Views.ManagementPage"
     x:Name="RootPage"
@@ -225,7 +225,7 @@
                                             Margin="0,0,4,0"
                                             Padding="0"
                                             HorizontalAlignment="Center"
-                                            VerticalAlignment="Top"
+                                            VerticalAlignment="Center"
                                             Background="Transparent"
                                             Command="{Binding ElementName=RootPage, Path=ViewModel.RemoveFromStatusCommand}"
                                             CommandParameter="{Binding}"

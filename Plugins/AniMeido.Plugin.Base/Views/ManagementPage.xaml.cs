@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
@@ -6,6 +6,7 @@ using AniMeido.Plugin.Base.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 
 namespace AniMeido.Plugin.Base.Views
 {
@@ -144,6 +145,14 @@ namespace AniMeido.Plugin.Base.Views
 
         private void OnAnimeTapped(object sender, TappedRoutedEventArgs e)
         {
+            // 卡片内的取消标记按钮有独立操作，不应继续触发整张卡片的导航。
+            for (var source = e.OriginalSource as DependencyObject;
+                 source is not null && !ReferenceEquals(source, sender);
+                 source = VisualTreeHelper.GetParent(source))
+            {
+                if (source is Button)
+                    return;
+            }
             if (sender is FrameworkElement { DataContext: Anime anime })
             {
                 _pluginNavigator.Navigate(typeof(AnimeDetailPage), anime.ID);
