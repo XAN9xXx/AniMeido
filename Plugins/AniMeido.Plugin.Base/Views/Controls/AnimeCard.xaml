@@ -11,7 +11,14 @@
     AutomationProperties.Name="{Binding Title}"
     DragStarting="OnBodyDragStarting">
 
-    <Grid Width="150"
+    <UserControl.Resources>
+        <!-- 评分低于门槛时用半透明深色，与其他封面标签一致 -->
+        <SolidColorBrush x:Key="ScoreBadgeMutedBrush" Color="#A6000000"/>
+    </UserControl.Resources>
+
+    <!-- 宽度由 CardWidth 决定，封面高度按 3:4 跟随 -->
+    <Grid x:Name="CardRoot"
+          Width="150"
           Margin="6">
         <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
                 BorderBrush="{ThemeResource ControlStrokeColorDefault}"
@@ -25,18 +32,23 @@
                 </Grid.RowDefinitions>
 
                 <!-- 封面图片 + 重试加载环 -->
-                <Grid Grid.Row="0"
+                <Grid x:Name="CoverHost"
+                      Grid.Row="0"
                       Height="200">
-                    <Border CornerRadius="10,10,0,0"
-                            Height="200">
+                    <Border CornerRadius="10,10,0,0">
                         <Border.Clip>
-                            <RectangleGeometry Rect="0,0,150,200"/>
+                            <RectangleGeometry x:Name="CoverClip" Rect="0,0,150,200"/>
                         </Border.Clip>
                         <Image x:Name="CoverImage"
-                               Height="200"
                                Stretch="UniformToFill"
-                               HorizontalAlignment="Center"/>
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
                     </Border>
+                    <!-- 已看完的作品压暗封面 -->
+                    <Border x:Name="CompletedDim"
+                            CornerRadius="10,10,0,0"
+                            Background="#73000000"
+                            Visibility="Collapsed"/>
                     <!-- 封面重试加载环 -->
                     <Grid x:Name="RetryOverlay"
                           Visibility="Collapsed"
@@ -76,18 +88,19 @@
                                FontWeight="Bold"/>
                 </Border>
 
-                <!-- 动画形态角标（番剧库使用，默认隐藏） -->
+                <!-- 动画形态角标（番剧库使用，默认隐藏）：TV 不标，其余放在右上角，左上角留给追番状态 -->
                 <Border x:Name="MediaFormatBadge"
-                        Background="{ThemeResource SystemAccentColor}"
-                        CornerRadius="0,0,10,0"
-                        Padding="8,4"
-                        HorizontalAlignment="Left"
+                        Background="#A6000000"
+                        CornerRadius="9"
+                        Padding="7,1"
+                        Margin="6"
+                        HorizontalAlignment="Right"
                         VerticalAlignment="Top"
                         Visibility="Collapsed">
                     <TextBlock x:Name="MediaFormatBadgeText"
-                               Foreground="{ThemeResource AniMeidoBadgeTextBrush}"
                                FontSize="12"
-                               FontWeight="Bold"/>
+                               FontWeight="SemiBold"
+                               Foreground="White"/>
                 </Border>
 
                 <!-- 评分角标（封面右下角） -->
@@ -160,8 +173,6 @@
 
                 <!-- 悬停标记按钮（放送日历使用，默认隐藏）。按钮自己处理点击，不会触发卡片单击 -->
                 <Grid x:Name="QuickActions"
-                      Height="200"
-                      VerticalAlignment="Top"
                       Visibility="Collapsed">
                     <Grid VerticalAlignment="Bottom"
                           Padding="6,28,6,6"
@@ -195,12 +206,17 @@
                 <!-- 文字信息 -->
                 <StackPanel Grid.Row="1"
                             Padding="10,8">
+                    <!-- 标题固定占两行：网格按第一张卡片的尺寸排列所有卡片，高度不一会截断其他卡片 -->
                     <TextBlock Text="{Binding Title}"
                                FontWeight="SemiBold"
+                               TextWrapping="Wrap"
                                TextTrimming="CharacterEllipsis"
                                MaxLines="2"
+                               LineHeight="20"
+                               LineStackingStrategy="BlockLineHeight"
+                               Height="40"
                                Margin="0,0,0,2"/>
-                    <TextBlock Text="{Binding AirDate}"
+                    <TextBlock x:Name="AirDateText"
                                FontSize="12"
                                Foreground="{ThemeResource AniMeidoMutedTextBrush}"/>
                 </StackPanel>

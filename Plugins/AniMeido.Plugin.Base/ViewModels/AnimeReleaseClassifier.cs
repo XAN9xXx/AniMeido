@@ -56,6 +56,27 @@ internal static class AnimeReleaseClassifier
             _ => "其他动画",
         };
 
+    /// <summary>封面角标用的短名；TV 是多数、未知没有信息量，都不标。</summary>
+    public static string? GetMediaFormatBadgeText(AnimeMediaFormat format) =>
+        format switch
+        {
+            AnimeMediaFormat.Movie => "剧场版",
+            AnimeMediaFormat.Ova => "OVA",
+            AnimeMediaFormat.Ona => "Web",
+            _ => null,
+        };
+
+    /// <summary>形态筛选标签上的名称。</summary>
+    public static string GetMediaFormatFilterText(AnimeMediaFormat format) =>
+        format switch
+        {
+            AnimeMediaFormat.Television => "TV动画",
+            AnimeMediaFormat.Movie => "动画电影",
+            AnimeMediaFormat.Ova => "OVA",
+            AnimeMediaFormat.Ona => "Web动画",
+            _ => "其他",
+        };
+
     private static AnimeReleasePhase CompareSeason(
         int year,
         Season season,

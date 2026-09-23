@@ -57,6 +57,36 @@ namespace AniMeido.Plugin.Base.Views.Controls
         // 标记写入中快捷按钮的不透明度。
         private const double PendingActionOpacity = 0.55;
 
+        private readonly Brush _highScoreBrush;
+
+        /// <summary>卡片宽度（不含外边距）。番剧库按窗口宽度设置，其他页面保持默认。</summary>
+        public static readonly DependencyProperty CardWidthProperty =
+            DependencyProperty.Register(
+                nameof(CardWidth),
+                typeof(double),
+                typeof(AnimeCard),
+                new PropertyMetadata(AnimeCardPresentation.DefaultCardWidth, OnCardWidthChanged));
+
+        public double CardWidth
+        {
+            get => (double)GetValue(CardWidthProperty);
+            set => SetValue(CardWidthProperty, value);
+        }
+
+        /// <summary>日期显示为“4月8日 · 周三”（番剧库使用，年份已由季度确定）。</summary>
+        public static readonly DependencyProperty ShowSeasonDateProperty =
+            DependencyProperty.Register(
+                nameof(ShowSeasonDate),
+                typeof(bool),
+                typeof(AnimeCard),
+                new PropertyMetadata(false, OnShowSeasonDateChanged));
+
+        public bool ShowSeasonDate
+        {
+            get => (bool)GetValue(ShowSeasonDateProperty);
+            set => SetValue(ShowSeasonDateProperty, value);
+        }
+
         public static readonly DependencyProperty ShowWeekdayBadgeProperty =
             DependencyProperty.Register(nameof(ShowWeekdayBadge), typeof(bool), typeof(AnimeCard),
                 new PropertyMetadata(false, OnShowWeekdayBadgeChanged));
@@ -160,11 +190,13 @@ namespace AniMeido.Plugin.Base.Views.Controls
             InitializeComponent();
             RenderTransformOrigin = new Point(0.5, 0.5);
             RenderTransform = _cardScale;
+            _highScoreBrush = ScoreBadge.Background;
 
             DataContextChanged += (s, e) =>
             {
                 UpdateWeekdayBadge();
                 UpdateMediaFormatBadge();
+                UpdateAirDateText();
                 // 容器复用时换了作品，悬停状态不沿用。
                 // 焦点首次进入列表时，所有卡片会以同一作品再触发一次本事件，
                 // 此时清掉悬停会让按钮在按下途中隐藏、丢失指针捕获，点击随之失效。
@@ -176,17 +208,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
                 }
 
                 UpdateQuickActions();
-                if (DataContext is Anime anime)
-                {
-                    ManagedImageLoader.ConfigureCover(
-                        CoverImage,
-                        anime.ID,
-                        anime.CoverURL,
-                        150,
-                        OnCoverLoadStateChanged);
-                }
-                else
-                    ManagedImageLoader.Cancel(CoverImage);
+                ConfigureCover();
             };
             PointerEntered += OnPointerEntered;
             PointerExited += OnPointerExited;
@@ -201,6 +223,59 @@ namespace AniMeido.Plugin.Base.Views.Controls
             // 拖拽启动阶段自兜底：鼠标仍在卡片上方时防止禁止图标
             AllowDrop = true;
             AddHandler(UIElement.DragOverEvent, new DragEventHandler(OnSelfDragOver), true);
+        }
+
+        private void ConfigureCover()
+        {
+            if (DataContext is Anime anime)
+            {
+                ManagedImageLoader.ConfigureCover(
+                    CoverImage,
+                    anime.ID,
+                    anime.CoverURL,
+                    CardWidth,
+                    OnCoverLoadStateChanged);
+            }
+            else
+                ManagedImageLoader.Cancel(CoverImage);
+        }
+
+        private static void OnCardWidthChanged(
+            DependencyObject dependencyObject,
+            DependencyPropertyChangedEventArgs args)
+        {
+            _ = args;
+            var card = (AnimeCard)dependencyObject;
+            card.ApplyCardSize();
+            // 宽度变了按新尺寸重新解码；已有磁盘缓存时直接替换，不闪占位图。
+            card.ConfigureCover();
+        }
+
+        private void ApplyCardSize()
+        {
+            var width = CardWidth > 0 ? CardWidth : AnimeCardPresentation.DefaultCardWidth;
+            var height = AnimeCardPresentation.CoverHeightFor(width);
+            CardRoot.Width = width;
+            CoverHost.Height = height;
+            CoverClip.Rect = new Rect(0, 0, width, height);
+        }
+
+        private static void OnShowSeasonDateChanged(
+            DependencyObject dependencyObject,
+            DependencyPropertyChangedEventArgs args)
+        {
+            _ = args;
+            ((AnimeCard)dependencyObject).UpdateAirDateText();
+        }
+
+        private void UpdateAirDateText()
+        {
+            var airDate = (DataContext as Anime)?.AirDate;
+            AirDateText.Text = airDate is not { } date
+                ? string.Empty
+                : ShowSeasonDate
+                    ? AnimeCardPresentation.FormatSeasonDate(date)
+                    : date.ToString();
         }
 
         private void OnCoverLoadStateChanged(ManagedImageLoadState state)
@@ -282,16 +357,13 @@ namespace AniMeido.Plugin.Base.Views.Controls
 
         private void UpdateMediaFormatBadge()
         {
-            if (!ShowMediaFormatBadge || DataContext is not Anime anime)
-            {
-                MediaFormatBadge.Visibility = Visibility.Collapsed;
-                return;
-            }
-
-            MediaFormatBadgeText.Text =
-                AnimeReleaseClassifier.GetMediaFormatText(
-                    anime.MediaFormat);
-            MediaFormatBadge.Visibility = Visibility.Visible;
+            var text = ShowMediaFormatBadge && DataContext is Anime anime
+                ? AnimeReleaseClassifier.GetMediaFormatBadgeText(anime.MediaFormat)
+                : null;
+            MediaFormatBadgeText.Text = text ?? string.Empty;
+            MediaFormatBadge.Visibility = text is null
+                ? Visibility.Collapsed
+                : Visibility.Visible;
         }
 
         private void UpdateScoreBadge()
@@ -299,6 +371,9 @@ namespace AniMeido.Plugin.Base.Views.Controls
             if (DataContext is Anime anime && anime.Score.HasValue && anime.Score.Value > 0)
             {
                 ScoreText.Text = anime.Score.Value.ToString("F1");
+                ScoreBadge.Background = AnimeCardPresentation.IsHighScore(anime.Score.Value)
+                    ? _highScoreBrush
+                    : (Brush)Resources["ScoreBadgeMutedBrush"];
                 ScoreBadge.Visibility = Visibility.Visible;
             }
             else
@@ -355,6 +430,9 @@ namespace AniMeido.Plugin.Base.Views.Controls
                 && StatusLabels.ContainsKey(status);
             OtherStatusBadgeText.Text = showOther ? StatusLabels[status] : string.Empty;
             OtherStatusBadge.Visibility = showOther
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            CompletedDim.Visibility = status == AnimeTrackingStatus.Completed
                 ? Visibility.Visible
                 : Visibility.Collapsed;
 
