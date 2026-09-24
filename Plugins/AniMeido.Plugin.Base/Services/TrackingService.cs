@@ -541,6 +541,51 @@ namespace AniMeido.Plugin.Base.Services
             await command.ExecuteNonQueryAsync();
         }
 
+        private const string RecentSearchesKey = "search_recent";
+
+        /// <summary>读取搜索页的最近搜索词（新的在前）；没有记录或无法解析时返回空。</summary>
+        public async Task<IReadOnlyList<string>> LoadRecentSearchesAsync()
+        {
+            using var connection = await _dbFactory.OpenAsync();
+
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Value FROM config WHERE Key = @key";
+            command.Parameters.AddWithValue("@key", RecentSearchesKey);
+            if (await command.ExecuteScalarAsync() is not string json
+                || string.IsNullOrEmpty(json))
+            {
+                return [];
+            }
+
+            try
+            {
+                return JsonSerializer.Deserialize<List<string>>(json, ConfigJsonOptions)?
+                    .Where(query => !string.IsNullOrWhiteSpace(query))
+                    .ToList() ?? [];
+            }
+            catch (JsonException)
+            {
+                return [];
+            }
+        }
+
+        /// <summary>保存最近搜索词；传入空列表即清除。</summary>
+        public async Task SaveRecentSearchesAsync(IReadOnlyList<string> queries)
+        {
+            var json = JsonSerializer.Serialize(queries, ConfigJsonOptions);
+
+            using var connection = await _dbFactory.OpenAsync();
+
+            var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT OR REPLACE INTO config (Key, Value)
+                VALUES (@key, @value)
+                """;
+            command.Parameters.AddWithValue("@key", RecentSearchesKey);
+            command.Parameters.AddWithValue("@value", json);
+            await command.ExecuteNonQueryAsync();
+        }
+
         private static async Task SynchronizePlanAsync(
             SqliteConnection connection,
             SqliteTransaction transaction,
