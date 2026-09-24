@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using AniMeido.Contracts.Models;
 
@@ -21,7 +20,9 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         public string EmptyMessage { get; } = emptyMessage;
 
-        public ObservableCollection<Anime> Items { get; } = [];
+        /// <summary>左侧导航中当前选中的状态。</summary>
+        [ObservableProperty]
+        private bool _isSelected;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(Header))]
