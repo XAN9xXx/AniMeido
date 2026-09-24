@@ -118,7 +118,7 @@
                                                        FontSize="12"
                                                        VerticalAlignment="Center"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                            <HyperlinkButton Grid.Column="1" Content="最新一季" Click="OnLatestSeasonClick"/>
+                                            <Button Grid.Column="1" Content="最新一季" Style="{StaticResource AniMeidoSubtleButtonStyle}" Click="OnLatestSeasonClick"/>
                                         </Grid>
                                     </StackPanel>
                                 </Flyout>

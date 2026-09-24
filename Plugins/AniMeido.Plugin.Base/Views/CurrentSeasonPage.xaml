@@ -464,17 +464,14 @@
                               Grid.Column="1"
                               RowDefinitions="Auto,Auto,Auto,*,Auto"
                               RowSpacing="6">
-                            <HyperlinkButton Padding="0"
-                                             Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                             Click="OnDailyPickOpenClick">
-                                <TextBlock x:Name="DailyPickTitle"
-                                           Text="{x:Bind ViewModel.DailyPick.Anime.Title, Mode=OneWay, FallbackValue=''}"
-                                           FontSize="16"
-                                           FontWeight="SemiBold"
-                                           MaxLines="2"
-                                           TextWrapping="Wrap"
-                                           TextTrimming="CharacterEllipsis"/>
-                            </HyperlinkButton>
+                            <!-- 标题只作展示；打开详情由左侧封面负责，不再做成蓝字链接 -->
+                            <TextBlock x:Name="DailyPickTitle"
+                                       Text="{x:Bind ViewModel.DailyPick.Anime.Title, Mode=OneWay, FallbackValue=''}"
+                                       FontSize="16"
+                                       FontWeight="SemiBold"
+                                       MaxLines="2"
+                                       TextWrapping="Wrap"
+                                       TextTrimming="CharacterEllipsis"/>
                             <TextBlock Grid.Row="1"
                                        Text="{x:Bind ViewModel.DailyPickMeta, Mode=OneWay}"
                                        FontSize="12"
@@ -577,12 +574,11 @@
                                           MinWidth="0"
                                           Click="OnTimeMachineYearClick"/>
                         </StackPanel>
-                        <HyperlinkButton Grid.Column="4"
-                                         Content="查看这一季全部"
-                                         Padding="4,0"
-                                         FontSize="13"
-                                         VerticalAlignment="Center"
-                                         Click="OnTimeMachineOpenSeasonClick"/>
+                        <Button Grid.Column="4"
+                                Content="查看这一季全部"
+                                Style="{StaticResource AniMeidoNavigateButtonStyle}"
+                                VerticalAlignment="Center"
+                                Click="OnTimeMachineOpenSeasonClick"/>
                     </Grid>
                     <ItemsRepeater Grid.Row="1"
                                    VerticalAlignment="Top"

@@ -282,7 +282,7 @@
                         <Grid Grid.ColumnSpan="2" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12" Margin="0,0,0,14">
                             <TextBlock Text="今日放送" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
                             <TextBlock Grid.Column="1" Text="按日历排期 · 不代表已上线" Style="{StaticResource TodayCaptionStyle}" VerticalAlignment="Center" MaxLines="1" TextTrimming="CharacterEllipsis"/>
-                            <HyperlinkButton Grid.Column="2" Content="放送日历 →" Click="OnCalendarClick" Padding="4,2"/>
+                            <Button Grid.Column="2" Content="放送日历" Style="{StaticResource AniMeidoNavigateButtonStyle}" VerticalAlignment="Center" Click="OnCalendarClick"/>
                         </Grid>
 
                         <Grid x:Name="TodayContent" Grid.Row="1" VerticalAlignment="Center">
@@ -393,7 +393,7 @@
                                         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" Visibility="{x:Bind ViewModel.HasNotification, Mode=OneWay}">
                                             <FontIcon Glyph="&#xE946;" FontSize="14" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                             <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.NotificationMessage, Mode=OneWay}" Style="{StaticResource TodayCaptionStyle}" TextWrapping="Wrap" VerticalAlignment="Center"/>
-                                            <HyperlinkButton Grid.Column="2" Content="通知设置" Click="OnNotificationSettingsClick" Padding="4,2" FontSize="12"/>
+                                            <Button Grid.Column="2" Content="通知设置" Style="{StaticResource AniMeidoNavigateButtonStyle}" FontSize="12" VerticalAlignment="Center" Click="OnNotificationSettingsClick"/>
                                         </Grid>
                                     </StackPanel>
                                 </Grid>

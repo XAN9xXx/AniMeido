@@ -254,6 +254,92 @@
                         Value="{ThemeResource SystemFillColorCriticalBrush}"/>
         </Style>
 
+        <!-- 轻量按钮：平时无底无框、次要文字色；悬停出浅底，按下底色加深。
+             用于区块标题旁、面板里的次要操作，代替蓝字超链接。 -->
+        <Style x:Key="AniMeidoSubtleButtonStyle"
+               TargetType="Button">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Foreground"
+                        Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="Padding" Value="8,4"/>
+                <Setter Property="CornerRadius" Value="4"/>
+                <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                <Setter Property="UseSystemFocusVisuals" Value="True"/>
+                <Setter Property="FocusVisualMargin" Value="-3"/>
+                <Setter Property="Template">
+                        <Setter.Value>
+                                <ControlTemplate TargetType="Button">
+                                        <Grid Background="{TemplateBinding Background}"
+                                              CornerRadius="{TemplateBinding CornerRadius}">
+                                                <VisualStateManager.VisualStateGroups>
+                                                        <VisualStateGroup x:Name="CommonStates">
+                                                                <VisualState x:Name="Normal"/>
+                                                                <VisualState x:Name="PointerOver">
+                                                                        <VisualState.Setters>
+                                                                                <Setter Target="HoverLayer.Opacity" Value="1"/>
+                                                                                <Setter Target="Presenter.Foreground"
+                                                                                        Value="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                                                        </VisualState.Setters>
+                                                                </VisualState>
+                                                                <VisualState x:Name="Pressed">
+                                                                        <VisualState.Setters>
+                                                                                <Setter Target="PressedLayer.Opacity" Value="1"/>
+                                                                                <Setter Target="Presenter.Foreground"
+                                                                                        Value="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                                                        </VisualState.Setters>
+                                                                </VisualState>
+                                                                <VisualState x:Name="Disabled">
+                                                                        <VisualState.Setters>
+                                                                                <Setter Target="Presenter.Foreground"
+                                                                                        Value="{ThemeResource TextFillColorDisabledBrush}"/>
+                                                                        </VisualState.Setters>
+                                                                </VisualState>
+                                                        </VisualStateGroup>
+                                                </VisualStateManager.VisualStateGroups>
+                                                <Border x:Name="HoverLayer"
+                                                        Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                                        CornerRadius="{TemplateBinding CornerRadius}"
+                                                        Opacity="0"/>
+                                                <Border x:Name="PressedLayer"
+                                                        Background="{ThemeResource SubtleFillColorTertiaryBrush}"
+                                                        CornerRadius="{TemplateBinding CornerRadius}"
+                                                        Opacity="0"/>
+                                                <ContentPresenter x:Name="Presenter"
+                                                                  Padding="{TemplateBinding Padding}"
+                                                                  HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                                  VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                                                  Content="{TemplateBinding Content}"
+                                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                                  Foreground="{TemplateBinding Foreground}"
+                                                                  FontSize="{TemplateBinding FontSize}"
+                                                                  AutomationProperties.AccessibilityView="Raw"/>
+                                        </Grid>
+                                </ControlTemplate>
+                        </Setter.Value>
+                </Setter>
+        </Style>
+
+        <!-- 跳转按钮：轻量按钮的文字后面跟一个 ›，表示会去往别处（另一页或完整列表）。
+             Content 直接写文字即可。 -->
+        <Style x:Key="AniMeidoNavigateButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource AniMeidoSubtleButtonStyle}">
+                <Setter Property="ContentTemplate">
+                        <Setter.Value>
+                                <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <TextBlock Text="{Binding}" VerticalAlignment="Center"/>
+                                                <FontIcon Glyph="&#xE76C;"
+                                                          FontSize="10"
+                                                          VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                </DataTemplate>
+                        </Setter.Value>
+                </Setter>
+        </Style>
+
         <Style x:Key="AniMeidoListItemStyle"
                TargetType="ListViewItem">
                 <Setter Property="HorizontalContentAlignment" Value="Stretch"/>

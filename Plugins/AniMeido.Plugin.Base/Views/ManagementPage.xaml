@@ -10,54 +10,13 @@
     Loaded="OnPageLoaded">
 
     <Page.Resources>
-        <!-- 左侧导航项：无边框，悬停与按下只加一层浅底；选中底色由内容里的 Border 显示 -->
-        <Style x:Key="MineNavButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="Transparent"/>
+        <!-- 左侧导航项：沿用共用的轻量按钮（悬停出浅底），改为正文色、铺满整行；选中底色由内容里的 Border 显示 -->
+        <Style x:Key="MineNavButtonStyle" TargetType="Button" BasedOn="{StaticResource AniMeidoSubtleButtonStyle}">
             <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Padding" Value="0"/>
             <Setter Property="HorizontalAlignment" Value="Stretch"/>
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="UseSystemFocusVisuals" Value="True"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Grid Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}">
-                            <VisualStateManager.VisualStateGroups>
-                                <VisualStateGroup x:Name="CommonStates">
-                                    <VisualState x:Name="Normal"/>
-                                    <VisualState x:Name="PointerOver">
-                                        <VisualState.Setters>
-                                            <Setter Target="HoverLayer.Opacity" Value="1"/>
-                                        </VisualState.Setters>
-                                    </VisualState>
-                                    <VisualState x:Name="Pressed">
-                                        <VisualState.Setters>
-                                            <Setter Target="HoverLayer.Opacity" Value="0.6"/>
-                                        </VisualState.Setters>
-                                    </VisualState>
-                                    <VisualState x:Name="Disabled">
-                                        <VisualState.Setters>
-                                            <Setter Target="Presenter.Opacity" Value="0.5"/>
-                                        </VisualState.Setters>
-                                    </VisualState>
-                                </VisualStateGroup>
-                            </VisualStateManager.VisualStateGroups>
-                            <Border x:Name="HoverLayer"
-                                    Background="{ThemeResource SubtleFillColorSecondaryBrush}"
-                                    CornerRadius="{TemplateBinding CornerRadius}"
-                                    Opacity="0"/>
-                            <ContentPresenter x:Name="Presenter"
-                                              Padding="{TemplateBinding Padding}"
-                                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                              VerticalContentAlignment="Center"
-                                              Content="{TemplateBinding Content}"
-                                              ContentTemplate="{TemplateBinding ContentTemplate}"
-                                              Foreground="{TemplateBinding Foreground}"/>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
         </Style>
 
         <DataTemplate x:Key="StatusNavTemplate" x:DataType="vm:TrackingStatusSection">
@@ -402,7 +361,11 @@
                                        Text="{x:Bind ViewModel.TagResultSummary, Mode=OneWay}"/>
                             <ProgressRing Width="16" Height="16" IsActive="{x:Bind ViewModel.IsTagLoading, Mode=OneWay}"/>
                         </StackPanel>
-                        <Button Grid.Column="1" Content="在标签页中打开" Click="OnOpenTagPageClick"/>
+                        <Button Grid.Column="1"
+                                Content="在标签页中打开"
+                                Style="{StaticResource AniMeidoNavigateButtonStyle}"
+                                VerticalAlignment="Center"
+                                Click="OnOpenTagPageClick"/>
                     </Grid>
                     <GridView Grid.Row="2"
                               Padding="0,0,0,24"

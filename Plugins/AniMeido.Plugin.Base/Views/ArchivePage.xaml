@@ -629,7 +629,9 @@
                                 <Grid ColumnDefinitions="*,Auto">
                                     <TextBlock Text="镜头里的回忆"
                                                Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                                    <Button Grid.Column="1" Content="查看更多截图 ›"
+                                    <Button Grid.Column="1" Content="查看更多截图"
+                                            Style="{StaticResource AniMeidoNavigateButtonStyle}"
+                                            VerticalAlignment="Center"
                                             Click="OnReviewMoreScreenshotsClick"/>
                                 </Grid>
                                 <TextBlock x:Name="ReviewScreenshotsEmpty"

@@ -212,7 +212,11 @@
                                        Margin="0,0,0,2"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                        Text="{x:Bind ViewModel.LocalSummary, Mode=OneWay}"/>
-                            <Button Grid.Column="3" Content="在“我的番剧”中查看" Click="OnOpenMineClick"/>
+                            <Button Grid.Column="3"
+                                    Content="在“我的番剧”中查看"
+                                    Style="{StaticResource AniMeidoNavigateButtonStyle}"
+                                    VerticalAlignment="Center"
+                                    Click="OnOpenMineClick"/>
                         </Grid>
                         <ScrollViewer HorizontalScrollMode="Auto"
                                       HorizontalScrollBarVisibility="Auto"
