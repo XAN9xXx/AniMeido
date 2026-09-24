@@ -52,7 +52,7 @@ namespace AniMeido.Plugin.Base
                 {
                     PageType = typeof(Views.GlobalSearchPage)
                 },
-                new PluginNavigationItem("我的番剧", "\uE8A4", "AniMeido.Plugin.Base.Views.ManagementPage")
+                new PluginNavigationItem("我的番剧", "\uE728", "AniMeido.Plugin.Base.Views.ManagementPage")
                 {
                     PageType = typeof(Views.ManagementPage)
                 },
