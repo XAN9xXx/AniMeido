@@ -179,6 +179,12 @@ namespace AniMeido.Plugin.Base.ViewModels
         {
             Query = query.Trim();
             View = Query.Length > 0 ? MineView.Search : MineView.Status;
+            // 搜索跨所有状态，左侧不高亮任何状态；清空搜索时恢复原来的选中项。
+            if (View == MineView.Search)
+            {
+                foreach (var section in StatusSections)
+                    section.IsSelected = false;
+            }
         }
 
         public async Task SearchAsync(string query)
