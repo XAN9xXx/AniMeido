@@ -366,7 +366,7 @@ namespace AniMeido.Plugin.Base.Views
 
         private void UpdateSortDirectionButton()
         {
-            SortDirectionIcon.Glyph = ViewModel.SortAscending ? "" : "";
+            SortDirectionIcon.Glyph = ViewModel.SortAscending ? "\uE74A" : "\uE74B";
             var text = PastSeasonBrowse.SortDirectionText(ViewModel.SortKey, ViewModel.SortAscending);
             ToolTipService.SetToolTip(SortDirectionButton, text);
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SortDirectionButton, text);
