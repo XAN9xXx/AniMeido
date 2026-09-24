@@ -20,9 +20,9 @@
         </Grid.ColumnDefinitions>
 
         <StackPanel Grid.ColumnSpan="2" Spacing="2">
-            <TextBlock Text="关注管理"
+            <TextBlock Text="我的番剧"
                        Style="{StaticResource AniMeidoPageTitleStyle}"/>
-            <TextBlock Text="集中维护追番状态、屏蔽项目与收藏的 Bangumi Tag"
+            <TextBlock Text="追番、补番、关注和看过的作品，以及收藏的标签"
                        Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
         </StackPanel>
 

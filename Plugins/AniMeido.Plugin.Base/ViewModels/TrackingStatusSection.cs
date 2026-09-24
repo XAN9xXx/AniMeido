@@ -5,7 +5,7 @@ using AniMeido.Contracts.Models;
 namespace AniMeido.Plugin.Base.ViewModels
 {
     /// <summary>
-    /// 描述关注管理中的一个状态分区。该模型只在 BasePlugin 内使用。
+    /// 描述“我的番剧”中的一个状态分区。该模型只在 BasePlugin 内使用。
     /// </summary>
     public sealed partial class TrackingStatusSection(
         AnimeTrackingStatus status,
