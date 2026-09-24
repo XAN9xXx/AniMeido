@@ -1,43 +1,54 @@
 ﻿using AniMeido.Contracts;
-using AniMeido.Contracts.Models;
-using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
+using AniMeido.Plugin.Base.Views.Controls;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
-using System.Text.Json;
+using Microsoft.UI.Xaml.Controls.Primitives;
 
 namespace AniMeido.Plugin.Base.Views
 {
+    /// <summary>
+    /// 搜索：先列出“我的番剧”里匹配的作品，再列 Bangumi 结果；未搜索时显示最近搜索与收藏的标签。
+    /// </summary>
     public sealed partial class GlobalSearchPage : Page
     {
-        private IAnimeDataSource _dataSource;
-        private DragDropService _dragDrop;
-        private TrackingService _tracking;
-        private IPluginNavigator _pluginNavigator;
-        private string? _currentKeyword;
-        private int _currentOffset;
-        private int _totalResults;
-        private const int PageSize = 20;
-        private HashSet<int> _blockedIds = new();
-        private CancellationTokenSource? _searchCts;
-        private int _searchVersion;
-        private IReadOnlyList<Anime> _rawPageResults = [];
-
-        public GlobalSearchPage(DragDropService dragDropService, IAnimeDataSource dataSource, TrackingService trackingService, IPluginNavigator pluginNavigator)
-        {
-            InitializeComponent();
-            _dragDrop = dragDropService;
-            _dataSource = dataSource;
-            _tracking = trackingService;
-            _pluginNavigator = pluginNavigator;
-        }
-
+        private readonly DragDropService _dragDrop;
+        private readonly IPluginNavigator _pluginNavigator;
+        private readonly ILogger<GlobalSearchPage> _logger;
         private IDisposable? _dropHostRegistration;
 
-        private void OnPageLoaded(object sender, RoutedEventArgs e)
+        public GlobalSearchViewModel ViewModel { get; }
+
+        public GlobalSearchPage(
+            DragDropService dragDropService,
+            IAnimeDataSource dataSource,
+            TrackingService trackingService,
+            LocalSearchService localSearchService,
+            SavedTagService savedTagService,
+            IPluginNavigator pluginNavigator,
+            ILogger<GlobalSearchPage> logger)
+        {
+            _dragDrop = dragDropService;
+            _pluginNavigator = pluginNavigator;
+            _logger = logger;
+            ViewModel = new GlobalSearchViewModel(
+                dataSource,
+                trackingService,
+                localSearchService,
+                savedTagService);
+            InitializeComponent();
+            InitializeSortControls();
+        }
+
+        public static Visibility NoLandingVisibility(bool hasLandingContent)
+            => hasLandingContent ? Visibility.Collapsed : Visibility.Visible;
+
+        public static bool NotLoadingMore(bool isLoadingMore) => !isLoadingMore;
+
+        private async void OnPageLoaded(object sender, RoutedEventArgs e)
         {
             _dropHostRegistration?.Dispose();
             _dropHostRegistration = _dragDrop.AttachStandardDragHost(
@@ -49,194 +60,157 @@ namespace AniMeido.Plugin.Base.Views
             RootGrid.Unloaded -= OnRootGridUnloaded;
             RootGrid.Unloaded += OnRootGridUnloaded;
 
-            // 提前加载屏蔽列表，确保后续搜索能正确过滤
-            _ = LoadBlockedIdsAsync();
+            // 返回页面时：刷新首页内容，并按最新追番状态更新结果（刚屏蔽的会移除）。
+            await RunSafelyAsync(ViewModel.LoadLandingAsync, "load landing");
+            await RunSafelyAsync(ViewModel.RefreshStatusesAsync, "refresh statuses");
         }
 
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
         {
-            Interlocked.Increment(ref _searchVersion);
-            _searchCts?.Cancel();
-            _searchCts?.Dispose();
-            _searchCts = null;
+            ViewModel.CancelPendingSearch();
             _dropHostRegistration?.Dispose();
             _dropHostRegistration = null;
         }
 
-        private async Task LoadBlockedIdsAsync()
+        /// <summary>页面操作的统一出口：取消静默，其余错误显示在结果区并记 Warning，页面继续可用。</summary>
+        private async Task RunSafelyAsync(Func<Task> action, string operation)
         {
-            var searchVersion = _searchVersion;
             try
             {
-                var blockedIds = await _tracking.GetBlockedAnimeIdsAsync();
-                if (searchVersion != _searchVersion)
-                {
-                    return;
-                }
-                _blockedIds = blockedIds;
-                if (_rawPageResults.Count > 0)
-                {
-                    ResultGrid.ItemsSource = AnimeListPresentation.Filter(
-                        _rawPageResults,
-                        _blockedIds);
-                }
+                await action();
             }
-#pragma warning disable CA1031 // 屏蔽列表加载失败不影响搜索
+            catch (OperationCanceledException)
+            {
+            }
+#pragma warning disable CA1031 // UI 事件边界统一显示错误，避免 async void 终止进程。
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[GlobalSearchPage] LoadBlockedIdsAsync failed: {ex.Message}");
+                _logger.LogWarning(ex, "Search page failed to {Operation}", operation);
+                ViewModel.ErrorMessage = $"操作失败：{ex.Message}";
+                ViewModel.IsError = true;
             }
 #pragma warning restore CA1031
         }
 
-        private void OnSearchClick(object sender, RoutedEventArgs e)
+        // ======== 搜索 ========
+
+        private async void OnSearchQuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+            => await SearchAsync(sender.Text);
+
+        private async void OnSearchClick(object sender, RoutedEventArgs e)
+            => await SearchAsync(SearchBox.Text);
+
+        private void OnSearchTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
         {
-            StartSearch();
-        }
-
-        private void OnSearchKeyDown(object sender, KeyRoutedEventArgs e)
-        {
-            if (e.Key == Windows.System.VirtualKey.Enter)
-                StartSearch();
-        }
-
-        private void StartSearch()
-        {
-            var keyword = SearchBox.Text?.Trim();
-            if (string.IsNullOrEmpty(keyword)) return;
-
-            _currentKeyword = keyword;
-            _currentOffset = 0;
-            _ = SearchAsync(0);
-        }
-
-        private async Task SearchAsync(int offset)
-        {
-            // 取消上一轮搜索，避免旧结果覆盖新结果
-            _searchCts?.Cancel();
-            _searchCts?.Dispose();
-            _searchCts = new CancellationTokenSource();
-            var token = _searchCts.Token;
-            var version = Interlocked.Increment(ref _searchVersion);
-            var keyword = _currentKeyword ?? string.Empty;
-
-            LoadingOverlay.Visibility = Visibility.Visible;
-            LoadingRing.IsActive = true;
-            PrevButton.IsEnabled = false;
-            NextButton.IsEnabled = false;
-
-            try
+            // 清空搜索框即回到首页（最近搜索与收藏的标签）。
+            if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput
+                && string.IsNullOrWhiteSpace(sender.Text))
             {
-                await LoadBlockedIdsAsync();
-                var (results, total) = await _dataSource.SearchByKeywordAsync(
-                    keyword,
-                    offset,
-                    token);
-
-                // 如果已有更新的搜索，丢弃此结果
-                if (version != _searchVersion || token.IsCancellationRequested)
-                    return;
-
-                _currentOffset = offset;
-                _totalResults = total;
-                _rawPageResults = results;
-
-                var filtered = AnimeListPresentation.Filter(
-                    results,
-                    _blockedIds);
-                ResultGrid.ItemsSource = filtered;
-
-                var currentPage = (offset / PageSize) + 1;
-                var totalPages = Math.Max(1, (int)Math.Ceiling((double)total / PageSize));
-                var totalDisplay = total >= 1000 ? $"{total}+" : total.ToString();
-                ResultCount.Text = filtered.Count == results.Count
-                    ? $"找到 {totalDisplay} 部番剧 · 第 {currentPage}/{totalPages} 页"
-                    : $"源返回 {totalDisplay} 部番剧 · 本页显示 {filtered.Count} 部 · 第 {currentPage}/{totalPages} 页";
-                PageInfo.Text = $"{currentPage} / {totalPages}";
-
-                PrevButton.IsEnabled = offset > 0;
-                NextButton.IsEnabled = (offset + PageSize) < total;
-                PaginationBar.Visibility = Visibility.Visible;
-
-                if (results.Count == 0)
-                {
-                    ResultCount.Text = "未找到相关番剧";
-                    PaginationBar.Visibility = Visibility.Collapsed;
-                }
-                else if (filtered.Count == 0)
-                {
-                    ResultCount.Text = "本页结果均已屏蔽，可继续查看其他页";
-                }
-            }
-            catch (HttpRequestException ex)
-            {
-                if (version == _searchVersion)
-                {
-                    ResultCount.Text = $"搜索失败：{ex.Message}";
-                    ClearSearchResults();
-                }
-            }
-            catch (BangumiApiException ex)
-            {
-                if (version == _searchVersion)
-                {
-                    ResultCount.Text = $"数据源请求失败：{ex.Message}";
-                    ClearSearchResults();
-                }
-            }
-            catch (OperationCanceledException)
-                when (token.IsCancellationRequested)
-            {
-                // 被新请求取消时静默返回，不更新 UI
-            }
-            catch (JsonException ex)
-            {
-                if (version == _searchVersion)
-                {
-                    ResultCount.Text = $"搜索结果解析失败：{ex.Message}";
-                    ClearSearchResults();
-                }
-            }
-            finally
-            {
-                if (version == _searchVersion)
-                {
-                    LoadingOverlay.Visibility = Visibility.Collapsed;
-                    LoadingRing.IsActive = false;
-                }
+                ViewModel.ShowLanding();
             }
         }
 
-        private void ClearSearchResults()
+        private Task SearchAsync(string? text)
         {
-            _rawPageResults = [];
-            ResultGrid.ItemsSource = null;
-            PaginationBar.Visibility = Visibility.Collapsed;
-            _totalResults = 0;
+            var query = text?.Trim() ?? "";
+            return query.Length == 0
+                ? Task.CompletedTask
+                : RunSafelyAsync(() => ViewModel.SearchAsync(query), "search");
         }
 
-        private void OnPrevPage(object sender, RoutedEventArgs e)
+        private async void OnRecentSearchClick(object sender, RoutedEventArgs e)
         {
-            var newOffset = _currentOffset - PageSize;
-            if (newOffset >= 0)
-                _ = SearchAsync(newOffset);
+            if (sender is FrameworkElement { Tag: string query })
+            {
+                SearchBox.Text = query;
+                await SearchAsync(query);
+            }
         }
 
-        private void OnNextPage(object sender, RoutedEventArgs e)
+        private async void OnClearRecentClick(object sender, RoutedEventArgs e)
+            => await RunSafelyAsync(ViewModel.ClearRecentSearchesAsync, "clear recent searches");
+
+        private async void OnRetryClick(object sender, RoutedEventArgs e)
+            => await SearchAsync(ViewModel.Query);
+
+        private async void OnLoadMoreClick(object sender, RoutedEventArgs e)
+            => await RunSafelyAsync(ViewModel.LoadMoreAsync, "load more");
+
+        // ======== 筛选与排序 ========
+
+        private void InitializeSortControls()
         {
-            var newOffset = _currentOffset + PageSize;
-            if (newOffset < _totalResults)
-                _ = SearchAsync(newOffset);
+            foreach (var (key, label) in new[]
+            {
+                (SearchSortKey.Match, "匹配度"),
+                (SearchSortKey.Score, "评分"),
+                (SearchSortKey.AirDate, "开播日期"),
+            })
+            {
+                SortComboBox.Items.Add(new ComboBoxItem { Content = label, Tag = key });
+            }
+
+            SortComboBox.SelectedIndex = 0;
+            SortComboBox.SelectionChanged += (_, _) =>
+            {
+                if (SortComboBox.SelectedItem is ComboBoxItem { Tag: SearchSortKey key })
+                    ViewModel.SetSortKey(key);
+            };
         }
 
-        private void OnAnimeCardClicked(object? sender, Views.Controls.AnimeCardClickedEventArgs e)
+        private void OnFormatChipClick(object sender, RoutedEventArgs e)
         {
-            _pluginNavigator.Navigate(typeof(AnimeDetailPage), e.Anime.ID);
+            if (sender is not ToggleButton { Tag: PastSeasonFormatChip chip } button)
+                return;
+
+            // 再点已选中的标签不取消选中，保持“始终选中一项”。
+            if (chip.IsSelected)
+            {
+                button.IsChecked = true;
+                return;
+            }
+
+            ViewModel.SelectFormat(chip.Format);
         }
 
-        // ======== 拖放标记 ========
+        // ======== 跳转 ========
 
+        private void OnOpenMineClick(object sender, RoutedEventArgs e)
+            => _pluginNavigator.Navigate(typeof(ManagementPage), ViewModel.Query);
 
+        private void OnSavedTagClick(object sender, RoutedEventArgs e)
+        {
+            if (sender is FrameworkElement { Tag: string tag })
+                _pluginNavigator.Navigate(typeof(TagSearchResultPage), tag);
+        }
 
+        private void OnLocalMatchClick(object sender, RoutedEventArgs e)
+        {
+            if (sender is FrameworkElement { Tag: PastSeasonEntry entry })
+                _pluginNavigator.Navigate(typeof(AnimeDetailPage), entry.Anime.ID);
+        }
+
+        private void OnAnimeCardClicked(object? sender, AnimeCardClickedEventArgs e)
+            => _pluginNavigator.Navigate(typeof(AnimeDetailPage), e.Anime.ID);
+
+        private void OnCoverLoaded(object sender, RoutedEventArgs e)
+            => ConfigureCover(sender as Image);
+
+        private void OnCoverDataContextChanged(FrameworkElement sender, DataContextChangedEventArgs args)
+            => ConfigureCover(sender as Image);
+
+        private static void ConfigureCover(Image? image)
+        {
+            if (image is null)
+                return;
+
+            if (image.DataContext is not PastSeasonEntry { Anime: var anime })
+            {
+                ManagedImageLoader.Cancel(image);
+                return;
+            }
+
+            ManagedImageLoader.ConfigureCover(image, anime.ID, anime.CoverURL, 40);
+        }
     }
 }
