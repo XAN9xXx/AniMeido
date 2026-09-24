@@ -53,9 +53,32 @@ public sealed class BangumiPersonWorksTests : DbTestBase
         Assert.Equal("动画制作", work.Staff);
     }
 
-    private BangumiDataSource CreateDataSource(string json)
+    [Fact]
+    public async Task GetPersonWorksAsync_IncludesVoiceRolesWithoutDuplicatingDirectWorks()
     {
-        var handler = new JsonHandler(json);
+        await CreateBaseTablesAsync();
+        var dataSource = CreateDataSource(
+            """[{"id":10,"type":2,"name":"既有作品","name_cn":null,"staff":"配音","image":"https://lain.example.test/10.jpg"}]""",
+            """
+            [
+              {"id":100,"name":"角色一","subject_id":10,"subject_type":2,"subject_name":"既有作品","subject_name_cn":"","staff":"主角"},
+              {"id":101,"name":"辉夜","subject_id":604826,"subject_type":2,"subject_name":"超かぐや姫！","subject_name_cn":"超时空辉夜姬","staff":"主角"},
+              {"id":102,"name":"另一个角色","subject_id":604826,"subject_type":2,"subject_name":"超かぐや姫！","subject_name_cn":"超时空辉夜姬","staff":"配角"},
+              {"id":103,"name":"漫画角色","subject_id":99,"subject_type":1,"subject_name":"漫画","subject_name_cn":""}
+            ]
+            """);
+
+        var works = await dataSource.GetPersonWorksAsync(36024, CancellationToken.None);
+
+        Assert.Equal(new[] { 10, 604826 }, works.Select(work => work.ID));
+        Assert.Equal("https://lain.example.test/10.jpg", works[0].CoverURL);
+        Assert.Equal("超时空辉夜姬", works[1].Title);
+        Assert.Equal("主角", works[1].Staff);
+    }
+
+    private BangumiDataSource CreateDataSource(string subjectsJson, string charactersJson = "[]")
+    {
+        var handler = new JsonHandler(subjectsJson, charactersJson);
         var client = new HttpClient(handler) { BaseAddress = new Uri("https://archive.example.test") };
         var apiClient = new BangumiApiClient(
             new StubHttpClientFactory(client),
@@ -79,13 +102,16 @@ public sealed class BangumiPersonWorksTests : DbTestBase
         public HttpClient CreateClient(string name) => client;
     }
 
-    private sealed class JsonHandler(string json) : HttpMessageHandler
+    private sealed class JsonHandler(string subjectsJson, string charactersJson) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
             Assert.StartsWith("/v0/persons/", request.RequestUri?.AbsolutePath);
+            var json = request.RequestUri?.AbsolutePath.EndsWith("/characters", StringComparison.Ordinal) == true
+                ? charactersJson
+                : subjectsJson;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json"),

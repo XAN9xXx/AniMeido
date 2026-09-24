@@ -22,6 +22,7 @@ namespace AniMeido.Plugin.Base.Services
         private const int SeasonCacheVersion = 4;
         private const int BroadcastCacheVersion = 2;
         private const int ImageUrlCacheVersion = 2;
+        private const int PersonWorksCacheVersion = 3;
         private static readonly string? FallbackImageUrl = null;
         private static readonly IReadOnlyList<VoiceActor> FallbackCVs = Array.Empty<VoiceActor>();
         private static readonly IReadOnlyList<string> StudioFilter = new List<string> { "製作", "原作", "企画", "动画制作", "发行" }; // API中Type 2 代表参与制作的商业实体，此处仅筛选制作/原作。
@@ -716,14 +717,29 @@ namespace AniMeido.Plugin.Base.Services
         /// <returns>人物参与的作品列表。</returns>
         public async Task<List<PersonWork>> GetPersonWorksAsync(int personId, CancellationToken ct)
         {
-            return await GetCacheAsync($"person_works:v{ImageUrlCacheVersion}:{personId}", TimeSpan.FromDays(7),
+            return await GetCacheAsync($"person_works:v{PersonWorksCacheVersion}:{personId}", TimeSpan.FromDays(7),
                 async () =>
                 {
-                    var result = await _apiClient.GetJsonAsync<List<RelatedSubjectResponse>>($"/v0/persons/{personId}/subjects", ct).ConfigureAwait(false);
-                    if (result is null) return new List<PersonWork>();
-                    return result
-                        .Where(s => s.Type == 2) // 仅动画
+                    var subjects = await _apiClient.GetJsonAsync<List<RelatedSubjectResponse>>(
+                        $"/v0/persons/{personId}/subjects", ct).ConfigureAwait(false);
+                    var characters = await _apiClient.GetJsonAsync<List<PersonCharacterResponse>>(
+                        $"/v0/persons/{personId}/characters", ct).ConfigureAwait(false);
+                    if (subjects is null || characters is null)
+                        throw new BangumiApiException("Bangumi person works API returned null.");
+
+                    // 人物的直接条目关联不包含全部配音作品；角色关联自带作品 ID。
+                    // 优先保留直接关联中的封面、评分和放送日期。
+                    return subjects
+                        .Where(subject => subject.Type == 2)
                         .Select(MapFromRelatedSubject)
+                        .Concat(characters
+                            .Where(character => character.SubjectType == 2)
+                            .Select(character => new PersonWork(
+                                character.SubjectId,
+                                ResolveTitle(character.SubjectNameCn, character.SubjectName),
+                                character.Staff)))
+                        .Where(work => work.ID > 0)
+                        .DistinctBy(work => work.ID)
                         .ToList();
                 },
                 ct) ?? [];
