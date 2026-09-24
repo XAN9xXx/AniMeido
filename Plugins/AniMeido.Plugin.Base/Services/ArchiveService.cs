@@ -188,6 +188,29 @@ public sealed class ArchiveService
             .ToList();
     }
 
+    /// <summary>所有打过分的作品及个人评分（“我的番剧”列表显示用）。</summary>
+    public async Task<IReadOnlyDictionary<int, double>> GetPersonalRatingsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _dbFactory.OpenAsync(
+            cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT AnimeId, PersonalRating
+            FROM anime_archives
+            WHERE PersonalRating IS NOT NULL
+            """;
+        var ratings = new Dictionary<int, double>();
+        await using var reader = await command.ExecuteReaderAsync(
+            cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            ratings[reader.GetInt32(0)] = reader.GetDouble(1);
+        }
+
+        return ratings;
+    }
+
     public async Task<IReadOnlyList<string>> GetAnimeTagsAsync(
         int animeId,
         CancellationToken cancellationToken = default)

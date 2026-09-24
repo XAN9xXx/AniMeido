@@ -157,50 +157,7 @@ public static class PastSeasonBrowse
     public static bool SyncInPlace(
         ObservableCollection<PastSeasonEntry> current,
         IReadOnlyList<PastSeasonEntry> target)
-    {
-        var targetIds = target.Select(entry => entry.Anime.ID).ToHashSet();
-        if (targetIds.Count != target.Count
-            || current.Select(entry => entry.Anime.ID).Distinct().Count() != current.Count)
-        {
-            return false;
-        }
-
-        for (var index = current.Count - 1; index >= 0; index--)
-        {
-            if (!targetIds.Contains(current[index].Anime.ID))
-                current.RemoveAt(index);
-        }
-
-        for (var index = 0; index < target.Count; index++)
-        {
-            var wanted = target[index];
-            if (index >= current.Count || current[index].Anime.ID != wanted.Anime.ID)
-            {
-                var found = -1;
-                for (var later = index + 1; later < current.Count; later++)
-                {
-                    if (current[later].Anime.ID == wanted.Anime.ID)
-                    {
-                        found = later;
-                        break;
-                    }
-                }
-
-                if (found < 0)
-                {
-                    current.Insert(index, wanted);
-                    continue;
-                }
-
-                current.Move(found, index);
-            }
-
-            if (!Equals(current[index], wanted))
-                current[index] = wanted;
-        }
-
-        return true;
-    }
+        => CollectionSync.SyncInPlace(current, target, entry => entry.Anime.ID);
 
     /// <summary>前后移动若干季；超出 [<paramref name="earliest"/>, <paramref name="latest"/>] 时返回 null。</summary>
     public static PastSeasonTarget? Step(
