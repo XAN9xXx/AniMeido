@@ -61,8 +61,8 @@ public class RecommendationBrowseStateTests
         var profile = new RecommendationFeatureProfile(feature, 2, null,
             [new RecommendationEvidence(9, "浏览过的作品", 2)]);
         var result = RecommendationScorer.Rank([profile],
-            [new RecommendationCandidate(Item(1).Anime, [feature], 0)], new DateOnly(2026, 9, 12));
-        Assert.Contains("你记录中的", Assert.Single(result).PrimaryReason);
+            [new RecommendationCandidate(Item(1).Anime, [feature])], new DateOnly(2026, 9, 12));
+        Assert.Contains("你记录过的", Assert.Single(result).PrimaryReason);
         Assert.DoesNotContain("因为你喜欢", result[0].PrimaryReason);
     }
 
@@ -72,7 +72,7 @@ public class RecommendationBrowseStateTests
         var feature = new RecommendationFeature(RecommendationFeatureKind.Tag, "旅行", "旅行");
         var profile = new RecommendationFeatureProfile(feature, 0, RecommendationAdjustment.Like, []);
         var result = RecommendationScorer.Rank([profile],
-            [new RecommendationCandidate(Item(1).Anime, [feature], 0)], new DateOnly(2026, 9, 12));
+            [new RecommendationCandidate(Item(1).Anime, [feature])], new DateOnly(2026, 9, 12));
         Assert.Contains("设为喜欢", Assert.Single(result).PrimaryReason);
     }
 

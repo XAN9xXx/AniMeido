@@ -1,4 +1,4 @@
-using AniMeido.Contracts;
+﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
@@ -46,9 +46,8 @@ public class RecommendationCandidateProviderTests
             [],
             ["科幻"]);
 
-        var candidates = await provider.GetCandidatesAsync(
-            profile,
-            new HashSet<int>(),
+        var round = provider.CreateRound(profile, new HashSet<int>());
+        var candidates = await provider.GetNextWindowAsync(round, 30,
             CancellationToken.None);
 
         var candidate = Assert.Single(candidates);
@@ -90,10 +89,8 @@ public class RecommendationCandidateProviderTests
                 IsSavedTag: true))
             .ToArray();
 
-        await provider.GetCandidatesAsync(
-            profile,
-            new HashSet<int>(),
-            CancellationToken.None);
+        var round = provider.CreateRound(profile, new HashSet<int>());
+        await provider.GetNextWindowAsync(round, 30, CancellationToken.None);
 
         Assert.Contains("百合", dataSource.SearchedTags);
     }
@@ -124,14 +121,99 @@ public class RecommendationCandidateProviderTests
                 IsSavedTag: true))
             .ToArray();
 
-        var candidates = await provider.GetCandidatesAsync(
-            profile,
-            new HashSet<int>(),
+        var round = provider.CreateRound(profile, new HashSet<int>());
+        var candidates = await provider.GetNextWindowAsync(round, 30,
             CancellationToken.None);
 
         Assert.Contains(candidates, candidate => candidate.Features.Any(
             feature => feature.Kind == RecommendationFeatureKind.Tag
                 && feature.Key == "百合"));
+    }
+
+    [Fact]
+    public async Task CandidateRound_PaginatesWithoutRepeatingShownItems()
+    {
+        var source = new PagedTagDataSource();
+        using var provider = new RecommendationCandidateProvider(source,
+            NullLogger<RecommendationCandidateProvider>.Instance);
+        var profile = RecommendationScorer.BuildProfile([], new Dictionary<int,
+            IReadOnlyList<RecommendationFeature>>(), [], ["科幻"]);
+        var round = provider.CreateRound(profile, new HashSet<int>());
+
+        var first = await provider.GetNextWindowAsync(round, 30, CancellationToken.None);
+        Assert.Equal(30, first.Count);
+        round.Consume(first.Take(20).Select(item => item.Anime.ID));
+        var second = await provider.GetNextWindowAsync(round, 30, CancellationToken.None);
+
+        Assert.Equal(25, second.Count);
+        Assert.DoesNotContain(second, item => first.Take(20)
+            .Any(shown => shown.Anime.ID == item.Anime.ID));
+        round.Consume(second.Select(item => item.Anime.ID));
+        Assert.False(round.HasMore);
+        Assert.Contains(40, source.RequestedOffsets);
+    }
+
+    [Fact]
+    public async Task CandidateRound_FailedPageCanBeRetried()
+    {
+        var source = new PagedTagDataSource { FailSecondPageOnce = true };
+        using var provider = new RecommendationCandidateProvider(source,
+            NullLogger<RecommendationCandidateProvider>.Instance);
+        var profile = RecommendationScorer.BuildProfile([], new Dictionary<int,
+            IReadOnlyList<RecommendationFeature>>(), [], ["科幻"]);
+        var round = provider.CreateRound(profile, new HashSet<int>());
+
+        var first = await provider.GetNextWindowAsync(round, 30, CancellationToken.None);
+        Assert.Equal(20, first.Count);
+        Assert.True(round.HasMore);
+        round.Consume(first.Select(item => item.Anime.ID));
+
+        var next = await provider.GetNextWindowAsync(round, 30, CancellationToken.None);
+        Assert.Contains(next, item => item.Anime.ID == 21);
+        Assert.True(source.RequestedOffsets.Count(offset => offset == 20) >= 2);
+    }
+
+    private sealed class PagedTagDataSource : IAnimeDataSource
+    {
+        private int _failed;
+        public bool FailSecondPageOnce { get; init; }
+        public System.Collections.Concurrent.ConcurrentBag<int> RequestedOffsets { get; } = [];
+
+        public Task<(List<Anime> Results, int Total)> SearchByTagAsync(string tag,
+            int offset, string sort, CancellationToken ct,
+            string? airDateFrom = null, string? airDateTo = null)
+        {
+            if (airDateFrom is null) return Task.FromResult((new List<Anime>(), 0));
+            RequestedOffsets.Add(offset);
+            if (FailSecondPageOnce && offset == 20
+                && Interlocked.Exchange(ref _failed, 1) == 0)
+                throw new HttpRequestException("Temporary failure");
+            var items = Enumerable.Range(offset + 1, Math.Min(20, 45 - offset))
+                .Select(id => new Anime(id, $"作品{id}", null, [],
+                    new DateOnly(2026, 1, 1), null, string.Empty, 2026, 1,
+                    Score: 8)).ToList();
+            return Task.FromResult((items, 45));
+        }
+
+        public Task<Anime?> GetAnimeDetailAsync(int id, CancellationToken ct)
+            => Task.FromResult<Anime?>(null);
+        public Task<List<Tag>> GetTagsAsync(int id, CancellationToken ct)
+            => Task.FromResult(new List<Tag>());
+        public Task<List<Studio>> GetStudioAsync(int id, CancellationToken ct)
+            => Task.FromResult(new List<Studio>());
+        public Task<List<VoiceActor>> GetCVsAsync(int id, CancellationToken ct)
+            => Task.FromResult(new List<VoiceActor>());
+        public Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season,
+            CancellationToken ct) => throw new NotSupportedException();
+        public Task<List<Anime>> GetCurrentBroadcastScheduleAsync(
+            CancellationToken ct) => throw new NotSupportedException();
+        public Task<List<CharacterRole>> GetCharacterRolesAsync(int id,
+            CancellationToken ct) => throw new NotSupportedException();
+        public Task<List<PersonWork>> GetPersonWorksAsync(int id,
+            CancellationToken ct) => throw new NotSupportedException();
+        public Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(
+            string keyword, int offset, CancellationToken ct)
+            => throw new NotSupportedException();
     }
 
     private sealed class ConcurrentFeatureDataSource : IAnimeDataSource

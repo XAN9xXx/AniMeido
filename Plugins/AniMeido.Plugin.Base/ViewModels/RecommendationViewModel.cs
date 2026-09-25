@@ -1,5 +1,6 @@
 ﻿using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
+using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using System.Collections.ObjectModel;
@@ -26,6 +27,7 @@ public partial class RecommendationViewModel : ObservableObject
     private int _tagLoadGeneration;
     private int _preferenceGeneration;
     private int _loadGeneration;
+    private int _loadMoreGeneration;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelection))]
@@ -78,6 +80,7 @@ public partial class RecommendationViewModel : ObservableObject
         _selectionGeneration++;
         _loadGeneration++;
         _refreshGeneration++;
+        _loadMoreGeneration++;
         _tagRequests.Clear();
         // 画像还没读出过时不能用初始的空画像覆盖已保存的画像；读出之后即使刷新被打断也要写回，
         // 返回后的快速恢复只从 _browse.Profile 取画像。
@@ -86,6 +89,7 @@ public partial class RecommendationViewModel : ObservableObject
         IsBusy = false;
         IsRefreshing = false;
         IsLoadingTags = false;
+        IsLoadingMore = false;
     }
 
     /// <summary>离开前的整页加载或刷新是否被打断；读取后清除。</summary>
@@ -251,6 +255,15 @@ public partial class RecommendationViewModel : ObservableObject
     private bool _isRefreshing;
 
     [ObservableProperty]
+    private bool _isLoadingMore;
+
+    [ObservableProperty]
+    private bool _hasMoreRecommendations;
+
+    [ObservableProperty]
+    private string? _loadMoreError;
+
+    [ObservableProperty]
     private bool _isPersonalized;
 
     [ObservableProperty]
@@ -258,6 +271,9 @@ public partial class RecommendationViewModel : ObservableObject
 
     [ObservableProperty]
     private string? _message;
+
+    [ObservableProperty]
+    private string? _refreshNotice;
 
     [ObservableProperty]
     private bool _hasError;
@@ -282,6 +298,12 @@ public partial class RecommendationViewModel : ObservableObject
 
     public void ReportError(string message)
         => ShowError(message);
+
+    public void ReportBusyAction()
+    {
+        Message = "正在处理上一项操作，请稍后重试。";
+        HasError = false;
+    }
 
     public void RefreshSuggestedTags()
     {
@@ -319,6 +341,7 @@ public partial class RecommendationViewModel : ObservableObject
                 Items = new(_browse.VisibleItems);
                 SelectedItem = Items.FirstOrDefault(item => item.Anime.ID == selectedId) ?? Items.FirstOrDefault();
                 IsPersonalized = saved.IsPersonalized;
+                HasMoreRecommendations = saved.HasMore;
                 SnapshotText = $"{saved.GeneratedAt.ToLocalTime():M月d日 HH:mm} 更新";
                 await LoadHiddenAsync(cancellationToken);
                 if (!IsCurrentLoad(generation, cancellationToken)) return;
@@ -382,14 +405,18 @@ public partial class RecommendationViewModel : ObservableObject
         }
     }
 
-    public async Task RefreshAsync(
+    public async Task<bool> RefreshAsync(
         CancellationToken cancellationToken = default,
         bool preferNewBatch = false)
     {
         var generation = Interlocked.Increment(ref _refreshGeneration);
+        Interlocked.Increment(ref _loadMoreGeneration);
+        IsLoadingMore = false;
+        LoadMoreError = null;
         var previousIds = Items.Select(item => item.Anime.ID).ToHashSet();
         IsRefreshing = true;
         ClearMessage();
+        RefreshNotice = null;
         try
         {
             var result = await _recommendations.RefreshAsync(
@@ -398,7 +425,12 @@ public partial class RecommendationViewModel : ObservableObject
                 preferNewBatch ? previousIds : null);
             if (generation != _refreshGeneration || cancellationToken.IsCancellationRequested)
             {
-                return;
+                return false;
+            }
+            if (result is null)
+            {
+                RefreshNotice = "本次刷新未应用；推荐依据已更新，可点击“刷新推荐”重试。";
+                return false;
             }
 
             ApplySnapshot(result.Snapshot);
@@ -409,23 +441,29 @@ public partial class RecommendationViewModel : ObservableObject
             var hasDifferentItems = result.Snapshot.Items
                 .Select(item => item.Anime.ID)
                 .Any(id => !previousIds.Contains(id));
-            Message = preferNewBatch && previousIds.Count > 0
+            Message = result.Snapshot.Items.Count == 0 && result.Snapshot.HasMore
+                ? "正在继续查找符合偏好的作品，可在列表底部继续加载。"
+                : preferNewBatch && previousIds.Count > 0
                 ? hasDifferentItems
                     ? "已优先换入上一批未展示的作品。"
                     : "当前候选有限，暂无更多不同结果。"
                 : result.Snapshot.IsPersonalized
                 ? "推荐已根据本地偏好更新。"
                 : "当前数据较少，暂时显示热门推荐。";
+            return true;
         }
         catch (OperationCanceledException) when (
             cancellationToken.IsCancellationRequested)
         {
+            return false;
         }
         catch (Exception ex) when (IsExpectedFailure(ex))
         {
-            ShowError(Items.Count > 0
-                ? $"刷新失败，已保留上次结果：{ex.Message}"
-                : $"推荐生成失败：{ex.Message}");
+            if (generation == _refreshGeneration && !cancellationToken.IsCancellationRequested)
+                ShowError(Items.Count > 0
+                    ? $"刷新失败，已保留上次结果：{ex.Message}"
+                    : $"推荐生成失败：{ex.Message}");
+            return false;
         }
         finally
         {
@@ -433,6 +471,38 @@ public partial class RecommendationViewModel : ObservableObject
             {
                 IsRefreshing = false;
             }
+        }
+    }
+
+    public async Task LoadMoreAsync(CancellationToken cancellationToken = default)
+    {
+        if (IsLoadingMore || IsRefreshing || IsBusy || !HasMoreRecommendations
+            || _browse.Snapshot is not { } snapshot) return;
+        var generation = ++_loadMoreGeneration;
+        IsLoadingMore = true;
+        LoadMoreError = null;
+        try
+        {
+            var removed = _browse.SkippedIds.Concat(_browse.RemovedIds).ToHashSet();
+            var result = await _recommendations.LoadMoreAsync(snapshot, removed,
+                cancellationToken);
+            if (generation != _loadMoreGeneration || cancellationToken.IsCancellationRequested)
+                return;
+            _browse.Snapshot = result.Snapshot;
+            foreach (var item in result.Items.Where(item => !removed.Contains(item.Anime.ID)))
+                Items.Add(item);
+            HasMoreRecommendations = result.Snapshot.HasMore;
+            OnPropertyChanged(nameof(HasItems));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception ex) when (IsExpectedFailure(ex))
+        {
+            if (generation == _loadMoreGeneration)
+                LoadMoreError = $"加载更多失败：{ex.Message}";
+        }
+        finally
+        {
+            if (generation == _loadMoreGeneration) IsLoadingMore = false;
         }
     }
 
@@ -613,6 +683,8 @@ public partial class RecommendationViewModel : ObservableObject
         var selectedId = _browse.SelectedAnimeId;
         _tagRequests.Clear();
         _browse.StartRound(snapshot);
+        HasMoreRecommendations = snapshot.HasMore;
+        LoadMoreError = null;
         Items = new(snapshot.Items);
         SelectedItem = Items.FirstOrDefault(item => item.Anime.ID == selectedId) ?? Items.FirstOrDefault();
         IsPersonalized = snapshot.IsPersonalized;
@@ -635,6 +707,7 @@ public partial class RecommendationViewModel : ObservableObject
     private static bool IsExpectedFailure(Exception exception)
         => exception is InvalidOperationException
             or HttpRequestException
+            or BangumiApiException
             or OperationCanceledException
             or Microsoft.Data.Sqlite.SqliteException
             or System.Text.Json.JsonException;

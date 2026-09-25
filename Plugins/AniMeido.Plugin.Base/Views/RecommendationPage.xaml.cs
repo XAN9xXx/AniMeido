@@ -58,6 +58,8 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         if (token.IsCancellationRequested) return;
         UpdatePreview();
         RestoreScroll();
+        UpdateMoreFooter();
+        TryLoadMoreNearEnd();
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -81,11 +83,16 @@ public sealed partial class RecommendationPage : Page, INavigationAware
 
     private async void OnRefreshClick(object sender, RoutedEventArgs e)
     {
-        await RunActionAsync(() => ViewModel.RefreshAsync(CurrentToken, preferNewBatch: true));
-        if (!ViewModel.HasError && _navigationCancellation is not null)
+        var applied = false;
+        await RunActionAsync(async () =>
+        {
+            applied = await ViewModel.RefreshAsync(CurrentToken, preferNewBatch: true);
+        });
+        if (applied && _navigationCancellation is not null)
         {
             ViewModel.BrowseState.VerticalOffset = 0;
             RestoreScroll();
+            TryLoadMoreNearEnd();
         }
     }
 
@@ -114,6 +121,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         ProfileSectionButton.IsChecked = section == "profile";
         HiddenSectionButton.IsChecked = section == "hidden";
         if (section == "recommendations" && _scrollRestorePending) RestoreScroll();
+        if (section == "recommendations") TryLoadMoreNearEnd();
     }
 
     private async Task ConfirmNotInterestedAsync(RecommendationItem item)
@@ -296,6 +304,9 @@ public sealed partial class RecommendationPage : Page, INavigationAware
             DispatcherQueue.TryEnqueue(UpdateTagStackSize);
         if (e.PropertyName is nameof(RecommendationViewModel.SelectedItem)
             or nameof(RecommendationViewModel.HasItems)) UpdatePreview();
+        if (e.PropertyName is nameof(RecommendationViewModel.IsLoadingMore)
+            or nameof(RecommendationViewModel.HasMoreRecommendations)
+            or nameof(RecommendationViewModel.LoadMoreError)) UpdateMoreFooter();
         if (e.PropertyName == nameof(RecommendationViewModel.SavingFollowingIds))
         {
             RefreshFollowButtons(RecommendationList);
@@ -306,14 +317,19 @@ public sealed partial class RecommendationPage : Page, INavigationAware
             && RecommendationList.ContainerFromItem(selected) is DependencyObject container)
             RefreshFollowButtons(container);
         if (e.PropertyName is nameof(RecommendationViewModel.Message)
+            or nameof(RecommendationViewModel.RefreshNotice)
             or nameof(RecommendationViewModel.HasError))
         {
-            StatusInfoBar.Message = ViewModel.Message ?? string.Empty;
+            StatusInfoBar.Message = string.Join(" ", new[]
+            {
+                ViewModel.Message,
+                ViewModel.RefreshNotice,
+            }.Where(message => !string.IsNullOrWhiteSpace(message)));
             StatusInfoBar.Severity = ViewModel.HasError
                 ? InfoBarSeverity.Error
                 : InfoBarSeverity.Informational;
             StatusInfoBar.IsOpen = !string.IsNullOrWhiteSpace(
-                ViewModel.Message);
+                StatusInfoBar.Message);
         }
         else if (e.PropertyName
             == nameof(RecommendationViewModel.IsRefreshing))
@@ -355,6 +371,8 @@ public sealed partial class RecommendationPage : Page, INavigationAware
 
             UpdatePreview();
             RestoreScroll();
+            UpdateMoreFooter();
+            TryLoadMoreNearEnd();
             // 在详情页里可能改了关注或其他标记：重新读取当前作品的标签与状态。
             await LoadTagsAsync();
         }
@@ -370,7 +388,8 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         var item = ViewModel.SelectedItem;
         SelectedPreviewContent.Visibility = item is null ? Visibility.Collapsed : Visibility.Visible;
         NoSelectionText.Visibility = item is null ? Visibility.Visible : Visibility.Collapsed;
-        EmptyRecommendations.Visibility = ViewModel.HasItems ? Visibility.Collapsed : Visibility.Visible;
+        EmptyRecommendations.Visibility = ViewModel.HasItems
+            || ViewModel.HasMoreRecommendations ? Visibility.Collapsed : Visibility.Visible;
         if (item is null) ManagedImageLoader.Cancel(PreviewCover);
         else ManagedImageLoader.ConfigureCover(PreviewCover, item.Anime.ID, item.Anime.CoverURL, 110);
         ApplyPreviewLayout();
@@ -546,6 +565,8 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         _listScroll = FindScrollViewer(RecommendationList);
         if (_listScroll is not null) _listScroll.ViewChanged += OnListViewChanged;
         RestoreScroll();
+        UpdateMoreFooter();
+        TryLoadMoreNearEnd();
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject root)
@@ -562,7 +583,46 @@ public sealed partial class RecommendationPage : Page, INavigationAware
             ViewModel.BrowseState.VerticalOffset = _listScroll.VerticalOffset;
     }
 
-    private void OnListViewChanged(object? sender, ScrollViewerViewChangedEventArgs e) => SaveScroll();
+    private void OnListViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
+    {
+        SaveScroll();
+        if (!e.IsIntermediate) TryLoadMoreNearEnd();
+    }
+
+    private async void TryLoadMoreNearEnd()
+    {
+        if (_listScroll is null || _navigationCancellation is null
+            || RecommendationsPanel.Visibility != Visibility.Visible
+            || ViewModel.IsLoadingMore || !ViewModel.HasMoreRecommendations
+            || !string.IsNullOrWhiteSpace(ViewModel.LoadMoreError)
+            || ViewModel.IsBusy || ViewModel.IsRefreshing
+            || _listScroll.ScrollableHeight - _listScroll.VerticalOffset > 400) return;
+        await ViewModel.LoadMoreAsync(CurrentToken);
+        UpdateMoreFooter();
+    }
+
+    private async void OnLoadMoreClick(object sender, RoutedEventArgs e)
+    {
+        await ViewModel.LoadMoreAsync(CurrentToken);
+        UpdateMoreFooter();
+    }
+
+    private void UpdateMoreFooter()
+    {
+        if (MoreStatusText is null || LoadMoreButton is null) return;
+        MoreStatusText.Text = ViewModel.IsLoadingMore ? "正在加载更多作品…"
+            : ViewModel.LoadMoreError ?? (ViewModel.HasMoreRecommendations
+                ? ViewModel.HasItems
+                    ? "继续向下滚动或点击加载更多"
+                    : "点击加载更多继续查找"
+                : "已显示本轮全部作品");
+        LoadMoreButton.Content = string.IsNullOrWhiteSpace(ViewModel.LoadMoreError)
+            ? "加载更多" : "重试加载";
+        LoadMoreButton.Visibility = !ViewModel.IsLoadingMore
+            && (ViewModel.HasMoreRecommendations
+                || !string.IsNullOrWhiteSpace(ViewModel.LoadMoreError))
+            ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     private void RestoreScroll()
     {
@@ -630,6 +690,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     {
         if (serialize && _isActionRunning)
         {
+            ViewModel.ReportBusyAction();
             return;
         }
 

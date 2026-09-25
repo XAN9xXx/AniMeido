@@ -27,7 +27,7 @@ internal static class RecommendationScorer
 
             foreach (var group in features.GroupBy(feature => feature.Kind))
             {
-                var normalized = seed.Weight / Math.Sqrt(group.Count());
+                var divisor = Math.Sqrt(group.Count());
                 foreach (var feature in group)
                 {
                     var key = (feature.Kind, feature.Key);
@@ -37,11 +37,16 @@ internal static class RecommendationScorer
                         scores.Add(key, accumulator);
                     }
 
-                    accumulator.Score += normalized;
-                    accumulator.Evidence.Add(new RecommendationEvidence(
-                        seed.AnimeId,
-                        seed.Title,
-                        normalized));
+                    foreach (var signal in seed.Signals is { Count: > 0 }
+                        ? seed.Signals
+                        : [new RecommendationSignal(
+                            RecommendationEvidenceSource.Unknown, seed.Weight)])
+                    {
+                        var normalized = signal.Weight / divisor;
+                        accumulator.Score += normalized;
+                        accumulator.Evidence.Add(new RecommendationEvidence(
+                            seed.AnimeId, seed.Title, normalized, signal.Source));
+                    }
                 }
             }
         }
@@ -98,10 +103,7 @@ internal static class RecommendationScorer
                     accumulator.Feature,
                     accumulator.Score,
                     preference?.Adjustment,
-                    accumulator.Evidence
-                        .OrderByDescending(item => Math.Abs(item.Contribution))
-                        .Take(3)
-                        .ToArray(),
+                    SelectEvidence(accumulator.Evidence),
                     accumulator.IsSavedTag);
             })
             .OrderByDescending(item => Math.Abs(item.EffectiveScore))
@@ -109,11 +111,28 @@ internal static class RecommendationScorer
             .ToArray();
     }
 
+    private static IReadOnlyList<RecommendationEvidence> SelectEvidence(
+        IReadOnlyList<RecommendationEvidence> evidence)
+    {
+        var selected = evidence.Where(item => item.Contribution > 0)
+            .OrderByDescending(item => item.Contribution).Take(1)
+            .Concat(evidence.Where(item => item.Contribution < 0)
+                .OrderBy(item => item.Contribution).Take(1))
+            .DistinctBy(item => item.AnimeId)
+            .ToList();
+        selected.AddRange(evidence
+            .Where(item => selected.All(chosen => chosen.AnimeId != item.AnimeId))
+            .GroupBy(item => item.AnimeId)
+            .Select(group => group.OrderByDescending(item => Math.Abs(item.Contribution)).First())
+            .OrderByDescending(item => Math.Abs(item.Contribution))
+            .Take(3 - selected.Count));
+        return selected.ToArray();
+    }
+
     public static IReadOnlyList<RecommendationItem> Rank(
         IReadOnlyList<RecommendationFeatureProfile> profile,
         IReadOnlyList<RecommendationCandidate> candidates,
-        DateOnly today,
-        IReadOnlySet<int>? previouslyRecommendedIds = null)
+        DateOnly today)
     {
         var profileMap = profile.ToDictionary(
             item => (item.Feature.Kind, item.Feature.Key),
@@ -121,8 +140,8 @@ internal static class RecommendationScorer
             FeatureKeyComparer.Instance);
         var recentBoundary = today.AddYears(-3);
         var scored = new List<ScoredCandidate>();
-        foreach (var candidate in candidates.DistinctBy(
-            item => item.Anime.ID))
+        var candidateSet = candidates.DistinctBy(item => item.Anime.ID).ToArray();
+        foreach (var candidate in candidateSet)
         {
             var contributions = candidate.Features
                 .DistinctBy(feature => (feature.Kind, feature.Key))
@@ -140,7 +159,8 @@ internal static class RecommendationScorer
                     item.Profile!.EffectiveScore))
                 .ToArray();
             var positives = contributions
-                .Where(item => item.Score > 0)
+                .Where(item => item.Score > 0
+                    && item.Profile.IsActiveForRecommendation)
                 .OrderByDescending(item => item.Score)
                 .ToArray();
             if (positives.Length == 0)
@@ -160,6 +180,9 @@ internal static class RecommendationScorer
                 .ToArray();
             var featureScore = selectedPositives.Sum(item => item.Score)
                 + reductions.Take(2).Sum(item => item.Score);
+            // Reward corroborating preferences without counting a fourth match
+            // or scaling the same weights a second time.
+            var corroborationBonus = (selectedPositives.Length - 1) * 0.1;
             var publicPrior = candidate.Anime.Score is null
                 ? 0
                 : (candidate.Anime.Score.Value - 5) * 0.25;
@@ -177,25 +200,28 @@ internal static class RecommendationScorer
             scored.Add(new ScoredCandidate(
                 new RecommendationItem(
                     candidate.Anime,
-                    featureScore + publicPrior + candidate.SourceScore,
+                    featureScore + corroborationBonus + publicPrior,
                     reasons,
                     true,
                     isRecent),
-                positives[0].Feature.Key));
+                $"{selectedPositives[0].Feature.Kind}:{selectedPositives[0].Feature.Key}",
+                candidate.Features.FirstOrDefault(feature =>
+                    feature.Kind == RecommendationFeatureKind.Studio)?.Key,
+                positives.Length));
         }
 
         var recent = scored.Where(item => item.Item.IsRecent)
-            .OrderBy(item => previouslyRecommendedIds?.Contains(
-                item.Item.Anime.ID) == true)
-            .ThenByDescending(item => item.Item.Score)
+            .OrderByDescending(item => item.Item.Score)
+            .ThenBy(item => item.Item.Anime.ID)
             .ToList();
         var classic = scored.Where(item => !item.Item.IsRecent)
-            .OrderBy(item => previouslyRecommendedIds?.Contains(
-                item.Item.Anime.ID) == true)
-            .ThenByDescending(item => item.Item.Score)
+            .OrderByDescending(item => item.Item.Score)
+            .ThenBy(item => item.Item.Anime.ID)
             .ToList();
-        var selected = TakeDiverse(recent, RecentTarget);
-        selected.AddRange(TakeDiverse(classic, ClassicTarget));
+        var selected = TakeDiverse(recent, RecentTarget - 1);
+        selected.AddRange(TakeExplore(recent, 1));
+        selected.AddRange(TakeDiverse(classic, ClassicTarget - 1));
+        selected.AddRange(TakeExplore(classic, 1));
         if (selected.Count < RecentTarget + ClassicTarget)
         {
             var selectedIds = selected.Select(item => item.Anime.ID).ToHashSet();
@@ -210,18 +236,30 @@ internal static class RecommendationScorer
         return selected;
     }
 
+    private static List<RecommendationItem> TakeExplore(
+        List<ScoredCandidate> source, int count)
+    {
+        var selected = source.OrderBy(item => item.MatchCount)
+            .ThenByDescending(item => item.Item.Score)
+            .ThenBy(item => item.Item.Anime.ID)
+            .Take(count).ToArray();
+        foreach (var item in selected) source.Remove(item);
+        return selected.Select(item => item.Item).ToList();
+    }
+
     private static List<RecommendationItem> TakeDiverse(
         List<ScoredCandidate> source,
         int count)
     {
         var result = new List<RecommendationItem>(count);
-        string? lastKey = null;
-        var sameKeyCount = 0;
+        var featureCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var studioCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         while (result.Count < count && source.Count > 0)
         {
             var index = source.FindIndex(item =>
-                !string.Equals(item.PrimaryFeatureKey, lastKey, StringComparison.Ordinal)
-                || sameKeyCount < 3);
+                featureCounts.GetValueOrDefault(item.PrimaryFeatureKey) < 3
+                && (item.StudioKey is null
+                    || studioCounts.GetValueOrDefault(item.StudioKey) < 4));
             if (index < 0)
             {
                 index = 0;
@@ -230,18 +268,10 @@ internal static class RecommendationScorer
             var selected = source[index];
             source.RemoveAt(index);
             result.Add(selected.Item);
-            if (string.Equals(
-                selected.PrimaryFeatureKey,
-                lastKey,
-                StringComparison.Ordinal))
-            {
-                sameKeyCount++;
-            }
-            else
-            {
-                lastKey = selected.PrimaryFeatureKey;
-                sameKeyCount = 1;
-            }
+            featureCounts[selected.PrimaryFeatureKey] =
+                featureCounts.GetValueOrDefault(selected.PrimaryFeatureKey) + 1;
+            if (selected.StudioKey is { } studio)
+                studioCounts[studio] = studioCounts.GetValueOrDefault(studio) + 1;
         }
 
         return result;
@@ -272,9 +302,24 @@ internal static class RecommendationScorer
         {
             text = $"因为你收藏了 Tag“{contribution.Feature.DisplayName}”";
         }
-        else if (contribution.Profile.Evidence.FirstOrDefault() is { } evidence)
+        else if (contribution.Profile.Evidence
+            .Where(item => item.Contribution > 0)
+            .OrderByDescending(item => item.Contribution)
+            .FirstOrDefault() is { } evidence)
         {
-            text = $"与你记录中的《{evidence.Title}》具有共同{featureLabel}“{contribution.Feature.DisplayName}”";
+            var source = evidence.Source switch
+            {
+                RecommendationEvidenceSource.Completed => "标记为已看完",
+                RecommendationEvidenceSource.Watching => "标记为追番中",
+                RecommendationEvidenceSource.Following => "已关注",
+                RecommendationEvidenceSource.PlanToWatch => "列入补番",
+                RecommendationEvidenceSource.PersonalRating => "评过分",
+                RecommendationEvidenceSource.Browsing => "浏览过",
+                RecommendationEvidenceSource.CatchUpPlan => "列入补番计划",
+                RecommendationEvidenceSource.EpisodeProgress => "有观看进度",
+                _ => "记录过",
+            };
+            text = $"与你{source}的《{evidence.Title}》具有共同{featureLabel}“{contribution.Feature.DisplayName}”";
         }
         else
         {
@@ -312,7 +357,9 @@ internal static class RecommendationScorer
 
     private sealed record ScoredCandidate(
         RecommendationItem Item,
-        string PrimaryFeatureKey);
+        string PrimaryFeatureKey,
+        string? StudioKey,
+        int MatchCount);
 
     private sealed class FeatureKeyComparer :
         IEqualityComparer<(RecommendationFeatureKind Kind, string Key)>

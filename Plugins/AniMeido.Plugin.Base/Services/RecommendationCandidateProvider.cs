@@ -77,14 +77,14 @@ public sealed class RecommendationCandidateProvider : IDisposable
         return seeds.Select(seed => result[seed.AnimeId]).ToArray();
     }
 
-    internal async Task<IReadOnlyList<RecommendationCandidate>> GetCandidatesAsync(
+    // A round owns its remote cursors and unshown candidates. It is process-local;
+    // the saved snapshot only needs to preserve the items already shown to the user.
+    internal CandidateRound CreateRound(
         IReadOnlyList<RecommendationFeatureProfile> profile,
-        IReadOnlySet<int> excludedIds,
-        CancellationToken cancellationToken)
+        IReadOnlySet<int> excludedIds)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
         var sources = profile
-            .Where(item => item.EffectiveScore > 0)
+            .Where(item => item.IsActiveForRecommendation)
             .GroupBy(item => item.Feature.Kind)
             .SelectMany(group => group
                 .OrderByDescending(GetExplicitPreferencePriority)
@@ -98,148 +98,172 @@ public sealed class RecommendationCandidateProvider : IDisposable
                 }))
             .ToArray();
         var recentFrom = $"{DateTime.UtcNow.Year - 3:D4}-01-01";
-        var raw = new ConcurrentDictionary<int, CandidateSource>();
-        var successfulSources = 0;
-        await Parallel.ForEachAsync(
-            sources,
-            new ParallelOptions
+        var cursors = sources.SelectMany(source => source.Feature.Kind
+            == RecommendationFeatureKind.Tag
+                ? new[]
+                {
+                    new CandidateCursor(source, recentFrom, null),
+                    new CandidateCursor(source, null, recentFrom),
+                }
+                : [new CandidateCursor(source, null, null)]).ToArray();
+        return new CandidateRound(sources, cursors, excludedIds);
+    }
+
+    internal async Task<IReadOnlyList<RecommendationCandidate>> GetNextWindowAsync(
+        CandidateRound round,
+        int count,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var failedToProgress = false;
+        // Fetch every source's first page before ranking the first window, so
+        // source order cannot decide which preference gets represented.
+        if (!round.InitialFetchComplete)
+        {
+            await FetchCursorsAsync(round, round.Cursors, cancellationToken);
+            round.InitialFetchComplete = true;
+        }
+
+        var pageBudget = 8;
+        while (round.Pending.Count < count && pageBudget > 0
+            && round.Cursors.Any(cursor => !cursor.Exhausted))
+        {
+            var cursors = round.Cursors.Where(cursor => !cursor.Exhausted)
+                .Take(Math.Min(4, pageBudget)).ToArray();
+            pageBudget -= cursors.Length;
+            var progressed = await FetchCursorsAsync(round, cursors, cancellationToken);
+            if (!progressed)
             {
-                CancellationToken = cancellationToken,
-                MaxDegreeOfParallelism = 4,
-            },
-            async (source, token) =>
+                failedToProgress = true;
+                break; // Failed sources remain retryable on the next request.
+            }
+            // Rotate the cursors rather than draining the strongest tag first.
+            foreach (var cursor in cursors)
+            {
+                round.Cursors.Remove(cursor);
+                round.Cursors.Add(cursor);
+            }
+        }
+
+        var pending = round.Pending.Values
+            .Where(item => !round.ExcludedIds.Contains(item.Anime.ID))
+            .OrderByDescending(item => item.SourceScore)
+            .ThenByDescending(item => item.Anime.Score ?? 0)
+            .ThenBy(item => item.Anime.ID)
+            .Take(MaximumCandidates)
+            .ToArray();
+        var selected = SelectEnrichmentCandidates(pending, round.Pending.Values
+            .Where(item => !round.ExcludedIds.Contains(item.Anime.ID)), round.Sources)
+            .Take(count).ToArray();
+        if (selected.Length == 0 && failedToProgress)
+            throw new HttpRequestException("推荐候选暂时无法加载，请重试。");
+
+        var enriched = new ConcurrentBag<RecommendationCandidate>();
+        await Parallel.ForEachAsync(selected,
+            new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = 4 },
+            async (candidate, token) =>
+            {
+                var anime = await TryGetDetailAsync(candidate.Anime.ID, token) ?? candidate.Anime;
+                var features = (await GetAnimeFeaturesAsync(anime.ID, token))
+                    .Concat(candidate.SourceFeatures)
+                    .DistinctBy(feature => (feature.Kind, feature.Key)).ToArray();
+                enriched.Add(new RecommendationCandidate(anime, features));
+            });
+        return enriched.OrderBy(item => item.Anime.ID).ToArray();
+    }
+
+    private async Task<bool> FetchCursorsAsync(CandidateRound round,
+        IReadOnlyList<CandidateCursor> cursors, CancellationToken cancellationToken)
+    {
+        var succeeded = 0;
+        await Parallel.ForEachAsync(cursors,
+            new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = 4 },
+            async (cursor, token) =>
             {
                 try
                 {
-                    if (source.Feature.Kind == RecommendationFeatureKind.Tag)
+                    if (cursor.Source.Feature.Kind == RecommendationFeatureKind.Tag)
                     {
-                        var recent = await WithNetworkGateAsync(
-                            ct => _dataSource.SearchByTagAsync(
-                                source.Feature.DisplayName,
-                                0,
-                                "rank",
-                                ct,
-                                recentFrom,
-                                null),
-                            token);
-                        AddCandidates(
-                            raw,
-                            recent.Results,
-                            source.Feature,
-                            source.EffectiveScore,
-                            excludedIds);
-                        var classic = await WithNetworkGateAsync(
-                            ct => _dataSource.SearchByTagAsync(
-                                source.Feature.DisplayName,
-                                0,
-                                "rank",
-                                ct,
-                                null,
-                                recentFrom),
-                            token);
-                        AddCandidates(
-                            raw,
-                            classic.Results,
-                            source.Feature,
-                            source.EffectiveScore,
-                            excludedIds);
-                        Interlocked.Increment(ref successfulSources);
-                        return;
+                        var (items, total) = await WithNetworkGateAsync(ct =>
+                            _dataSource.SearchByTagAsync(cursor.Source.Feature.DisplayName,
+                                cursor.Offset, "rank", ct, cursor.From, cursor.To), token);
+                        foreach (var item in items)
+                            round.Add(item, cursor.Source);
+                        cursor.Offset += items.Count;
+                        cursor.Exhausted = items.Count == 0 || cursor.Offset >= total;
                     }
-
-                    if (!int.TryParse(source.Feature.Key, out var personId))
+                    else if (int.TryParse(cursor.Source.Feature.Key, out var personId))
                     {
-                        return;
+                        var works = await WithNetworkGateAsync(
+                            ct => _dataSource.GetPersonWorksAsync(personId, ct), token);
+                        foreach (var work in works)
+                            round.Add(new Anime(work.ID, work.Title, null, [], null,
+                                work.CoverURL, string.Empty, 0, 0), cursor.Source);
+                        cursor.Exhausted = true;
                     }
-
-                    var works = await WithNetworkGateAsync(
-                        ct => _dataSource.GetPersonWorksAsync(personId, ct),
-                        token);
-                    foreach (var work in works)
-                    {
-                        if (excludedIds.Contains(work.ID))
-                        {
-                            continue;
-                        }
-
-                        var placeholder = new Anime(
-                            work.ID,
-                            work.Title,
-                            null,
-                            [],
-                            null,
-                            work.CoverURL,
-                            string.Empty,
-                            0,
-                            0);
-                        raw.AddOrUpdate(
-                            work.ID,
-                            _ => new CandidateSource(
-                                placeholder,
-                                source.EffectiveScore,
-                                [source.Feature]),
-                            (_, existing) => existing with
-                            {
-                                SourceScore = existing.SourceScore
-                                    + source.EffectiveScore,
-                                SourceFeatures = MergeSourceFeatures(
-                                    existing.SourceFeatures,
-                                    source.Feature),
-                            });
-                    }
-
-                    Interlocked.Increment(ref successfulSources);
+                    else cursor.Exhausted = true;
+                    Interlocked.Increment(ref succeeded);
                 }
-#pragma warning disable CA1031 // One remote feature source must not abort the remaining recommendation refresh.
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    _logger.LogWarning(
-                        ex,
-                        "Recommendation source {Kind}:{Key} failed.",
-                        source.Feature.Kind,
-                        source.Feature.Key);
+                    _logger.LogWarning(ex, "Recommendation source {Kind}:{Key} failed.",
+                        cursor.Source.Feature.Kind, cursor.Source.Feature.Key);
                 }
-#pragma warning restore CA1031
             });
+        return succeeded > 0;
+    }
 
-        if (sources.Length > 0 && successfulSources == 0)
+    internal sealed class CandidateRound(
+        IReadOnlyList<RecommendationFeatureProfile> sources,
+        CandidateCursor[] cursors,
+        IReadOnlySet<int> excludedIds)
+    {
+        internal IReadOnlyList<RecommendationFeatureProfile> Sources { get; } = sources;
+        internal List<CandidateCursor> Cursors { get; } = [.. cursors];
+        internal ConcurrentDictionary<int, CandidateSource> Pending { get; } = new();
+        internal HashSet<int> ExcludedIds { get; } = [.. excludedIds];
+        private readonly ConcurrentDictionary<(int, RecommendationFeatureKind, string), byte> _seen = new();
+        internal bool InitialFetchComplete { get; set; }
+        internal bool HasMore => !Pending.IsEmpty || Cursors.Any(cursor => !cursor.Exhausted);
+
+        internal void Exclude(IEnumerable<int> ids)
         {
-            throw new HttpRequestException(
-                "所有推荐候选来源均请求失败。");
+            foreach (var id in ids)
+            {
+                ExcludedIds.Add(id);
+                Pending.TryRemove(id, out _);
+            }
         }
 
-        var provisional = raw.Values
-            .OrderByDescending(item => item.SourceScore)
-            .ThenByDescending(item => item.Anime.Score ?? 0)
-            .Take(MaximumCandidates)
-            .ToArray();
-        var enrichmentCandidates = SelectEnrichmentCandidates(
-            provisional,
-            raw.Values,
-            sources);
-        var enriched = new ConcurrentBag<RecommendationCandidate>();
-        await Parallel.ForEachAsync(
-            enrichmentCandidates,
-            new ParallelOptions
+        internal void Consume(IEnumerable<int> ids)
+        {
+            foreach (var id in ids)
             {
-                CancellationToken = cancellationToken,
-                MaxDegreeOfParallelism = 4,
-            },
-            async (candidate, token) =>
-            {
-                var anime = await TryGetDetailAsync(
-                    candidate.Anime.ID,
-                    token) ?? candidate.Anime;
-                var features = (await GetAnimeFeaturesAsync(anime.ID, token))
-                    .Concat(candidate.SourceFeatures)
-                    .DistinctBy(feature => (feature.Kind, feature.Key))
-                    .ToArray();
-                enriched.Add(new RecommendationCandidate(
-                    anime,
-                    features,
-                    candidate.SourceScore * 0.05));
-            });
-        return enriched.ToArray();
+                Pending.TryRemove(id, out _);
+                ExcludedIds.Add(id);
+            }
+        }
+
+        internal void Add(Anime anime, RecommendationFeatureProfile source)
+        {
+            if (anime.ID <= 0 || ExcludedIds.Contains(anime.ID)
+                || !_seen.TryAdd((anime.ID, source.Feature.Kind, source.Feature.Key), 0)) return;
+            Pending.AddOrUpdate(anime.ID,
+                _ => new CandidateSource(anime, source.EffectiveScore, [source.Feature]),
+                (_, existing) => new CandidateSource(PreferComplete(anime, existing.Anime),
+                    existing.SourceScore + source.EffectiveScore,
+                    MergeSourceFeatures(existing.SourceFeatures, source.Feature)));
+        }
+    }
+
+    internal sealed class CandidateCursor(
+        RecommendationFeatureProfile source, string? from, string? to)
+    {
+        internal RecommendationFeatureProfile Source { get; } = source;
+        internal string? From { get; } = from;
+        internal string? To { get; } = to;
+        internal int Offset { get; set; }
+        internal bool Exhausted { get; set; }
     }
 
     private static IReadOnlyList<CandidateSource> SelectEnrichmentCandidates(
@@ -259,6 +283,7 @@ public sealed class RecommendationCandidateProvider : IDisposable
                     FeatureEquals(feature, source.Feature)))
                 .OrderByDescending(item => item.SourceScore)
                 .ThenByDescending(item => item.Anime.Score ?? 0)
+                .ThenBy(item => item.Anime.ID)
                 .Take(3))
             {
                 if (selectedIds.Add(candidate.Anime.ID))
@@ -417,32 +442,6 @@ public sealed class RecommendationCandidateProvider : IDisposable
         }
     }
 
-    private static void AddCandidates(
-        ConcurrentDictionary<int, CandidateSource> target,
-        IEnumerable<Anime> anime,
-        RecommendationFeature sourceFeature,
-        double sourceScore,
-        IReadOnlySet<int> excludedIds)
-    {
-        foreach (var item in anime)
-        {
-            if (excludedIds.Contains(item.ID))
-            {
-                continue;
-            }
-
-            target.AddOrUpdate(
-                item.ID,
-                _ => new CandidateSource(item, sourceScore, [sourceFeature]),
-                (_, existing) => new CandidateSource(
-                    PreferComplete(item, existing.Anime),
-                    existing.SourceScore + sourceScore,
-                    MergeSourceFeatures(
-                        existing.SourceFeatures,
-                        sourceFeature)));
-        }
-    }
-
     private static IReadOnlyList<RecommendationFeature> MergeSourceFeatures(
         IReadOnlyList<RecommendationFeature> existing,
         RecommendationFeature added)
@@ -485,7 +484,7 @@ public sealed class RecommendationCandidateProvider : IDisposable
         _networkGate.Dispose();
     }
 
-    private sealed record CandidateSource(
+    internal sealed record CandidateSource(
         Anime Anime,
         double SourceScore,
         IReadOnlyList<RecommendationFeature> SourceFeatures);

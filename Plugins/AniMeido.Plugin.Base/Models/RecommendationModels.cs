@@ -15,6 +15,25 @@ public enum RecommendationAdjustment
     Like = 1,
 }
 
+public enum RecommendationEvidenceSource
+{
+    Unknown,
+    Completed,
+    Watching,
+    Following,
+    PlanToWatch,
+    Dropped,
+    NotInterested,
+    PersonalRating,
+    Browsing,
+    CatchUpPlan,
+    EpisodeProgress,
+}
+
+internal sealed record RecommendationSignal(
+    RecommendationEvidenceSource Source,
+    double Weight);
+
 public sealed record RecommendationFeaturePreference(
     RecommendationFeatureKind Kind,
     string Key,
@@ -46,7 +65,8 @@ public sealed record RecommendationFeature(
 public sealed record RecommendationEvidence(
     int AnimeId,
     string Title,
-    double Contribution);
+    double Contribution,
+    RecommendationEvidenceSource Source = RecommendationEvidenceSource.Unknown);
 
 public sealed record RecommendationFeatureProfile(
     RecommendationFeature Feature,
@@ -55,12 +75,14 @@ public sealed record RecommendationFeatureProfile(
     IReadOnlyList<RecommendationEvidence> Evidence,
     bool IsSavedTag = false)
 {
-    public double EffectiveScore => InferredScore + (Adjustment switch
+    public double EffectiveScore => Adjustment switch
     {
-        RecommendationAdjustment.Like => 6,
-        RecommendationAdjustment.Reduce => -6,
-        _ => 0,
-    });
+        RecommendationAdjustment.Like => Math.Max(0, InferredScore) + 6,
+        RecommendationAdjustment.Reduce => Math.Min(0, InferredScore) - 6,
+        _ => InferredScore,
+    };
+
+    public bool IsActiveForRecommendation => EffectiveScore > 0.25;
 
     public string DirectionText => Adjustment switch
     {
@@ -76,7 +98,7 @@ public sealed record RecommendationFeatureProfile(
         ? "来自收藏的 Bangumi Tag"
         : Evidence.Count == 0
         ? "来自手工偏好"
-        : $"来自 {Evidence.Count} 部番剧";
+        : $"展示 {Evidence.Select(item => item.AnimeId).Distinct().Count()} 部作品的代表性记录";
 }
 
 public sealed record RecommendationReason(
@@ -107,21 +129,27 @@ public sealed record RecommendationSnapshot(
     int SchemaVersion,
     DateTimeOffset GeneratedAt,
     bool IsPersonalized,
-    IReadOnlyList<RecommendationItem> Items)
+    IReadOnlyList<RecommendationItem> Items,
+    IReadOnlyList<RecommendationFeatureProfile>? RoundProfile = null,
+    bool HasMore = false)
 {
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 5;
 }
 
 public sealed record RecommendationGeneration(
     RecommendationSnapshot Snapshot,
     IReadOnlyList<RecommendationFeatureProfile> Profile);
 
+public sealed record RecommendationPageBatch(
+    RecommendationSnapshot Snapshot,
+    IReadOnlyList<RecommendationItem> Items);
+
 internal sealed record RecommendationSeed(
     int AnimeId,
     string Title,
-    double Weight);
+    double Weight,
+    IReadOnlyList<RecommendationSignal>? Signals = null);
 
 internal sealed record RecommendationCandidate(
     Anime Anime,
-    IReadOnlyList<RecommendationFeature> Features,
-    double SourceScore);
+    IReadOnlyList<RecommendationFeature> Features);

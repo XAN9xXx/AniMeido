@@ -175,6 +175,15 @@
                                     </Grid>
                                 </DataTemplate>
                             </ListView.ItemTemplate>
+                            <ListView.Footer>
+                                <StackPanel HorizontalAlignment="Center" Spacing="8" Margin="0,12,0,16">
+                                    <TextBlock x:Name="MoreStatusText" HorizontalAlignment="Center"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <Button x:Name="LoadMoreButton" Content="加载更多"
+                                            HorizontalAlignment="Center" Visibility="Collapsed"
+                                            Click="OnLoadMoreClick"/>
+                                </StackPanel>
+                            </ListView.Footer>
                         </ListView>
                         <StackPanel x:Name="EmptyRecommendations" Visibility="Collapsed"
                                     HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
