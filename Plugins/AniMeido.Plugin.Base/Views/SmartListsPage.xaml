@@ -14,7 +14,7 @@
         <StackPanel Spacing="2">
             <TextBlock Text="智能列表"
                        Style="{StaticResource AniMeidoPageTitleStyle}"/>
-            <TextBlock Text="用可视化条件组合出会自动更新的番剧列表"
+            <TextBlock Text="按条件筛选番剧，标记变化时列表自动更新"
                        Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
         </StackPanel>
 

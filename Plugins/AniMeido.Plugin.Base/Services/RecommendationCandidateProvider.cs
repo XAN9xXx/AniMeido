@@ -156,7 +156,7 @@ public sealed class RecommendationCandidateProvider : IDisposable
             .Where(item => !round.ExcludedIds.Contains(item.Anime.ID)), round.Sources)
             .Take(count).ToArray();
         if (selected.Length == 0 && failedToProgress)
-            throw new HttpRequestException("推荐候选暂时无法加载，请重试。");
+            throw new HttpRequestException("推荐的作品没能加载出来，请重试。");
 
         var enriched = new ConcurrentBag<RecommendationCandidate>();
         await Parallel.ForEachAsync(selected,
@@ -336,7 +336,7 @@ public sealed class RecommendationCandidateProvider : IDisposable
                         "本季热门"),
                     0,
                     false,
-                    "热门推荐，尚未个性化")],
+                    "你标记的作品还不多，先推荐本季热门")],
                 false,
                 true))
             .ToArray();

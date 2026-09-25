@@ -86,19 +86,19 @@ public sealed record RecommendationFeatureProfile(
 
     public string DirectionText => Adjustment switch
     {
-        RecommendationAdjustment.Like => "已设为喜欢",
-        RecommendationAdjustment.Reduce => "已减少推荐",
-        _ when IsSavedTag && EffectiveScore > 0 => "来自收藏 Tag",
-        _ when EffectiveScore > 0.25 => "推断为喜欢",
-        _ when EffectiveScore < -0.25 => "推断为减少",
-        _ => "中立",
+        RecommendationAdjustment.Like => "喜欢 · 手动",
+        RecommendationAdjustment.Reduce => "减少 · 手动",
+        _ when IsSavedTag && EffectiveScore > 0 => "收藏的标签",
+        _ when EffectiveScore > 0.25 => "喜欢 · 自动",
+        _ when EffectiveScore < -0.25 => "减少 · 自动",
+        _ => "无偏好",
     };
 
     public string EvidenceText => IsSavedTag && Evidence.Count == 0
-        ? "来自收藏的 Bangumi Tag"
+        ? "你收藏了这个标签"
         : Evidence.Count == 0
-        ? "来自手工偏好"
-        : $"展示 {Evidence.Select(item => item.AnimeId).Distinct().Count()} 部作品的代表性记录";
+        ? "你手动设置的"
+        : $"依据 {Evidence.Select(item => item.AnimeId).Distinct().Count()} 部作品的记录";
 }
 
 public sealed record RecommendationReason(
@@ -114,7 +114,7 @@ public sealed record RecommendationItem(
     bool IsPersonalized,
     bool IsRecent)
 {
-    public string PrimaryReason => Reasons.FirstOrDefault(reason => !reason.IsReduction)?.Text ?? "探索更多作品";
+    public string PrimaryReason => Reasons.FirstOrDefault(reason => !reason.IsReduction)?.Text ?? "换个口味";
 
     public string ReasonSummary => string.Join(
         "；",

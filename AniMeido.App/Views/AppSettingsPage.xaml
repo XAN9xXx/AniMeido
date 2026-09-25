@@ -14,7 +14,7 @@
             <StackPanel Spacing="2">
                 <TextBlock Text="App 设置"
                            Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                <TextBlock Text="外观、桌面集成与可安装插件"
+                <TextBlock Text="主题、窗口、插件和版本信息"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
             </StackPanel>
 
@@ -52,7 +52,7 @@
                     <StackPanel>
                         <TextBlock Text="关闭主窗口时驻留托盘"
                                    FontSize="16"/>
-                        <TextBlock Text="默认关闭；启用后请从托盘菜单显式退出"
+                        <TextBlock Text="开启后，关闭窗口不会退出应用"
                                    FontSize="12"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </StackPanel>
@@ -87,7 +87,7 @@
                      IsClosable="False"
                      Severity="Informational"
                      Title="需要重载插件"
-                     Message="插件变更尚未应用，AniMeido 主窗口可以继续使用。">
+                     Message="重载插件后，刚才的变更才会生效。">
                 <InfoBar.ActionButton>
                     <Button Content="立即重载插件"
                             Click="OnReloadPluginsClick"/>
@@ -174,7 +174,7 @@
             <StackPanel Orientation="Horizontal"
                         Spacing="8"
                         Margin="0,12,0,0">
-                <TextBlock Text="App 进程核心插件"
+                <TextBlock Text="内置插件"
                            FontWeight="Bold"
                            VerticalAlignment="Center"/>
             </StackPanel>

@@ -138,7 +138,7 @@ namespace AniMeido.App.Views
                 : Visibility.Collapsed;
             PluginReloadInfoBar.IsOpen = _pluginPackageManager.RestartRequired;
             PluginHostStatusText.Text =
-                $"插件宿主：{_pluginHostSupervisor.StatusText}";
+                $"插件状态：{_pluginHostSupervisor.StatusText}";
         }
 
         private async void OnInstallPluginClick(object sender, RoutedEventArgs e)
@@ -209,7 +209,7 @@ namespace AniMeido.App.Views
             var confirmation = new ContentDialog
             {
                 Title = "卸载插件",
-                Content = "插件宿主重载后将删除插件文件。插件自行保存的用户数据不会自动删除。",
+                Content = "重载插件后会删除插件文件，插件保存的数据会保留。",
                 PrimaryButtonText = "卸载",
                 CloseButtonText = "取消",
                 DefaultButton = ContentDialogButton.Close,
@@ -319,7 +319,7 @@ namespace AniMeido.App.Views
                 if (IsLoaded)
                 {
                     PluginHostStatusText.Text =
-                        $"插件宿主：{_pluginHostSupervisor.StatusText}";
+                        $"插件状态：{_pluginHostSupervisor.StatusText}";
                 }
             });
 

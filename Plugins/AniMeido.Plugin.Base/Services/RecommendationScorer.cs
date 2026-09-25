@@ -283,24 +283,25 @@ internal static class RecommendationScorer
     {
         var featureLabel = contribution.Feature.Kind switch
         {
-            RecommendationFeatureKind.Tag => "Tag",
+            RecommendationFeatureKind.Tag => "标签",
             RecommendationFeatureKind.Studio => "制作方",
             RecommendationFeatureKind.VoiceActor => "声优",
             _ => "特征",
         };
+        var name = contribution.Feature.DisplayName;
         string text;
         if (isReduction)
         {
-            text = $"该作品包含已被降低权重的{featureLabel}“{contribution.Feature.DisplayName}”";
+            text = $"有你不太感兴趣的{featureLabel}“{name}”";
         }
         else if (contribution.Profile.Adjustment
             == RecommendationAdjustment.Like)
         {
-            text = $"你已将{featureLabel}“{contribution.Feature.DisplayName}”设为喜欢";
+            text = $"你把{featureLabel}“{name}”设为了喜欢";
         }
         else if (contribution.Profile.IsSavedTag)
         {
-            text = $"因为你收藏了 Tag“{contribution.Feature.DisplayName}”";
+            text = $"你收藏了标签“{name}”";
         }
         else if (contribution.Profile.Evidence
             .Where(item => item.Contribution > 0)
@@ -309,21 +310,27 @@ internal static class RecommendationScorer
         {
             var source = evidence.Source switch
             {
-                RecommendationEvidenceSource.Completed => "标记为已看完",
-                RecommendationEvidenceSource.Watching => "标记为追番中",
-                RecommendationEvidenceSource.Following => "已关注",
-                RecommendationEvidenceSource.PlanToWatch => "列入补番",
+                RecommendationEvidenceSource.Completed => "看完",
+                RecommendationEvidenceSource.Watching => "在追",
+                RecommendationEvidenceSource.Following => "关注",
+                RecommendationEvidenceSource.PlanToWatch => "在补",
                 RecommendationEvidenceSource.PersonalRating => "评过分",
                 RecommendationEvidenceSource.Browsing => "浏览过",
                 RecommendationEvidenceSource.CatchUpPlan => "列入补番计划",
-                RecommendationEvidenceSource.EpisodeProgress => "有观看进度",
+                RecommendationEvidenceSource.EpisodeProgress => "看过几集",
                 _ => "记录过",
             };
-            text = $"与你{source}的《{evidence.Title}》具有共同{featureLabel}“{contribution.Feature.DisplayName}”";
+            var shared = contribution.Feature.Kind switch
+            {
+                RecommendationFeatureKind.Studio => $"都是 {name} 制作",
+                RecommendationFeatureKind.VoiceActor => $"都有 {name} 配音",
+                _ => $"都有{featureLabel}“{name}”",
+            };
+            text = $"和你{source}的《{evidence.Title}》{shared}";
         }
         else
         {
-            text = $"匹配当前推荐画像中的{featureLabel}“{contribution.Feature.DisplayName}”";
+            text = $"你偏好的{featureLabel}“{name}”";
         }
 
         return new RecommendationReason(

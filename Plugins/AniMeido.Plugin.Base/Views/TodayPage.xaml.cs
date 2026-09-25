@@ -455,7 +455,7 @@ public sealed partial class TodayPage : Page, INavigationAware
         if (!_reminders.NotificationsAvailable)
         {
             ShowNotification(
-                "当前设备的通知不可用，无法添加提醒；补番计划仍会保留。",
+                "系统通知不可用，无法添加提醒。",
                 InfoBarSeverity.Warning);
             return;
         }

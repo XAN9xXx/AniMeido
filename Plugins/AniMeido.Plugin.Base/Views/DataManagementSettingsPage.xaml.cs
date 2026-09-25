@@ -66,7 +66,7 @@ namespace AniMeido.Plugin.Base.Views
                 await _archiveBundle.ExportAsync(file.Path);
                 await ShowMessageAsync(
                     "导出完成",
-                    "完整档案 ZIP 已生成，并包含逐文件 SHA-256 清单。");
+                    "完整档案已导出。");
             }
             catch (Exception ex) when (
                 ex is IOException
@@ -105,7 +105,7 @@ namespace AniMeido.Plugin.Base.Views
             var confirmation = new ContentDialog
             {
                 Title = "导入完整档案",
-                Content = "将先校验路径、schema 和全部文件哈希，再自动备份数据库并导入。",
+                Content = "导入前会检查文件是否完整，并自动备份当前数据。",
                 PrimaryButtonText = "开始导入",
                 CloseButtonText = "取消",
                 DefaultButton = ContentDialogButton.Primary,

@@ -281,7 +281,7 @@
                     <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="24">
                         <Grid Grid.ColumnSpan="2" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12" Margin="0,0,0,14">
                             <TextBlock Text="今日放送" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                            <TextBlock Grid.Column="1" Text="按日历排期 · 不代表已上线" Style="{StaticResource TodayCaptionStyle}" VerticalAlignment="Center" MaxLines="1" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Grid.Column="1" Text="按放送表 · 上线时间以平台为准" Style="{StaticResource TodayCaptionStyle}" VerticalAlignment="Center" MaxLines="1" TextTrimming="CharacterEllipsis"/>
                             <Button Grid.Column="2" Content="放送日历" Style="{StaticResource AniMeidoNavigateButtonStyle}" VerticalAlignment="Center" Click="OnCalendarClick"/>
                         </Grid>
 
@@ -316,7 +316,7 @@
                         <StackPanel Spacing="12">
                             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
                                 <TextBlock Text="最近观看" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                                <TextBlock Grid.Column="1" Text="按上次播放时间排列 · 进度为单集内位置" Style="{StaticResource TodayCaptionStyle}" VerticalAlignment="Center" MaxLines="1" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Grid.Column="1" Text="最近播放的在前 · 进度条是这一集看到的位置" Style="{StaticResource TodayCaptionStyle}" VerticalAlignment="Center" MaxLines="1" TextTrimming="CharacterEllipsis"/>
                             </Grid>
                             <TextBlock Text="还没有播放记录。" Visibility="{x:Bind ViewModel.HasNoRecentActivity, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             <ItemsControl ItemsSource="{x:Bind ViewModel.RecentActivity, Mode=OneWay}" ItemTemplate="{StaticResource PlaybackEntryTemplate}"/>

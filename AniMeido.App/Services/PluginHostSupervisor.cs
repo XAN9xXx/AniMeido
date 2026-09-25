@@ -335,14 +335,14 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         var hostPath = ResolveHostPath();
         if (!File.Exists(hostPath))
         {
-            SetStatus("PluginHost 可执行文件不存在");
+            SetStatus("找不到插件运行程序，请重新安装 AniMeido");
             _logger.LogWarning(
                 "PluginHost executable was not found at {HostPath}.",
                 hostPath);
             return;
         }
 
-        SetStatus($"已发现 {_descriptors.Count} 个可选插件，按需启动");
+        SetStatus($"已启用 {_descriptors.Count} 个可选插件，用到时自动启动");
         foreach (var descriptor in _descriptors.Values.Where(item =>
             item.Manifest.ActivationEvents.Contains(
                 PluginHostProtocol.StartupFinishedActivationEvent,
@@ -547,7 +547,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         if (PluginHostExitClassifier.IsNormal(e.ExitCode))
         {
             _automaticRestartUsed.Remove(session.PluginId);
-            SetStatus($"{session.DisplayName} 已退出，将在需要时启动");
+            SetStatus($"{session.DisplayName} 已关闭，用到时会自动启动");
             return;
         }
 

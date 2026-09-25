@@ -51,7 +51,7 @@ public partial class RecommendationViewModel : ObservableObject
     private bool _isSavingPreference;
     public bool HasSelection => SelectedItem is not null;
     public RecommendationBrowseState BrowseState => _browse;
-    public string TagSummary => $"标签偏好 · {SelectedTags.Count} 个 · 已设置 {SelectedTags.Count(tag => tag.Adjustment is not null)} 项";
+    public string TagSummary => $"标签 · 共 {SelectedTags.Count} 个 · 手动设置 {SelectedTags.Count(tag => tag.Adjustment is not null)} 个";
 
     partial void OnSelectedItemChanged(RecommendationItem? value)
     {
@@ -196,9 +196,9 @@ public partial class RecommendationViewModel : ObservableObject
             if (SelectedItem?.Anime.ID == item.Anime.ID) FollowLabel = label;
             Message = status switch
             {
-                null when changed => "已取消关注，当前列表保留。",
-                AnimeTrackingStatus.Following when changed => "已关注，当前列表保留。",
-                _ => "此作品已有其他标记，未覆盖。",
+                null when changed => "已取消关注",
+                AnimeTrackingStatus.Following when changed => "已关注",
+                _ => "这部作品已有别的标记，没有改成关注。",
             };
         }
         finally
@@ -212,7 +212,7 @@ public partial class RecommendationViewModel : ObservableObject
     {
         _browse.SkippedIds.Add(item.Anime.ID);
         RemoveItem(item);
-        Message = "本轮暂时跳过；生成新一轮后可再次参与推荐。";
+        Message = "已跳过，换一批后可能再出现。";
     }
 
     private void RemoveItem(RecommendationItem item)
@@ -347,7 +347,7 @@ public partial class RecommendationViewModel : ObservableObject
                 if (!IsCurrentLoad(generation, cancellationToken)) return;
                 OnPropertyChanged(nameof(HasItems));
                 OnPropertyChanged(nameof(IsColdStart));
-                if (_browse.HasPendingPreferences) Message = "偏好已更新，下轮推荐生效。";
+                if (_browse.HasPendingPreferences) Message = "偏好已保存，刷新推荐后生效。";
                 if (!RecommendationService.IsSnapshotFresh(saved, DateTimeOffset.UtcNow))
                 {
                     // RefreshAsync republishes Profile on success; on failure the
@@ -429,7 +429,7 @@ public partial class RecommendationViewModel : ObservableObject
             }
             if (result is null)
             {
-                RefreshNotice = "本次刷新未应用；推荐依据已更新，可点击“刷新推荐”重试。";
+                RefreshNotice = "刷新时你的记录有变化，这次结果没有采用。请再点一次“刷新推荐”。";
                 return false;
             }
 
@@ -442,14 +442,14 @@ public partial class RecommendationViewModel : ObservableObject
                 .Select(item => item.Anime.ID)
                 .Any(id => !previousIds.Contains(id));
             Message = result.Snapshot.Items.Count == 0 && result.Snapshot.HasMore
-                ? "正在继续查找符合偏好的作品，可在列表底部继续加载。"
+                ? "这一批还没找到合适的作品，可以在列表底部继续加载。"
                 : preferNewBatch && previousIds.Count > 0
                 ? hasDifferentItems
-                    ? "已优先换入上一批未展示的作品。"
-                    : "当前候选有限，暂无更多不同结果。"
+                    ? "已换一批。"
+                    : "暂时没有更多不同的作品了。"
                 : result.Snapshot.IsPersonalized
-                ? "推荐已根据本地偏好更新。"
-                : "当前数据较少，暂时显示热门推荐。";
+                ? "推荐已更新。"
+                : "你标记的作品还不多，先显示热门作品。";
             return true;
         }
         catch (OperationCanceledException) when (
@@ -582,7 +582,7 @@ public partial class RecommendationViewModel : ObservableObject
             foreach (var tag in SelectedTags.Where(tag => tag.Feature.Kind == feature.Kind && tag.Feature.Key == feature.Key))
                 tag.Adjustment = adjustment;
             OnPropertyChanged(nameof(TagSummary));
-            Message = "偏好已更新，下轮推荐生效。";
+            Message = "偏好已保存，刷新推荐后生效。";
             HasError = false;
         }
         finally { _isSavingPreference = false; }

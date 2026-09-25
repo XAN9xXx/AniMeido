@@ -1239,7 +1239,7 @@ internal sealed class PlayerWindow : Window
         var content = new StackPanel { Spacing = 10 };
         content.Children.Add(new TextBlock
         {
-            Text = "播放源管理和诊断属于维护工具，不影响日常播放。",
+            Text = "播放出问题时，可以在这里管理和排查播放源。",
             TextWrapping = TextWrapping.Wrap,
         });
         content.Children.Add(autoFallback);
@@ -1571,8 +1571,8 @@ internal sealed class PlayerWindow : Window
         content.Children.Add(new TextBlock
         {
             Text =
-                "仅在明确开启后记录；Cookie、Authorization、密码、"
-                + "Token 和 URL 查询参数会被脱敏。",
+                "只在你开启后记录；登录信息、密码"
+                + "和网址参数会被隐去。",
             TextWrapping = TextWrapping.Wrap,
         });
         content.Children.Add(controls);

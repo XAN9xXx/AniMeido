@@ -117,7 +117,7 @@ public class RecommendationScorerTests
         var savedTag = Assert.Single(profile);
         Assert.True(savedTag.IsSavedTag);
         Assert.Equal(2.5, savedTag.EffectiveScore);
-        Assert.Equal("来自收藏 Tag", savedTag.DirectionText);
+        Assert.Equal("收藏的标签", savedTag.DirectionText);
 
         var result = RecommendationScorer.Rank(
             profile,
@@ -125,7 +125,7 @@ public class RecommendationScorerTests
                 Anime(99, new DateOnly(2026, 1, 1), 8),
                 [savedTag.Feature])],
             new DateOnly(2026, 8, 1));
-        Assert.Contains("收藏了 Tag", Assert.Single(result).ReasonSummary);
+        Assert.Contains("收藏了标签", Assert.Single(result).ReasonSummary);
     }
 
     [Fact]
@@ -156,7 +156,7 @@ public class RecommendationScorerTests
             new DateOnly(2026, 8, 1));
 
         var item = Assert.Single(result);
-        Assert.Contains("收藏了 Tag“百合”", item.ReasonSummary);
+        Assert.Contains("收藏了标签“百合”", item.ReasonSummary);
         Assert.True(item.Score >= 20.5);
     }
 
@@ -390,7 +390,7 @@ public class RecommendationScorerTests
         var profile = RecommendationScorer.BuildProfile(seeds, features, []);
 
         Assert.Equal(3, Assert.Single(profile).Evidence.Count);
-        Assert.Equal("展示 3 部作品的代表性记录", profile[0].EvidenceText);
+        Assert.Equal("依据 3 部作品的记录", profile[0].EvidenceText);
     }
 
     private static RecommendationFeature Feature(

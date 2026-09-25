@@ -13,7 +13,7 @@
             <StackPanel Spacing="2">
                 <TextBlock Text="数据管理"
                            Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                <TextBlock Text="缓存、备份、导入导出与档案迁移"
+                <TextBlock Text="缓存、备份、导入和导出"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
             </StackPanel>
 
@@ -204,7 +204,7 @@
                         <StackPanel VerticalAlignment="Center">
                             <TextBlock Text="完整档案 ZIP"
                                        FontSize="15"/>
-                            <TextBlock Text="包含截图原图、元数据和 SHA-256 清单"
+                            <TextBlock Text="连同截图原图一起导出，可在另一台设备导入"
                                        FontSize="12"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>

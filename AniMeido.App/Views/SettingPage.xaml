@@ -14,7 +14,7 @@
         <StackPanel Spacing="2">
             <TextBlock Text="设置"
                        Style="{StaticResource AniMeidoPageTitleStyle}"/>
-            <TextBlock Text="管理 AniMeido、基础功能与可选插件"
+            <TextBlock Text="应用、数据和插件的设置"
                        Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
         </StackPanel>
 

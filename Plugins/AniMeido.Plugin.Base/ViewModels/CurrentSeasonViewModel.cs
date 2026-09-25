@@ -158,7 +158,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         private ObservableCollection<CalendarEntry> _visibleEntries = [];
 
         [ObservableProperty]
-        private string _seasonSummary = "按日历排期，不代表已上线";
+        private string _seasonSummary = "按放送表，上线时间以平台为准";
 
         [ObservableProperty]
         private string _totalCountText = "";
@@ -641,7 +641,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             MineCountText = mineCount.ToString(CultureInfo.InvariantCulture);
             var (year, season) = SeasonHelper.GetCurrentSeason();
             SeasonSummary =
-                $"{year} 年{GetSeasonName(season)} · 共 {_entries.Count} 部 · 按日历排期，不代表已上线";
+                $"{year} 年{GetSeasonName(season)} · 共 {_entries.Count} 部 · 上线时间以平台为准";
 
             var filtering = IsFiltering;
 

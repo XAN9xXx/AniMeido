@@ -28,7 +28,7 @@
             <StackPanel Spacing="2">
                 <TextBlock Text="个人动画档案馆"
                            Style="{StaticResource AniMeidoPageTitleStyle}"/>
-                <TextBlock Text="整理评分、笔记、观看记忆与截图"
+                <TextBlock Text="你的评分、笔记、观看记录和截图"
                            Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
             </StackPanel>
             <Button Grid.Column="1"
@@ -326,7 +326,7 @@
                                 <StackPanel Spacing="3">
                                     <TextBlock Text="个人统计"
                                                Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                                    <TextBlock Text="档案、笔记、标签与观看汇总"
+                                    <TextBlock Text="档案、笔记、标签和观看记录的统计"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                 </StackPanel>
                                 <TextBlock x:Name="StatisticsStartText"
@@ -450,9 +450,9 @@
                     <Border Style="{StaticResource AniMeidoCardStyle}">
                         <Grid ColumnDefinitions="*,220" ColumnSpacing="28">
                             <StackPanel Spacing="10">
-                                <TextBlock Text="记录完整度"
+                                <TextBlock Text="已评分的档案"
                                            Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                                <TextBlock Text="已评分档案占全部档案的比例"
+                                <TextBlock Text="占全部档案的比例"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="14">
                                     <ProgressBar x:Name="StatisticsCoverageBar"
@@ -582,7 +582,7 @@
                         <Border x:Name="ReviewMomentsCard"
                                 Style="{StaticResource AniMeidoCardStyle}">
                             <StackPanel Spacing="12">
-                                <TextBlock Text="这一年留下的片段"
+                                <TextBlock Text="这一年的感想"
                                            Style="{StaticResource AniMeidoSectionTitleStyle}"/>
                                 <TextBlock x:Name="ReviewMomentsEmpty"
                                            Text="这一年还没有写下感想"
@@ -627,7 +627,7 @@
                                 Style="{StaticResource AniMeidoCardStyle}">
                             <StackPanel Spacing="12">
                                 <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Text="镜头里的回忆"
+                                    <TextBlock Text="这一年的截图"
                                                Style="{StaticResource AniMeidoSectionTitleStyle}"/>
                                     <Button Grid.Column="1" Content="查看更多截图"
                                             Style="{StaticResource AniMeidoNavigateButtonStyle}"

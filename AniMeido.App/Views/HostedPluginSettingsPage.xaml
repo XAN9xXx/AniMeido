@@ -22,7 +22,7 @@
 
             <Border Style="{StaticResource AniMeidoContentCardStyle}">
                 <StackPanel Spacing="14">
-                    <TextBlock Text="此设置界面由插件进程维护。打开后可以继续使用 AniMeido 主窗口，关闭插件窗口不会退出应用。"
+                    <TextBlock Text="插件的设置在单独的窗口中打开。"
                                TextWrapping="Wrap"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <StackPanel Orientation="Horizontal"

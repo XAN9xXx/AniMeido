@@ -98,10 +98,10 @@ public class RecommendationPreferenceViewModelTests : DbTestBase
         var item = vm.Items[0];
 
         await vm.ToggleFollowingAsync(item, CancellationToken.None);
-        Assert.Equal("已关注，当前列表保留。", vm.Message);
+        Assert.Equal("已关注", vm.Message);
         await vm.ToggleFollowingAsync(item, CancellationToken.None);
 
-        Assert.Equal("已取消关注，当前列表保留。", vm.Message);
+        Assert.Equal("已取消关注", vm.Message);
         Assert.Equal("+ 关注", vm.FollowLabel);
         Assert.False(vm.BrowseState.TrackingLabels.ContainsKey(item.Anime.ID));
         Assert.Empty(vm.SavingFollowingIds);

@@ -17,7 +17,7 @@
             <StackPanel Spacing="2">
                 <TextBlock Text="为你推荐"
                            Style="{StaticResource AniMeidoPageTitleStyle}"/>
-                <TextBlock Text="从喜欢的故事，发现下一部心动。"
+                <TextBlock Text="根据你的标记、评分和浏览记录推荐"
                            Style="{StaticResource AniMeidoPageSubtitleStyle}"/>
             </StackPanel>
             <Button x:Name="RefreshButton"
@@ -51,7 +51,7 @@
                               Click="OnSectionButtonClick">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE77B;" FontSize="15"/>
-                        <TextBlock Text="偏好画像"/>
+                        <TextBlock Text="我的偏好"/>
                     </StackPanel>
                 </ToggleButton>
                 <ToggleButton x:Name="HiddenSectionButton"
@@ -83,9 +83,9 @@
                             Visibility="{x:Bind ViewModel.IsColdStart, Mode=OneWay}">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="24">
                             <StackPanel Spacing="8">
-                                <TextBlock Text="先告诉我你喜欢什么"
+                                <TextBlock Text="先选几个喜欢的标签"
                                            Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                                <TextBlock Text="选择几个标签即可开始。这些选择只用于推荐，不会加入收藏标签。"
+                                <TextBlock Text="只影响推荐，不会加进收藏标签。"
                                            TextWrapping="Wrap"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </StackPanel>
@@ -242,7 +242,7 @@
                                                 <Grid RowDefinitions="Auto,*" RowSpacing="8">
                                                     <StackPanel Spacing="3">
                                                         <TextBlock Text="{x:Bind ViewModel.TagSummary, Mode=OneWay}" FontWeight="SemiBold"/>
-                                                        <TextBlock Text="未设置交由系统判断，不抵消推断" FontSize="12"
+                                                        <TextBlock Text="未设置时按你的记录自动判断" FontSize="12"
                                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                                         <ProgressRing x:Name="TagLoadingRing" Width="20" Height="20" MinWidth="20" MinHeight="20"
                                                                       HorizontalAlignment="Left" Visibility="Collapsed" IsActive="{x:Bind ViewModel.IsLoadingTags, Mode=OneWay}"/>
@@ -308,14 +308,14 @@
                     <Border Style="{StaticResource AniMeidoCardStyle}">
                         <Grid ColumnDefinitions="*,Auto">
                             <StackPanel Spacing="4">
-                                <TextBlock Text="偏好画像"
+                                <TextBlock Text="我的偏好"
                                            Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                                <TextBlock Text="画像来自评分、追番、计划、进度与浏览记录；手工选择会优先影响排序。"
+                                <TextBlock Text="根据你的评分、标记、观看进度和浏览记录自动整理，手动设置的优先。"
                                            TextWrapping="Wrap"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </StackPanel>
                             <Button Grid.Column="1"
-                                    Content="清除全部手工偏好"
+                                    Content="清除手动设置"
                                     Click="OnClearPreferencesClick"/>
                         </Grid>
                     </Border>
@@ -360,7 +360,7 @@
                             <StackPanel Spacing="4">
                                 <TextBlock Text="已隐藏作品"
                                            Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                                <TextBlock Text="恢复后，作品会在下一次重新评分时重新参与推荐。"
+                                <TextBlock Text="恢复后，刷新推荐时可能再次出现。"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </StackPanel>
                             <Button Grid.Column="1"

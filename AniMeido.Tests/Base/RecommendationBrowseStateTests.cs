@@ -73,7 +73,7 @@ public class RecommendationBrowseStateTests
         var profile = new RecommendationFeatureProfile(feature, 0, RecommendationAdjustment.Like, []);
         var result = RecommendationScorer.Rank([profile],
             [new RecommendationCandidate(Item(1).Anime, [feature])], new DateOnly(2026, 9, 12));
-        Assert.Contains("设为喜欢", Assert.Single(result).PrimaryReason);
+        Assert.Contains("设为了喜欢", Assert.Single(result).PrimaryReason);
     }
 
     private static RecommendationSnapshot Snapshot() => new(

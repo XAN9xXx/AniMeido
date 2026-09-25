@@ -131,7 +131,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         {
             XamlRoot = XamlRoot,
             Title = "标记为不感兴趣",
-            Content = $"“{item.Anime.Title}”会写入追番状态，并从推荐中排除。",
+            Content = $"《{item.Anime.Title}》会标记为“不感兴趣”，之后不再推荐。可以在“我的番剧”里撤销。",
             PrimaryButtonText = "确认",
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close,
@@ -153,7 +153,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     {
         var choices = new ComboBox
         {
-            Header = $"此{feature.KindText}的推荐倾向",
+            Header = "你的偏好",
             HorizontalAlignment = HorizontalAlignment.Stretch,
             SelectedIndex = ViewModel.Profile.FirstOrDefault(item => item.Feature.Kind == feature.Kind
                 && item.Feature.Key == feature.Key)?.Adjustment switch
@@ -164,7 +164,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
             },
         };
         choices.Items.Add("喜欢");
-        choices.Items.Add("未设置（恢复自动判断）");
+        choices.Items.Add("未设置（按你的记录判断）");
         choices.Items.Add("减少");
         var dialog = new ContentDialog
         {
@@ -258,7 +258,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
 
         var dialog = CreateConfirmationDialog(
             "恢复全部隐藏作品",
-            "这些作品会在下次刷新时重新参与推荐。",
+            "刷新推荐后，这些作品可能再次出现。",
             "全部恢复");
         if (await dialog.ShowAsync() == ContentDialogResult.Primary)
         {
@@ -269,8 +269,8 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     private async void OnClearPreferencesClick(object sender, RoutedEventArgs e)
     {
         var dialog = CreateConfirmationDialog(
-            "清除全部手工偏好",
-            "系统推断仍会保留，推荐将按本地记录重新计算。",
+            "清除手动设置",
+            "之后只按你的记录自动判断，推荐会重新生成。",
             "清除并刷新");
         if (await dialog.ShowAsync() == ContentDialogResult.Primary)
         {

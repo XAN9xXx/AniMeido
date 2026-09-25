@@ -330,7 +330,7 @@ public partial class TodayViewModel : ObservableObject
                 await _reminders.ReconcileAsync(cancellationToken);
                 NotificationMessage = _reminders.NotificationsAvailable
                     ? null
-                    : "当前设备的通知不可用，补番计划仍会在今天页显示。";
+                    : "系统通知不可用，补番计划只会显示在今天页。";
             }
             catch (InvalidOperationException ex)
             {
@@ -764,12 +764,12 @@ public partial class TodayViewModel : ObservableObject
         BroadcastDays = _scheduleFailed || _personalIds.Count == 0 ? [] : new(days);
         BroadcastMessage = _scheduleFailed ? "放送日程加载失败，请刷新重试。"
             : _personalIds.Count == 0 ? "还没有追番、补番或关注的作品。"
-            : PersonalBroadcasts.Count > 0 ? $"今天有 {PersonalBroadcasts.Count} 部个人相关作品安排放送。"
-            : "今天暂无与你相关的放送安排。";
+            : PersonalBroadcasts.Count > 0 ? $"今天有 {PersonalBroadcasts.Count} 部你标记的作品放送。"
+            : "今天没有你标记的作品放送。";
         var next = days.Skip(1).Select((day, index) => (Day: day, Offset: index + 1))
             .FirstOrDefault(item => item.Day.Items.Count > 0);
         NextBroadcastText = _scheduleFailed || _personalIds.Count == 0 || PersonalBroadcasts.Count > 0 ? ""
-            : next.Day is null ? "当前日历中暂无其他个人相关排期。"
+            : next.Day is null ? "接下来几天也没有你标记的作品放送。"
             : $"预计下次：{(next.Offset == 1 ? "明天 " : "")}{next.Day.Label} · {next.Day.Items[0].Title}"
                 + (next.Day.Items.Count > 1 ? $" 等 {next.Day.Items.Count} 部" : "");
     }

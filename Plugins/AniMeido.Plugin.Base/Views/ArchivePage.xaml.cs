@@ -1717,7 +1717,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         var context = new TextBox
         {
             Header = "截图备注（可选）",
-            PlaceholderText = "记录这张截图想留下的内容",
+            PlaceholderText = "比如当时的想法",
             Text = GetScreenshotNote(item),
         };
         var panel = new StackPanel { Spacing = 8 };
@@ -2094,7 +2094,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
                 + $"<div class=\"card\"><strong>{duration}</strong><small>估算观看时长</small></div>"
             : string.Empty;
         var gallery = playbackAvailable
-            ? $"<h2>镜头里的回忆</h2><div class=\"gallery\">{images}</div>"
+            ? $"<h2>这一年的截图</h2><div class=\"gallery\">{images}</div>"
             : string.Empty;
         return $$"""
             <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
@@ -2115,7 +2115,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
             <div class="card"><strong>{{statistics.ArchiveCount}}</strong><small>新增档案</small></div>
             <div class="card"><strong>{{statistics.EntryCount}}</strong><small>写下感想</small></div>
             {{playbackCards}}
-            </div><h2>这一年留下的片段</h2>{{momentCards}}
+            </div><h2>这一年的感想</h2>{{momentCards}}
             {{gallery}}
             <h2>年度新增档案的个人标签</h2><p>{{tags}}</p></body></html>
             """;

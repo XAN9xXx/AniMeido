@@ -59,7 +59,7 @@ public class RecommendationCandidateProviderTests
             profile,
             candidates,
             new DateOnly(2026, 8, 1));
-        Assert.Contains("收藏了 Tag", Assert.Single(result).ReasonSummary);
+        Assert.Contains("收藏了标签", Assert.Single(result).ReasonSummary);
     }
 
     [Fact]

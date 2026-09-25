@@ -80,7 +80,7 @@ internal sealed class SourceManagementWindow : Window
             PlayerVisualStyles.CreatePageTitle("播放源管理"));
         headingText.Children.Add(
             PlayerVisualStyles.CreateSubtitle(
-                "订阅、启用并诊断在线播放来源"));
+                "添加、启用和排查播放源"));
         heading.Children.Add(headingText);
         _progress.Width = 28;
         _progress.Height = 28;
@@ -102,7 +102,7 @@ internal sealed class SourceManagementWindow : Window
         _root.Children.Add(tabs);
 
         _status.Text =
-            "声明式播放源会立即热重载；C# 代码源仍需重启 AniMeido。";
+            "多数播放源的改动立即生效；C# 代码源需要重启 AniMeido。";
         _status.TextWrapping = TextWrapping.Wrap;
         _status.Opacity = 0.75;
         Grid.SetRow(_status, 2);
@@ -138,7 +138,7 @@ internal sealed class SourceManagementWindow : Window
         var panel = CreateScrollableListLayout();
         var description = new TextBlock
         {
-            Text = "源内容仅在用户确认后从上游获取；应用前会显示差异。",
+            Text = "你确认后才会从订阅地址获取内容，应用前会列出改动。",
             TextWrapping = TextWrapping.Wrap,
         };
         panel.Children.Add(description);
@@ -344,7 +344,7 @@ internal sealed class SourceManagementWindow : Window
             await RefreshAsync();
             _status.Text =
                 $"已应用 {preview.ApplicableCount} 项更改；"
-                + $"已热重载 {reload.CurrentCount} 个源。";
+                + $"当前已加载 {reload.CurrentCount} 个源。";
         }
 #pragma warning disable CA1031 // Subscription failures are reported in the window.
         catch (Exception ex)
@@ -373,7 +373,7 @@ internal sealed class SourceManagementWindow : Window
             XamlRoot = _root.XamlRoot,
             Title = "移除订阅",
             Content =
-                "订阅关系会被删除；已导入源会保留、禁用并标记为未托管。",
+                "移除后，已导入的播放源会保留，但会被停用，也不再随订阅更新。",
             PrimaryButtonText = "移除",
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close,
@@ -419,9 +419,9 @@ internal sealed class SourceManagementWindow : Window
             var reload = await ReloadSourcesAsync();
             await RefreshAsync();
             _status.Text =
-                $"已安装 {installed}；声明式源已热重载"
-                + $"（当前 {reload.CurrentCount} 个）。"
-                + "若这是 C# 代码源，仍需重启。";
+                $"已安装 {installed}"
+                + $"（当前 {reload.CurrentCount} 个源）。"
+                + "C# 代码源需要重启后生效，其他已立即生效。";
         }
 #pragma warning disable CA1031 // Local package errors are shown in the window.
         catch (Exception ex)
@@ -455,7 +455,7 @@ internal sealed class SourceManagementWindow : Window
         _status.Text = package.IsEnabled
             ? package.RequiresRestart
                 ? $"已禁用 {package.DisplayName}；C# 代码源重启后生效。"
-                : $"已禁用 {package.DisplayName}；已立即热重载。"
+                : $"已禁用 {package.DisplayName}；已立即生效。"
             : package.RequiresRestart
                 ? $"已启用 {package.DisplayName}；C# 代码源重启后生效。"
                 : $"已启用 {package.DisplayName}；"
