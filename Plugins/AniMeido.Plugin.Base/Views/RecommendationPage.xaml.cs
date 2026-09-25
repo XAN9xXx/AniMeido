@@ -13,6 +13,8 @@ namespace AniMeido.Plugin.Base.Views;
 
 public sealed partial class RecommendationPage : Page, INavigationAware
 {
+    // About one 20-row batch of scrolling room for the next remote request.
+    private const double PrefetchDistance = 2400;
     private readonly IPluginNavigator _navigator;
     private CancellationTokenSource? _navigationCancellation;
     private bool _isActionRunning;
@@ -426,6 +428,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     {
         _isNarrow = e.NewSize.Width < 900;
         ApplyPreviewLayout();
+        TryLoadMoreNearEnd();
     }
 
     private void ApplyPreviewLayout()
@@ -586,7 +589,9 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     private void OnListViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
         SaveScroll();
-        if (!e.IsIntermediate) TryLoadMoreNearEnd();
+        // Waiting for the final ViewChanged starts the network request only
+        // after the user stops scrolling, often at the end of the current batch.
+        TryLoadMoreNearEnd();
     }
 
     private async void TryLoadMoreNearEnd()
@@ -596,9 +601,16 @@ public sealed partial class RecommendationPage : Page, INavigationAware
             || ViewModel.IsLoadingMore || !ViewModel.HasMoreRecommendations
             || !string.IsNullOrWhiteSpace(ViewModel.LoadMoreError)
             || ViewModel.IsBusy || ViewModel.IsRefreshing
-            || _listScroll.ScrollableHeight - _listScroll.VerticalOffset > 400) return;
+            || _listScroll.ScrollableHeight - _listScroll.VerticalOffset
+                > PrefetchDistance) return;
+        var previousCount = ViewModel.Items.Count;
         await ViewModel.LoadMoreAsync(CurrentToken);
         UpdateMoreFooter();
+        // A large viewport may still be close to the end after one batch.
+        // Continue only when this request actually added rows, avoiding a
+        // tight loop on empty or failed remote pages.
+        if (ViewModel.Items.Count > previousCount && _navigationCancellation is not null)
+            DispatcherQueue.TryEnqueue(TryLoadMoreNearEnd);
     }
 
     private async void OnLoadMoreClick(object sender, RoutedEventArgs e)

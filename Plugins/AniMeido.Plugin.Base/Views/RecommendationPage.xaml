@@ -176,7 +176,7 @@
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                             <ListView.Footer>
-                                <StackPanel HorizontalAlignment="Center" Spacing="8" Margin="0,12,0,16">
+                                <StackPanel HorizontalAlignment="Center" Height="68" Spacing="8" Margin="0,12,0,16">
                                     <TextBlock x:Name="MoreStatusText" HorizontalAlignment="Center"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                     <Button x:Name="LoadMoreButton" Content="加载更多"
