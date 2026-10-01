@@ -8,19 +8,16 @@
     <Title>AI 工作台（实验性，暂不启用）</Title>
     <Version>0.2.7</Version>
     <PluginMinAppVersion>1.7.0</PluginMinAppVersion>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <UseWinUI>true</UseWinUI>
-    <Platforms>x64</Platforms>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <PluginPackageStage>$(BaseIntermediateOutputPath)plugin-package</PluginPackageStage>
     <PluginPackageOutput>$(MSBuildProjectDirectory)\..\..\artifacts\plugins\$(AssemblyName)-$(Version).animeido-plugin</PluginPackageOutput>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.8" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
   </ItemGroup>
 
   <ItemGroup>

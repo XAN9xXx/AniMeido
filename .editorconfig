@@ -17,12 +17,50 @@ indent_style = space
 indent_size = 4
 # 整个项目仅面向 Windows，无需平台兼容性检查
 dotnet_diagnostic.CA1416.severity = none
+# CA1031：不捕获通用异常类型。设为 warning；确需兜底的位置用 #pragma 局部抑制并写明原因
+dotnet_diagnostic.CA1031.severity = warning
+
+# ---- 代码风格约定 ----
+# 以下只记录现有代码中已占绝对多数的写法，级别一律为 suggestion：
+# 在 VS 中显示为建议，并被"格式化文档""代码清理"和新建文件模板采用，但不产生构建警告。
+# 要在构建中强制某条规则，把它单独改为 warning（Directory.Build.props 已开启 EnforceCodeStyleInBuild）。
+
+# 新文件使用文件范围命名空间（namespace X;）；现有块式命名空间文件在修改时可顺手转换
+csharp_style_namespace_declarations = file_scoped:suggestion
+# using 指令写在文件顶部、命名空间之外
+csharp_using_directive_placement = outside_namespace:suggestion
+
+# 私有常量与 private static readonly 字段：PascalCase
+dotnet_naming_rule.private_constants_should_be_pascal_case.symbols = private_constant_fields
+dotnet_naming_rule.private_constants_should_be_pascal_case.style = pascal_case
+dotnet_naming_rule.private_constants_should_be_pascal_case.severity = suggestion
+dotnet_naming_symbols.private_constant_fields.applicable_kinds = field
+dotnet_naming_symbols.private_constant_fields.applicable_accessibilities = private
+dotnet_naming_symbols.private_constant_fields.required_modifiers = const
+
+dotnet_naming_rule.private_static_readonly_should_be_pascal_case.symbols = private_static_readonly_fields
+dotnet_naming_rule.private_static_readonly_should_be_pascal_case.style = pascal_case
+dotnet_naming_rule.private_static_readonly_should_be_pascal_case.severity = suggestion
+dotnet_naming_symbols.private_static_readonly_fields.applicable_kinds = field
+dotnet_naming_symbols.private_static_readonly_fields.applicable_accessibilities = private
+dotnet_naming_symbols.private_static_readonly_fields.required_modifiers = static, readonly
+
+# 其他私有字段：_camelCase
+dotnet_naming_rule.private_fields_should_be_underscore_camel_case.symbols = private_fields
+dotnet_naming_rule.private_fields_should_be_underscore_camel_case.style = underscore_camel_case
+dotnet_naming_rule.private_fields_should_be_underscore_camel_case.severity = suggestion
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+
+dotnet_naming_style.pascal_case.capitalization = pascal_case
+dotnet_naming_style.underscore_camel_case.required_prefix = _
+dotnet_naming_style.underscore_camel_case.capitalization = camel_case
 
 [*.xaml]
 indent_style = space
 indent_size = 4
 
-[*.{csproj,xml,json,config}]
+[*.{csproj,props,targets,slnx,pubxml,xml,json,config,manifest}]
 indent_style = space
 indent_size = 2
 
@@ -30,8 +68,3 @@ indent_size = 2
 indent_style = space
 indent_size = 2
 trim_trailing_whitespace = false
-
-# CA1031: Do not catch general exception types — 设为 warning，必需兜底处局部 suppress
-# CA1031/CA1031 已经在 Directory.Build.props 中设为 warning
-[*.cs]
-dotnet_diagnostic.CA1031.severity = warning

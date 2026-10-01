@@ -2,19 +2,20 @@
   <Configurations>
     <Platform Name="x64" />
   </Configurations>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path="README.md" />
+  </Folder>
   <Folder Name="/Plugin Infrastructure/">
     <Project Path="AniMeido.PluginProtocol/AniMeido.PluginProtocol.csproj">
       <Platform Project="x64" />
     </Project>
-    <Project Path="AniMeido.PluginProtocol.Tests/AniMeido.PluginProtocol.Tests.csproj">
-      <Platform Project="x64" />
-    </Project>
     <Project Path="AniMeido.PluginHost/AniMeido.PluginHost.csproj">
-      <Platform Project="x64" />
-    </Project>
-  </Folder>
-  <Folder Name="/AniMeido.Tests/">
-    <Project Path="AniMeido.Tests/AniMeido.Tests.csproj">
       <Platform Project="x64" />
     </Project>
   </Folder>
@@ -26,6 +27,14 @@
       <Platform Project="x64" />
     </Project>
     <Project Path="Plugins/AniMeido.Plugin.AI/AniMeido.Plugin.AI.csproj">
+      <Platform Project="x64" />
+    </Project>
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="AniMeido.Tests/AniMeido.Tests.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="AniMeido.PluginProtocol.Tests/AniMeido.PluginProtocol.Tests.csproj">
       <Platform Project="x64" />
     </Project>
   </Folder>

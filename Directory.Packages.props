@@ -1,0 +1,50 @@
+<Project>
+  <!--
+    NuGet 中央包版本管理：所有包的版本只在这里登记，各 csproj 的 PackageReference 只写包名。
+    在 VS 中通过"管理解决方案的 NuGet 程序包"升级时，修改的也是这个文件。
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <!-- Windows App SDK 与 UI -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
+    <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
+    <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+  </ItemGroup>
+
+  <!--
+    Microsoft.Extensions：统一使用 10.0 LTS 的同一补丁版本。
+    App 进程（含 Base）与 PluginHost 进程使用同一版本；Serilog.Extensions.Logging 10.x 也要求 Logging ≥ 10.0。
+  -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
+  </ItemGroup>
+
+  <!-- 数据、日志与内容处理 -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.8" />
+    <PackageVersion Include="Serilog.Extensions.Logging" Version="10.0.0" />
+    <PackageVersion Include="Serilog.Sinks.Debug" Version="3.0.0" />
+    <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
+    <PackageVersion Include="Markdig" Version="1.3.2" />
+  </ItemGroup>
+
+  <!-- Player 插件 -->
+  <ItemGroup>
+    <PackageVersion Include="AngleSharp" Version="1.5.2" />
+    <PackageVersion Include="HtmlAgilityPack" Version="1.12.4" />
+    <PackageVersion Include="Jint" Version="4.13.0" />
+  </ItemGroup>
+
+  <!-- 测试 -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageVersion Include="xunit" Version="2.6.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.5.4" />
+  </ItemGroup>
+</Project>

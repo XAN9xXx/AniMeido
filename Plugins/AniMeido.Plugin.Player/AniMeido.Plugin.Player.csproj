@@ -8,21 +8,18 @@
     <Title>在线播放器</Title>
     <Version>0.4.6</Version>
     <PluginMinAppVersion>1.6.0</PluginMinAppVersion>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <UseWinUI>true</UseWinUI>
-    <Platforms>x64</Platforms>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <PluginPackageStage>$(BaseIntermediateOutputPath)plugin-package</PluginPackageStage>
     <PluginPackageOutput>$(MSBuildProjectDirectory)\..\..\artifacts\plugins\$(AssemblyName)-$(Version).animeido-plugin</PluginPackageOutput>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="AngleSharp" Version="1.5.2" />
-    <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
-    <PackageReference Include="Jint" Version="4.13.0" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
+    <PackageReference Include="AngleSharp" />
+    <PackageReference Include="HtmlAgilityPack" />
+    <PackageReference Include="Jint" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
   </ItemGroup>
 
   <ItemGroup>

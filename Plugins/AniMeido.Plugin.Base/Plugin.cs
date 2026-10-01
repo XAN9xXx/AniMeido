@@ -16,7 +16,9 @@ namespace AniMeido.Plugin.Base
 
         public string DisplayName => "基础插件";
 
-        public string Version => "2.1.2";
+        public string Version =>
+            typeof(BasePlugin).Assembly.GetName().Version?.ToString(3)
+            ?? throw new InvalidOperationException("BasePlugin 程序集缺少版本。");
 
         public bool IsRequired => true;
 

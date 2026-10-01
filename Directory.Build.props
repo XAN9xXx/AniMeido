@@ -1,9 +1,23 @@
 <Project>
-    <PropertyGroup>
-        <Nullable>enable</Nullable>
-        <ImplicitUsings>enable</ImplicitUsings>
-        <AnalysisLevel>latest</AnalysisLevel>
-        <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-        <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
-    </PropertyGroup>
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- 当前版本只支持 Windows x64：全部项目只构建 x64，在 VS 中新建的项目也会自动继承。 -->
+    <Platforms>x64</Platforms>
+    <!-- 命令行单独构建或测试某个项目且未指定平台时，也按 x64 构建（SDK 默认是 AnyCPU，会生成另一套 bin\Debug 产物）。 -->
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <!-- 让 .editorconfig 中的代码风格规则也在构建时检查；只有级别设为 warning/error 的规则才会出现在构建输出中。 -->
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <!--
+    AniMeido 产品版本。更新检查、设置页"当前版本"、插件兼容性检查（minAppVersion）和导出文件都读取 App 的程序集版本。
+    App 与必需的 Base 插件随同一个安装包发布，共用这个版本号；发版时只改这里。
+    这里不直接写 <Version>，以免连带改变 Contracts 等其他程序集的版本；Player、AI 等可单独分发的插件保留各自的版本号。
+  -->
+  <PropertyGroup>
+    <AniMeidoVersion>2.1.2</AniMeidoVersion>
+  </PropertyGroup>
 </Project>

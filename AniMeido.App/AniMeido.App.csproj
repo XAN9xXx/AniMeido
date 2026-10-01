@@ -1,20 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Version>2.1.2</Version>
+    <Version>$(AniMeidoVersion)</Version>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>AniMeido.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Platforms>x64</Platforms>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <PublishProfile>win-x64.pubxml</PublishProfile>
     <UseWinUI>true</UseWinUI>
     <WinUISDKReferences>false</WinUISDKReferences>
     <EnableMsixTooling>false</EnableMsixTooling>
     <WindowsPackageType>None</WindowsPackageType>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
   </PropertyGroup>
 
@@ -24,8 +22,10 @@
       <_Parameter1>AniMeido.Tests</_Parameter1>
     </AssemblyAttribute>
   </ItemGroup>
+
+  <!-- WinUI 包已把所有 .xaml 作为 Page 编译；它移出 None 的规则早于 SDK 默认项执行而失效，这里补上，让 XAML 只作为 Page 存在。 -->
   <ItemGroup>
-    <None Remove="Views\SettingPage.xaml" />
+    <None Remove="**\*.xaml" />
   </ItemGroup>
 
   <ItemGroup>
@@ -41,23 +41,15 @@
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
 
-  <!--
-    Defining the "Msix" ProjectCapability here allows the Single-project MSIX Packaging
-    Tools extension to be activated for this project even if the Windows App SDK Nuget
-    package has not yet been restored.
-  -->
-  <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
-    <ProjectCapability Include="Msix" />
-  </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.8" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
-    <PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
-    <PackageReference Include="Serilog.Sinks.Debug" Version="3.0.0" />
-    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.0" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <PackageReference Include="Serilog.Extensions.Logging" />
+    <PackageReference Include="Serilog.Sinks.Debug" />
+    <PackageReference Include="Serilog.Sinks.File" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\AniMeido.Contracts\AniMeido.Contracts.csproj" />
@@ -67,26 +59,6 @@
                       ReferenceOutputAssembly="false"
                       Private="false" />
   </ItemGroup>
-  <ItemGroup>
-    <Page Update="Views\SettingPage.xaml">
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-  </ItemGroup>
-  <ItemGroup>
-    <Folder Include="Properties\PublishProfiles\" />
-  </ItemGroup>
-  <PropertyGroup Label="Globals">
-    <WebView2DispatchAdapterNamespace>AniMeido.App</WebView2DispatchAdapterNamespace>
-  </PropertyGroup>
-
-  <!--
-    Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution
-    Explorer "Package and Publish" context menu entry to be enabled for this project even if
-    the Windows App SDK Nuget package has not yet been restored.
-  -->
-  <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
-    <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
-  </PropertyGroup>
 
   <!-- Publish Properties -->
   <PropertyGroup>
@@ -100,7 +72,6 @@
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
 
-  <!-- 动态加载的插件：复制构建产物到 Plugins\ 子目录（每加一个插件加一套 Include+Copy） -->
   <!-- BasePlugin 是编译期依赖，由 ProjectReference 自动输出到根目录，无需额外复制 -->
 
   <!-- 复制 App.pri 到 publish 目录 -->
@@ -108,25 +79,39 @@
     <Copy SourceFiles="$(OutDir)$(TargetName).pri" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
   </Target>
 
-  <Target Name="CopyPluginHostOutput" AfterTargets="Build">
-    <ItemGroup>
-      <PluginHostOutput Include="$(MSBuildProjectDirectory)\..\AniMeido.PluginHost\bin\$(Platform)\$(Configuration)\net8.0-windows10.0.19041.0\win-x64\**\*"
-                        Exclude="**\*.pdb" />
+  <!--
+    PluginHost 是独立进程：构建和发布后，把它的输出整体复制到 App 的 PluginHost\ 子目录。
+    输出位置由 PluginHost 项目自己报告（GetTargetPath），这里不再手写目标框架、RID 或目录结构，
+    以免 PluginHost 的输出位置变化后静默复制到旧文件或什么都不复制。
+  -->
+  <Target Name="ResolvePluginHostOutput">
+    <MSBuild Projects="..\AniMeido.PluginHost\AniMeido.PluginHost.csproj"
+             Targets="GetTargetPath"
+             BuildInParallel="$(BuildInParallel)">
+      <Output TaskParameter="TargetOutputs" ItemName="_PluginHostTargetPath" />
+    </MSBuild>
+    <PropertyGroup>
+      <_PluginHostOutputDir>@(_PluginHostTargetPath->'%(RootDir)%(Directory)')</_PluginHostOutputDir>
+    </PropertyGroup>
+    <ItemGroup Condition="Exists('@(_PluginHostTargetPath)')">
+      <PluginHostOutput Include="$(_PluginHostOutputDir)**\*"
+                        Exclude="$(_PluginHostOutputDir)**\*.pdb" />
     </ItemGroup>
-    <Copy SourceFiles="@(PluginHostOutput)"
-          DestinationFiles="@(PluginHostOutput->'$(OutDir)PluginHost\%(RecursiveDir)%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true"
-          Condition="'@(PluginHostOutput)' != ''" />
   </Target>
 
-  <Target Name="CopyPluginHostPublishOutput" AfterTargets="Publish">
-    <ItemGroup>
-      <PluginHostPublishOutput Include="$(MSBuildProjectDirectory)\..\AniMeido.PluginHost\bin\$(Platform)\$(Configuration)\net8.0-windows10.0.19041.0\win-x64\**\*"
-                               Exclude="**\*.pdb" />
-    </ItemGroup>
-    <Copy SourceFiles="@(PluginHostPublishOutput)"
-          DestinationFiles="@(PluginHostPublishOutput->'$(PublishDir)PluginHost\%(RecursiveDir)%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true"
-          Condition="'@(PluginHostPublishOutput)' != ''" />
+  <Target Name="CopyPluginHostOutput" AfterTargets="Build" DependsOnTargets="ResolvePluginHostOutput">
+    <Warning Condition="'@(PluginHostOutput)' == ''"
+             Text="未找到 PluginHost 构建产物（@(_PluginHostTargetPath)），可选插件将无法启动。请确认 AniMeido.PluginHost 已成功构建。" />
+    <Copy SourceFiles="@(PluginHostOutput)"
+          DestinationFiles="@(PluginHostOutput->'$(OutDir)PluginHost\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyPluginHostPublishOutput" AfterTargets="Publish" DependsOnTargets="ResolvePluginHostOutput">
+    <Error Condition="'@(PluginHostOutput)' == ''"
+           Text="未找到 PluginHost 构建产物（@(_PluginHostTargetPath)），发布已中止：缺少 PluginHost 的发布目录无法运行可选插件。" />
+    <Copy SourceFiles="@(PluginHostOutput)"
+          DestinationFiles="@(PluginHostOutput->'$(PublishDir)PluginHost\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
   </Target>
 </Project>

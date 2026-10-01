@@ -371,7 +371,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
-/AnimeAssist.App/scripts
 /AniMeido.App/scripts
 /.github/copilot-instructions.md
 
@@ -381,7 +380,8 @@ imagecache/
 *.csproj.lscache
 
 # PlayerPlugin native runtime is reproducibly downloaded for local/release builds.
-/Plugins/AnimeAssist.Plugin.Player/runtimes/win-x64/native/*.dll
 /Plugins/AniMeido.Plugin.Player/runtimes/win-x64/native/*.dll
-# Local tooling workspace
-/[Tt]ools/
+# 本地历史排查资料；Tools 下的打包脚本纳入版本控制
+/[Tt]ools/refactor/
+# 发布配置只含文件系统路径、不含凭据，纳入版本控制（安装器按其中的 PublishDir 取文件）
+!/AniMeido.App/Properties/PublishProfiles/win-x64.pubxml
