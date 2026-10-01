@@ -16,25 +16,8 @@ namespace AniMeido.Plugin.Base.Views
     {
         // 滚动位置可能带小数，判断是否到头时留一点容差，避免停在边界附近仍显示渐隐。
         private const double EdgeTolerance = 2;
-        // 时光机每行的最小与最大高度；能放下几行后，剩余高度平分给这些行。
-        private const double PickHeight = 64;
-        private const double PickMaxHeight = 96;
         // 封面宽高比，与原来 38×52 的缩略图一致。
         private const double PickCoverAspect = 38.0 / 52;
-        private const double PickRowSpacing = 8;
-        private const double PickMinWidth = 260;
-        private const double PickColumnSpacing = 10;
-        // 时光机面板除列表外占用的高度：上下内边距、边框、标题行（含年份按钮）与行间距。
-        private const double DiscoverChromeHeight = 14 + 14 + 2 + 28 + 10;
-        // 发现面板左右内边距与边框。
-        private const double DiscoverChromeWidth = 16 + 16 + 2;
-        // 今日一抽面板宽度（含右侧间距）。
-        private const double DailyPickWidth = 480 + 14;
-        // 今日一抽除封面外占用的高度：上下内边距、边框、标题行与行间距。
-        private const double DailyPickChromeHeight = 14 + 14 + 2 + 28 + 10;
-        // 封面最大 120×168；可用高度低于最小值时整块隐藏。
-        private const double DailyPickCoverMaxHeight = 168;
-        private const double DailyPickCoverMinHeight = 96;
         private const double DailyPickCoverAspect = 120.0 / 168;
         // 右侧文字各部分的大致高度，用来决定收起哪些内容。
         private const double DailyPickLineHeight = 19;
@@ -51,6 +34,7 @@ namespace AniMeido.Plugin.Base.Views
         private readonly HashSet<FrameworkElement> _hoveredPickRows = [];
         private IDisposable? _dropHostRegistration;
         private double _wheelTarget = double.NaN;
+        private bool _applyingLowerLayout;
 
         public CurrentSeasonPage(IAnimeDataSource dataSource, DragDropService dragDropService, TrackingService trackingService, IPluginNavigator pluginNavigator)
         {
@@ -225,63 +209,99 @@ namespace AniMeido.Plugin.Base.Views
         // ======== 布局 ========
 
         /// <summary>
-        /// 按天：番剧区高度贴合一行卡片，剩余高度给本季发现。
-        /// 搜索或只看“我的”：番剧区占满剩余高度显示结果网格，本季发现隐藏。
+        /// 按天：先紧凑显示下方两块，再由正文滚动保留它们。
+        /// 搜索或只看“我的”：只在结果网格内滚动，避免内外两层纵向滚动。
         /// </summary>
         private void ApplyFilterLayout()
         {
             var filtering = ViewModel.IsFiltering;
-            RootGrid.RowDefinitions[2].Height = filtering
+            CalendarBodyGrid.RowDefinitions[0].Height = filtering
                 ? new GridLength(1, GridUnitType.Star)
                 : GridLength.Auto;
-            RootGrid.RowDefinitions[3].Height = filtering
+            CalendarBodyGrid.RowDefinitions[1].Height = filtering
                 ? GridLength.Auto
                 : new GridLength(1, GridUnitType.Star);
             DiscoverHost.Visibility = filtering ? Visibility.Collapsed : Visibility.Visible;
             ShelfHost.Visibility = filtering ? Visibility.Collapsed : Visibility.Visible;
             ResultsScroller.Visibility = filtering ? Visibility.Visible : Visibility.Collapsed;
+            BodyScroller.VerticalScrollMode = filtering ? ScrollMode.Disabled : ScrollMode.Enabled;
+            BodyScroller.VerticalScrollBarVisibility = filtering ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto;
+            BodyScroller.ChangeView(null, 0, null, disableAnimation: true);
+            ApplyLowerLayout();
             UpdateScopeButtons();
         }
+
+        private void OnBodyViewportSizeChanged(object sender, SizeChangedEventArgs e)
+            => ApplyLowerLayout();
+
+        private void OnMainPanelSizeChanged(object sender, SizeChangedEventArgs e)
+            => ApplyLowerLayout();
 
         private void OnDiscoverHostSizeChanged(object sender, SizeChangedEventArgs e)
             => ApplyLowerLayout();
 
         /// <summary>
-        /// 下方区域：高度能完整放下封面、且宽度还能留出一列发现行时显示今日一抽，
-        /// 其余宽度按能放下的列数（最多三列）排本季发现。
+        /// 下方区域始终保留最少内容；窄时上下排列，矮时增加正文高度以便滚动访问。
+        /// 显式约束正文高度，避免滚动容器的无限测量让星号行与列表容量互相撑大。
         /// </summary>
         private void ApplyLowerLayout()
         {
-            var width = DiscoverHost.ActualWidth;
-            var height = DiscoverHost.ActualHeight;
-            var coverHeight = Math.Min(DailyPickCoverMaxHeight, height - DailyPickChromeHeight);
-            var showDailyPick = ViewModel.HasDailyPick
-                && coverHeight >= DailyPickCoverMinHeight
-                && width - DailyPickWidth >= PickMinWidth + DiscoverChromeWidth;
-            DailyPickPanel.Visibility = showDailyPick ? Visibility.Visible : Visibility.Collapsed;
-            if (showDailyPick)
-                FitDailyPick(coverHeight);
+            if (_applyingLowerLayout || BodyScroller.ActualHeight <= 0 || CalendarBodyGrid.ActualWidth <= 0)
+                return;
 
-            var discoverWidth = showDailyPick ? width - DailyPickWidth : width;
-            var rows = (int)Math.Floor(
-                (height - DiscoverChromeHeight + PickRowSpacing)
-                / (PickHeight + PickRowSpacing));
-            var columns = Math.Clamp(
-                (int)Math.Floor(
-                    (discoverWidth - DiscoverChromeWidth + PickColumnSpacing)
-                    / (PickMinWidth + PickColumnSpacing)),
-                1,
-                3);
-            ViewModel.SetDiscoverCapacity(Math.Max(0, rows) * columns);
-            // 连一行都放不下时整块隐藏，不出现被截断的行。
-            DiscoverPanel.Visibility = rows > 0 ? Visibility.Visible : Visibility.Collapsed;
-            if (rows > 0)
+            _applyingLowerLayout = true;
+            try
             {
-                // 剩余高度平分给能放下的行，避免下方空出一截；行高不超过上限。
-                var listHeight = height - DiscoverChromeHeight;
+                var viewportHeight = BodyScroller.ActualHeight;
+                if (ViewModel.IsFiltering)
+                {
+                    CalendarBodyGrid.Height = viewportHeight;
+                    ViewModel.SetDiscoverCapacity(0);
+                    return;
+                }
+
+                var mainHeight = MainPanel.ActualHeight + MainPanel.Margin.Top + MainPanel.Margin.Bottom;
+                var lowerMargin = DiscoverHost.Margin.Top + DiscoverHost.Margin.Bottom;
+                var layout = CalendarLowerLayout.Calculate(CalendarBodyGrid.ActualWidth,
+                    viewportHeight - mainHeight - lowerMargin, ViewModel.HasDailyPick);
+                CalendarBodyGrid.Height = Math.Max(viewportHeight, mainHeight + lowerMargin + layout.Height);
+                DiscoverHost.Height = layout.Height;
+                DiscoverHost.RowDefinitions[0].Height = layout.StackPanels ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
+                DiscoverHost.RowDefinitions[1].Height = layout.StackPanels ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+                DiscoverHost.ColumnDefinitions[0].Width = layout.StackPanels ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+                DiscoverHost.ColumnDefinitions[1].Width = layout.StackPanels ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+                DiscoverHost.RowSpacing = layout.StackPanels ? CalendarLowerLayout.PanelSpacing : 0;
+
+                // 只有确实没有候选作品时才不显示今日一抽，不再按窗口尺寸隐藏。
+                DailyPickPanel.Visibility = ViewModel.HasDailyPick ? Visibility.Visible : Visibility.Collapsed;
+                DailyPickPanel.Width = layout.StackPanels ? double.NaN : CalendarLowerLayout.DailyPickWidth;
+                DailyPickPanel.Height = layout.DailyPickHeight;
+                DailyPickPanel.Margin = layout.StackPanels ? new Thickness(0) : new Thickness(0, 0, CalendarLowerLayout.PanelSpacing, 0);
+                if (ViewModel.HasDailyPick)
+                    FitDailyPick(layout.DailyPickHeight - CalendarLowerLayout.DailyPickChromeHeight);
+
+                Grid.SetRow(DiscoverPanel, layout.StackPanels ? 1 : 0);
+                Grid.SetColumn(DiscoverPanel, layout.StackPanels ? 0 : 1);
+                DiscoverPanel.Height = layout.DiscoverHeight;
+                Grid.SetRow(TimeMachineHeaderActions, layout.CompactTimeMachineHeader ? 1 : 0);
+                Grid.SetColumn(TimeMachineHeaderActions, layout.CompactTimeMachineHeader ? 0 : 1);
+                Grid.SetColumnSpan(TimeMachineHeaderActions, layout.CompactTimeMachineHeader ? 2 : 1);
+                TimeMachineHeader.RowSpacing = layout.CompactTimeMachineHeader ? 8 : 0;
+                TimeMachineHeaderActions.HorizontalAlignment = layout.CompactTimeMachineHeader ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+                TimeMachineHeaderActions.Orientation = layout.StackTimeMachineActions ? Orientation.Vertical : Orientation.Horizontal;
+                TimeMachineHeaderActions.Spacing = layout.StackTimeMachineActions ? 4 : 12;
+
+                ViewModel.SetDiscoverCapacity(layout.Rows * layout.Columns);
+                TimeMachineLayout.MinItemWidth = Math.Min(CalendarLowerLayout.PickMinWidth,
+                    Math.Max(0, layout.DiscoverWidth - CalendarLowerLayout.DiscoverChromeWidth));
+                var listHeight = layout.DiscoverHeight - layout.DiscoverChromeHeight;
                 TimeMachineLayout.MinItemHeight = Math.Min(
-                    PickMaxHeight,
-                    Math.Floor((listHeight - PickRowSpacing * (rows - 1)) / rows));
+                    CalendarLowerLayout.PickMaxHeight,
+                    Math.Floor((listHeight - CalendarLowerLayout.PickRowSpacing * (layout.Rows - 1)) / layout.Rows));
+            }
+            finally
+            {
+                _applyingLowerLayout = false;
             }
         }
 

@@ -216,11 +216,11 @@
         </ResourceDictionary>
     </Page.Resources>
 
-    <!-- 页面整体不滚动：番剧区按天时贴合一行卡片，剩余高度交给“本季发现”；搜索时番剧区占满剩余高度 -->
+    <!-- 页头与覆盖层固定；正文先紧凑显示下方两块，高度不足时允许纵向滚动 -->
     <Grid x:Name="RootGrid"
           AllowDrop="True"
           Padding="24,20,24,24"
-          RowDefinitions="Auto,Auto,Auto,*"
+          RowDefinitions="Auto,*"
           Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
           Loaded="OnPageLoaded">
 
@@ -299,325 +299,364 @@
                      Visibility="{x:Bind ErrorInfoBar.IsOpen, Mode=OneWay}"/>
         </Grid>
 
-        <!-- 番剧区 -->
-        <Border x:Name="MainPanel"
-                Grid.Row="2"
-                Style="{StaticResource CalendarPanelStyle}"
-                Padding="16,14,16,12"
-                Margin="0,14,0,0">
-            <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
-                <!-- 周一至周日加“其他”，八格等分，任何宽度都完整放下 -->
-                <ItemsRepeater ItemsSource="{x:Bind ViewModel.Days}"
-                               ItemTemplate="{StaticResource DayTemplate}">
-                    <ItemsRepeater.Layout>
-                        <UniformGridLayout MaximumRowsOrColumns="8"
-                                           MinItemWidth="48"
-                                           MinItemHeight="64"
-                                           MinColumnSpacing="8"
-                                           ItemsStretch="Fill"/>
-                    </ItemsRepeater.Layout>
-                </ItemsRepeater>
-
-                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" Padding="2,0,0,0">
-                    <TextBlock Text="{x:Bind ViewModel.ListTitle, Mode=OneWay}"
-                               FontSize="17"
-                               FontWeight="SemiBold"/>
-                    <TextBlock Text="{x:Bind ViewModel.ListCaption, Mode=OneWay}"
-                               FontSize="13"
-                               VerticalAlignment="Bottom"
-                               Margin="0,0,0,2"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                </StackPanel>
-
-                <Grid Grid.Row="2">
-                    <!-- 按天：横向一行，滚轮横向滚动，不显示滚动条，只在还能滚动的一侧显示渐隐 -->
-                    <Grid x:Name="ShelfHost">
-                        <ScrollViewer x:Name="ShelfScroller"
-                                      HorizontalScrollMode="Enabled"
-                                      HorizontalScrollBarVisibility="Hidden"
-                                      VerticalScrollMode="Disabled"
-                                      VerticalScrollBarVisibility="Disabled"
-                                      ViewChanged="OnShelfViewChanged"
-                                      SizeChanged="OnShelfSizeChanged"
-                                      PointerWheelChanged="OnShelfPointerWheelChanged">
-                            <ItemsRepeater x:Name="ShelfRepeater"
-                                           ItemsSource="{x:Bind ViewModel.VisibleEntries, Mode=OneWay}"
-                                           ItemTemplate="{StaticResource ShelfCardTemplate}"
-                                           SizeChanged="OnShelfSizeChanged">
-                                <ItemsRepeater.Layout>
-                                    <StackLayout Orientation="Horizontal"/>
-                                </ItemsRepeater.Layout>
-                            </ItemsRepeater>
-                        </ScrollViewer>
-                        <Rectangle x:Name="ShelfStartFade"
-                                   Width="56"
-                                   HorizontalAlignment="Left"
-                                   IsHitTestVisible="False"
-                                   Opacity="0">
-                            <Rectangle.Fill>
-                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                                    <GradientStop Color="{ThemeResource CalendarPanelColor}" Offset="0"/>
-                                    <GradientStop Color="{ThemeResource CalendarPanelClearColor}" Offset="1"/>
-                                </LinearGradientBrush>
-                            </Rectangle.Fill>
-                        </Rectangle>
-                        <Rectangle x:Name="ShelfEndFade"
-                                   Width="56"
-                                   HorizontalAlignment="Right"
-                                   IsHitTestVisible="False"
-                                   Opacity="0">
-                            <Rectangle.Fill>
-                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                                    <GradientStop Color="{ThemeResource CalendarPanelClearColor}" Offset="0"/>
-                                    <GradientStop Color="{ThemeResource CalendarPanelColor}" Offset="1"/>
-                                </LinearGradientBrush>
-                            </Rectangle.Fill>
-                        </Rectangle>
-                    </Grid>
-
-                    <!-- 搜索或“我的”：跨星期的结果改为网格，只有这里竖向滚动 -->
-                    <ScrollViewer x:Name="ResultsScroller"
-                                  Visibility="Collapsed"
-                                  HorizontalScrollMode="Disabled"
-                                  HorizontalScrollBarVisibility="Disabled"
-                                  VerticalScrollBarVisibility="Hidden">
-                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.VisibleEntries, Mode=OneWay}"
-                                       ItemTemplate="{StaticResource ResultCardTemplate}">
+        <ScrollViewer x:Name="BodyScroller"
+                      Grid.Row="1"
+                      HorizontalScrollMode="Disabled"
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollMode="Enabled"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalContentAlignment="Stretch"
+                      VerticalContentAlignment="Top"
+                      SizeChanged="OnBodyViewportSizeChanged">
+            <Grid x:Name="CalendarBodyGrid" RowDefinitions="Auto,*">
+                <!-- 番剧区 -->
+                <Border x:Name="MainPanel"
+                        Grid.Row="0"
+                        SizeChanged="OnMainPanelSizeChanged"
+                        Style="{StaticResource CalendarPanelStyle}"
+                        Padding="16,14,16,12"
+                        Margin="0,14,0,0">
+                    <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
+                        <!-- 周一至周日加“其他”，八格等分，任何宽度都完整放下 -->
+                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.Days}"
+                                       ItemTemplate="{StaticResource DayTemplate}">
                             <ItemsRepeater.Layout>
-                                <UniformGridLayout MinItemWidth="162"
-                                                   MinItemHeight="286"
-                                                   ItemsJustification="Start"/>
+                                <UniformGridLayout MaximumRowsOrColumns="8"
+                                                   MinItemWidth="48"
+                                                   MinItemHeight="64"
+                                                   MinColumnSpacing="8"
+                                                   ItemsStretch="Fill"/>
                             </ItemsRepeater.Layout>
                         </ItemsRepeater>
-                    </ScrollViewer>
 
-                    <TextBlock Text="{x:Bind ViewModel.EmptyText, Mode=OneWay}"
-                               Visibility="{x:Bind ViewModel.HasNoVisibleEntries, Mode=OneWay}"
-                               Margin="2,8,0,16"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                </Grid>
-            </Grid>
-        </Border>
-
-        <!-- 下方：左边今日一抽（放不下封面时隐藏），右边本季发现（只显示能完整放下的行） -->
-        <Grid x:Name="DiscoverHost"
-              Grid.Row="3"
-              Margin="0,14,0,0"
-              ColumnDefinitions="Auto,*"
-              SizeChanged="OnDiscoverHostSizeChanged">
-            <Border x:Name="DailyPickPanel"
-                    Width="480"
-                    Margin="0,0,14,0"
-                    Style="{StaticResource CalendarPanelStyle}"
-                    Padding="16,14"
-                    Visibility="Collapsed">
-                <Grid RowDefinitions="Auto,*" RowSpacing="10">
-                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12" Padding="2,0,0,0">
-                        <TextBlock Text="今日一抽" FontSize="17" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Column="1"
-                                   Text="你还没标记的本季作品"
-                                   FontSize="13"
-                                   VerticalAlignment="Bottom"
-                                   Margin="0,0,0,2"
-                                   MaxLines="1"
-                                   TextTrimming="CharacterEllipsis"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        <Button Grid.Column="2"
-                                Content="换一个"
-                                Padding="10,2"
-                                FontSize="12"
-                                VerticalAlignment="Center"
-                                Command="{x:Bind ViewModel.NextDailyPickCommand}"/>
-                    </Grid>
-                    <Grid Grid.Row="1"
-                          ColumnDefinitions="Auto,*"
-                          ColumnSpacing="14"
-                          VerticalAlignment="Top">
-                        <!-- 封面尺寸由 code-behind 按面板高度调整，保持 5:7 -->
-                        <Button x:Name="DailyPickCoverButton"
-                                Width="120"
-                                Height="168"
-                                Padding="0"
-                                VerticalAlignment="Top"
-                                CornerRadius="8"
-                                BorderThickness="0"
-                                Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}"
-                                AutomationProperties.Name="打开今日一抽的详情"
-                                Click="OnDailyPickOpenClick">
-                            <Grid>
-                                <Image x:Name="DailyPickCover" Stretch="UniformToFill"/>
-                                <Border HorizontalAlignment="Right"
-                                        VerticalAlignment="Bottom"
-                                        Padding="6,2"
-                                        CornerRadius="8,0,0,0"
-                                        Background="{ThemeResource SystemAccentColor}"
-                                        Visibility="{x:Bind ViewModel.HasDailyPickScore, Mode=OneWay}">
-                                    <TextBlock Text="{x:Bind ViewModel.DailyPickScoreText, Mode=OneWay}"
-                                               FontSize="12"
-                                               FontWeight="Bold"
-                                               Foreground="{ThemeResource AniMeidoBadgeTextBrush}"/>
-                                </Border>
-                            </Grid>
-                        </Button>
-                        <!-- 右侧与封面等高：追番 / 关注贴底，简介占满中间剩余空间，能放几行放几行 -->
-                        <Grid x:Name="DailyPickText"
-                              Grid.Column="1"
-                              RowDefinitions="Auto,Auto,Auto,*,Auto"
-                              RowSpacing="6">
-                            <!-- 标题只作展示；打开详情由左侧封面负责，不再做成蓝字链接 -->
-                            <TextBlock x:Name="DailyPickTitle"
-                                       Text="{x:Bind ViewModel.DailyPick.Anime.Title, Mode=OneWay, FallbackValue=''}"
-                                       FontSize="16"
-                                       FontWeight="SemiBold"
-                                       MaxLines="2"
-                                       TextWrapping="Wrap"
-                                       TextTrimming="CharacterEllipsis"/>
-                            <TextBlock Grid.Row="1"
-                                       Text="{x:Bind ViewModel.DailyPickMeta, Mode=OneWay}"
-                                       FontSize="12"
-                                       TextTrimming="CharacterEllipsis"
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" Padding="2,0,0,0">
+                            <TextBlock Text="{x:Bind ViewModel.ListTitle, Mode=OneWay}"
+                                       FontSize="17"
+                                       FontWeight="SemiBold"/>
+                            <TextBlock Text="{x:Bind ViewModel.ListCaption, Mode=OneWay}"
+                                       FontSize="13"
+                                       VerticalAlignment="Bottom"
+                                       Margin="0,0,0,2"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <!-- 高度不够时由 code-behind 收起标签 -->
-                            <ItemsRepeater x:Name="DailyPickTagsHost"
-                                           Grid.Row="2"
-                                           ItemsSource="{x:Bind ViewModel.DailyPickTags, Mode=OneWay}">
-                                <ItemsRepeater.Layout>
-                                    <StackLayout Orientation="Horizontal" Spacing="4"/>
-                                </ItemsRepeater.Layout>
-                                <ItemsRepeater.ItemTemplate>
-                                    <DataTemplate x:DataType="x:String">
-                                        <Border Padding="8,0"
-                                                CornerRadius="9"
-                                                Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
-                                            <TextBlock Text="{x:Bind}"
-                                                       FontSize="12"
-                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsRepeater.ItemTemplate>
-                            </ItemsRepeater>
-                            <!-- 行数按这一格的实际高度计算，最后一行放不下时才加省略号 -->
-                            <Grid x:Name="DailyPickDescriptionHost"
-                                  Grid.Row="3"
-                                  SizeChanged="OnDailyPickDescriptionHostSizeChanged">
-                                <TextBlock x:Name="DailyPickDescription"
-                                           Text="{x:Bind ViewModel.DailyPickDescription, Mode=OneWay}"
-                                           Visibility="{x:Bind ViewModel.HasDailyPickDescription, Mode=OneWay}"
-                                           VerticalAlignment="Top"
-                                           FontSize="13"
-                                           LineHeight="19"
-                                           LineStackingStrategy="BlockLineHeight"
-                                           MaxLines="1"
-                                           TextWrapping="Wrap"
-                                           TextTrimming="CharacterEllipsis"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+
+                        <Grid Grid.Row="2">
+                            <!-- 按天：横向一行，滚轮横向滚动，不显示滚动条，只在还能滚动的一侧显示渐隐 -->
+                            <Grid x:Name="ShelfHost">
+                                <ScrollViewer x:Name="ShelfScroller"
+                                              HorizontalScrollMode="Enabled"
+                                              HorizontalScrollBarVisibility="Hidden"
+                                              VerticalScrollMode="Disabled"
+                                              VerticalScrollBarVisibility="Disabled"
+                                              ViewChanged="OnShelfViewChanged"
+                                              SizeChanged="OnShelfSizeChanged"
+                                              PointerWheelChanged="OnShelfPointerWheelChanged">
+                                    <ItemsRepeater x:Name="ShelfRepeater"
+                                                   ItemsSource="{x:Bind ViewModel.VisibleEntries, Mode=OneWay}"
+                                                   ItemTemplate="{StaticResource ShelfCardTemplate}"
+                                                   SizeChanged="OnShelfSizeChanged">
+                                        <ItemsRepeater.Layout>
+                                            <StackLayout Orientation="Horizontal"/>
+                                        </ItemsRepeater.Layout>
+                                    </ItemsRepeater>
+                                </ScrollViewer>
+                                <Rectangle x:Name="ShelfStartFade"
+                                           Width="56"
+                                           HorizontalAlignment="Left"
+                                           IsHitTestVisible="False"
+                                           Opacity="0">
+                                    <Rectangle.Fill>
+                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                            <GradientStop Color="{ThemeResource CalendarPanelColor}" Offset="0"/>
+                                            <GradientStop Color="{ThemeResource CalendarPanelClearColor}" Offset="1"/>
+                                        </LinearGradientBrush>
+                                    </Rectangle.Fill>
+                                </Rectangle>
+                                <Rectangle x:Name="ShelfEndFade"
+                                           Width="56"
+                                           HorizontalAlignment="Right"
+                                           IsHitTestVisible="False"
+                                           Opacity="0">
+                                    <Rectangle.Fill>
+                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                            <GradientStop Color="{ThemeResource CalendarPanelClearColor}" Offset="0"/>
+                                            <GradientStop Color="{ThemeResource CalendarPanelColor}" Offset="1"/>
+                                        </LinearGradientBrush>
+                                    </Rectangle.Fill>
+                                </Rectangle>
                             </Grid>
-                            <StackPanel Grid.Row="4"
-                                        Orientation="Horizontal"
-                                        Spacing="6"
-                                        Opacity="{x:Bind ViewModel.DailyPickActionOpacity, Mode=OneWay}">
-                                <Button x:Name="DailyPickWatchButton"
-                                        Content="{x:Bind ViewModel.DailyPickWatchLabel, Mode=OneWay}"
-                                        Style="{StaticResource AccentButtonStyle}"
-                                        AutomationProperties.Name="切换追番状态"
-                                        Padding="12,3"
-                                        FontSize="13"
-                                        Click="OnDailyPickWatchClick"/>
-                                <Button Content="{x:Bind ViewModel.DailyPickFollowLabel, Mode=OneWay}"
-                                        AutomationProperties.Name="切换关注状态"
-                                        Padding="12,3"
-                                        FontSize="13"
-                                        Click="OnDailyPickFollowClick"/>
-                            </StackPanel>
+
+                            <!-- 搜索或“我的”：跨星期的结果改为网格，此时关闭正文的外层滚动 -->
+                            <ScrollViewer x:Name="ResultsScroller"
+                                          Visibility="Collapsed"
+                                          HorizontalScrollMode="Disabled"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          VerticalScrollBarVisibility="Hidden">
+                                <ItemsRepeater ItemsSource="{x:Bind ViewModel.VisibleEntries, Mode=OneWay}"
+                                               ItemTemplate="{StaticResource ResultCardTemplate}">
+                                    <ItemsRepeater.Layout>
+                                        <UniformGridLayout MinItemWidth="162"
+                                                           MinItemHeight="286"
+                                                           ItemsJustification="Start"/>
+                                    </ItemsRepeater.Layout>
+                                </ItemsRepeater>
+                            </ScrollViewer>
+
+                            <TextBlock Text="{x:Bind ViewModel.EmptyText, Mode=OneWay}"
+                                       Visibility="{x:Bind ViewModel.HasNoVisibleEntries, Mode=OneWay}"
+                                       Margin="2,8,0,16"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </Grid>
                     </Grid>
-                </Grid>
-            </Border>
+                </Border>
 
-            <!-- 番剧时光机：每次打开从往年同一季随机翻出几部，已标记的保留并显示状态 -->
-            <Border x:Name="DiscoverPanel"
-                    Grid.Column="1"
-                    Style="{StaticResource CalendarPanelStyle}"
-                    Padding="16,14"
-                    Visibility="Collapsed">
-                <Grid RowDefinitions="Auto,*" RowSpacing="10">
-                    <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="12" Padding="2,0,0,0">
-                        <TextBlock Text="番剧时光机" FontSize="17" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Column="1"
-                                   Text="{x:Bind ViewModel.TimeMachineCaption, Mode=OneWay}"
-                                   FontSize="13"
-                                   VerticalAlignment="Bottom"
-                                   Margin="0,0,0,2"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        <StackPanel x:Name="TimeMachineYearButtons"
-                                    Grid.Column="2"
-                                    Orientation="Horizontal"
-                                    Spacing="4"
-                                    VerticalAlignment="Center">
-                            <ToggleButton Content="5 年前"
-                                          Tag="5"
-                                          Padding="8,1"
-                                          FontSize="12"
-                                          MinWidth="0"
-                                          Click="OnTimeMachineYearClick"/>
-                            <ToggleButton Content="10 年前"
-                                          Tag="10"
-                                          Padding="8,1"
-                                          FontSize="12"
-                                          MinWidth="0"
-                                          IsChecked="True"
-                                          Click="OnTimeMachineYearClick"/>
-                            <ToggleButton Content="20 年前"
-                                          Tag="20"
-                                          Padding="8,1"
-                                          FontSize="12"
-                                          MinWidth="0"
-                                          Click="OnTimeMachineYearClick"/>
-                        </StackPanel>
-                        <Button Grid.Column="4"
-                                Content="查看这一季全部"
-                                Style="{StaticResource AniMeidoNavigateButtonStyle}"
-                                VerticalAlignment="Center"
-                                Click="OnTimeMachineOpenSeasonClick"/>
-                    </Grid>
-                    <ItemsRepeater Grid.Row="1"
-                                   VerticalAlignment="Top"
-                                   ItemsSource="{x:Bind ViewModel.TimeMachinePicks, Mode=OneWay}"
-                                   ItemTemplate="{StaticResource TimeMachineRowTemplate}">
-                        <ItemsRepeater.Layout>
-                            <!-- 行高由 code-behind 按剩余高度平分 -->
-                            <UniformGridLayout x:Name="TimeMachineLayout"
-                                               MaximumRowsOrColumns="3"
-                                               MinItemWidth="260"
-                                               MinItemHeight="64"
-                                               MinColumnSpacing="10"
-                                               MinRowSpacing="8"
-                                               ItemsStretch="Fill"/>
-                        </ItemsRepeater.Layout>
-                    </ItemsRepeater>
-                    <!-- 加载中、失败或没有作品时的说明 -->
-                    <StackPanel Grid.Row="1"
-                                Orientation="Horizontal"
-                                Spacing="12"
-                                Padding="2,4,0,0"
-                                VerticalAlignment="Top"
-                                Visibility="{x:Bind ViewModel.HasTimeMachineStatusText, Mode=OneWay}">
-                        <TextBlock Text="{x:Bind ViewModel.TimeMachineStatusText, Mode=OneWay}"
-                                   VerticalAlignment="Center"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        <Button Content="重试"
-                                Padding="10,2"
-                                FontSize="12"
-                                Visibility="{x:Bind ViewModel.IsTimeMachineFailed, Mode=OneWay}"
-                                Command="{x:Bind ViewModel.RetryTimeMachineCommand}"/>
-                    </StackPanel>
+                <!-- 下方：并排或上下排列，不因尺寸不足隐藏；最少内容由正文滚动保留 -->
+                <Grid x:Name="DiscoverHost"
+                      Grid.Row="1"
+                      Margin="0,14,0,0"
+                      RowDefinitions="*,0"
+                      ColumnDefinitions="Auto,*"
+                      SizeChanged="OnDiscoverHostSizeChanged">
+                    <Border x:Name="DailyPickPanel"
+                            Width="480"
+                            Margin="0,0,14,0"
+                            Style="{StaticResource CalendarPanelStyle}"
+                            Padding="16,14"
+                            VerticalAlignment="Top"
+                            Visibility="Collapsed">
+                        <Grid RowDefinitions="Auto,*" RowSpacing="10">
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12" Padding="2,0,0,0">
+                                <TextBlock Text="今日一抽" FontSize="17" FontWeight="SemiBold"/>
+                                <TextBlock Grid.Column="1"
+                                           Text="你还没标记的本季作品"
+                                           FontSize="13"
+                                           VerticalAlignment="Bottom"
+                                           Margin="0,0,0,2"
+                                           MaxLines="1"
+                                           TextTrimming="CharacterEllipsis"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <Button Grid.Column="2"
+                                        Content="换一个"
+                                        Height="28"
+                                        MinHeight="0"
+                                        Padding="10,2"
+                                        FontSize="12"
+                                        VerticalAlignment="Center"
+                                        Command="{x:Bind ViewModel.NextDailyPickCommand}"/>
+                            </Grid>
+                            <Grid Grid.Row="1"
+                                  ColumnDefinitions="Auto,*"
+                                  ColumnSpacing="14"
+                                  VerticalAlignment="Top">
+                                <!-- 封面尺寸由 code-behind 按面板高度调整，保持 5:7 -->
+                                <Button x:Name="DailyPickCoverButton"
+                                        Width="120"
+                                        Height="168"
+                                        Padding="0"
+                                        VerticalAlignment="Top"
+                                        CornerRadius="8"
+                                        BorderThickness="0"
+                                        Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}"
+                                        AutomationProperties.Name="打开今日一抽的详情"
+                                        Click="OnDailyPickOpenClick">
+                                    <Grid>
+                                        <Image x:Name="DailyPickCover" Stretch="UniformToFill"/>
+                                        <Border HorizontalAlignment="Right"
+                                                VerticalAlignment="Bottom"
+                                                Padding="6,2"
+                                                CornerRadius="8,0,0,0"
+                                                Background="{ThemeResource SystemAccentColor}"
+                                                Visibility="{x:Bind ViewModel.HasDailyPickScore, Mode=OneWay}">
+                                            <TextBlock Text="{x:Bind ViewModel.DailyPickScoreText, Mode=OneWay}"
+                                                       FontSize="12"
+                                                       FontWeight="Bold"
+                                                       Foreground="{ThemeResource AniMeidoBadgeTextBrush}"/>
+                                        </Border>
+                                    </Grid>
+                                </Button>
+                                <!-- 右侧与封面等高：追番 / 关注贴底，简介占满中间剩余空间，能放几行放几行 -->
+                                <Grid x:Name="DailyPickText"
+                                      Grid.Column="1"
+                                      RowDefinitions="Auto,Auto,Auto,*,Auto"
+                                      RowSpacing="6">
+                                    <!-- 标题只作展示；打开详情由左侧封面负责，不再做成蓝字链接 -->
+                                    <TextBlock x:Name="DailyPickTitle"
+                                               Text="{x:Bind ViewModel.DailyPick.Anime.Title, Mode=OneWay, FallbackValue=''}"
+                                               FontSize="16"
+                                               FontWeight="SemiBold"
+                                               MaxLines="2"
+                                               TextWrapping="Wrap"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Row="1"
+                                               Text="{x:Bind ViewModel.DailyPickMeta, Mode=OneWay}"
+                                               FontSize="12"
+                                               TextTrimming="CharacterEllipsis"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <!-- 高度不够时由 code-behind 收起标签 -->
+                                    <ItemsRepeater x:Name="DailyPickTagsHost"
+                                                   Grid.Row="2"
+                                                   ItemsSource="{x:Bind ViewModel.DailyPickTags, Mode=OneWay}">
+                                        <ItemsRepeater.Layout>
+                                            <StackLayout Orientation="Horizontal" Spacing="4"/>
+                                        </ItemsRepeater.Layout>
+                                        <ItemsRepeater.ItemTemplate>
+                                            <DataTemplate x:DataType="x:String">
+                                                <Border Padding="8,0"
+                                                        CornerRadius="9"
+                                                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                                    <TextBlock Text="{x:Bind}"
+                                                               FontSize="12"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsRepeater.ItemTemplate>
+                                    </ItemsRepeater>
+                                    <!-- 行数按这一格的实际高度计算，最后一行放不下时才加省略号 -->
+                                    <Grid x:Name="DailyPickDescriptionHost"
+                                          Grid.Row="3"
+                                          SizeChanged="OnDailyPickDescriptionHostSizeChanged">
+                                        <TextBlock x:Name="DailyPickDescription"
+                                                   Text="{x:Bind ViewModel.DailyPickDescription, Mode=OneWay}"
+                                                   Visibility="{x:Bind ViewModel.HasDailyPickDescription, Mode=OneWay}"
+                                                   VerticalAlignment="Top"
+                                                   FontSize="13"
+                                                   LineHeight="19"
+                                                   LineStackingStrategy="BlockLineHeight"
+                                                   MaxLines="1"
+                                                   TextWrapping="Wrap"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    </Grid>
+                                    <StackPanel Grid.Row="4"
+                                                Orientation="Horizontal"
+                                                Spacing="6"
+                                                Opacity="{x:Bind ViewModel.DailyPickActionOpacity, Mode=OneWay}">
+                                        <Button x:Name="DailyPickWatchButton"
+                                                Content="{x:Bind ViewModel.DailyPickWatchLabel, Mode=OneWay}"
+                                                Style="{StaticResource AccentButtonStyle}"
+                                                AutomationProperties.Name="切换追番状态"
+                                                Padding="12,3"
+                                                FontSize="13"
+                                                Click="OnDailyPickWatchClick"/>
+                                        <Button Content="{x:Bind ViewModel.DailyPickFollowLabel, Mode=OneWay}"
+                                                AutomationProperties.Name="切换关注状态"
+                                                Padding="12,3"
+                                                FontSize="13"
+                                                Click="OnDailyPickFollowClick"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Grid>
+                        </Grid>
+                    </Border>
+
+                    <!-- 番剧时光机：每次打开从往年同一季随机翻出几部，已标记的保留并显示状态 -->
+                    <Border x:Name="DiscoverPanel"
+                            Grid.Column="1"
+                            Style="{StaticResource CalendarPanelStyle}"
+                            Padding="16,14"
+                            VerticalAlignment="Top">
+                        <Grid RowDefinitions="Auto,*" RowSpacing="10">
+                            <Grid x:Name="TimeMachineHeader"
+                                  ColumnDefinitions="*,Auto"
+                                  RowDefinitions="Auto,Auto"
+                                  ColumnSpacing="12"
+                                  Padding="2,0,0,0">
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" MinHeight="28">
+                                    <TextBlock Text="番剧时光机" FontSize="17" FontWeight="SemiBold"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{x:Bind ViewModel.TimeMachineCaption, Mode=OneWay}"
+                                               FontSize="13"
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </Grid>
+                                <StackPanel x:Name="TimeMachineHeaderActions"
+                                            Grid.Column="1"
+                                            Orientation="Horizontal"
+                                            Spacing="12"
+                                            VerticalAlignment="Center">
+                                    <StackPanel x:Name="TimeMachineYearButtons"
+                                                Orientation="Horizontal"
+                                                Spacing="4"
+                                                HorizontalAlignment="Left"
+                                                VerticalAlignment="Center">
+                                        <ToggleButton Content="5 年前"
+                                                      Tag="5"
+                                                      Height="28"
+                                                      MinHeight="0"
+                                                      Padding="8,1"
+                                                      FontSize="12"
+                                                      MinWidth="0"
+                                                      Click="OnTimeMachineYearClick"/>
+                                        <ToggleButton Content="10 年前"
+                                                      Tag="10"
+                                                      Height="28"
+                                                      MinHeight="0"
+                                                      Padding="8,1"
+                                                      FontSize="12"
+                                                      MinWidth="0"
+                                                      IsChecked="True"
+                                                      Click="OnTimeMachineYearClick"/>
+                                        <ToggleButton Content="20 年前"
+                                                      Tag="20"
+                                                      Height="28"
+                                                      MinHeight="0"
+                                                      Padding="8,1"
+                                                      FontSize="12"
+                                                      MinWidth="0"
+                                                      Click="OnTimeMachineYearClick"/>
+                                    </StackPanel>
+                                    <Button Content="查看这一季全部"
+                                            Height="28"
+                                            MinHeight="0"
+                                            Style="{StaticResource AniMeidoNavigateButtonStyle}"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Center"
+                                            Click="OnTimeMachineOpenSeasonClick"/>
+                                </StackPanel>
+                            </Grid>
+                            <ItemsRepeater Grid.Row="1"
+                                           VerticalAlignment="Top"
+                                           ItemsSource="{x:Bind ViewModel.TimeMachinePicks, Mode=OneWay}"
+                                           ItemTemplate="{StaticResource TimeMachineRowTemplate}">
+                                <ItemsRepeater.Layout>
+                                    <!-- 行高由 code-behind 按剩余高度平分 -->
+                                    <UniformGridLayout x:Name="TimeMachineLayout"
+                                                       MaximumRowsOrColumns="3"
+                                                       MinItemWidth="260"
+                                                       MinItemHeight="64"
+                                                       MinColumnSpacing="10"
+                                                       MinRowSpacing="8"
+                                                       ItemsStretch="Fill"/>
+                                </ItemsRepeater.Layout>
+                            </ItemsRepeater>
+                            <!-- 加载中、失败或没有作品时的说明 -->
+                            <Grid Grid.Row="1"
+                                  ColumnDefinitions="*,Auto"
+                                  ColumnSpacing="12"
+                                  Padding="2,4,0,0"
+                                  VerticalAlignment="Top"
+                                  Visibility="{x:Bind ViewModel.HasTimeMachineStatusText, Mode=OneWay}">
+                                <TextBlock Text="{x:Bind ViewModel.TimeMachineStatusText, Mode=OneWay}"
+                                           TextWrapping="Wrap"
+                                           VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <Button Grid.Column="1"
+                                        Content="重试"
+                                        Padding="10,2"
+                                        FontSize="12"
+                                        Visibility="{x:Bind ViewModel.IsTimeMachineFailed, Mode=OneWay}"
+                                        Command="{x:Bind ViewModel.RetryTimeMachineCommand}"/>
+                            </Grid>
+                        </Grid>
+                    </Border>
                 </Grid>
-            </Border>
-        </Grid>
+            </Grid>
+        </ScrollViewer>
 
         <!-- 加载/重试覆盖层 -->
         <Grid Grid.Row="1"
-              Grid.RowSpan="3"
               x:Name="LoadingOverlay"
               Visibility="Collapsed"
               Background="{ThemeResource AniMeidoOverlayScrimBrush}"
@@ -649,7 +688,7 @@
 
         <!-- 拖放目标覆盖层：拖放开始时显示，动态生成 zone -->
         <Canvas x:Name="DragOverlay"
-                Grid.RowSpan="4"
+                Grid.RowSpan="2"
                 Visibility="Collapsed"
                 Background="Transparent"
                 AllowDrop="True"/>
