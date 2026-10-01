@@ -229,6 +229,43 @@ public sealed class JsonPipeRpcTests
     }
 
     [Fact]
+    public async Task Client_DisposeCancelsQueuedCallEvenWhenGateIsGranted()
+    {
+        // The queued call can be granted the gate at the same moment Dispose cancels it.
+        // Repeat the scenario so that interleaving is exercised, not just the common path.
+        for (var i = 0; i < 200; i++)
+        {
+            using var stream = new ScriptedDuplexStream();
+            stream.EnqueueResponse(1, 1, null);
+            stream.BlockNextRead();
+            var client = new JsonPipeRpcClient(stream);
+            var active = client.InvokeAsync<int>("active", []);
+            await stream.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var queued = client.InvokeAsync<int>("queued", []);
+
+            client.Dispose();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                active.WaitAsync(TimeSpan.FromSeconds(5)));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                queued.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+    }
+
+    [Fact]
+    public async Task Client_CallAfterDisposeThrowsObjectDisposed()
+    {
+        using var stream = new ScriptedDuplexStream();
+        var client = new JsonPipeRpcClient(stream);
+
+        client.Dispose();
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+            client.InvokeAsync<int>("after-dispose", []));
+        Assert.Equal(0, stream.WriteCount);
+    }
+
+    [Fact]
     public void Client_DisposeIsIdempotentAndMarksConnectionUnusable()
     {
         using var stream = new ScriptedDuplexStream();

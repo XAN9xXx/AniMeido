@@ -57,9 +57,15 @@ public sealed class JsonPipeRpcClient : IDisposable, IAsyncDisposable
         {
             await _gate.WaitAsync(operationToken);
             entered = true;
-            ObjectDisposedException.ThrowIf(
-                Volatile.Read(ref _disposed) != 0,
-                this);
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                // SemaphoreSlim can still grant the gate to a waiter whose token is being
+                // cancelled when Release wins the race (Dispose cancels the lifetime token while
+                // the active call releases the gate). Report the cancellation that woke this
+                // queued call; calls started after Dispose still fail with ObjectDisposedException.
+                throw new OperationCanceledException(_lifetimeToken);
+            }
+
             ThrowIfTerminalFault();
             var request = new JsonPipeRpcRequest(
                 Interlocked.Increment(ref _nextRequestId),
