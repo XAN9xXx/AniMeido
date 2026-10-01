@@ -20,7 +20,7 @@ namespace AniMeido.Plugin.Base.Services
         private const string FallbackDescription = "No description available.";
         private const int SeasonSearchPageSize = 20;
         private const int SeasonCacheVersion = 4;
-        private const int BroadcastCacheVersion = 2;
+        private const int BroadcastCacheVersion = 3;
         private const int ImageUrlCacheVersion = 2;
         private const int PersonWorksCacheVersion = 3;
         private static readonly string? FallbackImageUrl = null;
@@ -82,9 +82,12 @@ namespace AniMeido.Plugin.Base.Services
         }
 
         // 从Bangumi API获取每周新番的日历数据，并将其解析为CalendarDayResponse对象列表。
-        private async Task<List<CalendarDayResponse>> FetchCalendarAsync(CancellationToken ct)
+        private async Task<List<CalendarDayResponse>> FetchCalendarAsync(
+            CancellationToken ct,
+            bool preferOnline = false)
         {
-            var result = await _apiClient.GetJsonAsync<List<CalendarDayResponse>>("/calendar", ct).ConfigureAwait(false);
+            var result = await _apiClient.GetJsonAsync<List<CalendarDayResponse>>(
+                "/calendar", ct, preferOnline).ConfigureAwait(false);
             if (result is null)
             {
                 _logger.LogWarning("Bangumi calendar API returned null.");
@@ -485,23 +488,41 @@ namespace AniMeido.Plugin.Base.Services
                 TimeSpan.FromHours(12),
                 async () =>
                 {
-                    var seasonMonth = SeasonHelper.ToMonth(season);
                     var days = await FetchCalendarAsync(ct)
                         .ConfigureAwait(false);
-                    return days
-                        .SelectMany(day => day.Items)
-                        .Where(item => BelongsToSeason(
-                            item,
-                            year,
-                            season))
-                        .Select(item => MapToAnime(
-                            item,
-                            year,
-                            seasonMonth))
-                        .DistinctBy(item => item.ID)
-                        .ToList();
+                    var schedule = BuildBroadcastSchedule(days, year, season);
+                    if (schedule.Count > 0)
+                        return schedule;
+
+                    _logger.LogInformation(
+                        "Bangumi calendar has no entries for {Year} {Season}; retrying with the online API preferred",
+                        year, season);
+                    days = await FetchCalendarAsync(ct, preferOnline: true)
+                        .ConfigureAwait(false);
+                    schedule = BuildBroadcastSchedule(days, year, season);
+                    if (schedule.Count > 0)
+                        return schedule;
+
+                    _logger.LogWarning(
+                        "Bangumi calendar has no entries for {Year} {Season} after the online-first retry; skipping the cache",
+                        year, season);
+                    return null;
                 },
                 ct) ?? [];
+        }
+
+        private List<Anime> BuildBroadcastSchedule(
+            IEnumerable<CalendarDayResponse> days,
+            int year,
+            Season season)
+        {
+            var seasonMonth = SeasonHelper.ToMonth(season);
+            return days
+                .SelectMany(day => day.Items)
+                .Where(item => BelongsToSeason(item, year, season))
+                .Select(item => MapToAnime(item, year, seasonMonth))
+                .DistinctBy(item => item.ID)
+                .ToList();
         }
 
         private async Task<List<Anime>?> ReadSeasonCacheAsync(

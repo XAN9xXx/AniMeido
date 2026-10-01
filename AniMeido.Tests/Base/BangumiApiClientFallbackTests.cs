@@ -54,6 +54,40 @@ public sealed class BangumiApiClientFallbackTests
     }
 
     [Fact]
+    public async Task GetJsonAsync_PreferOnline_UsesFallbackWithoutCallingFreshArchive()
+    {
+        var factory = CreateFactory(
+            (_, _) => Task.FromResult(JsonResponse("{\"value\":\"archive\"}")),
+            (_, _) => Task.FromResult(JsonResponse("{\"value\":\"fallback\"}")));
+        var client = CreateClient(factory);
+
+        var result = await client.GetJsonAsync<TestPayload>(
+            "/calendar", CancellationToken.None, preferOnline: true);
+
+        Assert.Equal("fallback", result?.Value);
+        Assert.Equal([BangumiApiClient.FallbackClientName], factory.CreatedClientNames);
+        Assert.Equal(new BangumiRouteCounts(0, 1, 0), client.RouteCounts);
+    }
+
+    [Fact]
+    public async Task GetJsonAsync_PreferOnline_FallsBackToFreshArchiveWhenOnlineFails()
+    {
+        var factory = CreateFactory(
+            (_, _) => Task.FromResult(JsonResponse("{\"value\":\"archive\"}")),
+            (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)));
+        var client = CreateClient(factory);
+
+        var result = await client.GetJsonAsync<TestPayload>(
+            "/calendar", CancellationToken.None, preferOnline: true);
+
+        Assert.Equal("archive", result?.Value);
+        Assert.Equal(
+            [BangumiApiClient.FallbackClientName, BangumiApiClient.ArchiveClientName],
+            factory.CreatedClientNames);
+        Assert.Equal(new BangumiRouteCounts(1, 0, 0), client.RouteCounts);
+    }
+
+    [Fact]
     public async Task GetJsonAsync_FallsBackWhenArchiveReturnsInvalidJson()
     {
         var factory = CreateFactory(

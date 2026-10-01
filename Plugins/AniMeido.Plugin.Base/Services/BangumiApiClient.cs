@@ -75,12 +75,16 @@ namespace AniMeido.Plugin.Base.Services
         /// <summary>
         /// 获取并解析 JSON。Archive 请求异常或返回无效响应时自动访问在线 API。
         /// </summary>
-        internal Task<T?> GetJsonAsync<T>(string url, CancellationToken ct)
+        internal Task<T?> GetJsonAsync<T>(
+            string url,
+            CancellationToken ct,
+            bool preferOnline = false)
         {
             return SendJsonAsync<T>(
                 url,
                 static () => new HttpRequestMessage { Method = HttpMethod.Get },
-                ct);
+                ct,
+                preferOnline);
         }
 
         /// <summary>
@@ -117,12 +121,13 @@ namespace AniMeido.Plugin.Base.Services
         private async Task<T?> SendJsonAsync<T>(
             string url,
             Func<HttpRequestMessage> createRequest,
-            CancellationToken ct)
+            CancellationToken ct,
+            bool preferOnline = false)
         {
             Exception? lastFailure = null;
             Exception? recoveredFailure = null;
             await _freshness.EnsureCheckedAsync(ct).ConfigureAwait(false);
-            var clientNames = _freshness.PreferFallback ? FallbackFirst : ArchiveFirst;
+            var clientNames = preferOnline || _freshness.PreferFallback ? FallbackFirst : ArchiveFirst;
 
             for (var index = 0; index < clientNames.Length; index++)
             {

@@ -84,6 +84,58 @@ public sealed class CurrentSeasonOtherTests : DbTestBase
         Assert.Equal("1 部", vm.Days.Single(day => day.IsOther).CountText);
     }
 
+    [Fact]
+    public async Task Load_EmptySchedule_ShowsUnavailableOtherWithoutCurrentSeasonQuery()
+    {
+        await RunProductionMigrationAsync();
+        var source = new ScheduleSource(seasonFails: false) { IsScheduleEmpty = true };
+        var vm = new CurrentSeasonViewModel(source, new TrackingService(DbFactory));
+
+        await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null);
+        await vm.PendingOthersLoad;
+        await vm.PendingTimeMachineLoad;
+
+        Assert.False(vm.IsLoading);
+        Assert.False(vm.IsError);
+        Assert.False(vm.HasData);
+        Assert.Equal("–", vm.Days.Single(day => day.IsOther).CountText);
+        Assert.Equal(0, source.CurrentSeasonRequests);
+
+        vm.SelectDay(CalendarDay.OtherKey);
+
+        Assert.Empty(vm.VisibleEntries);
+        Assert.Equal("本季放送表还没有数据，暂时无法整理剧场版、OVA 等作品", vm.EmptyText);
+        Assert.Equal("剧场版、OVA 与特别篇 · 按上映日期排列", vm.ListCaption);
+        Assert.Equal(0, source.CurrentSeasonRequests);
+        Assert.Null(vm.RetryOthersCommand.ExecutionTask);
+    }
+
+    [Fact]
+    public async Task Reload_NonEmptySchedule_ResetsUnavailableOtherState()
+    {
+        await RunProductionMigrationAsync();
+        var source = new ScheduleSource(seasonFails: false) { IsScheduleEmpty = true };
+        var vm = new CurrentSeasonViewModel(source, new TrackingService(DbFactory));
+        await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null);
+        await vm.PendingOthersLoad;
+        await vm.PendingTimeMachineLoad;
+        vm.SelectDay(CalendarDay.OtherKey);
+        Assert.Equal("–", vm.Days.Single(day => day.IsOther).CountText);
+        Assert.Equal(0, source.CurrentSeasonRequests);
+
+        source.IsScheduleEmpty = false;
+        await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null);
+        await vm.PendingOthersLoad;
+        await vm.PendingTimeMachineLoad;
+
+        Assert.True(vm.HasData);
+        Assert.Equal(1, source.CurrentSeasonRequests);
+        Assert.Equal("1 部", vm.Days.Single(day => day.IsOther).CountText);
+        Assert.Equal(10, Assert.Single(vm.VisibleEntries).Anime.ID);
+        Assert.Equal("本季没有不按星期播出的作品", vm.EmptyText);
+        Assert.Equal("剧场版、OVA 与特别篇 · 按上映日期排列", vm.ListCaption);
+    }
+
     private async Task<CurrentSeasonViewModel> LoadAsync(ScheduleSource source)
     {
         var vm = new CurrentSeasonViewModel(source, new TrackingService(DbFactory));
@@ -105,8 +157,12 @@ public sealed class CurrentSeasonOtherTests : DbTestBase
 
         public int CurrentSeasonRequests { get; private set; }
 
+        public bool IsScheduleEmpty { get; set; }
+
         public Task<List<Anime>> GetCurrentBroadcastScheduleAsync(CancellationToken ct)
-            => Task.FromResult(new List<Anime> { Item(1, Today, AnimeMediaFormat.Television) });
+            => Task.FromResult<List<Anime>>(IsScheduleEmpty
+                ? []
+                : [Item(1, Today, AnimeMediaFormat.Television)]);
 
         // 按季查询同时返回周更作品和一部剧场版，只有剧场版应归入“其他”。
         public async Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct)

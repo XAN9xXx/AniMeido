@@ -121,6 +121,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         private IReadOnlyList<Anime> _others = [];
         private bool _othersLoaded;
         private bool _othersFailed;
+        private bool _othersNoSchedule;
         private CancellationTokenSource? _othersCts;
         private bool _supplementaryLoadsSuspended;
         private int _supplementaryLoadGeneration;
@@ -424,6 +425,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             _others = [];
             _othersLoaded = false;
             _othersFailed = false;
+            _othersNoSchedule = false;
             try
             {
                 // 番剧时光机独立加载，失败或较慢都不影响放送日历本身。
@@ -490,7 +492,11 @@ namespace AniMeido.Plugin.Base.ViewModels
         {
             CancelOthersLoad();
             if (_schedule.Count == 0)
+            {
+                _othersNoSchedule = true;
+                Refresh(rebuildList: SelectedWeekday == CalendarDay.OtherKey, keepUnchangedList: true);
                 return;
+            }
 
             var cts = new CancellationTokenSource();
             _othersCts = cts;
@@ -548,7 +554,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         }
 
         /// <summary>“其他”正在加载或等待重新开始（还没有结果，也没有失败）。</summary>
-        private bool IsOthersPending => !_othersLoaded && !_othersFailed;
+        private bool IsOthersPending => !_othersNoSchedule && !_othersLoaded && !_othersFailed;
 
         /// <summary>
         /// 页面离开时调用：取消“其他”、番剧时光机和今日一抽详情的请求，
@@ -658,7 +664,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 var matched = matches.Count(entry => entry.DayKey == day.Weekday);
                 day.CountText = !day.IsOther
                     ? BuildDayCountText(matched, total, filtering)
-                    : _othersFailed
+                    : _othersNoSchedule || _othersFailed
                         ? "–"
                         : IsOthersPending
                             ? "…"
@@ -688,11 +694,13 @@ namespace AniMeido.Plugin.Base.ViewModels
                 ListCaption = _othersFailed
                     ? "加载失败，点击上方“其他”重试"
                     : "剧场版、OVA 与特别篇 · 按上映日期排列";
-                EmptyText = _othersFailed
-                    ? "本季的剧场版、OVA 等作品没有加载出来"
-                    : IsOthersPending
-                        ? "正在加载本季的剧场版、OVA 等作品…"
-                        : "本季没有不按星期播出的作品";
+                EmptyText = _othersNoSchedule
+                    ? "本季放送表还没有数据，暂时无法整理剧场版、OVA 等作品"
+                    : _othersFailed
+                        ? "本季的剧场版、OVA 等作品没有加载出来"
+                        : IsOthersPending
+                            ? "正在加载本季的剧场版、OVA 等作品…"
+                            : "本季没有不按星期播出的作品";
             }
             else
             {
