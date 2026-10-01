@@ -11,6 +11,43 @@ namespace AniMeido.Tests;
 public sealed class TodayViewModelLoadTests : DbTestBase
 {
     [Fact]
+    public async Task CalendarTvOnlyGrouping_DoesNotFilterTodayBroadcasts()
+    {
+        await RunProductionMigrationAsync();
+        var today = AnimeListPresentation.ToBangumiWeekday(DateTime.Today.DayOfWeek);
+        Anime Item(int id, AnimeMediaFormat format, int weekday) => new(
+            id, $"作品{id}", null, [], DateOnly.FromDateTime(DateTime.Today), null,
+            string.Empty, DateTime.Today.Year, DateTime.Today.Month, weekday, MediaFormat: format);
+        var source = new OfflineSource
+        {
+            Schedule = [Item(1, AnimeMediaFormat.Television, today),
+                Item(2, AnimeMediaFormat.Ona, today),
+                Item(3, AnimeMediaFormat.Ova, today),
+                Item(4, AnimeMediaFormat.Movie, today),
+                Item(5, AnimeMediaFormat.Unknown, today),
+                Item(6, AnimeMediaFormat.Television, today % 7 + 1)],
+        };
+        var tracking = new TrackingService(DbFactory);
+        var calendar = new CurrentSeasonViewModel(source, tracking);
+        await calendar.LoadSeasonalAnimeCommand.ExecuteAsync(null);
+        await calendar.PendingOthersLoad;
+        Assert.Equal(1, Assert.Single(calendar.VisibleEntries).Anime.ID);
+        calendar.SelectDay(CalendarDay.OtherKey);
+        Assert.Equal(new[] { 2, 3, 4, 5 }, calendar.VisibleEntries.Select(entry => entry.Anime.ID));
+
+        var actionCenter = new ActionCenterService(DbFactory);
+        using var reminders = new PlanReminderCoordinator(
+            actionCenter, new NoopNotificationService(), new NoopNavigator());
+        var vm = new TodayViewModel(
+            source, tracking, actionCenter, reminders,
+            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory));
+        await vm.LoadAsync();
+
+        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, vm.AllBroadcasts.Select(anime => anime.ID));
+        Assert.Null(vm.ErrorMessage);
+    }
+
+    [Fact]
     public async Task DetailFailure_StillShowsLocalPlansWithoutCover()
     {
         // 离线且没有详情缓存时，封面拿不到，但本地补番计划必须照常显示。
@@ -133,11 +170,13 @@ public sealed class TodayViewModelLoadTests : DbTestBase
 
     private sealed class OfflineSource : IAnimeDataSource
     {
+        public List<Anime> Schedule { get; init; } = [];
+
         private static Task<T> Offline<T>()
             => Task.FromException<T>(new BangumiApiException("offline"));
 
         public Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct) => Offline<List<Anime>>();
-        public Task<List<Anime>> GetCurrentBroadcastScheduleAsync(CancellationToken ct) => Task.FromResult(new List<Anime>());
+        public Task<List<Anime>> GetCurrentBroadcastScheduleAsync(CancellationToken ct) => Task.FromResult(Schedule);
         public Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct) => Offline<Anime?>();
         public Task<List<Studio>> GetStudioAsync(int animeID, CancellationToken ct) => Offline<List<Studio>>();
         public Task<List<Tag>> GetTagsAsync(int animeID, CancellationToken ct) => Offline<List<Tag>>();

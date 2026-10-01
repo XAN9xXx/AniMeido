@@ -142,6 +142,7 @@ public sealed class CurrentSeasonDailyPickTests : DbTestBase
             2026,
             7,
             Today,
-            6.0 + id * 0.1);
+            6.0 + id * 0.1,
+            MediaFormat: AnimeMediaFormat.Television);
     }
 }

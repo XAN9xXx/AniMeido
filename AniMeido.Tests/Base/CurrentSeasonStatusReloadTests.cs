@@ -147,6 +147,7 @@ public sealed class CurrentSeasonStatusReloadTests : DbTestBase
             2026,
             7,
             Today,
-            7.0);
+            7.0,
+            MediaFormat: AnimeMediaFormat.Television);
     }
 }

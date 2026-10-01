@@ -84,6 +84,8 @@ namespace AniMeido.Plugin.Base.ViewModels
                 RaiseDailyPickStatusChanged();
             else if (e.PropertyName == nameof(CalendarEntry.IsSavingStatus))
                 OnPropertyChanged(nameof(DailyPickActionOpacity));
+            else if (e.PropertyName == nameof(CalendarEntry.Anime))
+                OnPropertyChanged(nameof(DailyPickMeta));
         }
 
         private void RaiseDailyPickStatusChanged()
@@ -136,6 +138,8 @@ namespace AniMeido.Plugin.Base.ViewModels
             if (!IsCurrent())
                 return;
 
+            // 读取期间季度目录可能已补齐形态，重新取候选，避免使用重新分组前的快照。
+            weekly = WeeklyEntriesById();
             if (stored is { } state
                 && state.Date == today
                 && weekly.TryGetValue(state.AnimeId, out var storedEntry))

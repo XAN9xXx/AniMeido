@@ -113,11 +113,11 @@
             <!-- 卡片包在 Grid 里：列表把 DataContext 设在外层 Grid，卡片自己的 DataContext 才能固定为作品 -->
             <DataTemplate x:Key="ShelfCardTemplate" x:DataType="vm:CalendarEntry">
                 <Grid>
-                    <controls:AnimeCard DataContext="{x:Bind Anime}"
+                    <controls:AnimeCard DataContext="{x:Bind Anime, Mode=OneWay}"
                                         TrackingStatus="{x:Bind Status, Mode=OneWay}"
                                         IsTrackingActionPending="{x:Bind IsSavingStatus, Mode=OneWay}"
-                                        ShowWatchAction="{x:Bind ShowWatchAction}"
-                                        WeekdayText="{x:Bind ShelfBadgeText}"
+                                        ShowWatchAction="{x:Bind ShowWatchAction, Mode=OneWay}"
+                                        WeekdayText="{x:Bind ShelfBadgeText, Mode=OneWay}"
                                         ShowQuickActions="True"
                                         CardClicked="OnAnimeCardClicked"
                                         TrackingActionRequested="OnTrackingActionRequested"/>
@@ -126,12 +126,12 @@
 
             <DataTemplate x:Key="ResultCardTemplate" x:DataType="vm:CalendarEntry">
                 <Grid>
-                    <controls:AnimeCard DataContext="{x:Bind Anime}"
+                    <controls:AnimeCard DataContext="{x:Bind Anime, Mode=OneWay}"
                                         VerticalAlignment="Top"
                                         TrackingStatus="{x:Bind Status, Mode=OneWay}"
                                         IsTrackingActionPending="{x:Bind IsSavingStatus, Mode=OneWay}"
-                                        ShowWatchAction="{x:Bind ShowWatchAction}"
-                                        WeekdayText="{x:Bind WeekdayText}"
+                                        ShowWatchAction="{x:Bind ShowWatchAction, Mode=OneWay}"
+                                        WeekdayText="{x:Bind WeekdayText, Mode=OneWay}"
                                         ShowQuickActions="True"
                                         CardClicked="OnAnimeCardClicked"
                                         TrackingActionRequested="OnTrackingActionRequested"/>
