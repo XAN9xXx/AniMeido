@@ -17,7 +17,7 @@ AniMeido 是个人动画管理应用，用来整理追番与补番状态、计�
 
 ## 本地开发
 
-使用 Windows x64 和支持 .NET 8／WinUI 的开发环境，解决方案入口为：
+使用 Windows x64、.NET 10 SDK（版本由 `global.json` 限定；项目目标框架仍为 .NET 8）和支持 WinUI 3 开发的 Visual Studio，解决方案入口为：
 
 ```powershell
 dotnet build AniMeido.slnx
