@@ -144,6 +144,7 @@ public sealed class BangumiBroadcastFallbackTests : DbTestBase
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            Assert.Equal(HttpMethod.Get, request.Method);
             Assert.Equal("/calendar", request.RequestUri?.AbsolutePath);
             RequestCount++;
             var payload = new[]

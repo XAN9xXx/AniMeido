@@ -42,7 +42,8 @@ public sealed class BangumiSeasonPaginationTests : DbTestBase
         Assert.Equal(45, result.Select(anime => anime.ID).Distinct().Count());
         Assert.Equal(
             45,
-            await ReadCachedCountAsync("season:v3:2025:Spring"));
+            await ReadCachedCountAsync(BangumiDataSource.GetSeasonCacheKey(2025, Season.Spring)));
+        Assert.Equal(40, await ReadCachedCountAsync("season:v3:2025:Spring"));
         Assert.Equal(0, handler.CalendarRequestCount);
         Assert.All(
             result,
@@ -57,7 +58,7 @@ public sealed class BangumiSeasonPaginationTests : DbTestBase
         await CreateBaseTablesAsync();
         var cache = new CacheService(DbFactory);
         await cache.SetCacheAsync(
-            "season:v3:2025:Spring",
+            BangumiDataSource.GetSeasonCacheKey(2025, Season.Spring),
             "{invalid-json",
             TimeSpan.FromHours(1));
         var handler = new SeasonApiHandler(total: 3);
@@ -69,7 +70,8 @@ public sealed class BangumiSeasonPaginationTests : DbTestBase
             NullLogger<BangumiDataSource>.Instance,
             new BangumiApiClient(
                 new StubHttpClientFactory(client),
-                NullLogger<BangumiApiClient>.Instance),
+                NullLogger<BangumiApiClient>.Instance,
+                new FreshArchive()),
             cache);
 
         var result = await dataSource.GetAnimeBySeasonAsync(
@@ -81,7 +83,7 @@ public sealed class BangumiSeasonPaginationTests : DbTestBase
         Assert.Equal([0], handler.RequestedOffsets);
         Assert.Equal(
             3,
-            await ReadCachedCountAsync("season:v3:2025:Spring"));
+            await ReadCachedCountAsync(BangumiDataSource.GetSeasonCacheKey(2025, Season.Spring)));
     }
 
     [Theory]
@@ -133,10 +135,11 @@ public sealed class BangumiSeasonPaginationTests : DbTestBase
             INSERT INTO cache (CacheKey, Data, ExpiresAt)
             VALUES (@key, @data, @expiresAt)
             """;
-        command.Parameters.AddWithValue("@key", "season:2025:Spring");
+        command.Parameters.AddWithValue("@key", "season:v3:2025:Spring");
         command.Parameters.AddWithValue(
             "@data",
-            JsonSerializer.Serialize(Enumerable.Range(1, 40)));
+            JsonSerializer.Serialize(Enumerable.Range(10001, 40).Select(id => new Anime(
+                id, $"旧缓存{id}", null, [], null, null, string.Empty, 2025, 4))));
         command.Parameters.AddWithValue(
             "@expiresAt",
             DateTime.UtcNow.AddHours(1).ToString("O"));
@@ -256,7 +259,12 @@ public sealed class BangumiSeasonPaginationTests : DbTestBase
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (request.RequestUri?.AbsolutePath == "/calendar")
+            if (request.Method == HttpMethod.Get && request.RequestUri?.AbsolutePath == "/healthz")
+            {
+                return Task.FromResult(JsonResponse("{}"));
+            }
+
+            if (request.Method == HttpMethod.Get && request.RequestUri?.AbsolutePath == "/calendar")
             {
                 CalendarRequestCount++;
                 var payload = new[]
@@ -292,9 +300,14 @@ public sealed class BangumiSeasonPaginationTests : DbTestBase
                     JsonSerializer.Serialize(payload)));
             }
 
-            SearchRequestCount++;
-            return Task.FromResult(JsonResponse(
-                "{\"total\":0,\"limit\":20,\"offset\":0,\"data\":[]}"));
+            if (request.Method == HttpMethod.Post && request.RequestUri?.AbsolutePath == "/v0/search/subjects")
+            {
+                SearchRequestCount++;
+                return Task.FromResult(JsonResponse(
+                    "{\"total\":0,\"limit\":20,\"offset\":0,\"data\":[]}"));
+            }
+
+            throw new InvalidOperationException($"Unexpected request: {request.Method} {request.RequestUri}");
         }
 
         private static HttpResponseMessage JsonResponse(string json)
