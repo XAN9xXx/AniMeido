@@ -247,30 +247,21 @@ namespace AniMeido.Tests
         }
 
         [Fact]
-        public async Task Migration_FromV4ToV5_BacksUpAndPreservesTracking()
+        public async Task Migration_FromV4_ToCurrent_BacksUpAndPreservesTracking()
         {
             using (var connection =
                 new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString))
             {
                 await connection.OpenAsync();
                 var setupCommand = connection.CreateCommand();
-                setupCommand.CommandText = """
-                    CREATE TABLE tracking(
-                        AnimeID INTEGER PRIMARY KEY,
-                        Status INTEGER NOT NULL,
-                        UpdatedAt TEXT NOT NULL);
-                    CREATE TABLE cache(
-                        CacheKey TEXT PRIMARY KEY,
-                        Data TEXT NOT NULL,
-                        ExpiresAt TEXT NOT NULL);
-                    CREATE TABLE config(
-                        Key TEXT PRIMARY KEY,
-                        Value TEXT NOT NULL);
-                    CREATE TABLE saved_tags(
-                        TagName TEXT NOT NULL PRIMARY KEY);
+                setupCommand.CommandText = HistoricalSchemas.V4 + """
                     INSERT INTO tracking(AnimeID, Status, UpdatedAt)
                     VALUES(88, 5, '2026-07-01T00:00:00Z');
-                    PRAGMA user_version = 4;
+                    INSERT INTO anime_plans(AnimeId, TitleSnapshot, CreatedAt, UpdatedAt)
+                    VALUES(88, '历史计划', '2026-07-01', '2026-07-01');
+                    INSERT INTO plan_reminders(ReminderId, AnimeId, Kind, ScheduledFor)
+                    VALUES('historical-reminder', 88, 1, '2026-07-02');
+                    INSERT INTO config(Key, Value) VALUES('historical-key', 'historical-value');
                     """;
                 await setupCommand.ExecuteNonQueryAsync();
             }
@@ -289,24 +280,30 @@ namespace AniMeido.Tests
             Assert.NotEmpty(Directory.GetFiles(
                 Paths.BackupDirectory,
                 "AniMeido-*.db"));
+            statusCommand.CommandText = "SELECT TitleSnapshot FROM anime_plans WHERE AnimeId = 88";
+            Assert.Equal("历史计划", await statusCommand.ExecuteScalarAsync());
+            statusCommand.CommandText = "SELECT AnimeId FROM plan_reminders WHERE ReminderId = 'historical-reminder'";
+            Assert.Equal(88L, await statusCommand.ExecuteScalarAsync());
+            statusCommand.CommandText = "SELECT Value FROM config WHERE Key = 'historical-key'";
+            Assert.Equal("historical-value", await statusCommand.ExecuteScalarAsync());
+            await AssertCurrentSchemaAndIdempotenceAsync();
         }
 
         [Fact]
-        public async Task Migration_FromV5ToV6_PreservesTrackingAndCreatesRecommendationTables()
+        public async Task Migration_FromV5_ToCurrent_PreservesTrackingAndCreatesRecommendationTables()
         {
             await using (var connection =
                 new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString))
             {
                 await connection.OpenAsync();
                 var command = connection.CreateCommand();
-                command.CommandText = """
-                    CREATE TABLE tracking(
-                        AnimeID INTEGER PRIMARY KEY,
-                        Status INTEGER NOT NULL,
-                        UpdatedAt TEXT NOT NULL);
+                command.CommandText = HistoricalSchemas.V5 + """
                     INSERT INTO tracking(AnimeID, Status, UpdatedAt)
                     VALUES(96, 1, '2026-08-01T00:00:00Z');
-                    PRAGMA user_version = 5;
+                    INSERT INTO anime_archives VALUES(96, '历史档案', 8, '历史摘要', '2026-08-01', '2026-08-01');
+                    INSERT INTO archive_entries VALUES('historical-entry', 96, '2026-08-01', 1, '历史笔记', '2026-08-01', '2026-08-01');
+                    INSERT INTO personal_tags(TagId, Name) VALUES(1, '历史标签');
+                    INSERT INTO anime_personal_tags VALUES(96, 1);
                     """;
                 await command.ExecuteNonQueryAsync();
             }
@@ -329,24 +326,28 @@ namespace AniMeido.Tests
             Assert.NotEmpty(Directory.GetFiles(
                 Paths.BackupDirectory,
                 "AniMeido-*.db"));
+            verifyCommand.CommandText = "SELECT SummaryNote FROM anime_archives WHERE AnimeId = 96";
+            Assert.Equal("历史摘要", await verifyCommand.ExecuteScalarAsync());
+            verifyCommand.CommandText = "SELECT Body FROM archive_entries WHERE EntryId = 'historical-entry'";
+            Assert.Equal("历史笔记", await verifyCommand.ExecuteScalarAsync());
+            verifyCommand.CommandText = "SELECT Name FROM personal_tags JOIN anime_personal_tags USING(TagId) WHERE AnimeId = 96";
+            Assert.Equal("历史标签", await verifyCommand.ExecuteScalarAsync());
+            await AssertCurrentSchemaAndIdempotenceAsync();
         }
 
         [Fact]
-        public async Task Migration_FromV6ToV7_PreservesTrackingAndCreatesReceipts()
+        public async Task Migration_FromV6_ToCurrent_PreservesTrackingAndCreatesReceipts()
         {
             await using (var connection =
                 new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString))
             {
                 await connection.OpenAsync();
                 var command = connection.CreateCommand();
-                command.CommandText = """
-                    CREATE TABLE tracking(
-                        AnimeID INTEGER PRIMARY KEY,
-                        Status INTEGER NOT NULL,
-                        UpdatedAt TEXT NOT NULL);
+                command.CommandText = HistoricalSchemas.V6 + """
                     INSERT INTO tracking(AnimeID, Status, UpdatedAt)
                     VALUES(622206, 3, '2026-08-01T00:00:00Z');
-                    PRAGMA user_version = 6;
+                    INSERT INTO recommendation_feature_preferences VALUES(0, '历史偏好', '历史偏好', 1, '2026-08-01');
+                    INSERT INTO recommendation_hidden_anime VALUES(622207, '历史隐藏作品', '2026-08-01');
                     """;
                 await command.ExecuteNonQueryAsync();
             }
@@ -370,6 +371,61 @@ namespace AniMeido.Tests
             Assert.NotEmpty(Directory.GetFiles(
                 Paths.BackupDirectory,
                 "AniMeido-*.db"));
+            verifyCommand.CommandText = "SELECT Adjustment FROM recommendation_feature_preferences WHERE FeatureKey = '历史偏好'";
+            Assert.Equal(1L, await verifyCommand.ExecuteScalarAsync());
+            verifyCommand.CommandText = "SELECT TitleSnapshot FROM recommendation_hidden_anime WHERE AnimeId = 622207";
+            Assert.Equal("历史隐藏作品", await verifyCommand.ExecuteScalarAsync());
+            await AssertCurrentSchemaAndIdempotenceAsync();
+        }
+
+        private async Task AssertCurrentSchemaAndIdempotenceAsync()
+        {
+            using var connection = await DbFactory.OpenAsync();
+            using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA user_version";
+            Assert.Equal(DatabaseSchema.CurrentVersion, Convert.ToInt32(await command.ExecuteScalarAsync()));
+            command.CommandText = "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name";
+            var tables = new List<string>();
+            using (var reader = await command.ExecuteReaderAsync())
+            {
+                while (await reader.ReadAsync())
+                    tables.Add(reader.GetString(0));
+            }
+            string[] expectedTables =
+            [
+                "tracking", "cache", "config", "saved_tags", "browse_history",
+                "anime_plans", "plan_reminders", "anime_progress", "episode_progress",
+                "watch_sessions", "smart_lists", "anime_archives", "archive_entries",
+                "personal_tags", "anime_personal_tags", "screenshots", "screenshot_personal_tags",
+                "manual_watch_events", "tracking_events", "recommendation_feature_preferences",
+                "recommendation_hidden_anime", "external_change_receipts",
+            ];
+            Assert.All(expectedTables, table => Assert.Contains(table, tables));
+            var before = await SnapshotTablesAsync(connection, tables);
+
+            await RunProductionMigrationAsync();
+
+            Assert.Equal(before, await SnapshotTablesAsync(connection, tables));
+            command.CommandText = "PRAGMA user_version";
+            Assert.Equal(DatabaseSchema.CurrentVersion, Convert.ToInt32(await command.ExecuteScalarAsync()));
+        }
+
+        private static async Task<string> SnapshotTablesAsync(
+            Microsoft.Data.Sqlite.SqliteConnection connection, List<string> tables)
+        {
+            var snapshot = new Dictionary<string, List<object?[]>>();
+            foreach (var table in tables)
+            {
+                using var command = connection.CreateCommand();
+                command.CommandText = $"SELECT * FROM \"{table}\" ORDER BY rowid";
+                using var reader = await command.ExecuteReaderAsync();
+                var rows = new List<object?[]>();
+                while (await reader.ReadAsync())
+                    rows.Add(Enumerable.Range(0, reader.FieldCount)
+                        .Select(index => reader.IsDBNull(index) ? null : reader.GetValue(index)).ToArray());
+                snapshot[table] = rows;
+            }
+            return System.Text.Json.JsonSerializer.Serialize(snapshot);
         }
 
         [Fact]
