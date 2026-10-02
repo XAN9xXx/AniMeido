@@ -63,7 +63,7 @@ public sealed class DatabaseRestoreTests : DbTestBase
         // Windows 上 FileShare.None 确定阻止主库被复制覆盖或移动。
         using (var locked = new FileStream(DbPath, FileMode.Open, FileAccess.Read, FileShare.None))
         {
-            Assert.False(await service.TryRestoreFromBackupAsync());
+            await Assert.ThrowsAsync<DatabaseRestoreUnavailableException>(service.TryRestoreFromBackupAsync);
         }
 
         Assert.Equal(original, await ReadTestFileBytesAsync(DbPath));
@@ -86,7 +86,7 @@ public sealed class DatabaseRestoreTests : DbTestBase
         // 主库移动后，Windows 独占的 WAL 文件让替换中途失败。
         using (var locked = new FileStream(DbPath + "-wal", FileMode.Open, FileAccess.Read, FileShare.None))
         {
-            Assert.False(await service.TryRestoreFromBackupAsync());
+            await Assert.ThrowsAsync<DatabaseRestoreUnavailableException>(service.TryRestoreFromBackupAsync);
         }
 
         Assert.Equal(original, await ReadTestFileBytesAsync(DbPath));
@@ -182,6 +182,94 @@ public sealed class DatabaseRestoreTests : DbTestBase
         Assert.Equal(original, await ReadTestFileBytesAsync(DbPath));
         Assert.Equal(backupBytes, await ReadTestFileBytesAsync(backup));
         Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(DbPath)!, ".AniMeido-restore-*.db*"));
+    }
+
+    [Fact]
+    public async Task Restore_LockedNewestBackupStopsWithoutUsingOlderBackup()
+    {
+        var service = new DatabaseService(DbFactory, Paths);
+        var older = Path.Combine(Paths.BackupDirectory, "AniMeido-20260901.db");
+        var newest = Path.Combine(Paths.BackupDirectory, "AniMeido-20260902.db");
+        await CreateBackupAsync(older, 42);
+        await CreateBackupAsync(newest, 84);
+        var olderBytes = await ReadTestFileBytesAsync(older);
+        var newestBytes = await ReadTestFileBytesAsync(newest);
+        CorruptDatabase();
+        var original = await ReadTestFileBytesAsync(DbPath);
+
+        using (var locked = new FileStream(newest, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var exception = await Assert.ThrowsAsync<DatabaseRestoreUnavailableException>(service.TryRestoreFromBackupAsync);
+            var cause = Assert.IsType<SqliteException>(exception.InnerException);
+            Assert.Contains(cause.SqliteErrorCode, new[] { 5, 6, 10, 14 });
+        }
+
+        Assert.Equal(original, await ReadTestFileBytesAsync(DbPath));
+        Assert.True(File.Exists(older));
+        Assert.True(File.Exists(newest));
+        Assert.Equal(olderBytes, await ReadTestFileBytesAsync(older));
+        Assert.Equal(newestBytes, await ReadTestFileBytesAsync(newest));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(DbPath)!, ".AniMeido-restore-*.db*"));
+        Assert.False(Directory.Exists(Path.Combine(Paths.BackupDirectory, "corrupt")));
+    }
+
+    [Fact]
+    public async Task Restore_ReleasedNewestBackupLockRestoresNewestData()
+    {
+        var service = new DatabaseService(DbFactory, Paths);
+        var older = Path.Combine(Paths.BackupDirectory, "AniMeido-20260901.db");
+        var newest = Path.Combine(Paths.BackupDirectory, "AniMeido-20260902.db");
+        await CreateBackupAsync(older, 42);
+        await CreateBackupAsync(newest, 84);
+        CorruptDatabase();
+
+        using var locked = new FileStream(newest, FileMode.Open, FileAccess.Read, FileShare.None);
+        var releaseLock = Task.Run(async () =>
+        {
+            await Task.Delay(300);
+            locked.Dispose();
+        });
+        try
+        {
+            Assert.True(await service.TryRestoreFromBackupAsync());
+        }
+        finally
+        {
+            await releaseLock;
+        }
+
+        using var connection = await DbFactory.OpenAsync();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT AnimeID FROM tracking";
+        Assert.Equal(84L, await command.ExecuteScalarAsync());
+        command.CommandText = "SELECT COUNT(*) FROM tracking";
+        Assert.Equal(1L, await command.ExecuteScalarAsync());
+        Assert.True(File.Exists(older));
+        Assert.True(File.Exists(newest));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(DbPath)!, ".AniMeido-restore-*.db*"));
+    }
+
+    [Fact]
+    public async Task Initialize_LockedOnlyBackupReportsTemporaryUnavailability()
+    {
+        var service = new DatabaseService(DbFactory, Paths);
+        var backup = Path.Combine(Paths.BackupDirectory, "AniMeido-20260901.db");
+        await CreateBackupAsync(backup, 42);
+        CorruptDatabase();
+        var original = await ReadTestFileBytesAsync(DbPath);
+
+        using (var locked = new FileStream(backup, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(service.InitializeAsync);
+            Assert.Equal("数据库文件已损坏；备份文件暂时被其他程序占用，未执行恢复。请稍后重启 AniMeido 再试。", exception.Message);
+            var unavailable = Assert.IsType<DatabaseRestoreUnavailableException>(exception.InnerException);
+            Assert.IsType<SqliteException>(unavailable.InnerException);
+        }
+
+        Assert.Equal(original, await ReadTestFileBytesAsync(DbPath));
+        Assert.True(File.Exists(backup));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(DbPath)!, ".AniMeido-restore-*.db*"));
+        Assert.False(Directory.Exists(Path.Combine(Paths.BackupDirectory, "corrupt")));
     }
 
     // 文件可能刚被 SQLite 写完，或正被外部程序扫描；只重试短暂的共享冲突。

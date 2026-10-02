@@ -23,6 +23,11 @@ namespace AniMeido.App.Services
         /// <summary>最大备份保留数</summary>
         private const int MaxBackups = 10;
 
+        private const int RestoreStepMaxAttempts = 20;
+        private const int RestoreStepRetryDelayMilliseconds = 100;
+        private const int RestoreStepRetryBudgetMilliseconds = 2000;
+        private const int RestoreSqliteTimeoutSeconds = 1;
+
         public DatabaseService(SqliteConnectionFactory dbFactory, IAppDataPaths paths)
         {
             _dbFactory = dbFactory;
@@ -56,10 +61,19 @@ namespace AniMeido.App.Services
             }
             catch (SqliteException ex) when (ex.SqliteErrorCode is 11 or 26)
             {
-                var restored = await TryRestoreFromBackupAsync();
-                if (!restored)
-                    throw new InvalidOperationException("数据库文件已损坏，且没有可用备份。请手动删除数据库文件后重启应用。", ex);
-                return;
+                try
+                {
+                    var restored = await TryRestoreFromBackupAsync();
+                    if (!restored)
+                        throw new InvalidOperationException("数据库文件已损坏，且没有可用备份。请手动删除数据库文件后重启应用。", ex);
+                    return;
+                }
+                catch (DatabaseRestoreUnavailableException restoreException)
+                {
+                    throw new InvalidOperationException(
+                        "数据库文件已损坏；备份文件暂时被其他程序占用，未执行恢复。请稍后重启 AniMeido 再试。",
+                        restoreException);
+                }
             }
             catch (IOException) when (!File.Exists(DbPath))
             {
@@ -108,60 +122,113 @@ namespace AniMeido.App.Services
         public async Task<bool> TryRestoreFromBackupAsync()
         {
             SqliteConnection.ClearAllPools();
-            var backups = Directory.GetFiles(BackupDir, "AniMeido-*.db")
-                .OrderByDescending(f => f).ToList();
+            string[] backups = [];
+            await RetryRestoreStepAsync(() =>
+            {
+                backups = Directory.GetFiles(BackupDir, "AniMeido-*.db")
+                    .OrderByDescending(f => f).ToArray();
+                return Task.CompletedTask;
+            }, "Enumerate backups", BackupDir);
             foreach (var backup in backups)
             {
                 var temporaryPath = Path.Combine(
                     Path.GetDirectoryName(DbPath)!, $".AniMeido-restore-{Guid.NewGuid():N}.db");
+                var restored = false;
+                DatabaseRestoreUnavailableException? restoreFailure = null;
                 try
                 {
-                    using (var test = new SqliteConnection(new SqliteConnectionStringBuilder
+                    var validBackup = false;
+                    try
                     {
-                        DataSource = backup,
-                        Mode = SqliteOpenMode.ReadOnly,
-                        Pooling = false,
-                    }.ToString()))
-                    {
-                        await test.OpenAsync();
-                        if (!await CheckIntegrityAsync(test))
-                            continue;
+                        await RetryRestoreStepAsync(async () =>
+                        {
+                            using var test = new SqliteConnection(new SqliteConnectionStringBuilder
+                            {
+                                DataSource = backup,
+                                Mode = SqliteOpenMode.ReadOnly,
+                                Pooling = false,
+                                DefaultTimeout = RestoreSqliteTimeoutSeconds,
+                            }.ToString());
+                            await test.OpenAsync();
+                            validBackup = await CheckIntegrityAsync(test);
+                        }, "Open and check backup", backup);
                     }
-
-                    File.Copy(backup, temporaryPath);
-                    using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+                    catch (SqliteException ex) when (ex.SqliteErrorCode is 11 or 26)
                     {
-                        DataSource = temporaryPath,
-                        Mode = SqliteOpenMode.ReadWrite,
-                        Pooling = false,
-                    }.ToString()))
-                    {
-                        await connection.OpenAsync();
-                        await DatabaseSchema.CreateInitialBusinessTablesBeforeConfigAsync(connection);
-                        await CreateConfigTableAsync(connection);
-                        await DatabaseSchema.CreateInitialBusinessTablesAfterConfigAsync(connection);
-                        await DatabaseSchema.RunMigrationsAsync(connection);
-                        if (!await CheckIntegrityAsync(connection))
-                            continue;
-
-                        // 迁移的 WAL 写入必须在移动临时主文件之前落盘。
-                        using var checkpoint = connection.CreateCommand();
-                        checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE)";
-                        await checkpoint.ExecuteNonQueryAsync();
+                        Serilog.Log.Warning(ex, "Database backup {Backup} is corrupt or not a database.", backup);
+                        continue;
                     }
+                    if (!validBackup)
+                        continue;
 
-                    ReplaceDatabase(temporaryPath);
+                    await RetryRestoreStepAsync(() =>
+                    {
+                        // 一次复制失败可能留下部分临时文件；下一次只覆盖本次创建的临时路径。
+                        File.Copy(backup, temporaryPath, overwrite: true);
+                        return Task.CompletedTask;
+                    }, "Copy backup", $"{backup} -> {temporaryPath}");
+                    var validTemporaryDatabase = false;
+                    try
+                    {
+                        await RetryRestoreStepAsync(async () =>
+                        {
+                            using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+                            {
+                                DataSource = temporaryPath,
+                                Mode = SqliteOpenMode.ReadWrite,
+                                Pooling = false,
+                                DefaultTimeout = RestoreSqliteTimeoutSeconds,
+                            }.ToString());
+                            await connection.OpenAsync();
+                            await DatabaseSchema.CreateInitialBusinessTablesBeforeConfigAsync(connection);
+                            await CreateConfigTableAsync(connection);
+                            await DatabaseSchema.CreateInitialBusinessTablesAfterConfigAsync(connection);
+                            await DatabaseSchema.RunMigrationsAsync(connection);
+                            validTemporaryDatabase = await CheckIntegrityAsync(connection);
+                            if (!validTemporaryDatabase)
+                                return;
+
+                            // 迁移的 WAL 写入必须在移动临时主文件之前落盘。
+                            using var checkpoint = connection.CreateCommand();
+                            checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE)";
+                            if (Convert.ToInt32(await checkpoint.ExecuteScalarAsync()) != 0)
+                                throw new SqliteException("Restore database checkpoint is busy.", 5);
+                        }, "Prepare and check temporary database", temporaryPath);
+                    }
+#pragma warning disable CA1031 // 非暂时性的补表/迁移失败说明该备份不可用；B 类必须中止，不能退回旧备份
+                    catch (Exception ex) when (ex is not DatabaseRestoreUnavailableException && !IsRestoreUnavailable(ex))
+                    {
+                        Serilog.Log.Warning(ex, "Database backup {Backup} could not be migrated.", backup);
+                        continue;
+                    }
+#pragma warning restore CA1031
+                    if (!validTemporaryDatabase)
+                        continue;
+
+                    // 最终移动是提交点：先清理临时 sidecar，不能安装成功后才因清理失败报告未恢复。
+                    await DeleteRestoreTemporaryFilesAsync(temporaryPath, includeMainFile: false);
+                    await ReplaceDatabaseAsync(temporaryPath);
+                    restored = true;
                     return true;
                 }
-#pragma warning disable CA1031 // 单份备份恢复失败时保留备份并继续尝试下一份
-                catch (Exception ex)
+                catch (DatabaseRestoreUnavailableException ex)
                 {
-                    Serilog.Log.Warning(ex, "Database restore from {Backup} failed.", backup);
+                    restoreFailure = ex;
+                    throw;
                 }
-#pragma warning restore CA1031
                 finally
                 {
-                    DeleteRestoreTemporaryFiles(temporaryPath);
+                    if (!restored)
+                    {
+                        try
+                        {
+                            await DeleteRestoreTemporaryFilesAsync(temporaryPath);
+                        }
+                        catch (DatabaseRestoreUnavailableException) when (restoreFailure is not null)
+                        {
+                            // 清理步骤已记录 Warning；保留中止恢复的原始异常，不让清理异常覆盖它。
+                        }
+                    }
                 }
             }
             return false;
@@ -179,10 +246,14 @@ namespace AniMeido.App.Services
             return false;
         }
 
-        private void ReplaceDatabase(string temporaryPath)
+        private async Task ReplaceDatabaseAsync(string temporaryPath)
         {
             var corruptDirectory = Path.Combine(BackupDir, "corrupt");
-            Directory.CreateDirectory(corruptDirectory);
+            await RetryRestoreStepAsync(() =>
+            {
+                Directory.CreateDirectory(corruptDirectory);
+                return Task.CompletedTask;
+            }, "Create corrupt archive directory", corruptDirectory);
             var corruptPath = Path.Combine(corruptDirectory,
                 $"AniMeido-corrupt-{DateTime.Now:yyyyMMdd-HHmmss-fffffff}-{Guid.NewGuid():N}.db");
             var moved = new List<(string Original, string Archived)>();
@@ -195,18 +266,37 @@ namespace AniMeido.App.Services
                         continue;
 
                     var archived = corruptPath + suffix;
-                    File.Move(original, archived);
+                    await RetryRestoreStepAsync(() =>
+                    {
+                        File.Move(original, archived);
+                        return Task.CompletedTask;
+                    }, "Archive original database file", $"{original} -> {archived}");
                     moved.Add((original, archived));
                 }
 
-                File.Move(temporaryPath, DbPath);
+                await RetryRestoreStepAsync(() =>
+                {
+                    File.Move(temporaryPath, DbPath);
+                    return Task.CompletedTask;
+                }, "Install restored database", $"{temporaryPath} -> {DbPath}");
             }
-#pragma warning disable CA1031 // 替换失败时尽力将主库及已移动的 sidecar 恢复原位
+#pragma warning disable CA1031 // 替换失败时逐项重试回滚；某项回滚仍失败不能阻止其他项恢复原位
             catch
             {
                 foreach (var (original, archived) in moved.AsEnumerable().Reverse())
                 {
-                    try { File.Move(archived, original); }
+                    try
+                    {
+                        await RetryRestoreStepAsync(() =>
+                        {
+                            File.Move(archived, original);
+                            return Task.CompletedTask;
+                        }, "Roll back archived database file", $"{archived} -> {original}");
+                    }
+                    catch (DatabaseRestoreUnavailableException)
+                    {
+                        // 重试用尽已经记录 Warning；继续回滚其余文件，最后重新抛出替换失败的异常。
+                    }
                     catch (Exception ex)
                     {
                         Serilog.Log.Warning(ex, "Failed to return {Archived} to {Original} after restore failure.", archived, original);
@@ -218,15 +308,56 @@ namespace AniMeido.App.Services
 #pragma warning restore CA1031
         }
 
-        private static void DeleteRestoreTemporaryFiles(string dbPath)
+        private static async Task DeleteRestoreTemporaryFilesAsync(string dbPath, bool includeMainFile = true)
         {
-            foreach (var suffix in new[] { "", "-wal", "-shm", "-journal" })
+            DatabaseRestoreUnavailableException? cleanupFailure = null;
+            var suffixes = includeMainFile ? new[] { "", "-wal", "-shm", "-journal" } : new[] { "-wal", "-shm", "-journal" };
+            foreach (var suffix in suffixes)
             {
                 var path = dbPath + suffix;
-                try { File.Delete(path); }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                try
                 {
-                    Serilog.Log.Warning(ex, "Restore temporary database cleanup failed for {Path}.", path);
+                    await RetryRestoreStepAsync(() =>
+                    {
+                        File.Delete(path);
+                        return Task.CompletedTask;
+                    }, "Delete restore temporary file", path);
+                }
+                catch (DatabaseRestoreUnavailableException ex)
+                {
+                    cleanupFailure ??= ex;
+                }
+            }
+            if (cleanupFailure is not null)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+        }
+
+        private static bool IsRestoreUnavailable(Exception exception)
+            => exception is IOException or UnauthorizedAccessException
+                || exception is SqliteException { SqliteErrorCode: 5 or 6 or 10 or 14 };
+
+        private static async Task RetryRestoreStepAsync(Func<Task> operation, string step, string path)
+        {
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    await operation();
+                    return;
+                }
+                catch (Exception ex) when (IsRestoreUnavailable(ex))
+                {
+                    var remaining = RestoreStepRetryBudgetMilliseconds - elapsed.ElapsedMilliseconds;
+                    if (attempt == RestoreStepMaxAttempts || remaining <= 0)
+                    {
+                        Serilog.Log.Warning(ex, "Database restore step {Step} for {Path} failed after {Attempts} attempts in {ElapsedMilliseconds} ms.",
+                            step, path, attempt, elapsed.ElapsedMilliseconds);
+                        throw new DatabaseRestoreUnavailableException(
+                            $"Database restore step '{step}' for '{path}' is temporarily unavailable.", ex);
+                    }
+
+                    await Task.Delay((int)Math.Min(RestoreStepRetryDelayMilliseconds, remaining));
                 }
             }
         }
