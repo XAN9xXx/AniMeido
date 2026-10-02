@@ -96,7 +96,7 @@ namespace AniMeido.App.Services
                 var backupPath = Path.Combine(BackupDir, $"AniMeido-{timestamp}-{suffix}.db");
                 using var source = await _dbFactory.OpenAsync();
                 using var dest = new SqliteConnection(
-                    new SqliteConnectionStringBuilder { DataSource = backupPath }.ToString());
+                    new SqliteConnectionStringBuilder { DataSource = backupPath, Pooling = false }.ToString());
                 await dest.OpenAsync();
                 source.BackupDatabase(dest);
                 var backups = Directory.GetFiles(BackupDir, "AniMeido-*.db")
