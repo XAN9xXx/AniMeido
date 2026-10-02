@@ -136,33 +136,54 @@ public sealed class PluginHostSupervisorTests : IDisposable
     }
 
     [Fact]
-    public async Task Session_NonHostProcessExitDuringHandshakeCanBeCancelledAndRetriedWithoutResources()
+    public async Task Session_ProcessExitBeforeConnectionFailsPromptlyAndRetryCleansResourcesWithoutExited()
     {
         var executable = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "where.exe");
         Assert.True(File.Exists(executable));
+        var logger = new SessionLogger();
         await using var session = new PluginHostSession(
             new HostedPluginDescriptor(_root, new PluginManifest { PluginId = "fixture.process", DisplayName = "Fixture" }),
-            executable, new NoProgress(), new NoGateway(), NullLogger.Instance);
+            executable, new NoProgress(), new NoGateway(), logger);
+        var exited = 0;
+        session.Exited += (_, _) => Interlocked.Increment(ref exited);
+        string? firstMessage = null;
         for (var attempt = 0; attempt < 2; attempt++)
         {
             using var cancellation = new CancellationTokenSource(Budget);
-            var pending = session.StartAsync(cancellation.Token);
-            // 上一轮退出事件也会短暂持有生命周期门；等待本轮实际创建进程，而非假定 StartAsync 同步越过门。
-            while (GetSessionResource(session, "_process") is null && !pending.IsCompleted)
-                await Task.Delay(10, cancellation.Token);
-            var process = Assert.IsType<Process>(GetSessionResource(session, "_process"));
-            Assert.True(process.StartInfo.CreateNoWindow);
-            Assert.False(process.StartInfo.UseShellExecute);
-            await process.WaitForExitAsync(cancellation.Token);
-            Assert.NotEqual(0, process.ExitCode);
-            Assert.False(pending.IsCompleted); // 当前实现仍在等两条管道握手，而不是提前因退出失败。
-            cancellation.Cancel();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(Budget));
+            var stopwatch = Stopwatch.StartNew();
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => session.StartAsync(cancellation.Token).WaitAsync(Budget));
+            Assert.InRange(stopwatch.Elapsed, TimeSpan.Zero, Budget);
+            var match = System.Text.RegularExpressions.Regex.Match(
+                error.Message, "^插件运行程序启动后立即退出（退出码 (-?\\d+)）。$");
+            Assert.True(match.Success, error.Message);
+            Assert.NotEqual(0, int.Parse(match.Groups[1].Value));
+            if (firstMessage is not null) Assert.Equal(firstMessage, error.Message);
+            firstMessage = error.Message;
             Assert.False(session.IsRunning);
             Assert.Null(GetSessionResource(session, "_process"));
             Assert.Null(GetSessionResource(session, "_pipe"));
             Assert.Null(GetSessionResource(session, "_callbackPipe"));
             Assert.Null(GetSessionResource(session, "_rpc"));
+            Assert.Null(GetSessionResource(session, "_startupCancellation"));
+            // 排在启动后的退出回调也必须完成，且不能发出 Exited 或预算警告。
+            var gate = Assert.IsType<SemaphoreSlim>(GetSessionResource(session, "_gate"));
+            await gate.WaitAsync().WaitAsync(Budget);
+            gate.Release();
+            Assert.Equal(0, Volatile.Read(ref exited));
+            Assert.Empty(logger.Warnings);
+        }
+    }
+
+    private sealed class SessionLogger : Microsoft.Extensions.Logging.ILogger
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<string> Warnings { get; } = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel level) => true;
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel level, Microsoft.Extensions.Logging.EventId eventId,
+            TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (level >= Microsoft.Extensions.Logging.LogLevel.Warning) Warnings.Enqueue(formatter(state, exception));
         }
     }
 

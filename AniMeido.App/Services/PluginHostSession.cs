@@ -546,9 +546,46 @@ internal sealed class PluginHostSession : IAsyncDisposable
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(15));
-        await Task.WhenAll(
+        var connections = Task.WhenAll(
             _pipe.WaitForConnectionAsync(timeout.Token),
             _callbackPipe.WaitForConnectionAsync(timeout.Token));
+        using var exitWait = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+        var process = _process;
+        var exited = process.WaitForExitAsync(exitWait.Token);
+        try
+        {
+            if (await Task.WhenAny(connections, exited) == exited
+                && !connections.IsCompleted)
+            {
+                await exited;
+                cancellationToken.ThrowIfCancellationRequested();
+                var exitCode = process.ExitCode;
+                timeout.Cancel();
+                try
+                {
+                    await connections;
+                }
+                catch (OperationCanceledException)
+                {
+                    // Drain both cancelled waits before StartAsync disposes the pipes.
+                }
+                throw new InvalidOperationException(
+                    $"插件运行程序启动后立即退出（退出码 {exitCode}）。");
+            }
+            await connections;
+        }
+        finally
+        {
+            exitWait.Cancel();
+            try
+            {
+                await exited;
+            }
+            catch (OperationCanceledException)
+            {
+                // The connection/timeout path owns the result, not the exit observer.
+            }
+        }
 
         _callbackServerCancellation = new CancellationTokenSource();
         var callbackTarget = new PersonalAnimeCallbackRpcTarget(
