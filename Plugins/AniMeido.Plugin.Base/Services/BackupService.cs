@@ -41,7 +41,7 @@ namespace AniMeido.Plugin.Base.Services
 
             using var source = await _dbFactory.OpenAsync();
             using var dest = new SqliteConnection(
-                new SqliteConnectionStringBuilder { DataSource = backupPath }.ToString());
+                new SqliteConnectionStringBuilder { DataSource = backupPath, Pooling = false }.ToString());
             await dest.OpenAsync();
 
             source.BackupDatabase(dest);
@@ -77,6 +77,7 @@ namespace AniMeido.Plugin.Base.Services
                 {
                     DataSource = backupPath,
                     Mode = SqliteOpenMode.ReadOnly,
+                    Pooling = false,
                 }.ToString());
             await backup.OpenAsync(cancellationToken);
             await using var destination = await _dbFactory.OpenAsync(
