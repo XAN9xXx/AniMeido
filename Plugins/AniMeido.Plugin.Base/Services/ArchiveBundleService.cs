@@ -124,6 +124,7 @@ public sealed class ArchiveBundleService
         }
     }
 
+    // 导入失败时恢复导入前的整库备份，导入窗口内其他功能的写入也会被撤销。
     public async Task<int> ImportAsync(
         string bundlePath,
         CancellationToken cancellationToken = default)
