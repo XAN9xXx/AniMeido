@@ -538,7 +538,8 @@ internal sealed class WebMediaResolver : IDisposable
         await using var stream = await response.Content.ReadAsStreamAsync(
             cancellationToken);
         var buffer = new byte[1024];
-        var length = await stream.ReadAsync(buffer, cancellationToken);
+        var length = await stream.ReadAtLeastAsync(
+            buffer, 16, throwOnEndOfStream: false, cancellationToken: cancellationToken);
         var prefix = System.Text.Encoding.UTF8.GetString(buffer, 0, length);
         _diagnostics.Record(
             "media-probe",
