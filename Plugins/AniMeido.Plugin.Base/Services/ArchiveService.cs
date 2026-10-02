@@ -297,6 +297,16 @@ public sealed class ArchiveService
             cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(
             cancellationToken);
+        using (var check = connection.CreateCommand())
+        {
+            check.Transaction = (SqliteTransaction)transaction;
+            check.CommandText = "SELECT EXISTS(SELECT 1 FROM anime_archives WHERE AnimeId = @animeId)";
+            check.Parameters.AddWithValue("@animeId", animeId);
+            if (Convert.ToInt32(await check.ExecuteScalarAsync(cancellationToken)) == 0)
+            {
+                throw new InvalidOperationException("作品尚未建立档案，无法追加条目。");
+            }
+        }
         await AddEntryInTransactionAsync(
             connection,
             (SqliteTransaction)transaction,

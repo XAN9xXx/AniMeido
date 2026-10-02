@@ -49,19 +49,64 @@ public sealed class ArchiveServiceTests : DbTestBase
     }
 
     [Fact]
-    public async Task AddEntry_DoesNotCreateArchive()
+    public async Task AddEntry_MissingArchiveIsRejectedWithoutSideEffects()
     {
         await RunProductionMigrationAsync();
         var service = new ArchiveService(DbFactory);
 
-        await service.AddEntryAsync(
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.AddEntryAsync(
             43,
             DateTimeOffset.UtcNow,
             1,
-            "仅记录感想");
+            "仅记录感想"));
 
+        Assert.Contains("档案", error.Message);
         Assert.Null(await service.GetArchiveAsync(43));
-        Assert.Single(await service.GetEntriesAsync(43));
+        Assert.Empty(await service.GetEntriesAsync(43));
+        Assert.Empty(await service.GetArchiveListAsync());
+    }
+
+    [Fact]
+    public async Task AddEntry_ExistingArchiveKeepsRatingAndSummary()
+    {
+        await RunProductionMigrationAsync();
+        var service = new ArchiveService(DbFactory);
+        await service.UpsertArchiveAsync(43, "已有档案", 8.5, "原摘要");
+        var before = await service.GetArchiveAsync(43);
+
+        await service.AddEntryAsync(43, DateTimeOffset.UtcNow, 2, "新增笔记");
+
+        Assert.Equal(before, await service.GetArchiveAsync(43));
+        Assert.Equal("新增笔记", Assert.Single(await service.GetEntriesAsync(43)).Body);
+    }
+
+    [Fact]
+    public async Task EnsureArchiveAndAddEntry_CommitsOrRollsBackTogether()
+    {
+        await RunProductionMigrationAsync();
+        using var connection = await DbFactory.OpenAsync();
+        using (var transaction = connection.BeginTransaction())
+        {
+            await ArchiveService.EnsureArchiveAndAddEntryInTransactionAsync(
+                connection, transaction, "gateway-entry", 43, "网关档案", DateTimeOffset.UtcNow,
+                1, "网关笔记", DateTimeOffset.UtcNow.ToString("O"), CancellationToken.None);
+            transaction.Commit();
+        }
+        var service = new ArchiveService(DbFactory);
+        Assert.NotNull(await service.GetArchiveAsync(43));
+        Assert.Equal("gateway-entry", Assert.Single(await service.GetEntriesAsync(43)).EntryId);
+
+        using (var transaction = connection.BeginTransaction())
+        {
+            // 第二次追加使用冲突的 EntryId，先创建的父档案也必须回滚。
+            await Assert.ThrowsAsync<Microsoft.Data.Sqlite.SqliteException>(() =>
+                ArchiveService.EnsureArchiveAndAddEntryInTransactionAsync(
+                    connection, transaction, "gateway-entry", 44, "应回滚档案", DateTimeOffset.UtcNow,
+                    1, "失败笔记", DateTimeOffset.UtcNow.ToString("O"), CancellationToken.None));
+            transaction.Rollback();
+        }
+        Assert.Null(await service.GetArchiveAsync(44));
+        Assert.Empty(await service.GetEntriesAsync(44));
     }
 
     [Theory]
