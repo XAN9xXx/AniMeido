@@ -177,8 +177,10 @@ namespace AniMeido.Plugin.Base.Services
                     using var cmd = connection.CreateCommand();
                     cmd.Transaction = transaction;
                     cmd.CommandText = """
-                        INSERT OR REPLACE INTO tracking (AnimeId, Status, UpdatedAt)
+                        INSERT INTO tracking (AnimeID, Status, UpdatedAt)
                         VALUES (@id, @status, @time)
+                        ON CONFLICT(AnimeID) DO UPDATE SET
+                            Status = excluded.Status, UpdatedAt = excluded.UpdatedAt
                         """;
                     cmd.Parameters.AddWithValue("@id", entry.AnimeId);
                     cmd.Parameters.AddWithValue("@status", (int)entry.Status);
@@ -199,7 +201,7 @@ namespace AniMeido.Plugin.Base.Services
                         var zonesJson = JsonSerializer.Serialize(validZones, ConfigJsonOptions);
                         using var cmd = connection.CreateCommand();
                         cmd.Transaction = transaction;
-                        cmd.CommandText = "INSERT OR REPLACE INTO config (Key, Value) VALUES ('drag_zones', @value)";
+                        cmd.CommandText = "INSERT INTO config (Key, Value) VALUES ('drag_zones', @value) ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value";
                         cmd.Parameters.AddWithValue("@value", zonesJson);
                         await cmd.ExecuteNonQueryAsync();
                         configCount = validZones.Count;
@@ -218,7 +220,7 @@ namespace AniMeido.Plugin.Base.Services
 
                         using var cmd = connection.CreateCommand();
                         cmd.Transaction = transaction;
-                        cmd.CommandText = "INSERT OR IGNORE INTO saved_tags (TagName) VALUES (@tag)";
+                        cmd.CommandText = "INSERT INTO saved_tags (TagName) VALUES (@tag) ON CONFLICT(TagName) DO NOTHING";
                         cmd.Parameters.AddWithValue("@tag", tagName);
                         await cmd.ExecuteNonQueryAsync();
                         tagCount++;
@@ -364,6 +366,7 @@ namespace AniMeido.Plugin.Base.Services
                 List<Dictionary<string, string?>>> tables)
         {
             var importedCount = 0;
+            var tagIds = new Dictionary<long, long>();
             foreach (var table in PersonalDataTableColumns)
             {
                 if (!tables.TryGetValue(table.Key, out var rows)
@@ -372,16 +375,58 @@ namespace AniMeido.Plugin.Base.Services
                     continue;
                 }
 
+                if (table.Key == "personal_tags")
+                {
+                    foreach (var row in rows)
+                    {
+                        if (!row.TryGetValue("TagId", out var importedId)
+                            || !long.TryParse(importedId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tagId)
+                            || !row.TryGetValue("Name", out var name) || name is null)
+                        {
+                            throw new InvalidDataException("导入的个人标签缺少有效 ID 或名称。");
+                        }
+
+                        using var tagCommand = connection.CreateCommand();
+                        tagCommand.Transaction = transaction;
+                        tagCommand.CommandText = "SELECT TagId FROM personal_tags WHERE Name = @name COLLATE NOCASE";
+                        tagCommand.Parameters.AddWithValue("@name", name);
+                        var localId = await tagCommand.ExecuteScalarAsync();
+                        if (localId is null)
+                        {
+                            tagCommand.CommandText = "INSERT INTO personal_tags(Name) VALUES(@name) RETURNING TagId";
+                            localId = await tagCommand.ExecuteScalarAsync();
+                        }
+                        tagIds[tagId] = Convert.ToInt64(localId, CultureInfo.InvariantCulture);
+                        importedCount++;
+                    }
+                    continue;
+                }
+
+                // 其余单列主键均为白名单中的首列；这三张表使用复合主键。
+                string[] primaryKeys = table.Key switch
+                {
+                    "episode_progress" => ["AnimeId", "EpisodeNumber"],
+                    "anime_personal_tags" => ["AnimeId", "TagId"],
+                    "recommendation_feature_preferences" => ["FeatureKind", "FeatureKey"],
+                    _ => [table.Value[0]],
+                };
+                var updates = table.Value.Except(primaryKeys, StringComparer.Ordinal)
+                    .Select(column => $"{column} = excluded.{column}")
+                    .ToArray();
+                var conflictAction = updates.Length == 0
+                    ? "DO NOTHING"
+                    : $"DO UPDATE SET {string.Join(", ", updates)}";
                 var parameterNames = table.Value
                     .Select((_, index) => $"@value{index}")
                     .ToArray();
                 using var command = connection.CreateCommand();
                 command.Transaction = transaction;
                 command.CommandText = $"""
-                    INSERT OR REPLACE INTO {table.Key}
+                    INSERT INTO {table.Key}
                         ({string.Join(", ", table.Value)})
                     VALUES
                         ({string.Join(", ", parameterNames)})
+                    ON CONFLICT({string.Join(", ", primaryKeys)}) {conflictAction}
                     """;
                 foreach (var parameterName in parameterNames)
                 {
@@ -396,11 +441,24 @@ namespace AniMeido.Plugin.Base.Services
                     for (var index = 0; index < table.Value.Length; index++)
                     {
                         row.TryGetValue(table.Value[index], out var value);
-                        command.Parameters[index].Value =
-                            value ?? (object)DBNull.Value;
+                        if (table.Value[index] == "TagId")
+                        {
+                            if (!long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var importedId)
+                                || !tagIds.TryGetValue(importedId, out var localId))
+                            {
+                                throw new InvalidDataException("导入的标签关联引用了不存在的个人标签。");
+                            }
+                            command.Parameters[index].Value = localId;
+                        }
+                        else
+                        {
+                            command.Parameters[index].Value = value ?? (object)DBNull.Value;
+                        }
                     }
 
-                    importedCount += await command.ExecuteNonQueryAsync();
+                    await command.ExecuteNonQueryAsync();
+                    // 计数表示处理的导入记录，重复标签或关联也按输入记录计数。
+                    importedCount++;
                 }
             }
 

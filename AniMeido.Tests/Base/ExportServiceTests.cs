@@ -45,34 +45,9 @@ namespace AniMeido.Tests
             // 用新的独立数据库验证导入
             var mockImportPaths = new MockAppDataPaths();
             var importDbFactory = new SqliteConnectionFactory(mockImportPaths);
-            var importDbPath = mockImportPaths.DatabasePath;
-            // 在新数据库上建表
-            using (var importConn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={importDbPath}"))
-            {
-                await importConn.OpenAsync();
-                var importCmd = importConn.CreateCommand();
-                importCmd.CommandText = """
-                    CREATE TABLE IF NOT EXISTS tracking(
-                        AnimeID   INTEGER PRIMARY KEY,
-                        Status    INTEGER NOT NULL,
-                        UpdatedAt TEXT NOT NULL
-                    )
-                """;
-                await importCmd.ExecuteNonQueryAsync();
-                importCmd.CommandText = """
-                    CREATE TABLE IF NOT EXISTS config(
-                        Key   TEXT PRIMARY KEY,
-                        Value TEXT NOT NULL
-                    )
-                """;
-                await importCmd.ExecuteNonQueryAsync();
-                importCmd.CommandText = """
-                    CREATE TABLE IF NOT EXISTS saved_tags(
-                        TagName TEXT NOT NULL PRIMARY KEY
-                    )
-                """;
-                await importCmd.ExecuteNonQueryAsync();
-            }
+            await new AniMeido.App.Services.DatabaseService(
+                importDbFactory,
+                mockImportPaths).InitializeAsync();
 
             // 导入
             var importSvc = new ExportService(
