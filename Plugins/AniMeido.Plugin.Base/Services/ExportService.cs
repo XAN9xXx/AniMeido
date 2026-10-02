@@ -375,6 +375,25 @@ namespace AniMeido.Plugin.Base.Services
                     continue;
                 }
 
+                var primaryKeyColumns = new SortedDictionary<int, string>();
+                using (var schemaCommand = connection.CreateCommand())
+                {
+                    schemaCommand.Transaction = transaction;
+                    schemaCommand.CommandText = $"PRAGMA table_info({table.Key})";
+                    using var reader = await schemaCommand.ExecuteReaderAsync();
+                    while (await reader.ReadAsync())
+                    {
+                        var ordinal = reader.GetInt32(5);
+                        if (ordinal > 0)
+                            primaryKeyColumns.Add(ordinal, reader.GetString(1));
+                    }
+                }
+                var primaryKeys = primaryKeyColumns.Values.ToArray();
+                if (primaryKeys.Length == 0)
+                    throw new InvalidOperationException($"表 {table.Key} 没有主键，无法导入。");
+                if (primaryKeys.Any(column => !table.Value.Contains(column, StringComparer.Ordinal)))
+                    throw new InvalidOperationException($"表 {table.Key} 的主键列不全在导入白名单中，无法导入。");
+
                 if (table.Key == "personal_tags")
                 {
                     foreach (var row in rows)
@@ -402,14 +421,6 @@ namespace AniMeido.Plugin.Base.Services
                     continue;
                 }
 
-                // 其余单列主键均为白名单中的首列；这三张表使用复合主键。
-                string[] primaryKeys = table.Key switch
-                {
-                    "episode_progress" => ["AnimeId", "EpisodeNumber"],
-                    "anime_personal_tags" => ["AnimeId", "TagId"],
-                    "recommendation_feature_preferences" => ["FeatureKind", "FeatureKey"],
-                    _ => [table.Value[0]],
-                };
                 var updates = table.Value.Except(primaryKeys, StringComparer.Ordinal)
                     .Select(column => $"{column} = excluded.{column}")
                     .ToArray();
