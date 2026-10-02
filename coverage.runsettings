@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+    <DataCollectionRunSettings>
+        <DataCollectors>
+            <DataCollector friendlyName="Code Coverage">
+                <Configuration>
+                    <Format>Cobertura</Format>
+                    <CodeCoverage>
+                        <ModulePaths>
+                            <Include>
+                                <ModulePath>.*[\\/]AniMeido\.(App|Contracts|PluginProtocol|Plugin\.Base|Plugin\.Player)\.dll$</ModulePath>
+                            </Include>
+                            <Exclude>
+                                <ModulePath>.*[\\/]AniMeido\..*Tests\.dll$</ModulePath>
+                            </Exclude>
+                        </ModulePaths>
+                        <!-- PluginHost is a separate process and is not exercised/collected by these unit tests. -->
+                        <CollectFromChildProcesses>false</CollectFromChildProcesses>
+                        <EnableStaticManagedInstrumentation>false</EnableStaticManagedInstrumentation>
+                        <EnableDynamicManagedInstrumentation>true</EnableDynamicManagedInstrumentation>
+                        <EnableStaticNativeInstrumentation>false</EnableStaticNativeInstrumentation>
+                        <EnableDynamicNativeInstrumentation>false</EnableDynamicNativeInstrumentation>
+                    </CodeCoverage>
+                </Configuration>
+            </DataCollector>
+        </DataCollectors>
+    </DataCollectionRunSettings>
+</RunSettings>

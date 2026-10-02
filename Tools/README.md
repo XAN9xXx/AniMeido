@@ -62,6 +62,20 @@ AI 插件（`AniMeido.Plugin.AI`）是保留的实验源码，默认不启用；
   -OutputPath .\artifacts\sources\example.source-1.0.0.animeido-source
 ```
 
+## 测试覆盖率（无通过门槛）
+
+已有依赖还原完成后，在仓库根目录执行：
+
+```powershell
+pwsh -File .\Tools\test-coverage.ps1
+```
+
+脚本通过现有 Microsoft.NET.Test.Sdk 17.8.0 的 Code Coverage 采集器和根目录 `coverage.runsettings`，
+分别构建并运行两个测试项目（`--no-restore`，不联网、不安装包或工具）。输出位于已忽略的
+`TestResults/coverage/<时间戳-GUID>/<测试项目>/`，打印各产品程序集的 Cobertura 行/分支覆盖率。
+两个项目不合并；未采集到的程序集明确列为 `not collected`，不当作 0%。
+PluginHost 为单独进程，单元测试不运行它，因而本配置不采集它。测试或采集/报告失败返回非零退出码。
+
 ## 安装与安全说明
 
 插件包在 AniMeido 的"应用设置"页安装；安装或更新后，在设置中重新加载可选插件宿主即可生效，不需要重启主程序。
