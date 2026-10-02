@@ -1,52 +1,54 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
+using Serilog;
 
 namespace AniMeido.App.Services;
 
-/// <summary>
-/// 更新检查启动任务。在 App 启动后静默检查更新。
-/// </summary>
+/// <summary>更新检查启动任务。失败只记 Warning，不影响 App 启动。</summary>
 internal static class UpdateStartupTask
 {
-    /// <summary>静默检查更新，发现新版本时弹出更新提示。</summary>
     public static async Task CheckForUpdateSilentlyAsync(IServiceProvider provider, Window window)
     {
         try
         {
-            var updateService = provider.GetRequiredService<UpdateService>();
-            var result = await updateService.CheckForUpdateAsync();
+            var result = await provider.GetRequiredService<UpdateService>().CheckForUpdateAsync();
             App.LatestVersion = result.LatestVersion;
-            if (result.Status != UpdateCheckStatus.UpdateAvailable) return;
+            var decision = UpdatePromptPolicy.Decide(result, null, UpdatePromptTrigger.Startup);
+            if (decision.LogWarning)
+                Log.Warning("启动更新检查失败：{Status}，{Reason}", result.Status, result.FailureReason);
+            if (!decision.ShouldPrompt)
+                return;
 
-            window.DispatcherQueue.TryEnqueue(async () =>
+            if (!window.DispatcherQueue.TryEnqueue(async () =>
             {
-                if (window.Content is FrameworkElement fe && fe.XamlRoot is { } xamlRoot)
+                try
                 {
-                    var dialog = new ContentDialog
+                    if (window.Content is FrameworkElement { XamlRoot: { } xamlRoot })
                     {
-                        Title = "发现新版本",
-                        Content = $"最新版本：{result.LatestVersion}\n\n{result.ReleaseNotes}",
-                        PrimaryButtonText = "下载更新",
-                        CloseButtonText = "稍后再说",
-                        DefaultButton = ContentDialogButton.Primary,
-                        XamlRoot = xamlRoot
-                    };
-                    if (await dialog.ShowAsync() == ContentDialogResult.Primary && result.DownloadUrl != null)
+                        await UpdatePromptDialog.ShowAsync(result,
+                            provider.GetRequiredService<DesktopSettingsStore>(),
+                            UpdatePromptTrigger.Startup, xamlRoot);
+                    }
+                    else
                     {
-                        if (Uri.TryCreate(result.DownloadUrl, UriKind.Absolute, out var uri)
-                            && uri.Scheme == Uri.UriSchemeHttps)
-                        {
-                            await Windows.System.Launcher.LaunchUriAsync(uri);
-                        }
+                        Log.Warning("启动更新提示未显示：窗口内容尚未就绪");
                     }
                 }
-            });
+#pragma warning disable CA1031 // async void UI 回调必须自行兜底，不能让更新提示影响应用启动。
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "启动更新提示失败，应用将继续运行");
+                }
+#pragma warning restore CA1031
+            }))
+            {
+                Log.Warning("启动更新提示未显示：无法进入 UI 调度队列");
+            }
         }
-#pragma warning disable CA1031 // 更新检查静默失败，不影响启动
-        catch
+#pragma warning disable CA1031 // 更新检查与服务解析失败都不能阻断应用启动。
+        catch (Exception ex)
         {
-            // 更新检查静默失败，不影响启动
+            Log.Warning(ex, "启动更新检查异常，应用将继续运行");
         }
 #pragma warning restore CA1031
     }

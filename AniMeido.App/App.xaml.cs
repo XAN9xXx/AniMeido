@@ -185,10 +185,6 @@ namespace AniMeido.App
 
         internal async Task SetKeepInTrayOnCloseAsync(bool enabled)
         {
-            var updatedSettings = _desktopSettings with
-            {
-                KeepInTrayOnClose = enabled,
-            };
             var provider = _serviceProvider;
             if (provider is null)
             {
@@ -207,9 +203,8 @@ namespace AniMeido.App
 
             try
             {
-                await provider.GetRequiredService<DesktopSettingsStore>()
-                    .SaveAsync(updatedSettings);
-                _desktopSettings = updatedSettings;
+                _desktopSettings = await provider.GetRequiredService<DesktopSettingsStore>()
+                    .UpdateAsync(settings => settings with { KeepInTrayOnClose = enabled });
             }
             catch
             {
@@ -258,8 +253,8 @@ namespace AniMeido.App
                 };
                 try
                 {
-                    await provider.GetRequiredService<DesktopSettingsStore>()
-                        .SaveAsync(_desktopSettings);
+                    _desktopSettings = await provider.GetRequiredService<DesktopSettingsStore>()
+                        .UpdateAsync(settings => settings with { KeepInTrayOnClose = false });
                 }
                 catch (Exception saveException) when (
                     saveException is IOException

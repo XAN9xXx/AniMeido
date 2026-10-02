@@ -389,87 +389,32 @@ namespace AniMeido.App.Views
             try
             {
                 var result = await _updateService.CheckForUpdateAsync();
-
-                ContentDialog dialog;
-                if (result.Status == UpdateCheckStatus.NetworkError || result.Status == UpdateCheckStatus.InvalidManifest)
-                {
-                    dialog = new ContentDialog
-                    {
-                        Title = "检查更新",
-                        Content = "检查更新失败，请稍后重试或检查网络连接。",
-                        CloseButtonText = "确定",
-                        XamlRoot = this.XamlRoot
-                    };
-                }
-                else if (result.Status == UpdateCheckStatus.UpdateAvailable)
-                {
-                    dialog = new ContentDialog
-                    {
-                        Title = "发现新版本",
-                        Content = $"最新版本：{result.LatestVersion}\n\n{result.ReleaseNotes}\n\n如果下载缓慢，请尝试使用 Motrix 等工具加速下载。",
-                        PrimaryButtonText = "下载更新",
-                        CloseButtonText = "稍后再说",
-                        DefaultButton = ContentDialogButton.Primary,
-                        XamlRoot = this.XamlRoot
-                    };
-                    var dialogResult = await dialog.ShowAsync();
-                    if (dialogResult == ContentDialogResult.Primary && result.DownloadUrl != null)
-                    {
-                        if (Uri.TryCreate(result.DownloadUrl, UriKind.Absolute, out var uri)
-                            && uri.Scheme == Uri.UriSchemeHttps)
-                        {
-                            await Windows.System.Launcher.LaunchUriAsync(uri);
-                        }
-                    }
-                    VersionInfoText.Text = $"当前版本：v{System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version?.Major}.{System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version?.Minor}.{System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version?.Build} | 最新版本：v{result.LatestVersion}";
+                App.LatestVersion = result.LatestVersion;
+                // 等待 HTTP 时可能已经离开设置页，不在失效的 XamlRoot 上显示弹窗。
+                if (!IsLoaded || XamlRoot is null)
                     return;
-                }
-                else if (result.Status == UpdateCheckStatus.NoUpdate)
-                {
-                    dialog = new ContentDialog
-                    {
-                        Title = "检查更新",
-                        Content = "已是最新版本。",
-                        CloseButtonText = "确定",
-                        XamlRoot = this.XamlRoot
-                    };
-                    VersionInfoText.Text = $"当前版本：v{System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version?.Major}.{System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version?.Minor}.{System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version?.Build} | 最新版本：v{result.LatestVersion}";
-                }
-                else
-                {
-                    // IncompatibleClient 或其他未知状态
-                    dialog = new ContentDialog
-                    {
-                        Title = "检查更新",
-                        Content = "检查更新失败，客户端兼容性问题。",
-                        CloseButtonText = "确定",
-                        XamlRoot = this.XamlRoot
-                    };
-                }
-                await dialog.ShowAsync();
+                var current = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version;
+                VersionInfoText.Text = $"当前版本：{(current is null ? "未知" : $"v{current.ToString(3)}")} | 最新版本：{(result.LatestVersion is null ? "--" : $"v{result.LatestVersion}")}";
+                await UpdatePromptDialog.ShowAsync(result, _desktopSettings,
+                    UpdatePromptTrigger.Manual, XamlRoot);
             }
-            catch (HttpRequestException ex)
+#pragma warning disable CA1031 // UI 事件兜底：检查、偏好保存或浏览器启动失败都只提示并继续运行。
+            catch (Exception ex)
             {
-                var dialog = new ContentDialog
+                Serilog.Log.Warning(ex, "手动更新检查或提示失败");
+                if (IsLoaded && XamlRoot is { } xamlRoot)
                 {
-                    Title = "检查更新",
-                    Content = $"检查更新时发生网络错误：{ex.Message}",
-                    CloseButtonText = "确定",
-                    XamlRoot = this.XamlRoot
-                };
-                await dialog.ShowAsync();
+                    try
+                    {
+                        await UpdatePromptDialog.ShowMessageAsync(xamlRoot, "检查更新失败", ex.Message);
+                    }
+                    catch (Exception dialogException)
+                    {
+                        Serilog.Log.Warning(dialogException, "无法显示手动更新错误提示");
+                    }
+                }
             }
-            catch (JsonException ex)
-            {
-                var dialog = new ContentDialog
-                {
-                    Title = "检查更新",
-                    Content = $"更新数据解析失败：{ex.Message}",
-                    CloseButtonText = "确定",
-                    XamlRoot = this.XamlRoot
-                };
-                await dialog.ShowAsync();
-            }
+#pragma warning restore CA1031
             finally
             {
                 UpdateCheckButton.IsEnabled = true;
