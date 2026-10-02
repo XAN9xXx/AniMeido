@@ -540,12 +540,16 @@ internal sealed class WebMediaResolver : IDisposable
                 ["bytes"] = length,
             },
             prefix);
+        // MIME 不可靠时嗅探实际内容，不能只因 URL 扩展名像视频就放行 HTML。
+        var hasMp4Signature = media.Uri.AbsolutePath.EndsWith(
+                ".mp4",
+                StringComparison.OrdinalIgnoreCase)
+            && length >= 16
+            && buffer.AsSpan(4, 4).SequenceEqual("ftyp"u8);
         if (prefix.TrimStart().StartsWith(
                 "#EXTM3U",
                 StringComparison.OrdinalIgnoreCase)
-            || media.Uri.AbsolutePath.EndsWith(
-                ".mp4",
-                StringComparison.OrdinalIgnoreCase))
+            || hasMp4Signature)
         {
             return media;
         }
@@ -796,12 +800,13 @@ internal sealed class WebMediaResolver : IDisposable
                 ["characters"] = html.Length,
             },
             html);
-        var resolved = FindMedia(html, request, request.PageUri);
+        var effectivePageUri = response.RequestMessage?.RequestUri ?? request.PageUri;
+        var resolved = FindMedia(html, request, effectivePageUri);
         if (resolved is not null)
         {
             return new WebResolvedMedia(
                 resolved,
-                BuildMediaHeaders(request, request.PageUri));
+                BuildMediaHeaders(request, effectivePageUri));
         }
 
         if (request.EnableNestedUrl
@@ -810,7 +815,7 @@ internal sealed class WebMediaResolver : IDisposable
             var nested = FindNestedPageUri(
                 html,
                 request.NestedUrlPattern,
-                request.PageUri);
+                effectivePageUri);
             if (nested is not null)
             {
                 using var nestedMessage = new HttpRequestMessage(
@@ -861,12 +866,13 @@ internal sealed class WebMediaResolver : IDisposable
                         ["characters"] = nestedHtml.Length,
                     },
                     nestedHtml);
-                resolved = FindMedia(nestedHtml, request, nested);
+                var effectiveNestedUri = nestedResponse.RequestMessage?.RequestUri ?? nested;
+                resolved = FindMedia(nestedHtml, request, effectiveNestedUri);
                 if (resolved is not null)
                 {
                     return new WebResolvedMedia(
                         resolved,
-                        BuildMediaHeaders(request, nested));
+                        BuildMediaHeaders(request, effectiveNestedUri));
                 }
             }
         }
