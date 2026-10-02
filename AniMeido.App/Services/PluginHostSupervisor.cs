@@ -12,8 +12,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
     private readonly PluginPackageManager _packageManager;
     private readonly PluginContributionRegistry _contributions;
     private readonly HostedAnimePlaybackLauncher _playbackLauncher;
-    private readonly IAnimePlaybackProgressSink _playbackProgressSink;
-    private readonly IPersonalAnimeDataGateway _personalAnimeDataGateway;
+    private readonly Func<HostedPluginDescriptor, IPluginHostSession> _sessionFactory;
     private readonly ILogger<PluginHostSupervisor> _logger;
     private readonly object _lifecycleSync = new();
     // Keep the gate alive for late continuations; teardown must not race a
@@ -22,7 +21,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
     private readonly object _sessionsSync = new();
     private readonly Dictionary<string, HostedPluginDescriptor> _descriptors =
         new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, PluginHostSession> _sessions =
+    private readonly Dictionary<string, IPluginHostSession> _sessions =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _automaticRestartUsed =
         new(StringComparer.OrdinalIgnoreCase);
@@ -41,12 +40,25 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         IAnimePlaybackProgressSink playbackProgressSink,
         IPersonalAnimeDataGateway personalAnimeDataGateway,
         ILogger<PluginHostSupervisor> logger)
+        : this(packageManager, contributions, playbackLauncher, playbackProgressSink,
+            personalAnimeDataGateway, logger, descriptor => new PluginHostSession(
+                descriptor, ResolveHostPath(), playbackProgressSink, personalAnimeDataGateway, logger))
+    {
+    }
+
+    internal PluginHostSupervisor(
+        PluginPackageManager packageManager,
+        PluginContributionRegistry contributions,
+        HostedAnimePlaybackLauncher playbackLauncher,
+        IAnimePlaybackProgressSink playbackProgressSink,
+        IPersonalAnimeDataGateway personalAnimeDataGateway,
+        ILogger<PluginHostSupervisor> logger,
+        Func<HostedPluginDescriptor, IPluginHostSession> sessionFactory)
     {
         _packageManager = packageManager;
         _contributions = contributions;
         _playbackLauncher = playbackLauncher;
-        _playbackProgressSink = playbackProgressSink;
-        _personalAnimeDataGateway = personalAnimeDataGateway;
+        _sessionFactory = sessionFactory;
         _logger = logger;
         _contributions.CommandInvoker = InvokeCommandAsync;
         _contributions.SettingsInvoker = OpenSettingsAsync;
@@ -356,7 +368,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         }
     }
 
-    private async Task<PluginHostSession> GetStartedSessionAsync(
+    private async Task<IPluginHostSession> GetStartedSessionAsync(
         string pluginId,
         CancellationToken cancellationToken)
     {
@@ -372,7 +384,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         {
             throw new InvalidOperationException("插件宿主管理器正在停止。");
         }
-        PluginHostSession session;
+        IPluginHostSession session;
         await _gate.WaitAsync(cancellationToken);
         CancellationTokenSource? startupCancellation = null;
         try
@@ -480,7 +492,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         startupCancellation.Dispose();
     }
 
-    private PluginHostSession GetOrCreateSession(
+    private IPluginHostSession GetOrCreateSession(
         HostedPluginDescriptor descriptor)
     {
         lock (_sessionsSync)
@@ -492,12 +504,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
                 return existing;
             }
 
-            var session = new PluginHostSession(
-                descriptor,
-                ResolveHostPath(),
-                _playbackProgressSink,
-                _personalAnimeDataGateway,
-                _logger);
+            var session = _sessionFactory(descriptor);
             session.Exited += OnSessionExited;
             _sessions.Add(descriptor.Manifest.PluginId, session);
             return session;
@@ -505,7 +512,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
     }
 
     private async Task StartSessionAsync(
-        PluginHostSession session,
+        IPluginHostSession session,
         CancellationToken cancellationToken,
         bool resetRecoveryBudget)
     {
@@ -537,7 +544,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         object? sender,
         PluginHostSessionExitedEventArgs e)
     {
-        if (sender is not PluginHostSession session
+        if (sender is not IPluginHostSession session
             || Volatile.Read(ref _disposed) != 0
             || Volatile.Read(ref _acceptingWork) == 0)
         {
@@ -622,7 +629,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         }
     }
 
-    private PluginHostSession[] SnapshotSessions()
+    private IPluginHostSession[] SnapshotSessions()
     {
         lock (_sessionsSync)
         {
@@ -633,7 +640,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
     private async Task StopSessionsCoreAsync(bool clearContributions)
     {
         Volatile.Write(ref _acceptingWork, 0);
-        PluginHostSession[] sessions;
+        IPluginHostSession[] sessions;
         lock (_sessionsSync)
         {
             sessions = _sessions.Values.ToArray();

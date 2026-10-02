@@ -9,7 +9,7 @@ using System.IO.Pipes;
 
 namespace AniMeido.App.Services;
 
-internal sealed class PluginHostSession : IAsyncDisposable
+internal sealed class PluginHostSession : IPluginHostSession
 {
     private static readonly TimeSpan GracefulStopTimeout =
         TimeSpan.FromSeconds(5);
