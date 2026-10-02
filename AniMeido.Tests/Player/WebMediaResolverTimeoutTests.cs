@@ -46,7 +46,10 @@ public sealed class WebMediaResolverTimeoutTests
         var pending = fixture.Resolver.ResolveAsync(Request(), CancellationToken.None);
         await entered.Task.WaitAsync(ShortBudget);
         var error = await Assert.ThrowsAsync<SourceResolutionException>(() => pending.WaitAsync(ShortBudget));
-        AssertTimeout(error);
+        Assert.Equal(SourceResolutionFailureKind.Timeout, error.Kind);
+        Assert.Equal("播放源请求超过 0.1 秒未响应。", error.Message);
+        Assert.Equal(Page, error.PageUri);
+        Assert.IsAssignableFrom<OperationCanceledException>(error.InnerException);
     }
 
     [Fact]

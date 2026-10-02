@@ -638,7 +638,9 @@ internal sealed class WebMediaResolver : IDisposable
         {
             throw new SourceResolutionException(
                 SourceResolutionFailureKind.Timeout,
-                $"播放源解析超过 {timeout.TotalSeconds:0} 秒。",
+                timeoutCancellation.IsCancellationRequested
+                    ? $"播放源解析超过 {timeout.TotalSeconds:0} 秒。"
+                    : $"播放源请求超过 {_httpClient.Timeout.TotalSeconds} 秒未响应。",
                 request.PageUri,
                 ex);
         }
