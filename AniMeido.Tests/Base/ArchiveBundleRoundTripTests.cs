@@ -135,6 +135,8 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
     }
 
     [Fact]
+    [Trait("Category", "Mechanism")]
+    // 保留堆栈来源检查，证明重试成功后抛的是原截图 File.Move 故障，而非回滚中的其他 IOException。
     public async Task Import_RollbackLockReleasedDuringRetryRethrowsOriginalAndRestoresSnapshot()
     {
         var fixture = await PrepareFailureAsync();

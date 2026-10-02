@@ -8,6 +8,8 @@ namespace AniMeido.Tests;
 public sealed class AppWindowActivationServiceTests
 {
     [Fact]
+    [Trait("Category", "Mechanism")]
+    // 白盒注入窗口句柄：不启动 WinUI 窗口也要验证已有句柄被 Detach 清零，而非仅检查初始状态。
     public void WindowHandleProvider_IsInvalidBeforeAttachAndAfterDetach()
     {
         var service = new AppWindowActivationService();

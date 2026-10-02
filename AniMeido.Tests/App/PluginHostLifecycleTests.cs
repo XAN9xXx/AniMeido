@@ -193,6 +193,8 @@ public sealed class PluginHostLifecycleTests
     }
 
     [Fact]
+    [Trait("Category", "Mechanism")]
+    // 持有私有生命周期门，确定性验证并发 Dispose 共享尚未完成的任务。
     public async Task Session_DisposeSharesCompletionAndKeepsGateUsable()
     {
         await using var session = CreateSession();
@@ -224,6 +226,8 @@ public sealed class PluginHostLifecycleTests
     }
 
     [Fact]
+    [Trait("Category", "Mechanism")]
+    // 持有私有生命周期门，确保 Stop 尚未结束时 Start 被拒绝，而非依赖调度时序。
     public async Task Session_StartIsRejectedWhileStopOwnsLifecycle()
     {
         await using var session = CreateSession();
@@ -250,6 +254,8 @@ public sealed class PluginHostLifecycleTests
     }
 
     [Fact]
+    [Trait("Category", "Mechanism")]
+    // 持有私有生命周期门，把两次启动固定在排队阶段以验证独立取消。
     public async Task Session_QueuedStartsCancelIndependentlyBeforeGateOwnership()
     {
         await using var session = CreateSession();
@@ -281,6 +287,8 @@ public sealed class PluginHostLifecycleTests
     }
 
     [Fact]
+    [Trait("Category", "Mechanism")]
+    // 私有门及延迟清理任务是本用例要检查的预算/资源机制，IsRunning 无法证明延迟清理已结束。
     public async Task Session_StopBudgetReturnsBoundedFailureAndDefersGateCleanup()
     {
         await using var session = CreateSession();

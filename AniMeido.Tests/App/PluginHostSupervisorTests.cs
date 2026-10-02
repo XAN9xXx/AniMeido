@@ -136,6 +136,8 @@ public sealed class PluginHostSupervisorTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "Mechanism")]
+    // 白盒确认进程、管道、RPC 和启动令牌引用全部释放；IsRunning=false 不能证明资源无残留。
     public async Task Session_ProcessExitBeforeConnectionFailsPromptlyAndRetryCleansResourcesWithoutExited()
     {
         var executable = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "where.exe");

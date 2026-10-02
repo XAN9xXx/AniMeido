@@ -11,6 +11,8 @@ namespace AniMeido.Tests;
 public sealed class BangumiSeasonPaginationTests : DbTestBase
 {
     [Fact]
+    [Trait("Category", "Mechanism")]
+    // 旧版缓存键是此兼容性用例的固定历史夹具：既验证新键完整分页，也验证旧键未被误覆盖。
     public async Task GetAnimeBySeasonAsync_LoadsAllPagesAndIgnoresLegacyCache()
     {
         await CreateBaseTablesAsync();

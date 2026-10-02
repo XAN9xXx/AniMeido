@@ -46,6 +46,8 @@ public sealed class PluginHostSupervisorRestartTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "Mechanism")]
+    // 保留恢复阶段日志标识的检查，以区分此 Warning 与其他操作的 Warning。
     public async Task RestartException_IsWarningAndConsumesBudgetWithoutEscapingEvent()
     {
         var fixture = await CreateAsync();
@@ -91,6 +93,8 @@ public sealed class PluginHostSupervisorRestartTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "Mechanism")]
+    // 直接检查 Reload 清空预算：随后公开的用户启动也会清空它，无法等力度验证 Reload 本身。
     public async Task Reload_ResetsRecoveryBudgetAndReplacesSession()
     {
         var fixture = await CreateAsync();

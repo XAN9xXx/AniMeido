@@ -7,6 +7,8 @@ namespace AniMeido.Tests;
 public sealed class TrayIconInteropTests
 {
     [Fact]
+    [Trait("Category", "Mechanism")]
+    // 检查的就是私有 P/Invoke 声明和 Unicode 入口，不实际创建托盘图标。
     public void ShellNotifyIcon_UsesUnicodeWin32EntryPoint()
     {
         var method = typeof(TrayIconService).GetMethod(
