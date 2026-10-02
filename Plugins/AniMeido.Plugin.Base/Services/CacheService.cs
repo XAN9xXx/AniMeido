@@ -7,12 +7,14 @@ namespace AniMeido.Plugin.Base.Services
     /// <summary>
     /// 二级缓存服务：内存（热数据）+ SQLite（持久化）。
     /// 内存缓存条目在写入 SQLite 后加入内存，并发读取时优先命中内存，避免 SQLite I/O。
-    /// 内存缓存使用过期时间，不会无限增长。
+    /// 过期数据不作为有效缓存返回，过期后再保留 30 天供网络失败时降级使用。
     ///
     /// SQLite 操作每次使用独立连接（与 TrackingService 等模式一致），避免单个长期连接上的并发冲突。
     /// </summary>
     public class CacheService
     {
+        private static readonly TimeSpan ExpiredRetention = TimeSpan.FromDays(30);
+
         private readonly SqliteConnectionFactory _dbFactory;
         private readonly SemaphoreSlim _mutationGate = new(1, 1);
         private long _generation;
@@ -24,7 +26,7 @@ namespace AniMeido.Plugin.Base.Services
         public CacheService(SqliteConnectionFactory dbFactory)
         {
             _dbFactory = dbFactory;
-            // 启动时自动清理过期缓存（CleanExpiredAsync 内部有 try-catch）
+            // 启动时清理过期已满 30 天的缓存；保留期内的数据仍可离线兜底（内部有 try-catch）
             _ = CleanExpiredAsync();
         }
 
@@ -84,11 +86,13 @@ namespace AniMeido.Plugin.Base.Services
             // 优先查内存缓存
             if (_memoryCache.TryGetValue(key, out var entry))
             {
-                if (entry.expiresAt > DateTime.UtcNow)
+                var now = DateTime.UtcNow;
+                if (entry.expiresAt > now)
                     return Task.FromResult<string?>(entry.data);
 
-                // 已过期，移除内存条目
-                _memoryCache.TryRemove(key, out _);
+                // 过期不等于删除：保留期内仍留在内存，供离线读取使用。
+                if (entry.expiresAt <= now.Subtract(ExpiredRetention))
+                    _memoryCache.TryRemove(key, out _);
             }
 
             // 内存无命中或已过期，查 SQLite
@@ -178,7 +182,7 @@ namespace AniMeido.Plugin.Base.Services
         }
 
         /// <summary>
-        /// 清理所有已过期的缓存条目。
+        /// 清理过期已满 30 天的缓存条目（内存 + SQLite），保留期内仍可离线兜底。
         /// </summary>
         public async Task CleanExpiredAsync()
         {
@@ -186,13 +190,14 @@ namespace AniMeido.Plugin.Base.Services
             {
                 using var connection = await _dbFactory.OpenAsync();
                 using var command = connection.CreateCommand();
-                command.CommandText = "DELETE FROM cache WHERE ExpiresAt <= @now";
-                command.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("O"));
+                var retentionCutoff = DateTime.UtcNow.Subtract(ExpiredRetention);
+                command.CommandText = "DELETE FROM cache WHERE ExpiresAt <= @retentionCutoff";
+                command.Parameters.AddWithValue("@retentionCutoff", retentionCutoff.ToString("O"));
                 await command.ExecuteNonQueryAsync();
 
-                // 同时清理内存中的过期条目
+                // 内存采用相同截止时间，只移除已超出保留期的条目
                 var expiredKeys = _memoryCache
-                    .Where(kvp => kvp.Value.expiresAt <= DateTime.UtcNow)
+                    .Where(kvp => kvp.Value.expiresAt <= retentionCutoff)
                     .Select(kvp => kvp.Key)
                     .ToList();
                 foreach (var key in expiredKeys)
@@ -244,7 +249,11 @@ namespace AniMeido.Plugin.Base.Services
 
                 var data = reader.GetString(0);
                 var expiresAtStr = reader.GetString(1);
-                if (DateTime.TryParse(expiresAtStr, out var expiresAt))
+                if (DateTime.TryParse(
+                    expiresAtStr,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                    out var expiresAt))
                 {
                     // 回填内存缓存（即使已过期，也允许降级时命中）
                     _memoryCache[key] = (data, expiresAt);
