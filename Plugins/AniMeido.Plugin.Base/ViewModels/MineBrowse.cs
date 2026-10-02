@@ -1,5 +1,6 @@
 ﻿using System.Globalization;
 using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Services;
 
 namespace AniMeido.Plugin.Base.ViewModels;
 
@@ -52,8 +53,6 @@ public static class MineBrowse
 
     private static readonly IReadOnlyDictionary<AnimeTrackingStatus, string> Labels =
         TrackingStatusSection.CreateDefaults().ToDictionary(section => section.Status, section => section.Label);
-
-    private static readonly CompareInfo TitleComparer = CultureInfo.GetCultureInfo("zh-CN").CompareInfo;
 
     public static string StatusLabel(AnimeTrackingStatus status)
         => Labels.GetValueOrDefault(status, "");
@@ -125,14 +124,15 @@ public static class MineBrowse
                     today)))
             .ToList();
 
-    /// <summary>最近标记在前；标题按中文拼音；评分从高到低。缺时间或评分的排在最后，同值保持原顺序。</summary>
+    /// <summary>最近标记在前；标题按中英拼音混排，同标题按 ID 升序；评分从高到低。缺时间或评分的排在最后，同值保持原顺序。</summary>
     public static IReadOnlyList<MineEntry> Sort(IEnumerable<MineEntry> entries, MineSortKey key)
     {
         var list = entries.ToList();
         return key switch
         {
             MineSortKey.Title => list
-                .OrderBy(entry => entry.Anime.Title, TitleComparer.GetStringComparer(CompareOptions.None))
+                .OrderBy(entry => entry.Anime.Title, TitleSortComparer.Instance)
+                .ThenBy(entry => entry.Anime.ID)
                 .ToList(),
             MineSortKey.Score => list
                 .Where(entry => entry.Anime.Score is > 0)

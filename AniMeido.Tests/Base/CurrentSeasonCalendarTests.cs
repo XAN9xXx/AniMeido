@@ -220,6 +220,67 @@ public sealed class CurrentSeasonCalendarTests
             expected,
             CurrentSeasonViewModel.BuildDayCountText(2, 9, filtering));
 
+    [Fact]
+    public void Order_ByTitleMixesChinesePinyinAndEnglish()
+    {
+        var titles = TitleSortComparerTests.MixedTitles;
+        var entries = titles.Select((title, index) => new CalendarEntry(
+            Item(index + 1, 4, null) with { Title = title })).Reverse();
+
+        var ordered = CurrentSeasonViewModel.Order(entries, CalendarSort.Title);
+
+        Assert.Equal(titles, ordered.Select(entry => entry.Anime.Title));
+    }
+
+    [Fact]
+    public void Order_ByTitleKeepsMarkedFirstAndBreaksIdenticalTitlesByAscendingId()
+    {
+        var entries = new[]
+        {
+            new CalendarEntry(Item(4, 4, null) with { Title = "银魂" }) { Status = AnimeTrackingStatus.Watching },
+            new CalendarEntry(Item(3, 4, null) with { Title = "阿尔卑斯" }),
+            new CalendarEntry(Item(2, 4, null) with { Title = "银魂" }) { Status = AnimeTrackingStatus.Following },
+            new CalendarEntry(Item(1, 4, null) with { Title = "阿尔卑斯" }),
+        };
+
+        Assert.Equal(new[] { 2, 4, 1, 3 }, CurrentSeasonViewModel.Order(entries, CalendarSort.Title)
+            .Select(entry => entry.Anime.ID));
+        Assert.Equal(new[] { 2, 4, 1, 3 }, CurrentSeasonViewModel.Order(entries.Reverse(), CalendarSort.Title)
+            .Select(entry => entry.Anime.ID));
+    }
+
+    [Fact]
+    public void OrderOthers_UsesSharedTitleOrderAfterEqualDatesThenAscendingId()
+    {
+        var titles = TitleSortComparerTests.MixedTitles;
+        var entries = titles.Select((title, index) => new CalendarEntry(
+            Movie(index + 1, new DateOnly(2026, 7, 1)) with { Title = title }, isOther: true)).ToArray();
+        var duplicate = new CalendarEntry(entries[5].Anime with { ID = 100 }, isOther: true);
+        var input = entries.Append(duplicate).Reverse();
+
+        var ordered = CurrentSeasonViewModel.OrderOthers(input);
+
+        Assert.Equal(titles.Take(6).Append(titles[5]).Concat(titles.Skip(6)),
+            ordered.Select(entry => entry.Anime.Title));
+        Assert.Equal(new[] { 6, 100 }, ordered.Where(entry => entry.Anime.Title == titles[5])
+            .Select(entry => entry.Anime.ID));
+    }
+
+    [Fact]
+    public void RankTimeMachine_UsesSharedTitleOrderForEqualScoresThenAscendingId()
+    {
+        var titles = TitleSortComparerTests.MixedTitles;
+        var season = titles.Select((title, index) => Item(index + 1, 4, 8.0) with { Title = title }).ToArray();
+        var input = season.Append(season[5] with { ID = 100 }).Reverse();
+
+        var ranked = CurrentSeasonViewModel.RankTimeMachine(input, new Dictionary<int, AnimeTrackingStatus>());
+
+        Assert.Equal(titles.Take(6).Append(titles[5]).Concat(titles.Skip(6)),
+            ranked.Select(entry => entry.Anime.Title));
+        Assert.Equal(new[] { 6, 100 }, ranked.Where(entry => entry.Anime.Title == titles[5])
+            .Select(entry => entry.Anime.ID));
+    }
+
     private static Anime Item(int id, int weekday, double? score) => new(
         id,
         $"作品{id}",

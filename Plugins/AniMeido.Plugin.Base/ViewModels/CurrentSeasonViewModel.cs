@@ -129,9 +129,6 @@ namespace AniMeido.Plugin.Base.ViewModels
         /// <summary>标记写入中按钮的不透明度（与卡片上的快捷按钮一致）。</summary>
         public const double SavingActionOpacity = 0.55;
 
-        private static readonly StringComparer TitleComparer =
-            StringComparer.Create(CultureInfo.GetCultureInfo("zh-CN"), ignoreCase: true);
-
         private readonly IAnimeDataSource _animeDataSource;
         private readonly TrackingService _tracking;
         private IReadOnlyList<Anime> _schedule = [];
@@ -814,7 +811,8 @@ namespace AniMeido.Plugin.Base.ViewModels
             => entries
                 .OrderByDescending(entry => entry.IsMine)
                 .ThenBy(entry => entry.Anime.AirDate ?? DateOnly.MaxValue)
-                .ThenBy(entry => entry.Anime.Title, TitleComparer)
+                .ThenBy(entry => entry.Anime.Title, TitleSortComparer.Instance)
+                .ThenBy(entry => entry.Anime.ID)
                 .ToList();
 
         /// <summary>你标记的（追番中、关注中）排在前面，其余按所选方式排序。</summary>
@@ -828,7 +826,8 @@ namespace AniMeido.Plugin.Base.ViewModels
                 CalendarSort.AirDate => mineFirst
                     .ThenBy(entry => entry.Anime.AirDate ?? DateOnly.MaxValue),
                 CalendarSort.Title => mineFirst
-                    .ThenBy(entry => entry.Anime.Title, TitleComparer),
+                    .ThenBy(entry => entry.Anime.Title, TitleSortComparer.Instance)
+                    .ThenBy(entry => entry.Anime.ID),
                 _ => mineFirst
                     .ThenByDescending(entry => entry.Anime.Score ?? double.MinValue),
             }).ToList();

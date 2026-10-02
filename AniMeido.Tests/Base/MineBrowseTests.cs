@@ -113,13 +113,25 @@ public sealed class MineBrowseTests
     }
 
     [Fact]
-    public void Sort_ByTitleUsesChineseOrder()
+    public void Sort_ByTitleMixesChinesePinyinAndEnglish()
     {
-        var entries = new[] { Entry(1, title: "猫町散步"), Entry(2, title: "阿尔卑斯") };
+        var titles = TitleSortComparerTests.MixedTitles;
+        var entries = titles.Select((title, index) => Entry(index + 1, title: title)).Reverse();
 
         var sorted = MineBrowse.Sort(entries, MineSortKey.Title);
 
-        Assert.Equal(new[] { 2, 1 }, sorted.Select(entry => entry.Anime.ID));
+        Assert.Equal(titles, sorted.Select(entry => entry.Anime.Title));
+    }
+
+    [Fact]
+    public void Sort_ByTitleBreaksIdenticalTitlesByAscendingId()
+    {
+        var entries = new[] { Entry(3, title: "银魂"), Entry(1, title: "银魂"), Entry(2, title: "银魂") };
+
+        Assert.Equal(new[] { 1, 2, 3 }, MineBrowse.Sort(entries, MineSortKey.Title)
+            .Select(entry => entry.Anime.ID));
+        Assert.Equal(new[] { 1, 2, 3 }, MineBrowse.Sort(entries.Reverse(), MineSortKey.Title)
+            .Select(entry => entry.Anime.ID));
     }
 
     [Fact]

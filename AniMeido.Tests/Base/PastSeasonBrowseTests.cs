@@ -112,17 +112,32 @@ public sealed class PastSeasonBrowseTests
         Assert.Equal(expected, sorted.Select(entry => entry.Anime.ID));
     }
 
-    [Fact]
-    public void Sort_ByTitleUsesChineseOrder()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Sort_ByTitleMixesChinesePinyinAndEnglish(bool ascending)
     {
-        var entries = Entries(Anime(1, "猫町散步"), Anime(2, "阿尔卑斯"), Anime(3, "Re：从零开始"));
+        var titles = TitleSortComparerTests.MixedTitles;
+        var entries = Entries(titles.Select((title, index) => Anime(index + 1, title)).Reverse().ToArray());
 
-        var sorted = PastSeasonBrowse.Sort(entries, PastSeasonSortKey.Title, ascending: true);
+        var sorted = PastSeasonBrowse.Sort(entries, PastSeasonSortKey.Title, ascending);
 
-        Assert.Equal(3, sorted[0].Anime.ID);
-        Assert.True(
-            sorted.ToList().FindIndex(entry => entry.Anime.ID == 2)
-                < sorted.ToList().FindIndex(entry => entry.Anime.ID == 1));
+        var expected = ascending ? titles : titles.Reverse();
+        Assert.Equal(expected, sorted.Select(entry => entry.Anime.Title));
+    }
+
+    [Theory]
+    [InlineData(true, new[] { 1, 2, 3, 4 })]
+    [InlineData(false, new[] { 3, 4, 1, 2 })]
+    public void Sort_ByTitleAlwaysBreaksIdenticalTitlesByAscendingId(bool ascending, int[] expected)
+    {
+        var entries = Entries(Anime(4, "银魂"), Anime(2, "Re：从零开始"),
+            Anime(3, "银魂"), Anime(1, "Re：从零开始"));
+
+        Assert.Equal(expected, PastSeasonBrowse.Sort(entries, PastSeasonSortKey.Title, ascending)
+            .Select(entry => entry.Anime.ID));
+        Assert.Equal(expected, PastSeasonBrowse.Sort(entries.Reverse(), PastSeasonSortKey.Title, ascending)
+            .Select(entry => entry.Anime.ID));
     }
 
     [Theory]

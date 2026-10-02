@@ -2,6 +2,7 @@
 using System.Globalization;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
+using AniMeido.Plugin.Base.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -483,7 +484,8 @@ namespace AniMeido.Plugin.Base.ViewModels
                 .Where(anime => anime.Score is > 0
                     && statuses.GetValueOrDefault(anime.ID) != AnimeTrackingStatus.Blocked)
                 .OrderByDescending(anime => anime.Score)
-                .ThenBy(anime => anime.Title, TitleComparer)
+                .ThenBy(anime => anime.Title, TitleSortComparer.Instance)
+                .ThenBy(anime => anime.ID)
                 .Select((anime, index) => new TimeMachineEntry(index + 1, anime)
                 {
                     Status = statuses.GetValueOrDefault(anime.ID),

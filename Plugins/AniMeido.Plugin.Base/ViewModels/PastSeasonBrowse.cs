@@ -1,7 +1,7 @@
 ﻿using System.Collections.ObjectModel;
-using System.Globalization;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
+using AniMeido.Plugin.Base.Services;
 
 namespace AniMeido.Plugin.Base.ViewModels;
 
@@ -39,8 +39,6 @@ public static class PastSeasonBrowse
         AnimeMediaFormat.Ova,
         AnimeMediaFormat.Unknown,
     ];
-
-    private static readonly CompareInfo TitleComparer = CultureInfo.GetCultureInfo("zh-CN").CompareInfo;
 
     /// <summary>形态筛选之前的可见作品：去掉屏蔽、按标题搜索、按需隐藏看过。</summary>
     public static IReadOnlyList<PastSeasonEntry> Visible(
@@ -111,7 +109,7 @@ public static class PastSeasonBrowse
         _ => ascending ? "标题 A → Z" : "标题 Z → A",
     };
 
-    /// <summary>缺评分或缺日期的作品无论升降序都排在最后；同值保持原顺序。</summary>
+    /// <summary>缺评分或缺日期的作品无论升降序都排在最后，同值保持原顺序；标题按中英拼音混排，同标题始终按 ID 升序。</summary>
     public static IReadOnlyList<PastSeasonEntry> Sort(
         IEnumerable<PastSeasonEntry> entries,
         PastSeasonSortKey key,
@@ -129,8 +127,10 @@ public static class PastSeasonBrowse
                 entry => entry.Anime.AirDate,
                 ascending),
             _ => ascending
-                ? list.OrderBy(entry => entry.Anime.Title, TitleComparer.GetStringComparer(CompareOptions.None)).ToList()
-                : list.OrderByDescending(entry => entry.Anime.Title, TitleComparer.GetStringComparer(CompareOptions.None)).ToList(),
+                ? list.OrderBy(entry => entry.Anime.Title, TitleSortComparer.Instance)
+                    .ThenBy(entry => entry.Anime.ID).ToList()
+                : list.OrderByDescending(entry => entry.Anime.Title, TitleSortComparer.Instance)
+                    .ThenBy(entry => entry.Anime.ID).ToList(),
         };
     }
 
