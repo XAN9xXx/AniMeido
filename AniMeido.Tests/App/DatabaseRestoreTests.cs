@@ -13,7 +13,7 @@ public sealed class DatabaseRestoreTests : DbTestBase
         var older = Path.Combine(Paths.BackupDirectory, "AniMeido-20260901.db");
         var newest = Path.Combine(Paths.BackupDirectory, "AniMeido-20260902.db");
         await CreateBackupAsync(older, 42);
-        var backupBytes = await File.ReadAllBytesAsync(older);
+        var backupBytes = await ReadTestFileBytesAsync(older);
         await File.WriteAllBytesAsync(newest, [0, 1, 2, 3]);
         CorruptDatabase();
 
@@ -23,8 +23,8 @@ public sealed class DatabaseRestoreTests : DbTestBase
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT AnimeID FROM tracking";
         Assert.Equal(42L, await command.ExecuteScalarAsync());
-        Assert.Equal(backupBytes, await File.ReadAllBytesAsync(older));
-        Assert.Equal(new byte[] { 0, 1, 2, 3 }, await File.ReadAllBytesAsync(newest));
+        Assert.Equal(backupBytes, await ReadTestFileBytesAsync(older));
+        Assert.Equal(new byte[] { 0, 1, 2, 3 }, await ReadTestFileBytesAsync(newest));
     }
 
     [Fact]
@@ -33,7 +33,7 @@ public sealed class DatabaseRestoreTests : DbTestBase
         var service = new DatabaseService(DbFactory, Paths);
         await CreateBackupAsync(Path.Combine(Paths.BackupDirectory, "AniMeido-20260901.db"), 42);
         CorruptDatabase();
-        var original = await File.ReadAllBytesAsync(DbPath);
+        var original = await ReadTestFileBytesAsync(DbPath);
         await File.WriteAllBytesAsync(DbPath + "-wal", [1, 2, 3]);
         await File.WriteAllBytesAsync(DbPath + "-shm", [4, 5, 6]);
 
@@ -41,9 +41,9 @@ public sealed class DatabaseRestoreTests : DbTestBase
 
         var archived = Assert.Single(Directory.GetFiles(
             Path.Combine(Paths.BackupDirectory, "corrupt"), "AniMeido-corrupt-*.db"));
-        Assert.Equal(original, await File.ReadAllBytesAsync(archived));
-        Assert.Equal(new byte[] { 1, 2, 3 }, await File.ReadAllBytesAsync(archived + "-wal"));
-        Assert.Equal(new byte[] { 4, 5, 6 }, await File.ReadAllBytesAsync(archived + "-shm"));
+        Assert.Equal(original, await ReadTestFileBytesAsync(archived));
+        Assert.Equal(new byte[] { 1, 2, 3 }, await ReadTestFileBytesAsync(archived + "-wal"));
+        Assert.Equal(new byte[] { 4, 5, 6 }, await ReadTestFileBytesAsync(archived + "-shm"));
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public sealed class DatabaseRestoreTests : DbTestBase
         foreach (var backup in backups)
             await CreateBackupAsync(backup, 42);
         CorruptDatabase();
-        var original = await File.ReadAllBytesAsync(DbPath);
+        var original = await ReadTestFileBytesAsync(DbPath);
 
         // Windows 上 FileShare.None 确定阻止主库被复制覆盖或移动。
         using (var locked = new FileStream(DbPath, FileMode.Open, FileAccess.Read, FileShare.None))
@@ -66,7 +66,7 @@ public sealed class DatabaseRestoreTests : DbTestBase
             Assert.False(await service.TryRestoreFromBackupAsync());
         }
 
-        Assert.Equal(original, await File.ReadAllBytesAsync(DbPath));
+        Assert.Equal(original, await ReadTestFileBytesAsync(DbPath));
         Assert.All(backups, backup => Assert.True(File.Exists(backup)));
         Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(DbPath)!, ".AniMeido-restore-*.db*"));
     }
@@ -77,9 +77,9 @@ public sealed class DatabaseRestoreTests : DbTestBase
         var service = new DatabaseService(DbFactory, Paths);
         var backup = Path.Combine(Paths.BackupDirectory, "AniMeido-20260901.db");
         await CreateBackupAsync(backup, 42);
-        var backupBytes = await File.ReadAllBytesAsync(backup);
+        var backupBytes = await ReadTestFileBytesAsync(backup);
         CorruptDatabase();
-        var original = await File.ReadAllBytesAsync(DbPath);
+        var original = await ReadTestFileBytesAsync(DbPath);
         byte[] sidecar = [1, 2, 3];
         await File.WriteAllBytesAsync(DbPath + "-wal", sidecar);
 
@@ -89,9 +89,9 @@ public sealed class DatabaseRestoreTests : DbTestBase
             Assert.False(await service.TryRestoreFromBackupAsync());
         }
 
-        Assert.Equal(original, await File.ReadAllBytesAsync(DbPath));
-        Assert.Equal(sidecar, await File.ReadAllBytesAsync(DbPath + "-wal"));
-        Assert.Equal(backupBytes, await File.ReadAllBytesAsync(backup));
+        Assert.Equal(original, await ReadTestFileBytesAsync(DbPath));
+        Assert.Equal(sidecar, await ReadTestFileBytesAsync(DbPath + "-wal"));
+        Assert.Equal(backupBytes, await ReadTestFileBytesAsync(backup));
         Assert.Empty(Directory.GetFiles(Path.Combine(Paths.BackupDirectory, "corrupt")));
         Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(DbPath)!, ".AniMeido-restore-*.db*"));
     }
@@ -128,11 +128,11 @@ public sealed class DatabaseRestoreTests : DbTestBase
         var archived = Path.Combine(corruptDirectory, "AniMeido-corrupt-20260901.db");
         await CreateBackupAsync(archived, 42);
         CorruptDatabase();
-        var original = await File.ReadAllBytesAsync(DbPath);
+        var original = await ReadTestFileBytesAsync(DbPath);
 
         Assert.False(await service.TryRestoreFromBackupAsync());
 
-        Assert.Equal(original, await File.ReadAllBytesAsync(DbPath));
+        Assert.Equal(original, await ReadTestFileBytesAsync(DbPath));
         Assert.True(File.Exists(archived));
     }
 
@@ -148,11 +148,11 @@ public sealed class DatabaseRestoreTests : DbTestBase
         foreach (var backup in backups)
             await File.WriteAllBytesAsync(backup, [0, 1, 2, 3]);
         CorruptDatabase();
-        var original = await File.ReadAllBytesAsync(DbPath);
+        var original = await ReadTestFileBytesAsync(DbPath);
 
         Assert.False(await service.TryRestoreFromBackupAsync());
 
-        Assert.Equal(original, await File.ReadAllBytesAsync(DbPath));
+        Assert.Equal(original, await ReadTestFileBytesAsync(DbPath));
         Assert.All(backups, backup => Assert.True(File.Exists(backup)));
         Assert.False(Directory.Exists(Path.Combine(Paths.BackupDirectory, "corrupt")));
     }
@@ -173,15 +173,40 @@ public sealed class DatabaseRestoreTests : DbTestBase
             command.CommandText = "CREATE TABLE anime_plans(AnimeId INTEGER PRIMARY KEY); PRAGMA user_version = 7;";
             await command.ExecuteNonQueryAsync();
         }
-        var backupBytes = await File.ReadAllBytesAsync(backup);
+        var backupBytes = await ReadTestFileBytesAsync(backup);
         CorruptDatabase();
-        var original = await File.ReadAllBytesAsync(DbPath);
+        var original = await ReadTestFileBytesAsync(DbPath);
 
         Assert.False(await service.TryRestoreFromBackupAsync());
 
-        Assert.Equal(original, await File.ReadAllBytesAsync(DbPath));
-        Assert.Equal(backupBytes, await File.ReadAllBytesAsync(backup));
+        Assert.Equal(original, await ReadTestFileBytesAsync(DbPath));
+        Assert.Equal(backupBytes, await ReadTestFileBytesAsync(backup));
         Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(DbPath)!, ".AniMeido-restore-*.db*"));
+    }
+
+    // 文件可能刚被 SQLite 写完，或正被外部程序扫描；只重试短暂的共享冲突。
+    private static async Task<byte[]> ReadTestFileBytesAsync(string path)
+    {
+        const int maxAttempts = 10;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await using var file = new FileStream(
+                    path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete,
+                    bufferSize: 4096, options: FileOptions.Asynchronous);
+                using var content = new MemoryStream();
+                await file.CopyToAsync(content);
+                return content.ToArray();
+            }
+            catch (IOException ex) when (ex.HResult is unchecked((int)0x80070020) or unchecked((int)0x80070021))
+            {
+                if (attempt == maxAttempts)
+                    throw;
+
+                await Task.Delay(50);
+            }
+        }
     }
 
     private static async Task CreateBackupAsync(string path, int animeId)
