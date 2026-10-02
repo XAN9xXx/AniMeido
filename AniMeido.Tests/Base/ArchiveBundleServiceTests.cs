@@ -36,7 +36,7 @@ public sealed class ArchiveBundleServiceTests : DbTestBase
                     new SavedTagService(DbFactory),
                     DbFactory),
                 new ArchiveService(DbFactory),
-                new BackupService(DbFactory, Paths));
+                new BackupService(DbFactory, Paths), Microsoft.Extensions.Logging.Abstractions.NullLogger<ArchiveBundleService>.Instance);
 
             var exception = await Assert.ThrowsAsync<InvalidDataException>(
                 () => service.ImportAsync(path));
@@ -104,7 +104,7 @@ public sealed class ArchiveBundleServiceTests : DbTestBase
             var service = new ArchiveBundleService(
                 export,
                 new ArchiveService(DbFactory),
-                new BackupService(DbFactory, Paths));
+                new BackupService(DbFactory, Paths), Microsoft.Extensions.Logging.Abstractions.NullLogger<ArchiveBundleService>.Instance);
             var exception = await Assert.ThrowsAsync<InvalidDataException>(
                 () => service.ImportAsync(path));
             Assert.Contains("不安全 ID", exception.Message);
@@ -140,7 +140,7 @@ public sealed class ArchiveBundleServiceTests : DbTestBase
                     new SavedTagService(DbFactory),
                     DbFactory),
                 new ArchiveService(DbFactory),
-                new BackupService(DbFactory, Paths));
+                new BackupService(DbFactory, Paths), Microsoft.Extensions.Logging.Abstractions.NullLogger<ArchiveBundleService>.Instance);
             var exception = await Assert.ThrowsAsync<InvalidDataException>(
                 () => service.ImportAsync(path));
             Assert.Contains("缺少 screenshots.json", exception.Message);

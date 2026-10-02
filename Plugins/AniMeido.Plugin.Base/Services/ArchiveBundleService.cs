@@ -1,4 +1,6 @@
 using AniMeido.Plugin.Base.Models;
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
@@ -9,18 +11,24 @@ namespace AniMeido.Plugin.Base.Services;
 public sealed class ArchiveBundleService
 {
     private const int BundleSchemaVersion = 1;
+    private const int RollbackRetryBudgetMilliseconds = 2000;
+    private const int RollbackRetryDelayMilliseconds = 100;
+    private const int RollbackMaxAttempts = 21;
     private readonly ExportService _export;
     private readonly ArchiveService _archive;
     private readonly BackupService _backup;
+    private readonly ILogger<ArchiveBundleService> _logger;
 
     public ArchiveBundleService(
         ExportService export,
         ArchiveService archive,
-        BackupService backup)
+        BackupService backup,
+        ILogger<ArchiveBundleService> logger)
     {
         _export = export;
         _archive = archive;
         _backup = backup;
+        _logger = logger;
     }
 
     public async Task ExportAsync(
@@ -125,6 +133,7 @@ public sealed class ArchiveBundleService
     }
 
     // 导入失败时恢复导入前的整库备份，导入窗口内其他功能的写入也会被撤销。
+    // 回滚失败时保留备份，抛出包含导入与回滚两项原因的专用异常，提示可以重新导入。
     public async Task<int> ImportAsync(
         string bundlePath,
         CancellationToken cancellationToken = default)
@@ -257,18 +266,55 @@ public sealed class ArchiveBundleService
             }
             return imported.Count;
         }
-        catch
+        catch (Exception importException)
         {
-            await _backup.RestoreAsync(backupPath, CancellationToken.None);
             foreach (var path in copiedFiles)
             {
-                if (File.Exists(path))
+                try
                 {
                     File.Delete(path);
                 }
+#pragma warning disable CA1031 // Every copied file must be attempted even if one cleanup fails.
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete imported screenshot {Path}; continuing rollback.", path);
+                }
+#pragma warning restore CA1031
             }
-
+            try
+            {
+                await RetryRollbackAsync(backupPath);
+            }
+            catch (Exception rollbackException)
+            {
+                _logger.LogWarning(rollbackException, "Archive bundle import rollback failed for {BackupPath}.", backupPath);
+                throw new ArchiveBundleRollbackException(backupPath, importException, rollbackException);
+            }
             throw;
+        }
+    }
+
+    private async Task RetryRollbackAsync(string backupPath)
+    {
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                // 用户取消也必须执行回滚；不复用已经取消的导入 token。
+                await _backup.RestoreAsync(backupPath, CancellationToken.None);
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                or SqliteException { SqliteErrorCode: 5 or 6 or 10 or 14 })
+            {
+                var remaining = RollbackRetryBudgetMilliseconds - elapsed.ElapsedMilliseconds;
+                if (attempt == RollbackMaxAttempts || remaining <= 0)
+                {
+                    throw;
+                }
+                await Task.Delay((int)Math.Min(RollbackRetryDelayMilliseconds, remaining));
+            }
         }
     }
 

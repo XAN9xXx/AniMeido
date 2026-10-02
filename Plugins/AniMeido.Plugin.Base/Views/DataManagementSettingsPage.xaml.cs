@@ -126,6 +126,10 @@ namespace AniMeido.Plugin.Base.Views
                     "导入完成",
                     $"基础数据已导入，新增 {screenshotCount} 张截图。");
             }
+            catch (ArchiveBundleRollbackException ex)
+            {
+                await ShowMessageAsync("导入失败", ex.Message);
+            }
             catch (Exception ex) when (
                 ex is IOException
                     or UnauthorizedAccessException

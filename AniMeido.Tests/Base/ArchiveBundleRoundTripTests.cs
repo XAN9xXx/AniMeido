@@ -2,6 +2,8 @@
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.IO.Compression;
@@ -73,6 +75,184 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
     public Task Import_FailureAlsoRevertsUnrelatedWriteCommittedDuringImport()
         => AssertRollbackAsync(cancel: false, unrelatedWrite: true);
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Import_RollbackUnavailableReportsBothFailuresAndSameBundleCanComplete(bool cancel)
+    {
+        var fixture = await PrepareFailureAsync();
+        var logger = new BundleLogger();
+        var target = CreateServices(DbFactory, Paths, logger);
+        FileStream? backupLock = null;
+        string? backupPath = null;
+        using var cancellation = new CancellationTokenSource();
+        try
+        {
+            var pending = RunWithContinuationHookAsync(() => target.Bundle.ImportAsync(fixture.Bundle, cancellation.Token), () =>
+            {
+                if (backupLock is not null || !File.Exists(fixture.First)) return;
+                backupPath = NewImportBackup(fixture.BackupsBefore);
+                backupLock = new FileStream(backupPath, FileMode.Open, FileAccess.Read, FileShare.None);
+                if (cancel) cancellation.Cancel();
+                else Directory.CreateDirectory(fixture.Second);
+            });
+            var error = await Assert.ThrowsAsync<ArchiveBundleRollbackException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.NotNull(backupLock);
+            Assert.NotNull(backupPath);
+            Assert.Equal($"导入未完成，且未能撤销已写入的部分。可以重新导入同一个档案包来完成导入；导入前的数据备份在 {backupPath}。", error.Message);
+            var failures = Assert.IsType<AggregateException>(error.InnerException).InnerExceptions;
+            Assert.Equal(2, failures.Count);
+            if (cancel) Assert.IsAssignableFrom<OperationCanceledException>(failures[0]);
+            else Assert.IsAssignableFrom<IOException>(failures[0]);
+            Assert.True(failures[1] is IOException or UnauthorizedAccessException
+                or SqliteException { SqliteErrorCode: 5 or 6 or 10 or 14 });
+            Assert.False(File.Exists(fixture.First));
+            Assert.Empty(Directory.GetFiles(fixture.Root, "*.tmp", SearchOption.AllDirectories));
+            Assert.True(File.Exists(backupPath));
+            var warning = Assert.Single(logger.Warnings);
+            Assert.Contains(backupPath, warning.Message);
+            Assert.Same(failures[1], warning.Exception);
+            await AssertIntegrityAsync();
+            backupLock.Dispose();
+            if (Directory.Exists(fixture.Second)) Directory.Delete(fixture.Second);
+            Assert.Equal(2, await target.Bundle.ImportAsync(fixture.Bundle).WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.Equal(AnimeTrackingStatus.Watching, await new TrackingService(DbFactory).GetStatusAsync(17));
+            var restored = await target.Archive.GetArchiveAsync(17);
+            Assert.NotNull(restored);
+            Assert.Equal("完整笔记", restored.SummaryNote);
+            Assert.Equal(8.5, restored.PersonalRating);
+            Assert.Equal(new[] { "个人标签", "第二标签" }, await target.Archive.GetAnimeTagsAsync(17));
+            foreach (var original in await fixture.SourceArchive.GetScreenshotsAsync())
+            {
+                var copy = Assert.Single(await target.Archive.GetScreenshotsAsync(), item => item.ScreenshotId == original.ScreenshotId);
+                Assert.Equal(await ReadBytesAsync(original.FilePath), await ReadBytesAsync(copy.FilePath));
+                Assert.Equal(await fixture.SourceArchive.GetScreenshotTagsAsync(original.ScreenshotId),
+                    await target.Archive.GetScreenshotTagsAsync(copy.ScreenshotId));
+            }
+            await AssertIntegrityAsync();
+        }
+        finally { backupLock?.Dispose(); }
+    }
+
+    [Fact]
+    public async Task Import_RollbackLockReleasedDuringRetryRethrowsOriginalAndRestoresSnapshot()
+    {
+        var fixture = await PrepareFailureAsync();
+        var logger = new BundleLogger();
+        var target = CreateServices(DbFactory, Paths, logger);
+        FileStream? backupLock = null;
+        Task? release = null;
+        try
+        {
+            var pending = RunWithContinuationHookAsync(() => target.Bundle.ImportAsync(fixture.Bundle), () =>
+            {
+                if (backupLock is null && File.Exists(fixture.First))
+                {
+                    backupLock = new FileStream(NewImportBackup(fixture.BackupsBefore), FileMode.Open, FileAccess.Read, FileShare.None);
+                    Directory.CreateDirectory(fixture.Second);
+                }
+                else if (backupLock is not null && !File.Exists(fixture.First) && release is null)
+                {
+                    // 清理后的第一个异步续体来自失败恢复的重试延迟，确保至少一次恢复撞上锁。
+                    release = Task.Run(async () => { await Task.Delay(300); backupLock.Dispose(); });
+                }
+            });
+            var error = await Assert.ThrowsAnyAsync<IOException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.Contains("FileSystem.MoveFile", error.StackTrace);
+            Assert.NotNull(release);
+            await release.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(fixture.Before, await SnapshotAsync());
+            Assert.False(File.Exists(fixture.First));
+            Assert.Empty(Directory.GetFiles(fixture.Root, "*.tmp", SearchOption.AllDirectories));
+            Assert.Empty(logger.Warnings);
+            await AssertIntegrityAsync();
+        }
+        finally { if (release is not null) await release; backupLock?.Dispose(); }
+    }
+
+    [Fact]
+    public async Task Import_DeleteFailureWarnsButDeletesOtherFilesAndStillRollsBack()
+    {
+        var fixture = await PrepareFailureAsync(includeThird: true);
+        var logger = new BundleLogger();
+        var target = CreateServices(DbFactory, Paths, logger);
+        FileStream? screenshotLock = null;
+        try
+        {
+            var pending = RunWithContinuationHookAsync(() => target.Bundle.ImportAsync(fixture.Bundle), () =>
+            {
+                if (screenshotLock is not null || !File.Exists(fixture.First)) return;
+                screenshotLock = new FileStream(fixture.First, FileMode.Open, FileAccess.Read, FileShare.Read);
+                Directory.CreateDirectory(ScreenshotDestination(fixture.Root, "incoming-third", Captured.AddDays(-2)));
+            });
+            await Assert.ThrowsAnyAsync<IOException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.NotNull(screenshotLock);
+            Assert.True(File.Exists(fixture.First));
+            Assert.False(File.Exists(fixture.Second));
+            Assert.Empty(Directory.GetFiles(fixture.Root, "*.tmp", SearchOption.AllDirectories));
+            var warning = Assert.Single(logger.Warnings);
+            Assert.Contains(fixture.First, warning.Message);
+            Assert.IsAssignableFrom<IOException>(warning.Exception);
+            Assert.Equal(fixture.Before, await SnapshotAsync());
+            await AssertIntegrityAsync();
+        }
+        finally
+        {
+            screenshotLock?.Dispose();
+            File.Delete(fixture.First);
+        }
+    }
+
+    private async Task<(string Bundle, string Root, string First, string Second, string Before,
+        string[] BackupsBefore, ArchiveService SourceArchive)> PrepareFailureAsync(bool includeThird = false)
+    {
+        await RunProductionMigrationAsync();
+        var sourcePaths = new MockAppDataPaths();
+        var sourceFactory = new SqliteConnectionFactory(sourcePaths);
+        await new AniMeido.App.Services.DatabaseService(sourceFactory, sourcePaths).InitializeAsync();
+        var source = CreateServices(sourceFactory, sourcePaths);
+        await SeedAsync(source.Archive, sourceFactory, "incoming", largeSecond: true);
+        if (includeThird)
+        {
+            var bytes = Png(255, 255, 0, 2 * 1024 * 1024);
+            var path = Path.Combine(Path.GetDirectoryName(sourcePaths.DatabasePath)!, "source-pictures", "incoming-third.png");
+            await File.WriteAllBytesAsync(path, bytes);
+            await source.Archive.InsertScreenshotAsync(Screenshot("incoming-third", path, bytes, Captured.AddDays(-2), 17));
+        }
+        var bundle = Path.Combine(Path.GetDirectoryName(DbPath)!, "double-fault.zip");
+        await source.Bundle.ExportAsync(bundle);
+        var target = CreateServices(DbFactory, Paths);
+        var root = Path.Combine(Path.GetDirectoryName(DbPath)!, "target-screenshots");
+        await target.Archive.SaveScreenshotSettingsAsync(new ScreenshotSettings(true, root, false, false));
+        await new TrackingService(DbFactory).SetStatusAsync(80, AnimeTrackingStatus.Completed);
+        await target.Archive.UpsertArchiveAsync(80, "原有作品", 9, "原有笔记");
+        return (bundle, root, ScreenshotDestination(root, "incoming-first", Captured),
+            ScreenshotDestination(root, "incoming-second", Captured.AddDays(-1)), await SnapshotAsync(),
+            Directory.GetFiles(Paths.BackupDirectory, "AniMeido-*.db"), source.Archive);
+    }
+
+    private string NewImportBackup(string[] before)
+        => Assert.Single(Directory.GetFiles(Paths.BackupDirectory, "AniMeido-*.db").Except(before, StringComparer.Ordinal));
+
+    private async Task AssertIntegrityAsync()
+    {
+        await using var connection = await DbFactory.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA integrity_check";
+        Assert.Equal("ok", await command.ExecuteScalarAsync());
+    }
+
+    private sealed class BundleLogger : ILogger<ArchiveBundleService>
+    {
+        public ConcurrentQueue<(string Message, Exception? Exception)> Warnings { get; } = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel >= LogLevel.Warning) Warnings.Enqueue((formatter(state, exception), exception));
+        }
+    }
+
     private async Task AssertRollbackAsync(bool cancel, bool unrelatedWrite)
     {
         await RunProductionMigrationAsync();
@@ -142,11 +322,13 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
 
     private static readonly DateTimeOffset Captured = new(2025, 7, 20, 12, 0, 0, TimeSpan.Zero);
 
-    private static (ArchiveService Archive, ArchiveBundleService Bundle) CreateServices(SqliteConnectionFactory factory, MockAppDataPaths paths)
+    private static (ArchiveService Archive, ArchiveBundleService Bundle) CreateServices(SqliteConnectionFactory factory, MockAppDataPaths paths,
+        ILogger<ArchiveBundleService>? logger = null)
     {
         var archive = new ArchiveService(factory);
         return (archive, new ArchiveBundleService(new ExportService(new TrackingService(factory),
-            new SavedTagService(factory), factory), archive, new BackupService(factory, paths)));
+            new SavedTagService(factory), factory), archive, new BackupService(factory, paths),
+            logger ?? NullLogger<ArchiveBundleService>.Instance));
     }
 
     private static async Task SeedAsync(ArchiveService archive, SqliteConnectionFactory factory, string prefix, bool largeSecond)
