@@ -7,6 +7,7 @@ using AniMeido.Plugin.Base.ViewModels;
 namespace AniMeido.Tests;
 
 /// <summary>放送日历下方的番剧时光机：往年同一季、年份切换与失败时的状态。</summary>
+[Collection(CurrentSeasonSessionCollection.Name)]
 public sealed class CurrentSeasonTimeMachineTests : DbTestBase
 {
     // 时光机的年份与抽到的那一批在应用运行期间保留，每个测试从干净状态开始。

@@ -3,8 +3,11 @@ using AniMeido.Plugin.Base.ViewModels;
 
 namespace AniMeido.Tests;
 
+[Collection(CurrentSeasonSessionCollection.Name)]
 public sealed class CurrentSeasonCalendarTests
 {
+    public CurrentSeasonCalendarTests() => CurrentSeasonViewModel.ResetTimeMachineSession();
+
     [Fact]
     public void BuildEntries_ExcludesBlockedAndCarriesLocalStatus()
     {

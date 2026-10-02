@@ -6,8 +6,11 @@ using AniMeido.Plugin.Base.ViewModels;
 namespace AniMeido.Tests;
 
 /// <summary>放送日历“今日一抽”：当天固定的顺序、换一个的跳过规则，以及重启后保留结果。</summary>
+[Collection(CurrentSeasonSessionCollection.Name)]
 public sealed class CurrentSeasonDailyPickTests : DbTestBase
 {
+    public CurrentSeasonDailyPickTests() => CurrentSeasonViewModel.ResetTimeMachineSession();
+
     [Fact]
     public void BuildDailyOrder_IsStableForTheSameDayAndCoversAllIds()
     {

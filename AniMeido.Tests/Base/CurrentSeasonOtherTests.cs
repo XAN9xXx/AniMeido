@@ -6,8 +6,11 @@ using AniMeido.Plugin.Base.ViewModels;
 namespace AniMeido.Tests;
 
 /// <summary>放送日历只把已确认且有排期的 TV 放入星期格，其余归入“其他”。</summary>
+[Collection(CurrentSeasonSessionCollection.Name)]
 public sealed class CurrentSeasonOtherTests : DbTestBase
 {
+    public CurrentSeasonOtherTests() => CurrentSeasonViewModel.ResetTimeMachineSession();
+
     [Fact]
     public async Task Load_PutsSeasonOnlyAnimeIntoOtherCell()
     {

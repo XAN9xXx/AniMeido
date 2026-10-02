@@ -8,8 +8,11 @@ using AniMeido.Plugin.Base.ViewModels;
 
 namespace AniMeido.Tests;
 
+[Collection(CurrentSeasonSessionCollection.Name)]
 public sealed class TodayViewModelLoadTests : DbTestBase
 {
+    public TodayViewModelLoadTests() => CurrentSeasonViewModel.ResetTimeMachineSession();
+
     [Fact]
     public async Task CalendarTvOnlyGrouping_DoesNotFilterTodayBroadcasts()
     {

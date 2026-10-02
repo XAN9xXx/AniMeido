@@ -7,8 +7,11 @@ using Microsoft.Data.Sqlite;
 namespace AniMeido.Tests;
 
 /// <summary>放送日历在拖放结束或返回页面时重新读取本地标记。</summary>
+[Collection(CurrentSeasonSessionCollection.Name)]
 public sealed class CurrentSeasonStatusReloadTests : DbTestBase
 {
+    public CurrentSeasonStatusReloadTests() => CurrentSeasonViewModel.ResetTimeMachineSession();
+
     [Fact]
     public async Task ReloadStatuses_RestoresAnimeAfterUnblocking()
     {
