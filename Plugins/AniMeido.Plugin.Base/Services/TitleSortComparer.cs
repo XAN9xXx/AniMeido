@@ -5,7 +5,7 @@ using ToolGood.Words.Pinyin;
 
 namespace AniMeido.Plugin.Base.Services;
 
-/// <summary>数字在前，中英按拼音混排，然后是假名和其他文字；相同键按原始标题排序。</summary>
+/// <summary>数字开头按数值排在前面，中英按拼音混排，然后是假名和其他文字；相同键按原始标题排序。</summary>
 internal sealed class TitleSortComparer : IComparer<string>
 {
     public static TitleSortComparer Instance { get; } = new();
@@ -34,12 +34,26 @@ internal sealed class TitleSortComparer : IComparer<string>
         if (result != 0)
             return result;
 
-        result = StringComparer.Ordinal.Compare(left.Value, right.Value);
+        result = left.Group == 0
+            ? CompareNumericKeys(left, right)
+            : StringComparer.Ordinal.Compare(left.Value, right.Value);
         // 假名、韩文等保留的文字本身就是有效键；同键（包括无有效字符的空键）才文化兜底。
         if (result == 0 && left.Group >= 2)
             result = CultureFallback.Compare(x, y);
 
         return result != 0 ? result : StringComparer.Ordinal.Compare(x, y);
+    }
+
+    private static int CompareNumericKeys(SortKey left, SortKey right)
+    {
+        // 去掉前导零后先比位数，再比数字，等价于非负整数比较且没有整数溢出风险。
+        var result = left.LeadingNumber.Length.CompareTo(right.LeadingNumber.Length);
+        if (result == 0)
+            result = StringComparer.Ordinal.Compare(left.LeadingNumber, right.LeadingNumber);
+        if (result != 0)
+            return result;
+
+        return left.Value.AsSpan(left.NumberEnd).SequenceCompareTo(right.Value.AsSpan(right.NumberEnd));
     }
 
     private SortKey GetKey(string title)
@@ -74,7 +88,23 @@ internal sealed class TitleSortComparer : IComparer<string>
                 key.Append(Rune.ToLowerInvariant(rune).ToString());
         }
 
-        return new SortKey(group, key.ToString());
+        var value = key.ToString();
+        if (group != 0)
+            return new SortKey(group, value, "", 0);
+
+        var leadingNumber = new StringBuilder();
+        var numberEnd = 0;
+        foreach (var rune in value.EnumerateRunes())
+        {
+            if (!Rune.IsDigit(rune))
+                break;
+
+            // 同时支持 NFKC 后的全角数字，以及其他 Unicode 十进制数字。
+            leadingNumber.Append((char)('0' + (int)Rune.GetNumericValue(rune)));
+            numberEnd += rune.Utf16SequenceLength;
+        }
+
+        return new SortKey(group, value, leadingNumber.ToString().TrimStart('0'), numberEnd);
     }
 
     private static bool IsEffective(Rune rune)
@@ -105,7 +135,7 @@ internal sealed class TitleSortComparer : IComparer<string>
             or >= 0x20000 and <= 0x2FA1F
             or >= 0x30000 and <= 0x323AF;
 
-    private readonly record struct SortKey(int Group, string Value);
+    private readonly record struct SortKey(int Group, string Value, string LeadingNumber, int NumberEnd);
 
     private static class PinyinConverter
     {

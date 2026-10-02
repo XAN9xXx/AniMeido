@@ -47,10 +47,49 @@ public sealed class TitleSortComparerTests
     }
 
     [Fact]
-    public void Sort_PutsDigitsFirstAndUsesOrdinalNotNaturalNumberOrder()
+    public void Sort_PutsDigitsFirstAndSortsLeadingNumbersByValue()
         => Assert.Equal(
-            new[] { "10 番", "2 番", "８６ 番", "阿尔卑斯", "BanG Dream!" },
+            new[] { "2 番", "10 番", "８６ 番", "阿尔卑斯", "BanG Dream!" },
             Sort(["BanG Dream!", "８６ 番", "阿尔卑斯", "2 番", "10 番"]));
+
+    [Fact]
+    public void Sort_LeadingNumbersIgnoreLeadingZerosThenCompareRemainingTitle()
+        => Assert.Equal(
+            new[] { "0000 alpha", "0 beta", "0002 alpha", "2 beta", "10 alpha" },
+            Sort(["2 beta", "10 alpha", "0 beta", "0002 alpha", "0000 alpha"]));
+
+    [Fact]
+    public void Sort_EquivalentLeadingNumbersUseRawOrdinalOrderForTies()
+    {
+        var titles = new[] { "2 番", "02 番", "0002 番", "２ 番" };
+        var expected = titles.Order(StringComparer.Ordinal).ToArray();
+
+        Assert.Equal(expected, Sort(titles));
+        Assert.Equal(expected, Sort(titles.Reverse()));
+    }
+
+    [Fact]
+    public void Sort_LeadingNumbersDoNotOverflowIntegerTypes()
+    {
+        var eightyNines = new string('9', 80) + " 番";
+        var eightyOneDigits = "1" + new string('0', 80) + " 番";
+
+        Assert.Equal(
+            new[] { "2 番", "18446744073709551616 番", "18446744073709551617 番", eightyNines, eightyOneDigits },
+            Sort([eightyOneDigits, "18446744073709551617 番", eightyNines, "2 番", "18446744073709551616 番"]));
+    }
+
+    [Fact]
+    public void Sort_LeadingNumbersSupportUnicodeDecimalDigits()
+        => Assert.Equal(
+            new[] { "٢ 番", "１０ 番", "100 番" },
+            Sort(["100 番", "１０ 番", "٢ 番"]));
+
+    [Fact]
+    public void Sort_DescendingReversesNumericOrder()
+        => Assert.Equal(
+            new[] { "86 番", "10 番", "2 番" },
+            new[] { "2 番", "86 番", "10 番" }.OrderDescending(TitleSortComparer.Instance));
 
     [Fact]
     public void Sort_NormalizesFullWidthLatinLettersAndDigits()
