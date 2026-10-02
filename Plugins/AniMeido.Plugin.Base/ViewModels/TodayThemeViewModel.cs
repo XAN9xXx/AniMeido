@@ -137,6 +137,8 @@ namespace AniMeido.Plugin.Base.ViewModels
         private CancellationTokenSource? _cts;
         // 本次加载成功得到的全部候选，按轮换顺序排列。
         private IReadOnlyList<TodayThemeItem> _order = [];
+        // 当前批次的选取顺序，与按评分排列的显示顺序分开保存。
+        private IReadOnlyList<int> _batchIds = [];
         private DateOnly _date;
         private TodayThemeKind _shownKind;
         private bool _loaded;
@@ -258,7 +260,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             var refreshing = _loaded && _date == date;
             // 同一天刷新（例如刚在这里标记完、页面随之刷新）时保留当前这一批，刚标记的不会消失。
             var keep = refreshing
-                ? Items.Select(item => item.Anime.ID).ToList()
+                ? _batchIds.ToList()
                 : [];
             _loaded = false;
             IsFailed = false;
@@ -372,7 +374,7 @@ namespace AniMeido.Plugin.Base.ViewModels
 
             ShowBatch(NextBatch(
                 _order.Select(item => item.Anime.ID).ToList(),
-                Items.Select(item => item.Anime.ID).ToList(),
+                _batchIds,
                 BatchSize,
                 IsSelectable));
             await TrySaveStateAsync();
@@ -487,7 +489,8 @@ namespace AniMeido.Plugin.Base.ViewModels
         private void ShowBatch(IReadOnlyList<int> ids)
         {
             var byId = _order.ToDictionary(item => item.Anime.ID);
-            var batch = ids.Where(byId.ContainsKey).Select(id => byId[id]);
+            _batchIds = ids.Where(byId.ContainsKey).ToList();
+            var batch = _batchIds.Select(id => byId[id]);
             Items = new ObservableCollection<TodayThemeItem>(
                 _order.FirstOrDefault()?.RowKind == TodayThemeRowKind.Mark
                     ? batch.OrderByDescending(item => item.Anime.Score ?? 0)
@@ -600,7 +603,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                     _date,
                     _shownKind,
                     IsFallback,
-                    Items.Select(item => item.Anime.ID).ToList()));
+                    _batchIds));
             }
             catch (Microsoft.Data.Sqlite.SqliteException ex)
             {

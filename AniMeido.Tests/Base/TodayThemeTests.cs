@@ -160,6 +160,59 @@ public sealed class TodayThemeTests : DbTestBase
     }
 
     [Fact]
+    public async Task NextBatch_ScoreSortedDisplayDoesNotRepeatPreviousBatch()
+    {
+        await RunProductionMigrationAsync();
+        var date = DateWith(TodayThemeKind.LastSeasonTop);
+        var vm = NewViewModel(new ThemeSource(), new TrackingService(DbFactory));
+        await vm.LoadForDateAsync(date);
+        var first = vm.Items.Select(item => item.Anime.ID).ToArray();
+        Assert.Equal(first.OrderDescending(), first);
+
+        await vm.NextBatchCommand.ExecuteAsync(null);
+
+        Assert.Equal(TodayThemeViewModel.BatchSize, vm.Items.Count);
+        Assert.Empty(first.Intersect(vm.Items.Select(item => item.Anime.ID)));
+    }
+
+    [Fact]
+    public async Task NextBatch_TwoChangesKeepAllThreeBatchesDisjoint()
+    {
+        await RunProductionMigrationAsync();
+        var vm = NewViewModel(new ThemeSource(), new TrackingService(DbFactory));
+        await vm.LoadForDateAsync(DateWith(TodayThemeKind.LastSeasonTop));
+        var seen = vm.Items.Select(item => item.Anime.ID).ToHashSet();
+
+        for (var change = 0; change < 2; change++)
+        {
+            await vm.NextBatchCommand.ExecuteAsync(null);
+            Assert.Equal(TodayThemeViewModel.BatchSize, vm.Items.Count);
+            Assert.All(vm.Items, item => Assert.True(seen.Add(item.Anime.ID)));
+        }
+    }
+
+    [Fact]
+    public async Task Restart_PreservesStoredSelectionOrderDespiteScoreSorting()
+    {
+        await RunProductionMigrationAsync();
+        var date = DateWith(TodayThemeKind.LastSeasonTop);
+        var tracking = new TrackingService(DbFactory);
+        int[] selection = [101, 106, 102, 105, 103, 104];
+        await tracking.SaveTodayThemeAsync(new TodayThemeState(date, TodayThemeKind.LastSeasonTop, false, selection));
+        var vm = NewViewModel(new ThemeSource(), tracking);
+        await vm.LoadForDateAsync(date);
+        Assert.Equal(selection.OrderDescending(), vm.Items.Select(item => item.Anime.ID));
+        Assert.Equal(selection, (await tracking.LoadTodayThemeAsync())!.AnimeIds);
+
+        TodayThemeViewModel.ResetSessionCache();
+        var restarted = NewViewModel(new ThemeSource(), tracking);
+        await restarted.LoadForDateAsync(date);
+
+        Assert.Equal(selection, (await tracking.LoadTodayThemeAsync())!.AnimeIds);
+        Assert.Equal(vm.Items.Select(item => item.Anime.ID), restarted.Items.Select(item => item.Anime.ID));
+    }
+
+    [Fact]
     public async Task MarkedItemIsReplacedAfterRestartButKeptOnSameDayRefresh()
     {
         await RunProductionMigrationAsync();
