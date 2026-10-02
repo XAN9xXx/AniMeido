@@ -237,17 +237,25 @@ internal sealed class WebMediaResolver : IDisposable
                 ? new WebViewResolutionAttempt(
                     null,
                     WebPageInteractionKind.HumanVerification)
-                : await RunBackgroundAttemptAsync(
+                : await RunWithResolutionBudgetAsync(async token =>
+                {
+                    var attempt = await RunBackgroundAttemptCoreAsync(request, token);
+                    if (attempt.Media is not null)
+                    {
+                        attempt = attempt with
+                        {
+                            Media = await ValidateMediaCandidateAsync(
+                                attempt.Media, request.PageUri, request.SourceId, token),
+                        };
+                    }
+                    return attempt;
+                },
                     request,
                     timeout,
                     cancellationToken);
             if (initialAttempt.Media is not null)
             {
-                var validated = await ValidateMediaCandidateAsync(
-                    initialAttempt.Media,
-                    request.PageUri,
-                    request.SourceId,
-                    cancellationToken);
+                var validated = initialAttempt.Media;
                 _diagnostics.Record(
                     "resolver",
                     "resolve-succeeded",
@@ -330,10 +338,12 @@ internal sealed class WebMediaResolver : IDisposable
                 request.SourceId,
                 userAgent,
                 cancellationToken);
-            var validatedAfterVerification = await ValidateMediaCandidateAsync(
-                verifiedMedia,
-                request.PageUri,
-                request.SourceId,
+            // 人工操作及 VerifyAsync 的重试不计入这次媒体探测的新预算。
+            var validatedAfterVerification = await RunWithResolutionBudgetAsync(
+                token => ValidateMediaCandidateAsync(
+                    verifiedMedia, request.PageUri, request.SourceId, token),
+                request,
+                timeout,
                 cancellationToken);
             _diagnostics.Record(
                 "resolver",
@@ -601,7 +611,16 @@ internal sealed class WebMediaResolver : IDisposable
             HostWebSessionManager.NormalizeHost(pageUri.Host)] = 0;
     }
 
-    private async Task<WebViewResolutionAttempt> RunBackgroundAttemptAsync(
+    private Task<WebViewResolutionAttempt> RunBackgroundAttemptAsync(
+        WebResolutionRequest request,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+        => RunWithResolutionBudgetAsync(
+            token => RunBackgroundAttemptCoreAsync(request, token),
+            request, timeout, cancellationToken);
+
+    private async Task<T> RunWithResolutionBudgetAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
         WebResolutionRequest request,
         TimeSpan timeout,
         CancellationToken cancellationToken)
@@ -611,39 +630,7 @@ internal sealed class WebMediaResolver : IDisposable
         timeoutCancellation.CancelAfter(timeout);
         try
         {
-            WebResolvedMedia? direct = null;
-            try
-            {
-                direct = await TryResolveFromHttpAsync(
-                    request,
-                    timeoutCancellation.Token);
-            }
-            catch (HttpRequestException)
-            {
-            }
-            catch (RegexMatchTimeoutException)
-            {
-            }
-            catch (SourceResolutionException ex)
-                when (ex.Kind is SourceResolutionFailureKind.Authentication
-                    or SourceResolutionFailureKind.AccessDenied)
-            {
-                // A browser profile may already have the session that the
-                // direct HttpClient request lacks. Let WebView2 classify it.
-            }
-
-            if (direct is not null)
-            {
-                return new WebViewResolutionAttempt(
-                    direct,
-                    WebPageInteractionKind.None);
-            }
-
-            return await RunOnUiAsync(
-                () => TryResolveWithWebViewOnUiAsync(
-                    request,
-                    timeoutCancellation.Token),
-                timeoutCancellation.Token);
+            return await operation(timeoutCancellation.Token);
         }
         catch (OperationCanceledException ex)
             when (!cancellationToken.IsCancellationRequested)
@@ -654,6 +641,36 @@ internal sealed class WebMediaResolver : IDisposable
                 request.PageUri,
                 ex);
         }
+    }
+
+    private async Task<WebViewResolutionAttempt> RunBackgroundAttemptCoreAsync(
+        WebResolutionRequest request,
+        CancellationToken cancellationToken)
+    {
+        WebResolvedMedia? direct = null;
+        try
+        {
+            direct = await TryResolveFromHttpAsync(request, cancellationToken);
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (RegexMatchTimeoutException)
+        {
+        }
+        catch (SourceResolutionException ex)
+            when (ex.Kind is SourceResolutionFailureKind.Authentication
+                or SourceResolutionFailureKind.AccessDenied)
+        {
+            // 浏览器配置可能包含 HTTP 请求缺少的会话，让 WebView2 继续分类。
+        }
+        if (direct is not null)
+        {
+            return new WebViewResolutionAttempt(direct, WebPageInteractionKind.None);
+        }
+        return await RunOnUiAsync(
+            () => TryResolveWithWebViewOnUiAsync(request, cancellationToken),
+            cancellationToken);
     }
 
     public async Task<string> LoadPageHtmlAsync(
