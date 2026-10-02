@@ -107,52 +107,127 @@ namespace AniMeido.App.Services
 
         public async Task<bool> TryRestoreFromBackupAsync()
         {
+            SqliteConnection.ClearAllPools();
             var backups = Directory.GetFiles(BackupDir, "AniMeido-*.db")
                 .OrderByDescending(f => f).ToList();
             foreach (var backup in backups)
             {
+                var temporaryPath = Path.Combine(
+                    Path.GetDirectoryName(DbPath)!, $".AniMeido-restore-{Guid.NewGuid():N}.db");
                 try
                 {
-                    using var test = new SqliteConnection(
-                        new SqliteConnectionStringBuilder { DataSource = backup }.ToString());
-                    await test.OpenAsync();
-                    var cmd = test.CreateCommand();
-                    cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master";
-                    await cmd.ExecuteScalarAsync();
-                    test.Close();
-                    DeleteSqliteSidecarFiles(DbPath);
-                    File.Copy(backup, DbPath, overwrite: true);
-                    using var connection = await _dbFactory.OpenAsync();
-                    await DatabaseSchema.CreateInitialBusinessTablesBeforeConfigAsync(connection);
-                    await CreateConfigTableAsync(connection);
-                    await DatabaseSchema.CreateInitialBusinessTablesAfterConfigAsync(connection);
-                    await DatabaseSchema.RunMigrationsAsync(connection);
-                    var verifyCmd = connection.CreateCommand();
-                    verifyCmd.CommandText = "PRAGMA integrity_check";
-                    var result = await verifyCmd.ExecuteScalarAsync();
-                    if (result?.ToString() != "ok")
+                    using (var test = new SqliteConnection(new SqliteConnectionStringBuilder
                     {
-                        Serilog.Log.Warning("Database integrity check after restore failed: {Result}", result);
-                        continue;
+                        DataSource = backup,
+                        Mode = SqliteOpenMode.ReadOnly,
+                        Pooling = false,
+                    }.ToString()))
+                    {
+                        await test.OpenAsync();
+                        if (!await CheckIntegrityAsync(test))
+                            continue;
                     }
+
+                    File.Copy(backup, temporaryPath);
+                    using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+                    {
+                        DataSource = temporaryPath,
+                        Mode = SqliteOpenMode.ReadWrite,
+                        Pooling = false,
+                    }.ToString()))
+                    {
+                        await connection.OpenAsync();
+                        await DatabaseSchema.CreateInitialBusinessTablesBeforeConfigAsync(connection);
+                        await CreateConfigTableAsync(connection);
+                        await DatabaseSchema.CreateInitialBusinessTablesAfterConfigAsync(connection);
+                        await DatabaseSchema.RunMigrationsAsync(connection);
+                        if (!await CheckIntegrityAsync(connection))
+                            continue;
+
+                        // 迁移的 WAL 写入必须在移动临时主文件之前落盘。
+                        using var checkpoint = connection.CreateCommand();
+                        checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE)";
+                        await checkpoint.ExecuteNonQueryAsync();
+                    }
+
+                    ReplaceDatabase(temporaryPath);
                     return true;
                 }
-#pragma warning disable CA1031 // 备份损坏时继续尝试下一个
-                catch
+#pragma warning disable CA1031 // 单份备份恢复失败时保留备份并继续尝试下一份
+                catch (Exception ex)
                 {
-                    try { File.Delete(backup); } catch (IOException) { }
+                    Serilog.Log.Warning(ex, "Database restore from {Backup} failed.", backup);
                 }
 #pragma warning restore CA1031
+                finally
+                {
+                    DeleteRestoreTemporaryFiles(temporaryPath);
+                }
             }
             return false;
         }
 
-        private static void DeleteSqliteSidecarFiles(string dbPath)
+        private static async Task<bool> CheckIntegrityAsync(SqliteConnection connection)
         {
-            foreach (var suffix in new[] { "-wal", "-shm", "-journal" })
+            using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA integrity_check";
+            var result = await command.ExecuteScalarAsync();
+            if (result?.ToString() == "ok")
+                return true;
+
+            Serilog.Log.Warning("Database integrity check failed for {Database}: {Result}", connection.DataSource, result);
+            return false;
+        }
+
+        private void ReplaceDatabase(string temporaryPath)
+        {
+            var corruptDirectory = Path.Combine(BackupDir, "corrupt");
+            Directory.CreateDirectory(corruptDirectory);
+            var corruptPath = Path.Combine(corruptDirectory,
+                $"AniMeido-corrupt-{DateTime.Now:yyyyMMdd-HHmmss-fffffff}-{Guid.NewGuid():N}.db");
+            var moved = new List<(string Original, string Archived)>();
+            try
+            {
+                foreach (var suffix in new[] { "", "-wal", "-shm", "-journal" })
+                {
+                    var original = DbPath + suffix;
+                    if (!File.Exists(original))
+                        continue;
+
+                    var archived = corruptPath + suffix;
+                    File.Move(original, archived);
+                    moved.Add((original, archived));
+                }
+
+                File.Move(temporaryPath, DbPath);
+            }
+#pragma warning disable CA1031 // 替换失败时尽力将主库及已移动的 sidecar 恢复原位
+            catch
+            {
+                foreach (var (original, archived) in moved.AsEnumerable().Reverse())
+                {
+                    try { File.Move(archived, original); }
+                    catch (Exception ex)
+                    {
+                        Serilog.Log.Warning(ex, "Failed to return {Archived} to {Original} after restore failure.", archived, original);
+                    }
+                }
+
+                throw;
+            }
+#pragma warning restore CA1031
+        }
+
+        private static void DeleteRestoreTemporaryFiles(string dbPath)
+        {
+            foreach (var suffix in new[] { "", "-wal", "-shm", "-journal" })
             {
                 var path = dbPath + suffix;
-                try { if (File.Exists(path)) File.Delete(path); } catch (IOException) { }
+                try { File.Delete(path); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    Serilog.Log.Warning(ex, "Restore temporary database cleanup failed for {Path}.", path);
+                }
             }
         }
 
