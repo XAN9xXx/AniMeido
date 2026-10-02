@@ -5,14 +5,15 @@ namespace AniMeido.Tests
 {
     /// <summary>
     /// 测试基类：为每个测试创建独立临时目录和 IAppDataPaths。
-    /// 测试结束后自动清理。
+    /// 结束时逐库释放连接池，再清理本夹具拥有的全部根目录；短暂占用会重试，最终失败记入 TEMP 日志。
     /// </summary>
     public abstract class DbTestBase : IDisposable
     {
         protected readonly MockAppDataPaths Paths;
         protected readonly string DbPath;
         protected readonly SqliteConnectionFactory DbFactory;
-    protected readonly string ConnectionString;
+        protected readonly string ConnectionString;
+        private readonly List<MockAppDataPaths> _additionalPaths = new();
 
         protected DbTestBase()
         {
@@ -20,6 +21,14 @@ namespace AniMeido.Tests
             DbPath = Paths.DatabasePath;
             DbFactory = new SqliteConnectionFactory(Paths);
             ConnectionString = $"Data Source={DbPath}";
+        }
+
+        /// <summary>登记本测试创建的附加路径，断言失败时也由夹具统一清理。</summary>
+        protected MockAppDataPaths CreateAdditionalPaths(string? dbPath = null)
+        {
+            var paths = new MockAppDataPaths(dbPath);
+            _additionalPaths.Add(paths);
+            return paths;
         }
 
         /// <summary>初始化三张基础表（不含 migration）。</summary>
@@ -81,7 +90,8 @@ namespace AniMeido.Tests
 
         public void Dispose()
         {
-            try { if (File.Exists(DbPath)) File.Delete(DbPath); } catch (IOException) { }
+            foreach (var paths in _additionalPaths) paths.Dispose();
+            Paths.Dispose();
         }
     }
 }

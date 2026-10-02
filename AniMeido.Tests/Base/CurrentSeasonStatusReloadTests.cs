@@ -38,7 +38,9 @@ public sealed class CurrentSeasonStatusReloadTests : DbTestBase
         var vm = await LoadAsync(tracking);
         Assert.Equal("1", vm.MineCountText);
 
-        SqliteConnection.ClearAllPools();
+        // 只释放本测试工厂的连接池，不影响其他并行测试的数据库。
+        using (var poolConnection = DbFactory.CreateConnection())
+            SqliteConnection.ClearPool(poolConnection);
         CorruptDatabase();
         await vm.ReloadStatusesAsync();
 

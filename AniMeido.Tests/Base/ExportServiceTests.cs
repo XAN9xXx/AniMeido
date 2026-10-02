@@ -43,7 +43,7 @@ namespace AniMeido.Tests
             var json = await svc.ExportAsync();
 
             // 用新的独立数据库验证导入
-            var mockImportPaths = new MockAppDataPaths();
+            var mockImportPaths = CreateAdditionalPaths();
             var importDbFactory = new SqliteConnectionFactory(mockImportPaths);
             await new AniMeido.App.Services.DatabaseService(
                 importDbFactory,
@@ -73,8 +73,6 @@ namespace AniMeido.Tests
             Assert.Equal(AnimeTrackingStatus.Completed, status2);
             Assert.Contains("原创", tags);
 
-            // 清理
-            CleanupDbFile(mockImportPaths.DatabasePath);
         }
 
         [Fact]
@@ -116,7 +114,7 @@ namespace AniMeido.Tests
                     DateTimeOffset.UtcNow));
             var json = await CreateService().ExportAsync();
 
-            var importPaths = new MockAppDataPaths();
+            var importPaths = CreateAdditionalPaths();
             var importFactory = new SqliteConnectionFactory(importPaths);
             var database = new AniMeido.App.Services.DatabaseService(
                 importFactory,
@@ -134,7 +132,6 @@ namespace AniMeido.Tests
             Assert.NotNull(plan);
             Assert.Equal("测试番剧", plan!.TitleSnapshot);
             Assert.Equal(3, progress[42].CurrentEpisode);
-            CleanupDbFile(importPaths.DatabasePath);
         }
 
         [Fact]
@@ -157,7 +154,7 @@ namespace AniMeido.Tests
             }
 
             var json = await CreateService().ExportAsync();
-            var importPaths = new MockAppDataPaths();
+            var importPaths = CreateAdditionalPaths();
             var importFactory = new SqliteConnectionFactory(importPaths);
             await new AniMeido.App.Services.DatabaseService(
                 importFactory,
@@ -180,7 +177,6 @@ namespace AniMeido.Tests
                 WHERE AnimeId = 42
                 """;
             Assert.Equal("隐藏番剧", await check.ExecuteScalarAsync());
-            CleanupDbFile(importPaths.DatabasePath);
         }
 
         [Fact]
@@ -208,10 +204,5 @@ namespace AniMeido.Tests
             Assert.Equal(0, trackingCount);
         }
 
-        private static void CleanupDbFile(string path)
-        {
-            try { File.Delete(path); }
-            catch (IOException) { /* 忽略清理失败 */ }
-        }
     }
 }

@@ -93,7 +93,7 @@ public sealed class DiagnosticFileSinkTests
 
     private static string NewRoot()
     {
-        var path = Path.Combine(Path.GetTempPath(), "AniMeido-LogTests", Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(Path.GetTempPath(), $"AniMeido-LogTests-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
     }

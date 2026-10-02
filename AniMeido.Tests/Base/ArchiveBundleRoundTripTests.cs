@@ -23,7 +23,7 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
         await SeedAsync(source.Archive, DbFactory, "source", largeSecond: false);
         var bundle = Path.Combine(Path.GetDirectoryName(DbPath)!, "round-trip.zip");
         await source.Bundle.ExportAsync(bundle);
-        var targetPaths = new MockAppDataPaths();
+        var targetPaths = CreateAdditionalPaths();
         var targetFactory = new SqliteConnectionFactory(targetPaths);
         await new AniMeido.App.Services.DatabaseService(targetFactory, targetPaths).InitializeAsync();
         var target = CreateServices(targetFactory, targetPaths);
@@ -207,7 +207,7 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
         string[] BackupsBefore, ArchiveService SourceArchive)> PrepareFailureAsync(bool includeThird = false)
     {
         await RunProductionMigrationAsync();
-        var sourcePaths = new MockAppDataPaths();
+        var sourcePaths = CreateAdditionalPaths();
         var sourceFactory = new SqliteConnectionFactory(sourcePaths);
         await new AniMeido.App.Services.DatabaseService(sourceFactory, sourcePaths).InitializeAsync();
         var source = CreateServices(sourceFactory, sourcePaths);
@@ -256,7 +256,7 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
     private async Task AssertRollbackAsync(bool cancel, bool unrelatedWrite)
     {
         await RunProductionMigrationAsync();
-        var sourcePaths = new MockAppDataPaths();
+        var sourcePaths = CreateAdditionalPaths();
         var sourceFactory = new SqliteConnectionFactory(sourcePaths);
         await new AniMeido.App.Services.DatabaseService(sourceFactory, sourcePaths).InitializeAsync();
         var source = CreateServices(sourceFactory, sourcePaths);

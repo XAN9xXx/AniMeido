@@ -144,9 +144,9 @@ public sealed class ExportImportMergeTests : DbTestBase
     private static ExportService CreateService(SqliteConnectionFactory factory)
         => new(new TrackingService(factory), new SavedTagService(factory), factory);
 
-    private static async Task<SqliteConnectionFactory> CreateSourceAsync()
+    private async Task<SqliteConnectionFactory> CreateSourceAsync()
     {
-        var paths = new MockAppDataPaths();
+        var paths = CreateAdditionalPaths();
         var factory = new SqliteConnectionFactory(paths);
         await new DatabaseService(factory, paths).InitializeAsync();
         return factory;

@@ -11,8 +11,7 @@ public sealed class AiPluginInfrastructureTests : IDisposable
 {
     private readonly string _root = Path.Combine(
         Path.GetTempPath(),
-        "AniMeido-AI-tests",
-        Guid.NewGuid().ToString("N"));
+        $"AniMeido-AI-tests-{Guid.NewGuid():N}");
 
     [Fact]
     public void ProviderParser_ExtractsStructuredChangesAndHidesEnvelope()

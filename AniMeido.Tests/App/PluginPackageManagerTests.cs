@@ -19,8 +19,7 @@ public sealed class PluginPackageManagerTests : IDisposable
     {
         _rootDirectory = Path.Combine(
             Path.GetTempPath(),
-            "AniMeido.Tests",
-            Guid.NewGuid().ToString("N"));
+            $"AniMeido.Tests-{Guid.NewGuid():N}");
         var verifier = new PluginPackageVerifier(new Version(1, 1, 0));
         _manager = new PluginPackageManager(
             new PluginInstallationPaths(_rootDirectory),
