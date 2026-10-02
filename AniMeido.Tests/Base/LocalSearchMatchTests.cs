@@ -3,7 +3,7 @@ using AniMeido.Plugin.Base.Services;
 
 namespace AniMeido.Tests;
 
-/// <summary>本地搜索的匹配范围：标题、别名与制作公司，不含简介。</summary>
+/// <summary>本地搜索的匹配范围：标题与别名，不含制作公司和简介。</summary>
 public sealed class LocalSearchMatchTests
 {
     private static readonly Anime Frieren = new(
@@ -22,9 +22,25 @@ public sealed class LocalSearchMatchTests
     [InlineData("芙莉莲")]
     [InlineData("frieren")]
     [InlineData("フリーレン")]
-    [InlineData("madhouse")]
-    public void MatchesQuery_FindsTitleAliasAndStudio(string query)
+    [InlineData("FRIEREN")]
+    public void MatchesQuery_FindsTitleAndAliases(string query)
         => Assert.True(LocalSearchService.MatchesQuery(Frieren, query));
+
+    [Theory]
+    [InlineData("MADHOUSE")]
+    [InlineData("madhouse")]
+    public void MatchesQuery_DoesNotMatchStudio(string query)
+        => Assert.False(LocalSearchService.MatchesQuery(Frieren, query));
+
+    [Theory]
+    [InlineData("frieren")]
+    [InlineData("FRIEREN")]
+    [InlineData("FrIeReN")]
+    public void MatchesQuery_TitleMatchIsCaseInsensitive(string query)
+    {
+        var anime = Frieren with { Title = "Frieren", AlternateTitles = null };
+        Assert.True(LocalSearchService.MatchesQuery(anime, query));
+    }
 
     [Fact]
     public void MatchesQuery_IgnoresDescription()

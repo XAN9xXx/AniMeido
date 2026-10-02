@@ -7,7 +7,7 @@ namespace AniMeido.Plugin.Base.Services
 {
     /// <summary>
     /// 本地搜索服务：搜索已标记和已缓存的番剧。
-    /// 搜索范围包括标题、别名和制作公司，不区分大小写。
+    /// 搜索范围包括标题和别名，不区分大小写。
     /// </summary>
     public class LocalSearchService
     {
@@ -23,7 +23,7 @@ namespace AniMeido.Plugin.Base.Services
 
 
         /// <summary>
-        /// 搜索已标记的番剧（不含屏蔽）。匹配标题、别名和制作公司，不区分大小写。
+        /// 搜索已标记的番剧（不含屏蔽）。匹配标题和别名，不区分大小写。
         /// </summary>
         /// <param name="query">搜索关键字</param>
         /// <param name="ct">取消令牌</param>
@@ -123,7 +123,7 @@ namespace AniMeido.Plugin.Base.Services
 
 
         /// <summary>
-        /// 匹配标题、别名（原名、外文名）与制作公司。不匹配简介：常见词在简介里出现得太多，
+        /// 匹配标题、别名（原名、外文名）。不匹配简介：常见词在简介里出现得太多，
         /// 会把大半收藏都搜出来。
         /// </summary>
         internal static bool MatchesQuery(Anime anime, string query)
@@ -134,7 +134,7 @@ namespace AniMeido.Plugin.Base.Services
             if (anime.AlternateTitles?.Any(title => title.Contains(query, StringComparison.OrdinalIgnoreCase)) == true)
                 return true;
 
-            return anime.Studio?.Contains(query, StringComparison.OrdinalIgnoreCase) == true;
+            return false;
         }
     }
 
