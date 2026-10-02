@@ -48,6 +48,7 @@ public sealed class ActionCenterServiceTests : DbTestBase
     {
         await RunProductionMigrationAsync();
         var service = new ActionCenterService(DbFactory);
+        await service.UpsertPlanAsync(60, "取消提醒", AnimePlanPriority.Normal, null, 0);
         var scheduledFor = DateTimeOffset.UtcNow.AddDays(1);
         await service.AddReminderAsync(new PlanReminder(
             "cancel-reminder",
@@ -66,6 +67,21 @@ public sealed class ActionCenterServiceTests : DbTestBase
         var reminder = Assert.Single(
             await service.GetRemindersAsync(animeId: 60));
         Assert.Equal(PlanReminderState.Cancelled, reminder.State);
+
+        await service.CancelReminderAsync("cancel-reminder");
+        Assert.Equal(reminder, Assert.Single(await service.GetRemindersAsync(animeId: 60)));
+    }
+
+    [Fact]
+    public async Task CancelReminder_MissingReminderIsANoOp()
+    {
+        await RunProductionMigrationAsync();
+        var service = new ActionCenterService(DbFactory);
+
+        await service.CancelReminderAsync("missing-reminder");
+
+        Assert.Empty(await service.GetRemindersAsync());
+        Assert.Empty(await service.GetPlansAsync());
     }
 
     [Fact]
