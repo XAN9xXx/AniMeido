@@ -37,10 +37,23 @@ public sealed class JsonPipeRpcClient : IDisposable, IAsyncDisposable
             arguments,
             cancellationToken);
 
+    public async Task<T?> InvokeNullableAsync<T>(
+        string method,
+        object?[] arguments,
+        CancellationToken cancellationToken = default) where T : class
+        => await InvokeCoreAsync<T>(method, arguments, cancellationToken, allowNull: true);
+
     public async Task<T> InvokeAsync<T>(
         string method,
         object?[] arguments,
         CancellationToken cancellationToken = default)
+        => (await InvokeCoreAsync<T>(method, arguments, cancellationToken, allowNull: false))!;
+
+    private async Task<T?> InvokeCoreAsync<T>(
+        string method,
+        object?[] arguments,
+        CancellationToken cancellationToken,
+        bool allowNull)
     {
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposed) != 0,
@@ -105,6 +118,12 @@ public sealed class JsonPipeRpcClient : IDisposable, IAsyncDisposable
             if (!string.IsNullOrWhiteSpace(response.Error))
             {
                 throw new JsonPipeRpcException(response.Error);
+            }
+
+            if (allowNull && (response.Result is null
+                || response.Result.Value.ValueKind == JsonValueKind.Null))
+            {
+                return default;
             }
 
             if (typeof(T) == typeof(JsonElement)

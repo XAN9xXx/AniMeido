@@ -6,6 +6,86 @@ namespace AniMeido.PluginProtocol.Tests;
 
 public sealed class JsonPipeRpcTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Client_NullableNullDoesNotPoisonConnection(bool omitResult)
+    {
+        using var stream = new ScriptedDuplexStream();
+        if (omitResult)
+            stream.EnqueueFrame(new { Id = 1, Error = (string?)null });
+        else
+            stream.EnqueueResponse(1, null, null);
+        stream.EnqueueResponse(2, 9, null);
+        using var client = new JsonPipeRpcClient(stream);
+
+        Assert.Null(await client.InvokeNullableAsync<string>("no-context", []));
+        Assert.True(client.IsUsable);
+        Assert.Equal(9, await client.InvokeAsync<int>("next", []));
+    }
+
+    [Fact]
+    public async Task Client_NullableValueIsDeserialized()
+    {
+        using var stream = new ScriptedDuplexStream();
+        stream.EnqueueFrame(new { Id = 1, Result = new { Name = "playing" }, Error = (string?)null });
+        using var client = new JsonPipeRpcClient(stream);
+
+        var value = await client.InvokeNullableAsync<NullableResult>("context", []);
+
+        Assert.NotNull(value);
+        Assert.Equal("playing", value.Name);
+        Assert.True(client.IsUsable);
+    }
+
+    [Fact]
+    public async Task Client_NullableBusinessErrorDoesNotPoisonConnection()
+    {
+        using var stream = new ScriptedDuplexStream();
+        stream.EnqueueResponse(1, null, "业务失败");
+        stream.EnqueueResponse(2, 9, null);
+        using var client = new JsonPipeRpcClient(stream);
+
+        var error = await Assert.ThrowsAsync<JsonPipeRpcException>(() =>
+            client.InvokeNullableAsync<string>("fails", []));
+
+        Assert.Equal("业务失败", error.Message);
+        Assert.True(client.IsUsable);
+        Assert.Equal(9, await client.InvokeAsync<int>("next", []));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Client_RequiredNullStillPoisonsConnection(bool omitResult)
+    {
+        using var stream = new ScriptedDuplexStream();
+        if (omitResult)
+            stream.EnqueueFrame(new { Id = 1, Error = (string?)null });
+        else
+            stream.EnqueueResponse(1, null, null);
+        using var client = new JsonPipeRpcClient(stream);
+
+        await Assert.ThrowsAsync<JsonPipeRpcException>(() => client.InvokeAsync<string>("required", []));
+
+        Assert.False(client.IsUsable);
+        await Assert.ThrowsAsync<JsonPipeRpcException>(() => client.InvokeAsync<int>("next", []));
+    }
+
+    [Fact]
+    public async Task Client_NullableInvalidResultPoisonsConnection()
+    {
+        using var stream = new ScriptedDuplexStream();
+        stream.EnqueueResponse(1, 7, null);
+        using var client = new JsonPipeRpcClient(stream);
+
+        await Assert.ThrowsAsync<JsonException>(() => client.InvokeNullableAsync<NullableResult>("invalid", []));
+
+        Assert.False(client.IsUsable);
+    }
+
+    private sealed record NullableResult(string Name);
+
     [Fact]
     public async Task Client_BusinessErrorDoesNotPoisonConnection()
     {
@@ -327,7 +407,7 @@ public sealed class JsonPipeRpcTests
             EnqueueBytes(header);
         }
 
-        private void EnqueueFrame<T>(T value)
+        public void EnqueueFrame<T>(T value)
         {
             var payload = JsonSerializer.SerializeToUtf8Bytes(value);
             var header = new byte[sizeof(int)];

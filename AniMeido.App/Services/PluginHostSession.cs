@@ -240,7 +240,7 @@ internal sealed class PluginHostSession : IAsyncDisposable
             return null;
         }
 
-        return await rpc.InvokeAsync<HostedActivePlaybackContext?>(
+        return await rpc.InvokeNullableAsync<HostedActivePlaybackContext>(
             PluginHostRpcTargetNames.GetActivePlaybackContextAsync,
             [],
             cancellationToken);
