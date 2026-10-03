@@ -277,9 +277,7 @@ namespace AniMeido.Tests
             Assert.Equal(
                 5,
                 Convert.ToInt32(await statusCommand.ExecuteScalarAsync()));
-            Assert.NotEmpty(Directory.GetFiles(
-                Paths.BackupDirectory,
-                "AniMeido-*.db"));
+            await AssertUpdateBackupAsync(4);
             statusCommand.CommandText = "SELECT TitleSnapshot FROM anime_plans WHERE AnimeId = 88";
             Assert.Equal("历史计划", await statusCommand.ExecuteScalarAsync());
             statusCommand.CommandText = "SELECT AnimeId FROM plan_reminders WHERE ReminderId = 'historical-reminder'";
@@ -323,9 +321,7 @@ namespace AniMeido.Tests
                     'recommendation_hidden_anime')
                 """;
             Assert.Equal(2, Convert.ToInt32(await verifyCommand.ExecuteScalarAsync()));
-            Assert.NotEmpty(Directory.GetFiles(
-                Paths.BackupDirectory,
-                "AniMeido-*.db"));
+            await AssertUpdateBackupAsync(5);
             verifyCommand.CommandText = "SELECT SummaryNote FROM anime_archives WHERE AnimeId = 96";
             Assert.Equal("历史摘要", await verifyCommand.ExecuteScalarAsync());
             verifyCommand.CommandText = "SELECT Body FROM archive_entries WHERE EntryId = 'historical-entry'";
@@ -368,14 +364,127 @@ namespace AniMeido.Tests
                 WHERE type = 'table' AND name = 'external_change_receipts'
                 """;
             Assert.Equal(1, Convert.ToInt32(await verifyCommand.ExecuteScalarAsync()));
-            Assert.NotEmpty(Directory.GetFiles(
-                Paths.BackupDirectory,
-                "AniMeido-*.db"));
+            await AssertUpdateBackupAsync(6);
             verifyCommand.CommandText = "SELECT Adjustment FROM recommendation_feature_preferences WHERE FeatureKey = '历史偏好'";
             Assert.Equal(1L, await verifyCommand.ExecuteScalarAsync());
             verifyCommand.CommandText = "SELECT TitleSnapshot FROM recommendation_hidden_anime WHERE AnimeId = 622207";
             Assert.Equal("历史隐藏作品", await verifyCommand.ExecuteScalarAsync());
             await AssertCurrentSchemaAndIdempotenceAsync();
+        }
+
+        [Fact]
+        public async Task Migration_ThreeUpdatesKeepOnlyNewestTwoByFilenameTimestamp()
+        {
+            var updateDirectory = Path.Combine(Paths.BackupDirectory, "update");
+            Directory.CreateDirectory(updateDirectory);
+            var rollbackData = Path.Combine(updateDirectory, "AniMeido-rollback-20000101.db");
+            await File.WriteAllTextAsync(rollbackData, "user-owned rollback data");
+            var backups = new List<string>();
+            // 故意让版本号与迁移先后顺序不一致；不能按版本或文件修改时间清理。
+            var oldSchemas = new[] { (6, HistoricalSchemas.V6), (4, HistoricalSchemas.V4), (5, HistoricalSchemas.V5) };
+            foreach (var (version, schema) in oldSchemas)
+            {
+                var sourcePaths = CreateAdditionalPaths();
+                var factory = new SqliteConnectionFactory(sourcePaths);
+                using (var connection = await factory.OpenAsync())
+                {
+                    using var command = connection.CreateCommand();
+                    command.CommandText = schema;
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                // 每次使用独立旧结构库，共享本夹具的备份目录；不重建正在后台备份的库。
+                await new DatabaseService(factory, Paths).InitializeAsync();
+
+                var generated = Assert.Single(Directory.GetFiles(updateDirectory,
+                    $"AniMeido-before-v{version}-to-v{DatabaseSchema.CurrentVersion}-*.db"));
+                var renamed = Path.Combine(updateDirectory,
+                    $"AniMeido-before-v{version}-to-v{DatabaseSchema.CurrentVersion}-2000010{backups.Count + 1}-010203-abcdef01.db");
+                // 不清池即可移动：迁移前备份的目标连接必须已释放句柄。
+                File.Move(generated, renamed);
+                File.SetLastWriteTime(renamed, new DateTime(2030 - backups.Count, 1, 1));
+                backups.Add(renamed);
+                using var verify = await factory.OpenAsync();
+                Assert.Equal(DatabaseSchema.CurrentVersion, await DatabaseSchema.GetSchemaVersionAsync(verify));
+            }
+
+            var retained = Directory.GetFiles(updateDirectory, "AniMeido-before-*.db");
+            Assert.Equal(2, retained.Length);
+            Assert.False(File.Exists(backups[0]));
+            Assert.Contains(backups[1], retained);
+            Assert.Contains(backups[2], retained);
+            Assert.Equal("user-owned rollback data", await File.ReadAllTextAsync(rollbackData));
+        }
+
+        [Fact]
+        public async Task Migration_UpdateBackupFailurePreventsSchemaMigration()
+        {
+            var service = new DatabaseService(DbFactory, Paths);
+            // 用文件占住 update 目录，确定性地使迁移前备份失败。
+            await File.WriteAllTextAsync(Path.Combine(Paths.BackupDirectory, "update"), "not a directory");
+            using (var connection = await DbFactory.OpenAsync())
+            {
+                using var command = connection.CreateCommand();
+                command.CommandText = HistoricalSchemas.V6 + """
+                    INSERT INTO tracking VALUES(42, 1, '2026-09-01');
+                    """;
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await Assert.ThrowsAsync<IOException>(service.InitializeAsync);
+
+            using var verify = await DbFactory.OpenAsync();
+            Assert.Equal(6, await DatabaseSchema.GetSchemaVersionAsync(verify));
+            using var check = verify.CreateCommand();
+            check.CommandText = "SELECT AnimeID FROM tracking";
+            Assert.Equal(42L, await check.ExecuteScalarAsync());
+            check.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE name = 'external_change_receipts'";
+            Assert.Equal(0L, await check.ExecuteScalarAsync());
+        }
+
+        [Fact]
+        public async Task Migration_LockedOldUpdateBackupDoesNotBlockMigration()
+        {
+            var service = new DatabaseService(DbFactory, Paths);
+            var updateDirectory = Path.Combine(Paths.BackupDirectory, "update");
+            Directory.CreateDirectory(updateDirectory);
+            var oldest = Path.Combine(updateDirectory, "AniMeido-before-v5-to-v6-20000101-010203-abcdef01.db");
+            var newer = Path.Combine(updateDirectory, "AniMeido-before-v4-to-v5-20000102-010203-abcdef02.db");
+            await File.WriteAllTextAsync(oldest, "locked old backup");
+            await File.WriteAllTextAsync(newer, "newer backup");
+            using (var connection = await DbFactory.OpenAsync())
+            {
+                using var command = connection.CreateCommand();
+                command.CommandText = HistoricalSchemas.V6;
+                await command.ExecuteNonQueryAsync();
+            }
+
+            using (var locked = new FileStream(oldest, FileMode.Open, FileAccess.Read, FileShare.None))
+                await service.InitializeAsync();
+
+            using var verify = await DbFactory.OpenAsync();
+            Assert.Equal(DatabaseSchema.CurrentVersion, await DatabaseSchema.GetSchemaVersionAsync(verify));
+            Assert.Equal("locked old backup", await File.ReadAllTextAsync(oldest));
+            Assert.Equal("newer backup", await File.ReadAllTextAsync(newer));
+            Assert.Single(Directory.GetFiles(updateDirectory,
+                $"AniMeido-before-v6-to-v{DatabaseSchema.CurrentVersion}-*.db"));
+        }
+
+        private async Task AssertUpdateBackupAsync(int previousVersion)
+        {
+            var backup = Assert.Single(Directory.GetFiles(
+                Path.Combine(Paths.BackupDirectory, "update"), "AniMeido-before-*.db"));
+            Assert.Matches($@"^AniMeido-before-v{previousVersion}-to-v{DatabaseSchema.CurrentVersion}-\d{{8}}-\d{{6}}-[0-9a-f]{{8}}\.db$",
+                Path.GetFileName(backup));
+            using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+                new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
+                {
+                    DataSource = backup,
+                    Mode = Microsoft.Data.Sqlite.SqliteOpenMode.ReadOnly,
+                    Pooling = false,
+                }.ToString());
+            await connection.OpenAsync();
+            Assert.Equal(previousVersion, await DatabaseSchema.GetSchemaVersionAsync(connection));
         }
 
         private async Task AssertCurrentSchemaAndIdempotenceAsync()

@@ -22,6 +22,9 @@ namespace AniMeido.App.Services
 
         /// <summary>最大备份保留数</summary>
         private const int MaxBackups = 10;
+        private const int MaxUpdateBackups = 2;
+
+        private string UpdateBackupDir => Path.Combine(BackupDir, "update");
 
         private const int RestoreStepMaxAttempts = 20;
         private const int RestoreStepRetryDelayMilliseconds = 100;
@@ -52,10 +55,10 @@ namespace AniMeido.App.Services
                 await DatabaseSchema.CreateInitialBusinessTablesBeforeConfigAsync(connection);
                 await CreateConfigTableAsync(connection);
                 await DatabaseSchema.CreateInitialBusinessTablesAfterConfigAsync(connection);
-                if (await DatabaseSchema.GetSchemaVersionAsync(connection)
-                    is > 0 and < DatabaseSchema.CurrentVersion)
+                var previousVersion = await DatabaseSchema.GetSchemaVersionAsync(connection);
+                if (previousVersion is > 0 and < DatabaseSchema.CurrentVersion)
                 {
-                    await BackupAsync(throwOnFailure: true);
+                    await BackupCoreAsync(throwOnFailure: true, previousVersion);
                 }
                 await DatabaseSchema.RunMigrationsAsync(connection);
             }
@@ -81,10 +84,16 @@ namespace AniMeido.App.Services
             _ = BackupAsync();
         }
 
-        public async Task BackupAsync(bool throwOnFailure = false)
+        public Task BackupAsync(bool throwOnFailure = false)
+            => BackupCoreAsync(throwOnFailure);
+
+        private async Task BackupCoreAsync(bool throwOnFailure, int? previousVersion = null)
         {
             try
             {
+                var isUpdateBackup = previousVersion.HasValue;
+                var backupDirectory = isUpdateBackup ? UpdateBackupDir : BackupDir;
+                Directory.CreateDirectory(backupDirectory);
                 using (var checkpointCmd = await _dbFactory.OpenAsync())
                 {
                     using var cmd = checkpointCmd.CreateCommand();
@@ -93,17 +102,31 @@ namespace AniMeido.App.Services
                 }
                 var suffix = Guid.NewGuid().ToString("N")[..8];
                 var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-                var backupPath = Path.Combine(BackupDir, $"AniMeido-{timestamp}-{suffix}.db");
-                using var source = await _dbFactory.OpenAsync();
-                using var dest = new SqliteConnection(
-                    new SqliteConnectionStringBuilder { DataSource = backupPath, Pooling = false }.ToString());
-                await dest.OpenAsync();
-                source.BackupDatabase(dest);
-                var backups = Directory.GetFiles(BackupDir, "AniMeido-*.db")
-                    .OrderByDescending(f => f).ToList();
-                while (backups.Count > MaxBackups)
+                var fileName = isUpdateBackup
+                    ? $"AniMeido-before-v{previousVersion}-to-v{DatabaseSchema.CurrentVersion}-{timestamp}-{suffix}.db"
+                    : $"AniMeido-{timestamp}-{suffix}.db";
+                var backupPath = Path.Combine(backupDirectory, fileName);
+                using (var source = await _dbFactory.OpenAsync())
+                using (var dest = new SqliteConnection(
+                    new SqliteConnectionStringBuilder { DataSource = backupPath, Pooling = false }.ToString()))
                 {
-                    try { File.Delete(backups.Last()); } catch (IOException) { }
+                    await dest.OpenAsync();
+                    source.BackupDatabase(dest);
+                }
+                // 滚动备份只枚举顶层，不能清理 update 或 corrupt 子目录。
+                var backups = (isUpdateBackup
+                    ? GetUpdateBackups()
+                    : Directory.GetFiles(BackupDir, "AniMeido-*.db", SearchOption.TopDirectoryOnly)
+                        .OrderByDescending(f => f)).ToList();
+                var maxBackups = isUpdateBackup ? MaxUpdateBackups : MaxBackups;
+                while (backups.Count > maxBackups)
+                {
+                    var oldest = backups.Last();
+                    try { File.Delete(oldest); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        Serilog.Log.Warning(ex, "Failed to delete old database backup {Backup}.", oldest);
+                    }
                     backups.RemoveAt(backups.Count - 1);
                 }
             }
@@ -122,14 +145,7 @@ namespace AniMeido.App.Services
         public async Task<bool> TryRestoreFromBackupAsync()
         {
             SqliteConnection.ClearAllPools();
-            string[] backups = [];
-            await RetryRestoreStepAsync(() =>
-            {
-                backups = Directory.GetFiles(BackupDir, "AniMeido-*.db")
-                    .OrderByDescending(f => f).ToArray();
-                return Task.CompletedTask;
-            }, "Enumerate backups", BackupDir);
-            foreach (var backup in backups)
+            await foreach (var backup in EnumerateRestoreBackupsAsync())
             {
                 var temporaryPath = Path.Combine(
                     Path.GetDirectoryName(DbPath)!, $".AniMeido-restore-{Guid.NewGuid():N}.db");
@@ -232,6 +248,35 @@ namespace AniMeido.App.Services
                 }
             }
             return false;
+        }
+
+        private IEnumerable<string> GetUpdateBackups()
+            => Directory.GetFiles(UpdateBackupDir, "AniMeido-before-*.db", SearchOption.TopDirectoryOnly)
+                // 文件名前面的结构版本不表示新旧；最后三段是日期、时间与随机后缀。
+                .OrderByDescending(path => string.Join("-",
+                    Path.GetFileNameWithoutExtension(path).Split('-').TakeLast(3)), StringComparer.Ordinal);
+
+        private async IAsyncEnumerable<string> EnumerateRestoreBackupsAsync()
+        {
+            string[] backups = [];
+            await RetryRestoreStepAsync(() =>
+            {
+                backups = Directory.GetFiles(BackupDir, "AniMeido-*.db", SearchOption.TopDirectoryOnly)
+                    .OrderByDescending(f => f).ToArray();
+                return Task.CompletedTask;
+            }, "Enumerate backups", BackupDir);
+            foreach (var backup in backups)
+                yield return backup;
+
+            // 只有顶层候选全部不可用才枚举更新备份；目录不存在属于正常的旧安装状态。
+            await RetryRestoreStepAsync(() =>
+            {
+                try { backups = GetUpdateBackups().ToArray(); }
+                catch (DirectoryNotFoundException) { backups = []; }
+                return Task.CompletedTask;
+            }, "Enumerate update backups", UpdateBackupDir);
+            foreach (var backup in backups)
+                yield return backup;
         }
 
         private static async Task<bool> CheckIntegrityAsync(SqliteConnection connection)

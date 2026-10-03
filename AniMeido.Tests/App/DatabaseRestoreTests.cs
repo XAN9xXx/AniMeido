@@ -6,6 +6,121 @@ namespace AniMeido.Tests;
 
 public sealed class DatabaseRestoreTests : DbTestBase
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Restore_FallsBackToOldSchemaUpdateBackupAndMigratesData(bool hasCorruptRollingBackup)
+    {
+        var service = new DatabaseService(DbFactory, Paths);
+        if (hasCorruptRollingBackup)
+            await File.WriteAllBytesAsync(Path.Combine(Paths.BackupDirectory, "AniMeido-20260901.db"), [0, 1, 2, 3]);
+        var updateDirectory = Path.Combine(Paths.BackupDirectory, "update");
+        Directory.CreateDirectory(updateDirectory);
+        var backup = Path.Combine(updateDirectory,
+            $"AniMeido-before-v4-to-v{DatabaseSchema.CurrentVersion}-20260901-010203-abcdef01.db");
+        await CreateHistoricalBackupAsync(backup, HistoricalSchemas.V4, 42);
+        var backupBytes = await ReadTestFileBytesAsync(backup);
+        CorruptDatabase();
+        var original = await ReadTestFileBytesAsync(DbPath);
+
+        Assert.True(await service.TryRestoreFromBackupAsync());
+
+        using var restored = await DbFactory.OpenAsync();
+        Assert.Equal(DatabaseSchema.CurrentVersion, await DatabaseSchema.GetSchemaVersionAsync(restored));
+        using var command = restored.CreateCommand();
+        command.CommandText = "SELECT AnimeID FROM tracking";
+        Assert.Equal(42L, await command.ExecuteScalarAsync());
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE name = 'external_change_receipts'";
+        Assert.Equal(1L, await command.ExecuteScalarAsync());
+        command.CommandText = "PRAGMA integrity_check";
+        Assert.Equal("ok", await command.ExecuteScalarAsync());
+        Assert.Equal(backupBytes, await ReadTestFileBytesAsync(backup));
+        var archived = Assert.Single(Directory.GetFiles(
+            Path.Combine(Paths.BackupDirectory, "corrupt"), "AniMeido-corrupt-*.db"));
+        Assert.Equal(original, await ReadTestFileBytesAsync(archived));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(DbPath)!, ".AniMeido-restore-*.db*"));
+    }
+
+    [Fact]
+    public async Task Restore_PrefersRollingBackupOverNewerUpdateBackup()
+    {
+        var service = new DatabaseService(DbFactory, Paths);
+        var rolling = Path.Combine(Paths.BackupDirectory, "AniMeido-20000101.db");
+        await CreateBackupAsync(rolling, 42);
+        var updateDirectory = Path.Combine(Paths.BackupDirectory, "update");
+        Directory.CreateDirectory(updateDirectory);
+        var update = Path.Combine(updateDirectory,
+            $"AniMeido-before-v4-to-v{DatabaseSchema.CurrentVersion}-99991231-235959-abcdef01.db");
+        await CreateHistoricalBackupAsync(update, HistoricalSchemas.V4, 84);
+        var updateBytes = await ReadTestFileBytesAsync(update);
+        CorruptDatabase();
+
+        // update 文件暂时不可用，也不能影响顶层备份成功恢复。
+        using (var locked = new FileStream(update, FileMode.Open, FileAccess.Read, FileShare.None))
+            Assert.True(await service.TryRestoreFromBackupAsync());
+
+        using var restored = await DbFactory.OpenAsync();
+        using var command = restored.CreateCommand();
+        command.CommandText = "SELECT AnimeID FROM tracking";
+        Assert.Equal(42L, await command.ExecuteScalarAsync());
+        command.CommandText = "SELECT COUNT(*) FROM tracking";
+        Assert.Equal(1L, await command.ExecuteScalarAsync());
+        Assert.Equal(updateBytes, await ReadTestFileBytesAsync(update));
+    }
+
+    [Fact]
+    public async Task Restore_UpdateBackupsUseTimestampOrderAndIgnoreOtherUpdateFiles()
+    {
+        var service = new DatabaseService(DbFactory, Paths);
+        var updateDirectory = Path.Combine(Paths.BackupDirectory, "update");
+        Directory.CreateDirectory(updateDirectory);
+        var older = Path.Combine(updateDirectory, "AniMeido-before-v6-to-v8-20260901-010203-abcdef01.db");
+        var newer = Path.Combine(updateDirectory, "AniMeido-before-v4-to-v8-20260902-010203-abcdef02.db");
+        var corrupt = Path.Combine(updateDirectory, "AniMeido-before-v5-to-v8-20260903-010203-abcdef03.db");
+        var rollbackData = Path.Combine(updateDirectory, "AniMeido-rollback-99991231.db");
+        await CreateHistoricalBackupAsync(older, HistoricalSchemas.V6, 42);
+        await CreateHistoricalBackupAsync(newer, HistoricalSchemas.V4, 84);
+        await File.WriteAllBytesAsync(corrupt, [0, 1, 2, 3]);
+        await CreateBackupAsync(rollbackData, 126);
+        var newerBytes = await ReadTestFileBytesAsync(newer);
+        CorruptDatabase();
+
+        Assert.True(await service.TryRestoreFromBackupAsync());
+
+        using var restored = await DbFactory.OpenAsync();
+        Assert.Equal(DatabaseSchema.CurrentVersion, await DatabaseSchema.GetSchemaVersionAsync(restored));
+        using var command = restored.CreateCommand();
+        command.CommandText = "SELECT AnimeID FROM tracking";
+        Assert.Equal(84L, await command.ExecuteScalarAsync());
+        Assert.Equal(newerBytes, await ReadTestFileBytesAsync(newer));
+        Assert.True(File.Exists(older));
+        Assert.True(File.Exists(corrupt));
+        Assert.True(File.Exists(rollbackData));
+    }
+
+    [Fact]
+    public async Task Restore_LockedNewestUpdateBackupStopsWithoutUsingOlderUpdateBackup()
+    {
+        var service = new DatabaseService(DbFactory, Paths);
+        var updateDirectory = Path.Combine(Paths.BackupDirectory, "update");
+        Directory.CreateDirectory(updateDirectory);
+        var older = Path.Combine(updateDirectory, "AniMeido-before-v6-to-v8-20260901-010203-abcdef01.db");
+        var newest = Path.Combine(updateDirectory, "AniMeido-before-v4-to-v8-20260902-010203-abcdef02.db");
+        await CreateHistoricalBackupAsync(older, HistoricalSchemas.V6, 42);
+        await CreateHistoricalBackupAsync(newest, HistoricalSchemas.V4, 84);
+        CorruptDatabase();
+        var original = await ReadTestFileBytesAsync(DbPath);
+
+        using (var locked = new FileStream(newest, FileMode.Open, FileAccess.Read, FileShare.None))
+            await Assert.ThrowsAsync<DatabaseRestoreUnavailableException>(service.TryRestoreFromBackupAsync);
+
+        Assert.Equal(original, await ReadTestFileBytesAsync(DbPath));
+        Assert.True(File.Exists(older));
+        Assert.True(File.Exists(newest));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(DbPath)!, ".AniMeido-restore-*.db*"));
+        Assert.False(Directory.Exists(Path.Combine(Paths.BackupDirectory, "corrupt")));
+    }
+
     [Fact]
     public async Task Restore_SkipsNewestCorruptBackupAndPreservesEveryBackup()
     {
@@ -311,6 +426,22 @@ public sealed class DatabaseRestoreTests : DbTestBase
         await command.ExecuteNonQueryAsync();
         await DatabaseSchema.CreateInitialBusinessTablesAfterConfigAsync(connection);
         await DatabaseSchema.RunMigrationsAsync(connection);
+        command.CommandText = "INSERT INTO tracking VALUES(@id, 1, '2026-09-01T00:00:00Z')";
+        command.Parameters.AddWithValue("@id", animeId);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task CreateHistoricalBackupAsync(string path, string schema, int animeId)
+    {
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            Pooling = false,
+        }.ToString());
+        await connection.OpenAsync();
+        using var command = connection.CreateCommand();
+        command.CommandText = schema;
+        await command.ExecuteNonQueryAsync();
         command.CommandText = "INSERT INTO tracking VALUES(@id, 1, '2026-09-01T00:00:00Z')";
         command.Parameters.AddWithValue("@id", animeId);
         await command.ExecuteNonQueryAsync();
