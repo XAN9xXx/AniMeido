@@ -78,7 +78,12 @@ try {
     $cache = Join-Path $env:USERPROFILE '.nuget\packages'
     & dotnet build '.\AniMeido.Updates' -c Release $testSourceProperty "-p:RestoreSources=$cache" '-p:NuGetAudit=false'
     if ($LASTEXITCODE -ne 0) { throw 'AniMeido.Updates 构建失败。' }
-    $library = Join-Path $repo 'AniMeido.Updates\bin\x64\Release\net8.0\AniMeido.Updates.dll'
+    $built = Join-Path $repo 'AniMeido.Updates\bin\x64\Release\net8.0\AniMeido.Updates.dll'
+    # 加载副本：直接加载会锁住构建输出，后面发布启动器时无法重新编译 Updates。副本留在临时目录。
+    $libraryDirectory = Join-Path ([IO.Path]::GetTempPath()) ('AniMeido-DevInstall-' + [Guid]::NewGuid().ToString('N'))
+    $null = New-Item -ItemType Directory -Path $libraryDirectory
+    $library = Join-Path $libraryDirectory 'AniMeido.Updates.dll'
+    Copy-Item -LiteralPath $built -Destination $library
     Add-Type -LiteralPath $library
     $null = [AniMeido.Updates.SemanticVersion]::Parse($Version)
     $versionDirectory = [AniMeido.Updates.Install.InstallLayout]::VersionDirectory($installRoot, $Version)
