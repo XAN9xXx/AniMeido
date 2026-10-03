@@ -36,6 +36,9 @@
     </Project>
   </Folder>
   <Folder Name="/Tests/">
+    <Project Path="AniMeido.Updates.Tests/AniMeido.Updates.Tests.csproj">
+      <Platform Project="x64" />
+    </Project>
     <Project Path="AniMeido.PluginProtocol.Tests/AniMeido.PluginProtocol.Tests.csproj">
       <Platform Project="x64" />
     </Project>
