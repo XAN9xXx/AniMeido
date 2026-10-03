@@ -109,3 +109,51 @@ dotnet run --project .\Tools\AniMeido.UpdateSigner -- verify --public .\update-p
 verify 省略 --channel 时按 stable 校验，预览版必须传 --channel preview。
 manifest 的输出文件也拒绝覆盖。退出码：0 成功、1 校验/签名/文件操作失败、2 参数错误。
 生产内置公钥在 U4 由用户生成并填入；目前核心库的内置公钥列表为空，验签会拒绝全部清单。
+
+## U2 开发安装与版本回滚验收（New-DevInstall.ps1）
+
+这是供维护者**手动验收**的安装结构，不是 Inno 安装包，也不创建快捷方式/卸载登记。
+需要本机缓存中已有 App 和 win-x64 Native AOT 发布依赖，以及 Native AOT 所需的 C++ 工具链。
+脚本只从本机 NuGet 缓存还原，不下载缺失依赖；缺失时停止，不替换 `state.json`。
+
+**重要：数据目录仍是真实的 `%APPDATA%\AniMeido`，插件仍使用原有的用户目录。**
+执行以下步骤前请关闭全部 AniMeido 及 PluginHost，并自行备份用户数据；这不是数据隔离的测试沙箱。
+不要使用 Program Files、`%LocalAppData%\Programs\AniMeido` 或真实用户数据目录作为 `-Root`。
+新根必须为空，版本目录已存在则拒绝；已有安装必须加 `-AsPending`，让启动器负责切换。
+失败的发布暂存目录会保留，检查后由维护者自行清理，不自动覆盖。
+
+在仓库根目录打开 PowerShell 7，下面版本均为**示例**（验收时替换成递增的合法 SemVer）：
+
+```powershell
+# 1. 建立第一版，App 按现有 win-x64 profile 自包含发布（包含 PluginHost）
+.\Tools\New-DevInstall.ps1 -Root D:\AniMeido-U2-Dev -Version 2.2.0
+& D:\AniMeido-U2-Dev\AniMeido.exe
+# 数据库完成初始化且主窗口 Activate 后，state.json 的 currentHealthy 应为 true
+# 关闭主程序（若驻留托盘，请用“退出”，不是仅关闭窗口）
+
+# 2. 加入新版本；此时只设 pending，current 仍为 2.2.0
+.\Tools\New-DevInstall.ps1 -Root D:\AniMeido-U2-Dev -Version 2.3.0 -AsPending
+& D:\AniMeido-U2-Dev\AniMeido.exe
+# 切换为 2.3.0，previous 为 2.2.0；显示主窗口后新版本标记为健康
+# 再次完整退出主程序
+
+# 3. 加入立即退出的假版本：whoami.exe 改名为 AniMeido.App.exe，不会标记健康
+.\Tools\New-DevInstall.ps1 -Root D:\AniMeido-U2-Dev -Version 2.4.0 -AsPending -Broken
+& D:\AniMeido-U2-Dev\AniMeido.exe  # 第一次：切换到假版本，failedStarts=1
+# 等待假版本退出后再执行，不能连点
+& D:\AniMeido-U2-Dev\AniMeido.exe  # 第二次：failedStarts=2
+# 再等假版本退出
+& D:\AniMeido-U2-Dev\AniMeido.exe  # 第三次：自动回到 2.3.0，主窗口显示一次回滚提示
+```
+
+预期：`failedVersions` 包含 `2.4.0`；回滚提示读取后 `rolledBackFrom` 清空；
+健康后清理多余 `app-*`、`*.staging` 与旧更新包，保留 current、previous 和已有 pending。
+`-Broken` 不执行数据库迁移，所以验证的是**无迁移自动回滚**分支。
+迁移后回滚应另用确实升级 schema 且无法显示主窗口的版本人工验收：选择“是”先另存 db/wal/shm，
+再恢复迁移前备份；“否”保留新版本、重新给两次机会。回滚前数据保存在
+`%APPDATA%\AniMeido\Backups\update\AniMeido-rollback-from-*\`，不会被迁移备份滚动清理删除。
+
+启动器日志为 `%APPDATA%\AniMeido\logs\launcher.log`（超过 1 MB 后轮换为 `launcher.1.log`）。
+`--wait-pid <PID>` 最长等待 30 秒，超时不切换；当前安装已有主程序运行时只按 current 多开，不计失败。
+安装模式使用固定 AppUserModelID `AniMeido.Desktop`；U4 快捷方式必须设置相同值，
+**切换版本后通知设置是否保留、通知激活路径、托盘和退出行为仍需人工验收**。

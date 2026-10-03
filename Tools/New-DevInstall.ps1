@@ -1,0 +1,148 @@
+﻿#Requires -Version 7.0
+
+<#
+.SYNOPSIS
+    Creates a development-only side-by-side AniMeido installation for manual U2 acceptance.
+.NOTES
+    Does not redirect user data. Back up %APPDATA%\AniMeido yourself before acceptance.
+#>
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$Root,
+    [Parameter(Mandatory = $true)]
+    [string]$Version,
+    [switch]$AsPending,
+    [switch]$Broken
+)
+
+$ErrorActionPreference = 'Stop'
+$repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$installRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Root))
+
+function Test-InDirectory([string]$Path, [string]$Directory) {
+    if ([string]::IsNullOrWhiteSpace($Directory)) {
+        return $false
+    }
+    $directoryFull = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Directory))
+    return $Path.Equals($directoryFull, [StringComparison]::OrdinalIgnoreCase) -or
+        $Path.StartsWith($directoryFull + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
+}
+
+if ($installRoot -eq [IO.Path]::GetPathRoot($installRoot)) {
+    throw 'Root 不能是文件系统根目录。'
+}
+$forbidden = @(
+    $env:ProgramFiles,
+    ${env:ProgramFiles(x86)},
+    $env:ProgramW6432,
+    (Join-Path $env:LOCALAPPDATA 'Programs\AniMeido'),
+    (Join-Path $env:LOCALAPPDATA 'AniMeido'),
+    (Join-Path $env:APPDATA 'AniMeido')
+)
+foreach ($directory in $forbidden) {
+    if (Test-InDirectory $installRoot $directory) {
+        throw "拒绝真实安装或用户数据位置：$directory。请使用独立的开发验收目录。"
+    }
+}
+# 不允许 junction / symlink 将已核对的路径重定向到真实安装位置。
+for ($ancestor = $installRoot; $ancestor; $ancestor = [IO.Path]::GetDirectoryName($ancestor)) {
+    if (Test-Path -LiteralPath $ancestor) {
+        if ((Get-Item -LiteralPath $ancestor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw "Root 路径中不能有 junction 或符号链接：$ancestor"
+        }
+    }
+}
+if (Test-Path -LiteralPath $installRoot -PathType Leaf) {
+    throw 'Root 已是文件，不能作为安装目录。'
+}
+$statePath = Join-Path $installRoot 'state.json'
+$existing = Test-Path -LiteralPath $statePath -PathType Leaf
+if ($AsPending -and -not $existing) {
+    throw '-AsPending 需要已有 state.json；请先建立第一版安装。'
+}
+if ($existing -and -not $AsPending) {
+    throw '已有安装请使用 -AsPending，让启动器执行切换与回滚；本脚本不直接替换 current。'
+}
+if (-not $existing -and (Test-Path -LiteralPath $installRoot)) {
+    if (@(Get-ChildItem -LiteralPath $installRoot -Force).Count -ne 0) {
+        throw '新安装的 Root 必须为空，避免改动其他文件。'
+    }
+}
+
+Push-Location -LiteralPath $repo
+try {
+    # 复用 U1 SemVer 与 U2 的文件锁/原子 JSON；只从本机缓存还原，脚本本身也不下载包。
+    $cache = Join-Path $env:USERPROFILE '.nuget\packages'
+    & dotnet build '.\AniMeido.Updates' -c Release "-p:RestoreSources=$cache" '-p:NuGetAudit=false'
+    if ($LASTEXITCODE -ne 0) { throw 'AniMeido.Updates 构建失败。' }
+    $library = Join-Path $repo 'AniMeido.Updates\bin\x64\Release\net8.0\AniMeido.Updates.dll'
+    Add-Type -LiteralPath $library
+    $null = [AniMeido.Updates.SemanticVersion]::Parse($Version)
+    $versionDirectory = [AniMeido.Updates.Install.InstallLayout]::VersionDirectory($installRoot, $Version)
+    $staging = $versionDirectory + '.staging'
+    if ((Test-Path -LiteralPath $versionDirectory) -or (Test-Path -LiteralPath $staging)) {
+        throw "版本目录或暂存目录已存在，拒绝覆盖：$versionDirectory"
+    }
+
+    $null = New-Item -ItemType Directory -Path $installRoot -Force
+    if ($existing) {
+        $checkManager = [AniMeido.Updates.Install.InstallManager]::new(
+            [AniMeido.Updates.Install.InstallStateStore]::new($installRoot, $null, $null), $null)
+        # 读取而不修复既有状态；发布结束后 SetPending 还会重新校验。
+        $currentExe = $checkManager.GetCurrentExecutableReadOnly()
+        $currentVersion = [IO.Path]::GetFileName([IO.Path]::GetDirectoryName($currentExe)).Substring(4)
+        if ([AniMeido.Updates.SemanticVersion]::Parse($Version).CompareTo(
+            [AniMeido.Updates.SemanticVersion]::Parse($currentVersion)) -le 0) {
+            throw '-AsPending 的版本必须高于 current。'
+        }
+    }
+    if ($Broken) {
+        $null = New-Item -ItemType Directory -Path $staging
+        Copy-Item -LiteralPath (Join-Path $env:WINDIR 'System32\whoami.exe') -Destination (Join-Path $staging 'AniMeido.App.exe')
+    }
+    else {
+        & dotnet publish '.\AniMeido.App' -c Release -r win-x64 '-p:PublishProfile=win-x64' `
+            "-p:AniMeidoVersion=$Version" "-p:RestoreSources=$cache" '-p:NuGetAudit=false' --output $staging
+        if ($LASTEXITCODE -ne 0) { throw "App 发布失败；保留暂存目录 $staging 供检查，未修改 state.json。" }
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $staging 'AniMeido.App.exe') -PathType Leaf)) {
+        throw '暂存目录缺少 AniMeido.App.exe，未完成安装。'
+    }
+    [IO.Directory]::Move($staging, $versionDirectory)
+
+    $launcher = Join-Path $installRoot 'AniMeido.exe'
+    if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
+        $launcherStaging = Join-Path $installRoot 'launcher.staging'
+        if (Test-Path -LiteralPath $launcherStaging) {
+            throw "启动器暂存目录已存在，拒绝覆盖：$launcherStaging"
+        }
+        & dotnet publish '.\AniMeido.Launcher' -c Release -r win-x64 `
+            "-p:RestoreSources=$cache" '-p:NuGetAudit=false' --output $launcherStaging
+        if ($LASTEXITCODE -ne 0) { throw '启动器 AOT 发布失败；未修改 state.json，请先准备本机所需发布依赖。' }
+        [IO.File]::Move((Join-Path $launcherStaging 'AniMeido.exe'), $launcher)
+        # 只删除本次创建且已核对位于 Root 内的暂存目录。
+        $resolved = [IO.Path]::GetFullPath($launcherStaging)
+        if ([IO.Path]::GetDirectoryName($resolved) -ne $installRoot) {
+            throw '启动器暂存目录越出 Root，拒绝清理。'
+        }
+        Remove-Item -LiteralPath $resolved -Recurse -Force
+    }
+
+    $store = [AniMeido.Updates.Install.InstallStateStore]::new($installRoot, $null, $null)
+    $manager = [AniMeido.Updates.Install.InstallManager]::new($store, $null)
+    if ($AsPending) {
+        $manager.SetPending($Version)
+    }
+    else {
+        $state = [AniMeido.Updates.Install.InstallState]::new()
+        $state.Current = $Version
+        $state.CurrentHealthy = $false
+        $store.Write($state)
+    }
+    Write-Host "开发安装准备完成：$launcher"
+    Write-Warning '用户数据仍为真实 %APPDATA%\AniMeido；启动前请自行备份。本脚本没有启动主程序。'
+}
+finally {
+    Pop-Location
+}
