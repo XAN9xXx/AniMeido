@@ -56,4 +56,7 @@
   <Project Path="AniMeido.Updates/AniMeido.Updates.csproj">
     <Platform Project="x64" />
   </Project>
+  <Project Path="AniMeido.Launcher/AniMeido.Launcher.csproj">
+    <Platform Project="x64" />
+  </Project>
 </Solution>

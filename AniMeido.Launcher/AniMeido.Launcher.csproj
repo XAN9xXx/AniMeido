@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <OutputType>WinExe</OutputType>
+        <AssemblyName>AniMeido</AssemblyName>
+        <RootNamespace>AniMeido.Launcher</RootNamespace>
+        <PublishAot>true</PublishAot>
+        <InvariantGlobalization>true</InvariantGlobalization>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <PlatformTarget>x64</PlatformTarget>
+        <ApplicationIcon>..\AniMeido.App\Assets\icon.ico</ApplicationIcon>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\AniMeido.Updates\AniMeido.Updates.csproj" />
+    </ItemGroup>
+</Project>
