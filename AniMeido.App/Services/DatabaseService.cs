@@ -10,6 +10,7 @@ namespace AniMeido.App.Services
     public class DatabaseService
     {
         private readonly SqliteConnectionFactory _dbFactory;
+        private readonly InstalledAppContext? _installedApp;
 
         /// <summary>数据库文件路径</summary>
         public string DbPath { get; }
@@ -32,8 +33,15 @@ namespace AniMeido.App.Services
         private const int RestoreSqliteTimeoutSeconds = 1;
 
         public DatabaseService(SqliteConnectionFactory dbFactory, IAppDataPaths paths)
+            : this(dbFactory, paths, null)
+        {
+        }
+
+        public DatabaseService(SqliteConnectionFactory dbFactory, IAppDataPaths paths,
+            InstalledAppContext? installedApp = null)
         {
             _dbFactory = dbFactory;
+            _installedApp = installedApp;
             DbPath = dbFactory.DatabasePath;
             LogDir = paths.LogDirectory;
             BackupDir = paths.BackupDirectory;
@@ -58,7 +66,20 @@ namespace AniMeido.App.Services
                 var previousVersion = await DatabaseSchema.GetSchemaVersionAsync(connection);
                 if (previousVersion is > 0 and < DatabaseSchema.CurrentVersion)
                 {
-                    await BackupCoreAsync(throwOnFailure: true, previousVersion);
+                    var backupPath = await BackupCoreAsync(throwOnFailure: true, previousVersion);
+                    if (_installedApp?.IsInstalled == true && backupPath is not null)
+                    {
+                        try
+                        {
+                            _installedApp.RecordMigration(backupPath);
+                        }
+#pragma warning disable CA1031 // 备份已完成；安装状态记录失败不能阻止数据库迁移。
+                        catch (Exception ex)
+                        {
+                            Serilog.Log.Warning(ex, "无法记录数据库迁移备份，仍继续迁移；启动器可能无法自动恢复数据。");
+                        }
+#pragma warning restore CA1031
+                    }
                 }
                 await DatabaseSchema.RunMigrationsAsync(connection);
             }
@@ -87,7 +108,7 @@ namespace AniMeido.App.Services
         public Task BackupAsync(bool throwOnFailure = false)
             => BackupCoreAsync(throwOnFailure);
 
-        private async Task BackupCoreAsync(bool throwOnFailure, int? previousVersion = null)
+        private async Task<string?> BackupCoreAsync(bool throwOnFailure, int? previousVersion = null)
         {
             try
             {
@@ -129,6 +150,7 @@ namespace AniMeido.App.Services
                     }
                     backups.RemoveAt(backups.Count - 1);
                 }
+                return backupPath;
             }
 #pragma warning disable CA1031 // 备份失败不影响主流程
             catch (Exception ex)
@@ -138,6 +160,7 @@ namespace AniMeido.App.Services
                 {
                     throw;
                 }
+                return null;
             }
 #pragma warning restore CA1031
         }

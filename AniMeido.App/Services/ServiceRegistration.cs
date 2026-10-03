@@ -25,6 +25,7 @@ internal static class ServiceRegistration
         services.AddHttpClient();
 
         services.AddSingleton<IAppDataPaths, AppDataPaths>();
+        services.AddSingleton(_ => new InstalledAppContext());
         services.AddSingleton<DatabaseService>();
         services.AddSingleton<UpdateService>(sp =>
             new UpdateService(sp.GetRequiredService<IHttpClientFactory>(), "https://animeido.com/version.json"));

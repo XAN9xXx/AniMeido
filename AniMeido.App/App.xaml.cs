@@ -21,10 +21,17 @@ namespace AniMeido.App
         private ServiceProvider? _serviceProvider;
         private AppWindow? _mainAppWindow;
         private AppWindowActivationService? _activationService;
+        private readonly InstalledAppContext _installedApp;
 
         public App()
         {
+            _installedApp = new InstalledAppContext();
+            var identityResult = _installedApp.SetNotificationIdentity();
             StartupLogger.Initialize();
+            if (identityResult < 0)
+            {
+                Log.Warning("设置 AniMeido.Desktop AppUserModelID 失败：{HResult}", identityResult);
+            }
             GlobalExceptionHandler.Register();
             UnhandledException += OnAppUnhandledException;
             InitializeComponent();
@@ -57,6 +64,7 @@ namespace AniMeido.App
         {
             var services = new ServiceCollection()
                 .AddAppServices();
+            services.AddSingleton(_installedApp);
 
             var pluginPackageManager = PluginPackageManager.CreateDefault();
             services.AddSingleton(pluginPackageManager);
@@ -113,6 +121,8 @@ namespace AniMeido.App
                 _mainAppWindow = null;
             };
             _window.Activate();
+            // 数据库初始化已完成，主窗口已经 Activate；这不是首帧或全部后台功能的健康保证。
+            MarkInstalledAppHealthy();
             await provider.GetRequiredService<GlobalShortcutManager>()
                 .StartAsync();
             if (_desktopSettings.KeepInTrayOnClose)
@@ -125,6 +135,98 @@ namespace AniMeido.App
 
             _ = StartPluginHostSafelyAsync(pluginHostSupervisor);
             _ = UpdateStartupTask.CheckForUpdateSilentlyAsync(provider, _window);
+            QueueRolledBackNotice();
+        }
+
+        private void MarkInstalledAppHealthy()
+        {
+            if (!_installedApp.IsInstalled)
+            {
+                return;
+            }
+            try
+            {
+                _installedApp.MarkHealthy();
+                _ = Task.Run(() =>
+                {
+                    try
+                    {
+                        foreach (var error in _installedApp.CleanupObsolete())
+                        {
+                            Log.Warning("无法清理旧版本 {Path}：{Message}", error.Path, error.Message);
+                        }
+                    }
+#pragma warning disable CA1031 // 后台清理的意外异常也不能影响已显示的主窗口。
+                    catch (Exception ex)
+                    {
+                        Log.Warning(ex, "后台清理旧版本失败");
+                    }
+#pragma warning restore CA1031
+                });
+            }
+#pragma warning disable CA1031 // 健康标记/清理失败不能影响主程序启动。
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "无法写入安装健康标记");
+            }
+#pragma warning restore CA1031
+        }
+
+        private void QueueRolledBackNotice()
+        {
+            if (!_installedApp.IsInstalled || _window?.Content is not FrameworkElement element)
+            {
+                return;
+            }
+            if (element.XamlRoot is null)
+            {
+                // Activate 并不保证 XamlRoot 已就绪；等 Loaded，不能悄悄漏掉首次提示。
+                RoutedEventHandler? loaded = null;
+                loaded = (_, _) =>
+                {
+                    element.Loaded -= loaded;
+                    _ = ShowRolledBackNoticeAsync();
+                };
+                element.Loaded += loaded;
+            }
+            else
+            {
+                _ = ShowRolledBackNoticeAsync();
+            }
+        }
+
+        private async Task ShowRolledBackNoticeAsync()
+        {
+            if (!_installedApp.IsInstalled)
+            {
+                return;
+            }
+            try
+            {
+                if (_window?.Content is FrameworkElement element && element.XamlRoot is { } root
+                    && _installedApp.ConsumeRolledBackNotice() is { } notice)
+                {
+                    var message = $"已恢复到上一版本 {_installedApp.Version}，新版本 {notice.Version} 未能正常启动。";
+                    if (notice.Reason == AniMeido.Updates.Install.RolledBackNotice.UserRestored)
+                    {
+                        message += "\n新版本期间的数据已另存到 Backups\\update 的 AniMeido-rollback-from-* 目录。";
+                    }
+                    await new ContentDialog
+                    {
+                        Title = "已恢复上一版本",
+                        Content = message,
+                        CloseButtonText = "知道了",
+                        DefaultButton = ContentDialogButton.Close,
+                        XamlRoot = root,
+                    }.ShowAsync();
+                }
+            }
+#pragma warning disable CA1031 // 回滚提示不能中断已经成功启动的应用。
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "无法显示版本回滚提示");
+            }
+#pragma warning restore CA1031
         }
 
         private async void OnMainAppWindowClosing(

@@ -54,6 +54,7 @@
   <ItemGroup>
     <ProjectReference Include="..\AniMeido.Contracts\AniMeido.Contracts.csproj" />
     <ProjectReference Include="..\AniMeido.PluginProtocol\AniMeido.PluginProtocol.csproj" />
+    <ProjectReference Include="..\AniMeido.Updates\AniMeido.Updates.csproj" />
     <ProjectReference Include="..\Plugins\AniMeido.Plugin.Base\AniMeido.Plugin.Base.csproj" />
     <ProjectReference Include="..\AniMeido.PluginHost\AniMeido.PluginHost.csproj"
                       ReferenceOutputAssembly="false"
