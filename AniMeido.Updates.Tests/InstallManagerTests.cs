@@ -410,13 +410,13 @@ public sealed class InstallManagerTests
         Assert.False(Directory.Exists(obsolete));
         Assert.False(Directory.Exists(staging));
         Assert.False(Directory.Exists(temp.PathFor("other.staging")));
-        Assert.True(File.Exists(keepPackage));
+        Assert.False(File.Exists(keepPackage));
         Assert.True(File.Exists(keepPackage + ".partial"));
         Assert.False(File.Exists(deletePackage));
     }
 
     [Fact]
-    public void CleanupWithoutPendingDeletesAllPackageFilesButLeavesOtherRootFiles()
+    public void CleanupWithoutPendingDeletesCompletedPackagesButLeavesOtherRootFiles()
     {
         using var temp = new InstallTestRoot();
         temp.Save();
@@ -427,5 +427,28 @@ public sealed class InstallManagerTests
         Assert.Empty(Directory.GetFiles(temp.PathFor("packages")));
         Assert.True(File.Exists(temp.PathFor("AniMeido.exe")));
         Assert.True(File.Exists(temp.Store.StatePath));
+    }
+
+    [Fact]
+    public void CleanupPackagesDeletesAllZipAndOnlyExpiredPartial()
+    {
+        using var temp = new InstallTestRoot();
+        temp.AddVersion("2.3.0");
+        temp.Save(pending: "2.3.0");
+        var packages = temp.PathFor("packages");
+        Directory.CreateDirectory(packages);
+        var completed = Path.Combine(packages, new string('a', 64) + ".zip");
+        var fresh = completed + ".partial";
+        var expired = Path.Combine(packages, "expired.zip.partial");
+        var unrelated = Path.Combine(packages, "notes.txt");
+        foreach (var path in new[] { completed, fresh, expired, unrelated })
+            File.WriteAllText(path, "test-only");
+        File.SetLastWriteTimeUtc(fresh, DateTime.UtcNow.AddDays(-13));
+        File.SetLastWriteTimeUtc(expired, DateTime.UtcNow.AddDays(-15));
+        Assert.Empty(temp.Manager.CleanupObsolete());
+        Assert.False(File.Exists(completed));
+        Assert.True(File.Exists(fresh));
+        Assert.False(File.Exists(expired));
+        Assert.True(File.Exists(unrelated));
     }
 }

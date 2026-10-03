@@ -159,10 +159,11 @@ public sealed class InstallManager(InstallStateStore store, Action<string>? log 
                         RejectReparsePoint(packages);
                         foreach (var file in Directory.GetFiles(packages))
                         {
-                            // U3 需把 U1 的 hash 文件名关联到版本；这里约定版本化包名（及 .partial）。
-                            var name = Path.GetFileName(file);
-                            var pendingPackage = state.Pending is null ? null : $"AniMeido-{state.Pending}-win-x64.zip";
-                            if (pendingPackage is null || (name != pendingPackage && name != pendingPackage + ".partial"))
+                            // 已完成的哈希命名 ZIP 不再需要；最近的 partial 留给 U1 续传。
+                            var extension = Path.GetExtension(file);
+                            if (extension.Equals(".zip", StringComparison.OrdinalIgnoreCase)
+                                || (extension.Equals(".partial", StringComparison.OrdinalIgnoreCase)
+                                    && File.GetLastWriteTimeUtc(file) < DateTime.UtcNow.AddDays(-14)))
                             {
                                 TryCleanup(file, () => File.Delete(file), errors);
                             }
