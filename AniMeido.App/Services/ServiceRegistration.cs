@@ -23,9 +23,14 @@ internal static class ServiceRegistration
         });
 
         services.AddHttpClient();
+        var updates = services.AddHttpClient(InstalledUpdateService.HttpClientName);
+#if UPDATE_TEST_SOURCE
+        updates.AddHttpMessageHandler(() => new UpdateTestSourceHandler());
+#endif
 
         services.AddSingleton<IAppDataPaths, AppDataPaths>();
         services.AddSingleton(_ => new InstalledAppContext());
+        services.AddSingleton<InstalledUpdateService>();
         services.AddSingleton<DatabaseService>();
         services.AddSingleton<UpdateService>(sp =>
             new UpdateService(sp.GetRequiredService<IHttpClientFactory>(), "https://animeido.com/version.json"));

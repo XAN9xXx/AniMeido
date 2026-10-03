@@ -11,6 +11,7 @@ public sealed class InstalledAppContext
     public bool IsInstalled => _manager is not null;
     public string? Version { get; }
     public string? InstallRoot { get; }
+    internal Task StartupCleanup { get; set; } = Task.CompletedTask;
 
     public InstalledAppContext() : this(Environment.ProcessPath)
     {

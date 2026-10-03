@@ -16,6 +16,21 @@ internal sealed record UpdatePromptDecision(
 internal static class UpdatePromptPolicy
 {
     public static UpdatePromptDecision Decide(
+        InstalledUpdateResult result, string? skippedVersion, UpdatePromptTrigger trigger)
+    {
+        var manual = trigger == UpdatePromptTrigger.Manual;
+        var skipped = IsSameVersion(result.LatestVersion, skippedVersion);
+        return result.Status switch
+        {
+            InstalledUpdateStatus.UpdateAvailable => new(manual || !skipped, true, manual && skipped, false),
+            InstalledUpdateStatus.PreviouslyFailed => new(manual, false, false, false),
+            InstalledUpdateStatus.PendingReady or InstalledUpdateStatus.ReinstallRequired => new(true, false, false, false),
+            InstalledUpdateStatus.NoUpdate => new(manual, false, false, false),
+            _ => new(manual, false, false, true),
+        };
+    }
+
+    public static UpdatePromptDecision Decide(
         UpdateService.UpdateCheckResult result,
         string? skippedVersion,
         UpdatePromptTrigger trigger)
@@ -34,14 +49,21 @@ internal static class UpdatePromptPolicy
 
     internal static bool IsSameVersion(string? left, string? right)
     {
-        if (!Version.TryParse(left, out var leftVersion)
-            || !Version.TryParse(right, out var rightVersion))
+        if (!TryParseVersion(left, out var leftVersion)
+            || !TryParseVersion(right, out var rightVersion))
             return false;
 
-        // 清单常用三段版本，程序集常用四段版本；缺省的 Build/Revision 按 0 比较。
-        return Normalize(leftVersion) == Normalize(rightVersion);
+        return leftVersion == rightVersion;
     }
 
-    private static Version Normalize(Version version)
-        => new(version.Major, version.Minor, Math.Max(0, version.Build), Math.Max(0, version.Revision));
+    // 仅兼容旧设置中的两段版本或末尾 .0；比较本身始终按 SemVer（含预览版）。
+    private static bool TryParseVersion(string? value, out AniMeido.Updates.SemanticVersion? version)
+    {
+        if (AniMeido.Updates.SemanticVersion.TryParse(value, out version))
+            return true;
+        if (Version.TryParse(value, out var legacy) && legacy.Revision <= 0)
+            return AniMeido.Updates.SemanticVersion.TryParse(
+                $"{legacy.Major}.{legacy.Minor}.{Math.Max(0, legacy.Build)}", out version);
+        return false;
+    }
 }

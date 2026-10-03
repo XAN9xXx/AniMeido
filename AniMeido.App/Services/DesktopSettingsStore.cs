@@ -74,19 +74,22 @@ public sealed class DesktopSettingsStore
         try
         {
             await using var stream = File.OpenRead(_path);
-            return await JsonSerializer.DeserializeAsync<DesktopSettings>(
+            var settings = await JsonSerializer.DeserializeAsync<DesktopSettings>(
                 stream,
                 cancellationToken: cancellationToken)
                 ?? new DesktopSettings();
+            return NormalizeChannel(settings);
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            Serilog.Log.Warning(ex, "桌面设置 JSON 无效，使用默认设置");
             return new DesktopSettings();
         }
     }
 
     private async Task SaveCoreAsync(DesktopSettings settings, CancellationToken cancellationToken)
     {
+        settings = NormalizeChannel(settings);
         Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
         var temporaryPath = _path + ".tmp";
         await using (var stream = new FileStream(
@@ -103,10 +106,37 @@ public sealed class DesktopSettingsStore
 
         File.Move(temporaryPath, _path, overwrite: true);
     }
+
+    private static DesktopSettings NormalizeChannel(DesktopSettings settings)
+    {
+        if (settings.UpdateChannel is "stable" or "preview")
+            return settings;
+        Serilog.Log.Warning("更新通道设置无效：{Channel}，使用 stable", settings.UpdateChannel);
+        return settings with { UpdateChannel = "stable" };
+    }
 }
 
 public sealed record DesktopSettings
 {
     public bool KeepInTrayOnClose { get; init; }
     public string? SkippedUpdateVersion { get; init; }
+    [System.Text.Json.Serialization.JsonConverter(typeof(UpdateChannelJsonConverter))]
+    public string UpdateChannel { get; init; } = "stable";
+}
+
+internal sealed class UpdateChannelJsonConverter : System.Text.Json.Serialization.JsonConverter<string>
+{
+    public override bool HandleNull => true;
+
+    public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.String && reader.GetString() is "stable" or "preview")
+            return reader.GetString()!;
+        Serilog.Log.Warning("更新通道字段无效，使用 stable");
+        reader.Skip();
+        return "stable";
+    }
+
+    public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options)
+        => writer.WriteStringValue(value);
 }

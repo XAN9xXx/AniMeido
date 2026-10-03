@@ -147,7 +147,8 @@ namespace AniMeido.App
             try
             {
                 _installedApp.MarkHealthy();
-                _ = Task.Run(() =>
+                // 更新服务等待这次启动清理结束，避免 zip 或刚解压的版本目录被并发清理。
+                _installedApp.StartupCleanup = Task.Run(() =>
                 {
                     try
                     {
@@ -325,6 +326,7 @@ namespace AniMeido.App
 
         internal void RequestExit()
         {
+            // 托盘“退出”和 U3 更新重启共用：触发 Closing，释放 DI/PluginHost，不走托盘隐藏分支。
             _exitRequested = true;
             _window?.Close();
         }

@@ -309,6 +309,45 @@
                                Fill="{ThemeResource DividerStrokeColorDefault}"
                                Margin="16,0"/>
 
+                    <StackPanel x:Name="UpdateChannelPanel" Margin="16,8,16,12" Spacing="8" Visibility="Collapsed">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="更新通道" VerticalAlignment="Center" FontSize="15"/>
+                            <ComboBox x:Name="UpdateChannelCombo" Grid.Column="1" MinWidth="140"
+                                      SelectionChanged="OnUpdateChannelSelectionChanged">
+                                <x:String>稳定版</x:String>
+                                <x:String>预览版</x:String>
+                            </ComboBox>
+                        </Grid>
+                        <TextBlock Text="切换到预览版会立即检查更新；切回稳定版不会降级，等待稳定版追上后再更新。已准备好的更新不会撤销。"
+                                   FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
+                    <TextBlock x:Name="LegacyUpdateText" Margin="16,8,16,12" FontSize="12" TextWrapping="Wrap"
+                               Text="当前为旧安装方式，更新需到官网下载新安装包。"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <StackPanel x:Name="RollbackDataPanel" Margin="16,8,16,12" Spacing="8" Visibility="Collapsed">
+                        <TextBlock Text="回滚前数据" FontSize="15"/>
+                        <TextBlock Text="这些数据不会自动删除。当前仅支持查看文件夹和删除，不提供恢复功能。"
+                                   FontSize="12" TextWrapping="Wrap"/>
+                        <ItemsControl x:Name="RollbackDataList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Spacing="8" Margin="0,0,0,12">
+                                        <TextBlock Text="{Binding DisplayText}" TextWrapping="Wrap"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Button Content="打开文件夹" Tag="{Binding Path}" Click="OnOpenRollbackDataClick"/>
+                                            <Button Content="删除" Tag="{Binding Path}" Click="OnDeleteRollbackDataClick"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
                     <Grid Margin="16,0,16,0"
                           Height="44">
                         <Grid.ColumnDefinitions>
