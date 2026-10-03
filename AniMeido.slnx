@@ -45,4 +45,7 @@
   <Project Path="AniMeido.Contracts/AniMeido.Contracts.csproj" Id="55ca2f31-e2d9-49ca-aef5-7736972f2eb4">
     <Platform Project="x64" />
   </Project>
+  <Project Path="AniMeido.Updates/AniMeido.Updates.csproj">
+    <Platform Project="x64" />
+  </Project>
 </Solution>
