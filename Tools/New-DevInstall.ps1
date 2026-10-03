@@ -13,10 +13,12 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Version,
     [switch]$AsPending,
-    [switch]$Broken
+    [switch]$Broken,
+    [switch]$UpdateTestSource
 )
 
 $ErrorActionPreference = 'Stop'
+$testSourceProperty = "-p:AniMeidoUpdateTestSource=$($UpdateTestSource.IsPresent.ToString().ToLowerInvariant())"
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $installRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Root))
 
@@ -74,7 +76,7 @@ Push-Location -LiteralPath $repo
 try {
     # 复用 U1 SemVer 与 U2 的文件锁/原子 JSON；只从本机缓存还原，脚本本身也不下载包。
     $cache = Join-Path $env:USERPROFILE '.nuget\packages'
-    & dotnet build '.\AniMeido.Updates' -c Release "-p:RestoreSources=$cache" '-p:NuGetAudit=false'
+    & dotnet build '.\AniMeido.Updates' -c Release $testSourceProperty "-p:RestoreSources=$cache" '-p:NuGetAudit=false'
     if ($LASTEXITCODE -ne 0) { throw 'AniMeido.Updates 构建失败。' }
     $library = Join-Path $repo 'AniMeido.Updates\bin\x64\Release\net8.0\AniMeido.Updates.dll'
     Add-Type -LiteralPath $library
@@ -103,7 +105,7 @@ try {
     }
     else {
         & dotnet publish '.\AniMeido.App' -c Release -r win-x64 '-p:PublishProfile=win-x64' `
-            "-p:AniMeidoVersion=$Version" "-p:RestoreSources=$cache" '-p:NuGetAudit=false' --output $staging
+            "-p:AniMeidoVersion=$Version" $testSourceProperty "-p:RestoreSources=$cache" '-p:NuGetAudit=false' --output $staging
         if ($LASTEXITCODE -ne 0) { throw "App 发布失败；保留暂存目录 $staging 供检查，未修改 state.json。" }
     }
     if (-not (Test-Path -LiteralPath (Join-Path $staging 'AniMeido.App.exe') -PathType Leaf)) {

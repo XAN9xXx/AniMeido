@@ -4,4 +4,7 @@
         <IsAotCompatible>true</IsAotCompatible>
         <PlatformTarget>x64</PlatformTarget>
     </PropertyGroup>
+    <PropertyGroup Condition="'$(AniMeidoUpdateTestSource)' == 'true'">
+        <DefineConstants>$(DefineConstants);UPDATE_TEST_SOURCE</DefineConstants>
+    </PropertyGroup>
 </Project>

@@ -108,7 +108,7 @@ dotnet run --project .\Tools\AniMeido.UpdateSigner -- verify --public .\update-p
 省略 --min-updatable-from 时使用 0.0.0，省略 --notes-file 时说明为空；
 verify 省略 --channel 时按 stable 校验，预览版必须传 --channel preview。
 manifest 的输出文件也拒绝覆盖。退出码：0 成功、1 校验/签名/文件操作失败、2 参数错误。
-生产内置公钥在 U4 由用户生成并填入；目前核心库的内置公钥列表为空，验签会拒绝全部清单。
+生产内置公钥在 U4 由用户生成并填入；不设测试源编译开关时，内置公钥列表为空，验签会拒绝全部清单。
 
 ## U2 开发安装与版本回滚验收（New-DevInstall.ps1）
 
@@ -157,3 +157,105 @@ manifest 的输出文件也拒绝覆盖。退出码：0 成功、1 校验/签名
 `--wait-pid <PID>` 最长等待 30 秒，超时不切换；当前安装已有主程序运行时只按 current 多开，不计失败。
 安装模式使用固定 AppUserModelID `AniMeido.Desktop`；U4 快捷方式必须设置相同值，
 **切换版本后通知设置是否保留、通知激活路径、托盘和退出行为仍需人工验收**。
+
+## U3 应用内更新人工验收（本地签名源）
+
+以下全部由维护者手动执行。构建、单元测试不代表 WinUI、托盘退出或版本切换已验收。
+沿用 U2 限制：独立开发安装根；**数据目录仍是真实的 `%APPDATA%\AniMeido`**。
+验收前关闭全部 AniMeido/PluginHost 并自行备份数据。脚本不会启动应用，也不是数据隔离沙箱。
+
+### 测试密钥与编译开关
+
+只有 `-p:AniMeidoUpdateTestSource=true` 定义 `UPDATE_TEST_SOURCE`，才编入测试公钥和本地映射处理器。
+`New-DevInstall.ps1 -UpdateTestSource` 将属性传给 Updates 构建与 App 发布；正式发布不设此属性。
+单独设置环境变量不能启用映射。U4 接入生产公钥前，普通安装构建验签失败是预期行为。
+
+当前条件编译公钥配套私钥经维护者批准新生成，位于仓库外：
+`D:\AniMeido-U3-Acceptance\keys\update-test.pem`；同目录的 `update-test-public.txt` 是单行 SPKI Base64 公钥。
+**私钥不进仓库、不放 CI、不复制到更新源目录，不输出其内容。**
+换机器或遗失私钥时，在新的仓库外路径用签名工具生成密钥，再将公钥文件的单行内容填入
+`AniMeido.Updates/UpdateTrustedKeys.cs` 的 `#if UPDATE_TEST_SOURCE` 分支，并重建测试安装：
+
+```powershell
+$acceptance = 'D:\AniMeido-U3-Acceptance'
+$cache = Join-Path $env:USERPROFILE '.nuget\packages'
+# 仅在需要新密钥时执行；已有目标文件会拒绝覆盖。
+New-Item -ItemType Directory -Path "$acceptance\keys" -Force | Out-Null
+dotnet run --project .\Tools\AniMeido.UpdateSigner "-p:RestoreSources=$cache" -p:NuGetAudit=false -- keygen --private "$acceptance\keys\new-update-test.pem" --public "$acceptance\keys\new-update-test-public.txt"
+```
+
+### 准备安装、两个通道的包与签名清单
+
+在仓库根目录使用 PowerShell 7。下面使用当前配套的 `update-test.pem`，不能用不匹配的私钥。
+安装根必须为空或尚不存在。ZIP 必须包含完整程序和 PluginHost，根级有 `AniMeido.App.exe`，不能再套一层目录。
+
+```powershell
+$acceptance = 'D:\AniMeido-U3-Acceptance'
+$install = Join-Path $acceptance 'install'
+$source = Join-Path $acceptance 'source'
+$cache = Join-Path $env:USERPROFILE '.nuget\packages'
+$private = Join-Path $acceptance 'keys\update-test.pem'
+$public = Join-Path $acceptance 'keys\update-test-public.txt'
+.\Tools\New-DevInstall.ps1 -Root $install -Version 2.2.0 -UpdateTestSource
+
+foreach ($release in @(
+    @{ Channel = 'stable'; Version = '2.3.0' },
+    @{ Channel = 'preview'; Version = '2.4.0-preview.1' }
+)) {
+    $channel = $release.Channel
+    $version = $release.Version
+    $payload = Join-Path $acceptance "payload-$version"
+    $channelRoot = Join-Path $source "win-x64\$channel"
+    New-Item -ItemType Directory -Path $channelRoot -Force | Out-Null
+    dotnet publish .\AniMeido.App -c Release -r win-x64 -p:PublishProfile=win-x64 "-p:AniMeidoVersion=$version" -p:AniMeidoUpdateTestSource=true "-p:RestoreSources=$cache" -p:NuGetAudit=false --output $payload
+    if ($LASTEXITCODE -ne 0) { throw "发布 $version 失败" }
+    $name = "AniMeido-$version-win-x64.zip"
+    $zip = Join-Path $channelRoot $name
+    Compress-Archive -Path (Join-Path $payload '*') -DestinationPath $zip
+    $manifest = Join-Path $channelRoot 'release.json'
+    dotnet run --project .\Tools\AniMeido.UpdateSigner --no-restore -- manifest --zip $zip --version $version --channel $channel --url "https://dl.animeido.com/updates/win-x64/$channel/$name" --release-date 2026-10-04 --min-updatable-from 2.2.0 --out $manifest
+    if ($LASTEXITCODE -ne 0) { throw "生成 $channel 清单失败" }
+    dotnet run --project .\Tools\AniMeido.UpdateSigner --no-restore -- sign --private $private --file $manifest
+    if ($LASTEXITCODE -ne 0) { throw "签名 $channel 清单失败" }
+    dotnet run --project .\Tools\AniMeido.UpdateSigner --no-restore -- verify --public $public --file $manifest --channel $channel
+    if ($LASTEXITCODE -ne 0) { throw "验签 $channel 清单失败" }
+}
+$env:ANIMEIDO_UPDATE_TEST_ROOT = $source
+& (Join-Path $install 'AniMeido.exe')
+```
+
+映射根对应 URL 的 `/updates/`，所以两个目录是 `source/win-x64/stable/` 和 `source/win-x64/preview/`，
+各包含 ZIP、release.json 和 release.json.sig。其他 URL 原样放行，请勿在本地验收清单填其他域名。
+本地映射支持 Range；验签、包大小/哈希和解压仍走正式代码。可加 `--notes-file <UTF-8 文本>` 测试说明。
+生成包/清单与签名工具仅操作本地文件；重新签名已存在文件须明确加 `--overwrite`。
+
+### 七项主流程验收（对应 U3 方案 §7）
+
+1. **stable**：2.2.0 启动提示 2.3.0；下载中取消一次，确认 `packages/<sha256>.zip.partial` 保留，
+   再重试续传。可用较大的完整包便于点击取消；准备完成后 ZIP 已删除。
+2. 选择“立即重启”：启动器等旧 PID 退出，切到 2.3.0；数据库初始化完成且主窗口显示后，
+   currentHealthy 为 true，保留 current/previous，清理多余版本和已完成 ZIP。
+   `.partial` 最后修改时间在 14 天内保留，早于 14 天才删除。
+3. **preview**：设置页切到预览版立即检查到 2.4.0-preview.1；下载后选“下次启动时更新”，
+   current 不变、pending 已设置。完整退出，再从 AniMeido.exe 启动，应切到预览版。
+4. **切回 stable**：显示已是最新，不降级；切换通道不会撤销已经准备好的 pending。
+5. **篡改清单**：在没有 pending 时改 release.json 一个字节、不重签。手动检查显示签名失败，
+   提示不出现清单中的版本、说明或包地址；启动检查只记 Warning。之后还原原始字节或重签。
+6. **非安装模式**：直接运行不在 `app-<版本> + state.json` 结构里的 AniMeido.App.exe，
+   仍读 version.json 并通过浏览器下载；设置页不显示通道，显示旧安装方式说明。
+7. **托盘常驻**：开启常驻后选择立即重启，主程序与 PluginHost 均完整退出，不只是隐藏窗口；
+   新版本正常启动。启动器缺失/创建失败时提示错误，不退出主程序，pending 保留。
+   `--wait-pid` 超过 30 秒由启动器提示手动关闭、不切换，下次启动仍可切换。
+
+### 补充分支与回滚前数据
+
+- 跳过 stable/preview 指定版本：启动不提示；手动仍提示，下载或稍后再说取消跳过。
+- failedVersions 中的版本：启动不提示，手动检查警告“曾启动失败并回滚”，仍允许重试。
+- 低于 minUpdatableFrom：提示官网重新安装，不能应用内安装。
+- 下载、权限、磁盘和校验失败：对话框内显示原因/路径、重试与关闭，不残留后台下载。
+  同名 app-* 已存在但不是 pending 时拒绝且不删除；SetPending 失败不改 current。
+- U2 迁移后回滚产生 `Backups/update/AniMeido-rollback-from-*` 时，安装模式设置页显示来源版本/时间；
+  打开文件夹仅查看所选目录；删除前确认，不能删除当前数据库、更新前备份或其他目录。
+  没有数据时隐藏；**不做恢复功能**，恢复入口留到首次结构升级前的独立批次。
+- 普通构建不设 AniMeidoUpdateTestSource：PublicKeys 为空、App 无 UpdateTestSourceHandler 类型，
+  且没有 ANIMEIDO_UPDATE_TEST_ROOT 映射代码；切勿将开发测试构建用于正式分发。

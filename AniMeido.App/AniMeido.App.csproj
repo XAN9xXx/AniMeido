@@ -16,6 +16,10 @@
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(AniMeidoUpdateTestSource)' == 'true'">
+    <DefineConstants>$(DefineConstants);UPDATE_TEST_SOURCE</DefineConstants>
+  </PropertyGroup>
+
   <!-- 测试项目可访问 internal 类型 -->
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
