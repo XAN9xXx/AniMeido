@@ -114,6 +114,7 @@ manifest 的输出文件也拒绝覆盖。退出码：0 成功、1 校验/签名
 
 这是供维护者**手动验收**的安装结构，不是 Inno 安装包，也不创建快捷方式/卸载登记。
 需要本机缓存中已有 App 和 win-x64 Native AOT 发布依赖，以及 Native AOT 所需的 C++ 工具链。
+若启动器发布报 `'vswhere.exe' 不是内部或外部命令`（本机 VS 18 的环境脚本按 PATH 查找 vswhere），先执行 `$env:PATH = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;" + $env:PATH` 再运行脚本。
 脚本只从本机 NuGet 缓存还原，不下载缺失依赖；缺失时停止，不替换 `state.json`。
 
 **重要：数据目录仍是真实的 `%APPDATA%\AniMeido`，插件仍使用原有的用户目录。**
