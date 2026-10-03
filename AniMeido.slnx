@@ -30,6 +30,11 @@
       <Platform Project="x64" />
     </Project>
   </Folder>
+  <Folder Name="/Tools/">
+    <Project Path="Tools/AniMeido.UpdateSigner/AniMeido.UpdateSigner.csproj">
+      <Platform Project="x64" />
+    </Project>
+  </Folder>
   <Folder Name="/Tests/">
     <Project Path="AniMeido.PluginProtocol.Tests/AniMeido.PluginProtocol.Tests.csproj">
       <Platform Project="x64" />

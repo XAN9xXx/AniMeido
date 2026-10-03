@@ -82,3 +82,30 @@ PluginHost 为单独进程，单元测试不运行它，因而本配置不采集
 
 AniMeido 插件与应用本身拥有相同的本地权限。插件包没有发布者签名，只应安装来源可信的插件。
 清单中的哈希只能发现打包后或安装后的意外损坏，不能证明插件由谁制作。
+
+## 应用更新清单与离线签名（AniMeido.UpdateSigner）
+
+工具只处理本地文件，**不会上传任何文件，也不会发出 HTTP 请求**。私钥必须离线保存并备份，
+**不进仓库、不放 CI**；CI 只分发已经签名的清单。签名为 ECDSA P-256 / SHA-256，
+对 release.json 原始字节签名，使用固定 64 字节 P1363 格式；修改空白或换行也必须重新签名。
+
+以下命令在仓库根目录执行（示例版本和地址不代表当前发布）：
+
+```powershell
+# 生成 PKCS#8 PEM 私钥与单行 SPKI Base64 公钥；任一目标已存在就拒绝
+dotnet run --project .\Tools\AniMeido.UpdateSigner -- keygen --private E:\OfflineKeys\update.pem --public .\update-public.txt
+
+# 根据完整 ZIP 生成清单；可重复 --url 添加镜像
+dotnet run --project .\Tools\AniMeido.UpdateSigner -- manifest --zip .\AniMeido-2.3.0-win-x64.zip --version 2.3.0 --channel stable --url https://dl.animeido.com/updates/win-x64/stable/AniMeido-2.3.0-win-x64.zip --release-date 2026-11-01 --min-updatable-from 2.2.0 --notes-file .\release-notes.txt --out .\release.json
+
+# 输出 release.json.sig；默认拒绝覆盖，重新签名时须明确加 --overwrite
+dotnet run --project .\Tools\AniMeido.UpdateSigner -- sign --private E:\OfflineKeys\update.pem --file .\release.json
+
+# 验签后再校验 JSON，输出版本与通道；--public 也可直接传 SPKI Base64
+dotnet run --project .\Tools\AniMeido.UpdateSigner -- verify --public .\update-public.txt --file .\release.json --channel stable
+```
+
+省略 --min-updatable-from 时使用 0.0.0，省略 --notes-file 时说明为空；
+verify 省略 --channel 时按 stable 校验，预览版必须传 --channel preview。
+manifest 的输出文件也拒绝覆盖。退出码：0 成功、1 校验/签名/文件操作失败、2 参数错误。
+生产内置公钥在 U4 由用户生成并填入；目前核心库的内置公钥列表为空，验签会拒绝全部清单。
