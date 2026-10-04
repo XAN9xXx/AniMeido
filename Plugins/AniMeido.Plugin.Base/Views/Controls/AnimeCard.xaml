@@ -171,6 +171,24 @@
                                Foreground="White"/>
                 </Border>
 
+                <!-- 未开播（放送日历使用，默认隐藏）：封面左下角，避开状态、星期与评分。
+                     角标单独使用浅色 Critical 红色，避免深色主题的浅粉色与白字对比不足。 -->
+                <Border x:Name="NotYetAiredBadge"
+                        RequestedTheme="Light"
+                        Background="{ThemeResource SystemFillColorCriticalBrush}"
+                        CornerRadius="9"
+                        Padding="7,1"
+                        Margin="6"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Bottom"
+                        IsHitTestVisible="False"
+                        Visibility="Collapsed">
+                    <TextBlock Text="未开播"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="White"/>
+                </Border>
+
                 <!-- 悬停标记按钮（放送日历使用，默认隐藏）。按钮自己处理点击，不会触发卡片单击 -->
                 <Grid x:Name="QuickActions"
                       Visibility="Collapsed">

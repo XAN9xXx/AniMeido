@@ -42,6 +42,11 @@ namespace AniMeido.Plugin.Base.ViewModels
             Anime.AirDate is { } airDate
             && airDate <= DateOnly.FromDateTime(DateTime.Today);
 
+        /// <summary>有明确首播日期且晚于今天时显示“未开播”；缺日期不显示角标。</summary>
+        public bool IsNotYetAired =>
+            Anime.AirDate is { } airDate
+            && airDate > DateOnly.FromDateTime(DateTime.Today);
+
         /// <summary>未上映的“其他”作品只能关注，上映后才出现“追番”。</summary>
         public bool ShowWatchAction => !IsOther || IsReleased;
 
@@ -71,6 +76,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             OnPropertyChanged(nameof(WeekdayText));
             OnPropertyChanged(nameof(ShelfBadgeText));
             OnPropertyChanged(nameof(IsReleased));
+            OnPropertyChanged(nameof(IsNotYetAired));
             OnPropertyChanged(nameof(ShowWatchAction));
             return true;
         }

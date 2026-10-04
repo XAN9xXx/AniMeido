@@ -201,6 +201,54 @@ public sealed class CurrentSeasonCalendarTests
         Assert.Equal(new[] { 13, 15, 14, 10, 12, 11 }, ordered.Select(entry => entry.Anime.ID));
     }
 
+    [Theory]
+    [InlineData(1, true, false)]
+    [InlineData(0, false, true)]
+    [InlineData(-1, false, true)]
+    [InlineData(null, false, false)]
+    public void CalendarEntry_NotYetAiredRequiresKnownFutureDate(
+        int? airDateOffset, bool expectedBadge, bool expectedReleased)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var anime = Item(1, 4, 7.0) with
+        {
+            AirDate = airDateOffset is { } offset ? today.AddDays(offset) : null,
+        };
+        var entry = new CalendarEntry(anime);
+        var other = new CalendarEntry(anime with { MediaFormat = AnimeMediaFormat.Movie }, isOther: true);
+
+        Assert.Equal(expectedBadge, entry.IsNotYetAired);
+        Assert.Equal(expectedBadge, other.IsNotYetAired);
+        // 无日期既不显示“未开播”，也不改变原来的“未上映”语义。
+        Assert.Equal(expectedReleased, entry.IsReleased);
+        Assert.Equal(expectedReleased, other.ShowWatchAction);
+    }
+
+    [Fact]
+    public void UpdateAnime_RefreshesNotYetAiredBadgeAndNotifiesBindings()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var anime = Item(1, 4, 7.0) with { AirDate = today.AddDays(1) };
+        var entry = new CalendarEntry(anime);
+        var changed = new List<string?>();
+        entry.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+        Assert.True(entry.IsNotYetAired);
+
+        Assert.True(entry.UpdateAnime(anime with { AirDate = today }, isOther: false));
+        Assert.False(entry.IsNotYetAired);
+        Assert.Contains(nameof(CalendarEntry.IsNotYetAired), changed);
+
+        changed.Clear();
+        Assert.True(entry.UpdateAnime(anime, isOther: false));
+        Assert.True(entry.IsNotYetAired);
+        Assert.Contains(nameof(CalendarEntry.IsNotYetAired), changed);
+
+        changed.Clear();
+        Assert.True(entry.UpdateAnime(anime with { AirDate = null }, isOther: false));
+        Assert.False(entry.IsNotYetAired);
+        Assert.Contains(nameof(CalendarEntry.IsNotYetAired), changed);
+    }
+
     [Fact]
     public void OtherEntry_OffersWatchOnlyAfterRelease()
     {

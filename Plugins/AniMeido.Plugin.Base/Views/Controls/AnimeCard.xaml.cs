@@ -186,6 +186,20 @@ namespace AniMeido.Plugin.Base.Views.Controls
             set => SetValue(WeekdayTextProperty, value);
         }
 
+        /// <summary>在封面左下角显示“未开播”（仅放送日历传入，默认隐藏）。</summary>
+        public static readonly DependencyProperty ShowNotYetAiredBadgeProperty =
+            DependencyProperty.Register(
+                nameof(ShowNotYetAiredBadge),
+                typeof(bool),
+                typeof(AnimeCard),
+                new PropertyMetadata(false, OnShowNotYetAiredBadgeChanged));
+
+        public bool ShowNotYetAiredBadge
+        {
+            get => (bool)GetValue(ShowNotYetAiredBadgeProperty);
+            set => SetValue(ShowNotYetAiredBadgeProperty, value);
+        }
+
         public AnimeCard()
         {
             InitializeComponent();
@@ -416,6 +430,14 @@ namespace AniMeido.Plugin.Base.Views.Controls
                 : Visibility.Visible;
         }
 
+        private static void OnShowNotYetAiredBadgeChanged(
+            DependencyObject dependencyObject,
+            DependencyPropertyChangedEventArgs args)
+        {
+            _ = args;
+            ((AnimeCard)dependencyObject).UpdateQuickActions();
+        }
+
         private void UpdateTrackingBadges()
         {
             var status = TrackingStatus;
@@ -456,7 +478,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
             Grid.SetColumnSpan(FollowActionButton, ShowWatchAction ? 1 : 2);
         }
 
-        /// <summary>悬停时显示标记按钮并暂时隐藏评分，避免两者重叠。</summary>
+        /// <summary>悬停时显示标记按钮并暂时隐藏封面底部角标，避免两者重叠。</summary>
         private void UpdateQuickActions()
         {
             IsTabStop = ShowQuickActions;
@@ -464,6 +486,9 @@ namespace AniMeido.Plugin.Base.Views.Controls
                 && (_isPointerOver || _hasKeyboardFocus)
                 && DataContext is Anime;
             QuickActions.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            NotYetAiredBadge.Visibility = ShowNotYetAiredBadge && !show
+                ? Visibility.Visible
+                : Visibility.Collapsed;
             if (show)
             {
                 ScoreBadge.Visibility = Visibility.Collapsed;
