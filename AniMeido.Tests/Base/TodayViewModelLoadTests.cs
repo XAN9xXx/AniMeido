@@ -50,6 +50,109 @@ public sealed class TodayViewModelLoadTests : DbTestBase
         Assert.Null(vm.ErrorMessage);
     }
 
+    [Theory]
+    [InlineData(-1, true)]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    [InlineData(null, true)]
+    public void HasAiredBy_UsesInclusivePremiereDateAndKeepsMissingDates(int? airDateOffset, bool expected)
+    {
+        var date = new DateOnly(2026, 10, 6);
+        var anime = new Anime(1, "首播日期边界", null, [],
+            airDateOffset is { } offset ? date.AddDays(offset) : null,
+            null, string.Empty, 2026, 10);
+
+        Assert.Equal(expected, TodayViewModel.HasAiredBy(anime, date));
+    }
+
+    [Fact]
+    public void HasAiredBy_PremiereOnThirdDayIsExcludedOnlyBeforeThatDay()
+    {
+        var today = new DateOnly(2026, 10, 4);
+        var anime = new Anime(1, "第三天首播", null, [], today.AddDays(2),
+            null, string.Empty, 2026, 10);
+
+        Assert.Equal(new[] { false, false, true, true, true, true, true },
+            Enumerable.Range(0, 7).Select(offset => TodayViewModel.HasAiredBy(anime, today.AddDays(offset))));
+    }
+
+    [Fact]
+    public async Task Load_FiltersTodayBroadcastsAndSummaryByPremiereDate()
+    {
+        await RunProductionMigrationAsync();
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var weekday = AnimeListPresentation.ToBangumiWeekday(today.DayOfWeek);
+        Anime Item(int id, DateOnly? airDate) => new(
+            id, $"作品{id}", null, [], airDate, null,
+            string.Empty, today.Year, today.Month, weekday);
+        var source = new OfflineSource
+        {
+            Schedule = [Item(1, today.AddDays(-1)), Item(2, today),
+                Item(3, today.AddDays(1)), Item(4, null)],
+        };
+        var tracking = new TrackingService(DbFactory);
+        foreach (var anime in source.Schedule)
+            await tracking.SetStatusAsync(anime.ID, AnimeTrackingStatus.Following);
+        var actionCenter = new ActionCenterService(DbFactory);
+        using var reminders = new PlanReminderCoordinator(
+            actionCenter, new NoopNotificationService(), new NoopNavigator());
+        var vm = new TodayViewModel(
+            source, tracking, actionCenter, reminders,
+            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory));
+
+        await vm.LoadAsync();
+        await vm.Theme.PendingLoad;
+
+        Assert.Equal(new[] { 1, 2, 4 }, vm.AllBroadcasts.Select(anime => anime.ID));
+        Assert.Equal(new[] { 1, 2, 4 }, vm.PersonalBroadcasts.Select(entry => entry.Anime.ID));
+        Assert.Equal(new[] { 1, 2, 4 }, vm.BroadcastDays[0].Items.Select(anime => anime.ID));
+        Assert.Equal("今天有 3 部你标记的作品放送。", vm.BroadcastMessage);
+        Assert.Empty(vm.NextBroadcastText);
+        Assert.Null(vm.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task WeekStrip_UsesEachDaysDateAndSkipsPrePremiereNextBroadcast()
+    {
+        await RunProductionMigrationAsync();
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        // 同一个首播日期配合七个不同星期，确认每格用自己的日期，而不是统一用今天。
+        var source = new OfflineSource
+        {
+            Schedule = Enumerable.Range(0, 7).Select(offset => new Anime(
+                offset + 1, $"作品{offset + 1}", null, [], today.AddDays(2), null,
+                string.Empty, today.Year, today.Month,
+                AnimeListPresentation.ToBangumiWeekday(today.AddDays(offset).DayOfWeek))).ToList(),
+        };
+        var tracking = new TrackingService(DbFactory);
+        foreach (var anime in source.Schedule)
+            await tracking.SetStatusAsync(anime.ID, AnimeTrackingStatus.Following);
+        var actionCenter = new ActionCenterService(DbFactory);
+        using var reminders = new PlanReminderCoordinator(
+            actionCenter, new NoopNotificationService(), new NoopNavigator());
+        var vm = new TodayViewModel(
+            source, tracking, actionCenter, reminders,
+            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory));
+
+        await vm.LoadAsync();
+        await vm.Theme.PendingLoad;
+
+        Assert.Empty(vm.AllBroadcasts);
+        Assert.Empty(vm.PersonalBroadcasts);
+        Assert.Equal(7, vm.BroadcastDays.Count);
+        for (var offset = 0; offset < 7; offset++)
+        {
+            var items = vm.BroadcastDays[offset].Items;
+            if (offset < 2)
+                Assert.Empty(items);
+            else
+                Assert.Equal(offset + 1, Assert.Single(items).ID);
+        }
+        Assert.Equal("今天没有你标记的作品放送。", vm.BroadcastMessage);
+        Assert.Equal($"预计下次：{vm.BroadcastDays[2].Label} · 作品3", vm.NextBroadcastText);
+        Assert.Null(vm.ErrorMessage);
+    }
+
     [Fact]
     public async Task DetailFailure_StillShowsLocalPlansWithoutCover()
     {

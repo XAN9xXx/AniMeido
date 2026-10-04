@@ -289,10 +289,11 @@ public partial class TodayViewModel : ObservableObject
             if (!IsCurrentLoad(loadVersion, cancellationToken))
                 return;
 
-            var today = AnimeListPresentation.ToBangumiWeekday(
-                DateTime.Today.DayOfWeek);
+            var todayDateTime = DateTime.Today;
+            var today = AnimeListPresentation.ToBangumiWeekday(todayDateTime.DayOfWeek);
             AllBroadcasts = new ObservableCollection<Anime>(
-                seasonal.Where(item => item.Weekday == today));
+                seasonal.Where(item => item.Weekday == today
+                    && HasAiredBy(item, DateOnly.FromDateTime(todayDateTime))));
             _seasonal = seasonal;
             ApplyPersonalStatuses(statusById);
 
@@ -748,15 +749,23 @@ public partial class TodayViewModel : ObservableObject
         UpdateBroadcastSummary();
     }
 
+    /// <summary>首播日当天起纳入放送；没有日期时保留既有放送表行为。</summary>
+    internal static bool HasAiredBy(Anime anime, DateOnly date)
+        => anime.AirDate is not { } airDate || airDate <= date;
+
     private void UpdateBroadcastSummary()
     {
-        var today = AnimeListPresentation.ToBangumiWeekday(DateTime.Today.DayOfWeek);
+        var todayDateTime = DateTime.Today;
+        var today = AnimeListPresentation.ToBangumiWeekday(todayDateTime.DayOfWeek);
         var days = Enumerable.Range(0, 7).Select(offset =>
         {
             var weekday = (today - 1 + offset) % 7 + 1;
-            var label = DateTime.Today.AddDays(offset).ToString("ddd", System.Globalization.CultureInfo.GetCultureInfo("zh-CN"));
+            var date = todayDateTime.AddDays(offset);
+            var label = date.ToString("ddd", System.Globalization.CultureInfo.GetCultureInfo("zh-CN"));
             return new TodayBroadcastDay(label,
-                _seasonal.Where(anime => anime.Weekday == weekday && _personalIds.Contains(anime.ID)).ToList())
+                _seasonal.Where(anime => anime.Weekday == weekday
+                    && _personalIds.Contains(anime.ID)
+                    && HasAiredBy(anime, DateOnly.FromDateTime(date))).ToList())
             {
                 IsToday = offset == 0,
             };
