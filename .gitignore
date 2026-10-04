@@ -13,7 +13,7 @@ copilot-instructions.md
 docs/
 docs-lib/
 AniMeidoInstaller/
-Installer/
+Installer/*.exe
 .claude/
 CLAUDE.md
 .agents/
