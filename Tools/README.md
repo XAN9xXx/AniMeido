@@ -108,7 +108,9 @@ dotnet run --project .\Tools\AniMeido.UpdateSigner -- verify --public .\update-p
 省略 --min-updatable-from 时使用 0.0.0，省略 --notes-file 时说明为空；
 verify 省略 --channel 时按 stable 校验，预览版必须传 --channel preview。
 manifest 的输出文件也拒绝覆盖。退出码：0 成功、1 校验/签名/文件操作失败、2 参数错误。
-生产内置公钥在 U4 由用户生成并填入；不设测试源编译开关时，内置公钥列表为空，验签会拒绝全部清单。
+生产公钥由维护者于 2026-10-04 生成并提供，内置于 `AniMeido.Updates/UpdateTrustedKeys.cs` 的
+`#if UPDATE_TEST_SOURCE` 之前，因此所有构建都包含它。私钥仍由维护者离线保管。
+普通构建只含生产公钥；测试源构建另加本地测试公钥，绝不能正式分发。
 
 ## U2 开发安装与版本回滚验收（New-DevInstall.ps1）
 
@@ -169,7 +171,7 @@ manifest 的输出文件也拒绝覆盖。退出码：0 成功、1 校验/签名
 
 只有 `-p:AniMeidoUpdateTestSource=true` 定义 `UPDATE_TEST_SOURCE`，才编入测试公钥和本地映射处理器。
 `New-DevInstall.ps1 -UpdateTestSource` 将属性传给 Updates 构建与 App 发布；正式发布不设此属性。
-单独设置环境变量不能启用映射。U4 接入生产公钥前，普通安装构建验签失败是预期行为。
+单独设置环境变量不能启用映射。普通安装只接受内置生产公钥签名的清单，不接受本地测试签名。
 
 当前条件编译公钥配套私钥经维护者批准新生成，位于仓库外：
 `D:\AniMeido-U3-Acceptance\keys\update-test.pem`；同目录的 `update-test-public.txt` 是单行 SPKI Base64 公钥。
@@ -258,5 +260,99 @@ $env:ANIMEIDO_UPDATE_TEST_ROOT = $source
 - U2 迁移后回滚产生 `Backups/update/AniMeido-rollback-from-*` 时，安装模式设置页显示来源版本/时间；
   打开文件夹仅查看所选目录；删除前确认，不能删除当前数据库、更新前备份或其他目录。
   没有数据时隐藏；**不做恢复功能**，恢复入口留到首次结构升级前的独立批次。
-- 普通构建不设 AniMeidoUpdateTestSource：PublicKeys 为空、App 无 UpdateTestSourceHandler 类型，
+- 普通构建不设 AniMeidoUpdateTestSource：PublicKeys 只含生产公钥、App 无 UpdateTestSourceHandler 类型，
   且没有 ANIMEIDO_UPDATE_TEST_ROOT 映射代码；切勿将开发测试构建用于正式分发。
+
+## U4 完整安装包与本地发布（Publish-Release.ps1）
+
+第一个新式正式版本为 **3.0.0，Uno 迁移完成后才发布**。现在可以用当前 WinUI 程序在 Windows
+沙盒里验收，Uno 迁移后必须再次验收。本脚本只构建和生成本地产物，不安装、不启动程序，
+不上传、不提交、不创建 tag。它会调用签名工具读取指定私钥，因此只由维护者手动执行。
+
+### 生产密钥：离线生成与保管（仅由维护者执行）
+
+本批已经填入维护者提供的 2026-10-04 生产公钥；**不要为本次验收再次生成不同密钥**。
+请先确认配套私钥仍在离线介质中、且已有两份独立备份。下面是将来首次准备或换钥的操作步骤，
+不是让 AI 执行，也不是让 AI 查看私钥：
+
+1. 在离线 Windows 环境预先准备 .NET SDK、签名工具与已有构建依赖。离线构建签名工具：
+
+   ```powershell
+   dotnet build .\Tools\AniMeido.UpdateSigner -c Release --no-restore
+   ```
+
+2. 将两个空的目标路径放在仓库外的离线介质中，用已构建的工具生成 ECDSA P-256 密钥。
+   工具拒绝覆盖已有文件；不要把私钥路径指向仓库、CI 工作目录或云同步目录。
+
+   ```powershell
+   dotnet .\Tools\AniMeido.UpdateSigner\bin\x64\Release\net8.0\AniMeido.UpdateSigner.dll keygen --private E:\OfflineKeys\update.pem --public E:\OfflineKeys\update-public.txt
+   ```
+
+3. 只将公钥文件的单行 SPKI Base64 内容放到 `UpdateTrustedKeys.cs` 的 `#if UPDATE_TEST_SOURCE`
+   之前，供普通与测试构建共同信任；保留测试公钥的条件编译分支。重新审查并提交公钥源码。
+4. 私钥保留两份离线备份，放在两个不同的物理介质、分别保管。检查备份可读性由维护者自行完成。
+   不把私钥上传 GitHub、R2、CI 或发给 AI。发布时仅临时接入离线介质，签名完成后移除。
+5. 若私钥遗失或泄露，不能直接用新钥替代线上签名；需要内置新公钥的重装版本及相应公告。
+   生产密钥轮换是独立发布决定，不由发布脚本自动完成。
+
+### 生成一次发布产物
+
+需要 PowerShell 7、.NET SDK、Native AOT C++ 工具链和 Inno Setup 6。
+`-IsccPath` 默认 `D:\Inno Setup 6\ISCC.exe`，可指定其他安装位置。
+PATH 找不到 `vswhere.exe` 时，脚本会自动补上 `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer`，
+结束时恢复原 PATH；如果那里也没有该程序则停止。
+
+先审查并提交本批修改、版本说明与生产公钥，确保工作区干净（含未跟踪文件）；
+脚本拒绝覆盖已存在的 `artifacts\release\<版本>\`。失败时保留本次目录供检查，不自动清理或重试覆盖。
+命令在仓库根目录执行；下面路径均是维护者自行选择的示例，不代表当前私钥位置：
+
+```powershell
+pwsh -File .\Tools\Publish-Release.ps1 -Version 3.0.0 -Channel stable -PrivateKey E:\OfflineKeys\update.pem -Notes .\release-notes.txt
+pwsh -File .\Tools\Publish-Release.ps1 -Version 3.1.0-preview.1 -Channel preview -PrivateKey E:\OfflineKeys\update.pem -Notes .\release-notes.txt -IsccPath 'D:\Inno Setup 6\ISCC.exe'
+```
+
+`-Notes` 可省略，使用简短的版本说明；自定义说明不能空白或超过 16000 字符。
+stable 3.0.0 会强制加入安装位置迁移、应用内更新、旧版卸载、数据保留与 2.x 不再支持的说明。
+`-MinUpdatableFrom` 默认 `3.0.0`。stable 不能带预发布后缀，preview 必须带；构建元数据不参与
+更新版本比较，stable 的旧客户端 `latestVersion` 去掉构建元数据、仅保留三段数字。
+
+步骤：检查 SemVer/通道/干净工作区 → 发布 App（含 PluginHost）→ AOT 发布启动器 → 完整 ZIP
+→ 生成清单/离线签名/用内置生产公钥验签 → 生成初始安装镜像与 Inno 安装包 → stable 的
+`version.json` → 检查生产公钥存在、测试公钥/本地映射不存在 → 打印附件清单和 SHA-256。
+普通构建显式设 `AniMeidoUpdateTestSource=false`，不会启用测试源。
+
+输出在 `artifacts\release\<版本>\`：
+
+- `AniMeido_setup_<版本>.exe`：完整按用户安装包；快捷方式和完成页运行固定启动器。
+- `AniMeido-<版本>-win-x64.zip`：根级直接是 App 文件（包含 PluginHost），不包含启动器或安装状态。
+- `release.json` 与 `release.json.sig`：更新清单及离线签名。
+- `version.json`（仅 stable）：旧客户端清单，字段为 latestVersion、downloadUrl、releaseNotes、minAppVersion；
+  minAppVersion 固定 `1.0.0`，latestVersion 仅三段数字，releaseNotes 非空。
+- `install\`：仅启动器、`app-<版本>\` 与初始 `state.json`；previous/pending 为空，currentHealthy 为 false。
+  `launcher\` 和 `release-notes.txt` 是本地中间产物，**不是 Release 附件**。
+
+只编译已有镜像时，安装脚本不含本机绝对路径，三个参数均由编译命令传入：
+
+```powershell
+& 'D:\Inno Setup 6\ISCC.exe' '/DAppVersion=3.0.0' '/DInstallImage=D:\U4-SandboxPayload\install' '/DOutputDirectory=D:\U4-SandboxPayload' .\Installer\AniMeido.iss
+```
+
+### 发布顺序（不能颠倒）
+
+1. Windows 沙盒验收成功；正式发布还要等 Uno 迁移完成后再次验收。
+2. 维护者创建 GitHub Release，tag 为 `v<完整版本>`；preview 勾选预发布。上传安装包、ZIP、
+   release.json 和 release.json.sig 四个附件，**不上传 version.json 或任何密钥**。
+3. `release-to-r2.yml` 根据 tag 的预发布后缀（不是 GitHub 的 prerelease 勾选框）选择 stable/preview。
+   安装包同步到 R2 根目录；ZIP 先传到 `updates/win-x64/<通道>/`，成功后才传签名及清单。
+   这两个对象不能原子更新，短暂签名不匹配时客户端会拒绝，不会信任不完整清单。
+4. 维护者确认安装包已能通过 `https://dl.animeido.com/AniMeido_setup_<版本>.exe` 下载，
+   再把 stable 的 `version.json` 提交到 **animeido-website**，由 Cloudflare Pages 部署。
+   网站发布不能先于安装包，否则旧客户端会收到尚不可下载的链接。
+
+沙盒重点验收：无 UAC 的新安装与启动健康标记、同版本覆盖/更高版本覆盖/降级拒绝、
+卸载默认保留数据与显式删除数据、旧版托盘仍运行时阻止安装且可重试、旧卸载 UAC 取消后新安装仍可用、
+下次启动的可关闭迁移 InfoBar、更新后 Windows“已安装的应用”里的 DisplayVersion。
+旧版若登记在 HKCU，还要检查卸载后新快捷方式仍存在且指向启动器；安装器会在 Inno 临时目录中
+暂存并恢复新快捷方式，避免旧卸载日志删除同名的当前用户链接，同时保留 AppUserModelID。
+主窗口“卸载旧版本”按钮也会将现有链接暂存在内存中，只恢复被旧卸载程序删掉的链接，不覆盖仍存在的链接。
+通知设置、托盘、快捷键、PluginHost 完整退出和 Defender 更新耗时仍需按 U4 方案 D9 人工验收。

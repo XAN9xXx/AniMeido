@@ -10,12 +10,39 @@ permissions:
 jobs:
   upload:
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+      GH_REPO: ${{ github.repository }}
     steps:
+      - name: Determine update channel from tag
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: $TAG" >&2
+            exit 1
+          fi
+          precedence="${version%%+*}"
+          channel=stable
+          if [[ "$precedence" == *-* ]]; then channel=preview; fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Download release assets
         run: |
-          gh release download "${{ github.event.release.tag_name }}" \
+          set -euo pipefail
+          gh release download "$TAG" --repo "$GH_REPO" \
             --pattern 'AniMeido_setup_*' \
+            --pattern 'AniMeido-*-win-x64.zip' \
+            --pattern 'release.json' \
+            --pattern 'release.json.sig' \
             --dir downloads/
+          test -f "downloads/AniMeido_setup_${{ steps.release.outputs.version }}.exe"
+          test -f "downloads/AniMeido-${{ steps.release.outputs.version }}-win-x64.zip"
+          test -f downloads/release.json
+          test -f downloads/release.json.sig
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -26,7 +53,27 @@ jobs:
           aws-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           aws-region: auto
 
-      - name: Upload to R2
+      - name: Upload installer and ZIP to R2
+        env:
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}
+          CHANNEL: ${{ steps.release.outputs.channel }}
         run: |
-          aws s3 sync --endpoint-url https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com \
-            downloads/ s3://${{ secrets.R2_BUCKET_NAME }}/
+          set -euo pipefail
+          aws s3 sync --endpoint-url "$R2_ENDPOINT" \
+            downloads/ "s3://$R2_BUCKET/" --exclude '*' --include 'AniMeido_setup_*'
+          aws s3 sync --endpoint-url "$R2_ENDPOINT" \
+            downloads/ "s3://$R2_BUCKET/updates/win-x64/$CHANNEL/" --exclude '*' --include 'AniMeido-*-win-x64.zip'
+
+      # Only publish discovery files after the referenced ZIP upload succeeds.
+      - name: Upload manifest and signature to R2
+        env:
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}
+          CHANNEL: ${{ steps.release.outputs.channel }}
+        run: |
+          set -euo pipefail
+          aws s3 cp --endpoint-url "$R2_ENDPOINT" downloads/release.json.sig \
+            "s3://$R2_BUCKET/updates/win-x64/$CHANNEL/release.json.sig"
+          aws s3 cp --endpoint-url "$R2_ENDPOINT" downloads/release.json \
+            "s3://$R2_BUCKET/updates/win-x64/$CHANNEL/release.json"
