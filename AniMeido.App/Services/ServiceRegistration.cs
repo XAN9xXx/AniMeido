@@ -31,6 +31,9 @@ internal static class ServiceRegistration
         services.AddSingleton<IAppDataPaths, AppDataPaths>();
         services.AddSingleton(_ => new InstalledAppContext());
         services.AddSingleton<InstalledUpdateService>();
+        services.AddSingleton<IInstallationRegistry, InstallationRegistry>();
+        services.AddSingleton<InstallationRegistrationService>();
+        services.AddSingleton<LegacyInstallationService>();
         services.AddSingleton<DatabaseService>();
         services.AddSingleton<UpdateService>(sp =>
             new UpdateService(sp.GetRequiredService<IHttpClientFactory>(), "https://animeido.com/version.json"));

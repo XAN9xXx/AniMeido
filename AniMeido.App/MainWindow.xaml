@@ -15,14 +15,35 @@
 
     <Grid x:Name="RootGrid"
           Background="{ThemeResource LayerFillColorDefault}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <InfoBar x:Name="LegacyInstallationInfoBar"
+                 Grid.Row="1"
+                 Margin="8,8,8,0"
+                 Visibility="Collapsed"
+                 IsOpen="False"
+                 IsClosable="True"
+                 Severity="Warning"
+                 Title="旧版 AniMeido 仍已安装"
+                 Message="2.x 版本不再支持，误开旧版可能损坏升级后的数据。请卸载旧版本；追番记录等个人数据不会被旧卸载程序删除。"
+                 Closed="OnLegacyInstallationInfoBarClosed">
+            <InfoBar.ActionButton>
+                <Button x:Name="UninstallLegacyButton"
+                        Content="卸载旧版本"
+                        Click="OnUninstallLegacyClick"/>
+            </InfoBar.ActionButton>
+        </InfoBar>
         <NavigationView x:Name="MainNaviView"
+                        Grid.Row="2"
                         IsSettingsVisible="False"
                         PaneDisplayMode="Left"
                         IsBackButtonVisible="Collapsed"
                         IsPaneToggleButtonVisible="False"
                         CompactPaneLength="48"
-                        OpenPaneLength="164"
-                        Margin="0,48,0,0">
+                        OpenPaneLength="164">
 
             <NavigationView.Resources>
                 <Style TargetType="NavigationViewItem">
@@ -71,6 +92,7 @@
 
         <!-- 开屏覆盖层：覆盖全窗口 -->
         <Grid x:Name="SplashOverlay"
+              Grid.RowSpan="3"
               Visibility="Visible"
               IsHitTestVisible="False"
               Background="#FF1A1A2E"

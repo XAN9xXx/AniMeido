@@ -123,6 +123,7 @@ namespace AniMeido.App
             _window.Activate();
             // 数据库初始化已完成，主窗口已经 Activate；这不是首帧或全部后台功能的健康保证。
             MarkInstalledAppHealthy();
+            _window.ShowLegacyInstallationNotice(provider.GetRequiredService<LegacyInstallationService>());
             await provider.GetRequiredService<GlobalShortcutManager>()
                 .StartAsync();
             if (_desktopSettings.KeepInTrayOnClose)
@@ -147,6 +148,7 @@ namespace AniMeido.App
             try
             {
                 _installedApp.MarkHealthy();
+                _serviceProvider!.GetRequiredService<InstallationRegistrationService>().UpdateDisplayVersion();
                 // 更新服务等待这次启动清理结束，避免 zip 或刚解压的版本目录被并发清理。
                 _installedApp.StartupCleanup = Task.Run(() =>
                 {

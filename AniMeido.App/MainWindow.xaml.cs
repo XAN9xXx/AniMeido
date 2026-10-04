@@ -18,6 +18,63 @@ namespace AniMeido.App
 
         private NavigationViewItem? _lastSelectedPageItem;
         private bool _isClosing;
+        private LegacyInstallationService? _legacyInstallationService;
+        private IReadOnlyList<LegacyInstallation> _legacyInstallations = [];
+
+        internal void ShowLegacyInstallationNotice(LegacyInstallationService service)
+        {
+            _legacyInstallationService = service;
+            _legacyInstallations = service.Detect();
+            if (_legacyInstallations.Count == 0)
+                return;
+            LegacyInstallationInfoBar.Visibility = Visibility.Visible;
+            LegacyInstallationInfoBar.IsOpen = true;
+        }
+
+        private void OnLegacyInstallationInfoBarClosed(InfoBar sender, InfoBarClosedEventArgs args)
+        {
+            // 不写设置；本次窗口不再重新提示，下次启动重新检测。
+            sender.Visibility = Visibility.Collapsed;
+        }
+
+        private async void OnUninstallLegacyClick(object sender, RoutedEventArgs args)
+        {
+            if (_isClosing || _legacyInstallationService is null)
+                return;
+            UninstallLegacyButton.IsEnabled = false;
+            try
+            {
+                foreach (var installation in _legacyInstallations)
+                {
+                    if (!await _legacyInstallationService.UninstallAsync(installation))
+                    {
+                        if (!_isClosing)
+                            LegacyInstallationInfoBar.Message = "旧版卸载未完成或已取消。请以后在 Windows“已安装的应用”中手动卸载；新版本可以继续使用。";
+                        return;
+                    }
+                    if (_isClosing)
+                        return;
+                }
+                _legacyInstallations = _legacyInstallationService.Detect();
+                if (_legacyInstallations.Count == 0)
+                    LegacyInstallationInfoBar.IsOpen = false;
+                else
+                    LegacyInstallationInfoBar.Message = "仍检测到旧版卸载登记。请在 Windows“已安装的应用”中确认旧版已经卸载。";
+            }
+#pragma warning disable CA1031 // async void UI 入口失败不能影响主窗口，也不能静默吞掉。
+            catch (Exception ex)
+            {
+                Serilog.Log.Warning(ex, "旧版 AniMeido 卸载提示操作失败");
+                if (!_isClosing)
+                    LegacyInstallationInfoBar.Message = "无法卸载旧版，请以后在 Windows“已安装的应用”中手动卸载。";
+            }
+#pragma warning restore CA1031
+            finally
+            {
+                if (!_isClosing)
+                    UninstallLegacyButton.IsEnabled = true;
+            }
+        }
 
 
         internal MainWindow(
