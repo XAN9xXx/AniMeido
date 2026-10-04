@@ -110,7 +110,8 @@ public sealed class UpdateManifestTests
             () => UpdateManifestReader.Read(bytes, signature, [TestData.Public(other)], "stable"));
         TestData.Error(UpdateErrorKind.InvalidSignature,
             () => UpdateManifestReader.Read(bytes, signature, [], "stable"));
-        Assert.Empty(UpdateTrustedKeys.PublicKeys);
+        TestData.Error(UpdateErrorKind.InvalidSignature,
+            () => UpdateManifestReader.Read(bytes, signature, UpdateTrustedKeys.PublicKeys, "stable"));
         var der = key.SignData(bytes, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
         TestData.Error(UpdateErrorKind.InvalidSignature,
             () => UpdateManifestReader.Read(bytes, Encoding.ASCII.GetBytes(Convert.ToBase64String(der)), [TestData.Public(key)], "stable"));
