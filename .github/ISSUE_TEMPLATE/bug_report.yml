@@ -1,0 +1,54 @@
+name: 问题报告
+description: 应用出错、显示不对或与预期不符
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: 应用版本
+      description: 可以在设置页查看
+      placeholder: 例如 2.1.1
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Windows 版本
+      placeholder: 例如 Windows 11 23H2
+    validations:
+      required: true
+  - type: dropdown
+    id: player
+    attributes:
+      label: 是否安装了 Player 插件
+      options:
+        - 没有
+        - 有
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 操作步骤
+      placeholder: |
+        1. 打开……
+        2. 点击……
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: 截图或日志
+      description: 日志位置可以在设置的"数据管理"页查看。上传前请遮掉个人信息。

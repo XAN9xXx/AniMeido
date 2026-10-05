@@ -1,0 +1,19 @@
+name: 功能建议
+description: 想要的新功能或改进
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: 提交前可以先看看[开发路线](https://github.com/XAN9xXx/AniMeido/blob/main/ROADMAP.md)，也许已经在计划中了。
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 使用场景
+      description: 你想做什么？现在哪一步不方便？
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: 你的想法
+      description: 希望它怎么工作（可选）
