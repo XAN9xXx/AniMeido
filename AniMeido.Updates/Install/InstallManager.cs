@@ -137,7 +137,7 @@ public sealed class InstallManager(InstallStateStore store, Action<string>? log 
                 {
                     keep.Add("app-" + state.Previous);
                 }
-                // U3 可能刚设 pending；不能在后台清理中删除下一次启动需要的目录。
+                // 应用内更新可能刚设置 pending；不能在后台清理中删除下一次启动需要的目录。
                 if (state.Pending is not null)
                 {
                     keep.Add("app-" + state.Pending);
@@ -159,7 +159,7 @@ public sealed class InstallManager(InstallStateStore store, Action<string>? log 
                         RejectReparsePoint(packages);
                         foreach (var file in Directory.GetFiles(packages))
                         {
-                            // 已完成的哈希命名 ZIP 不再需要；最近的 partial 留给 U1 续传。
+                            // 已完成的哈希命名 ZIP 不再需要；最近的 partial 留给下载器续传。
                             var extension = Path.GetExtension(file);
                             if (extension.Equals(".zip", StringComparison.OrdinalIgnoreCase)
                                 || (extension.Equals(".partial", StringComparison.OrdinalIgnoreCase)

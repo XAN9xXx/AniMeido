@@ -17,17 +17,14 @@
     }
 
     /// <summary>某一天显示的主题与这一批作品，同一天重启后按它恢复。</summary>
-    /// <param name="Date">日期。</param>
     /// <param name="Theme">实际显示的主题（替补时是替补主题）。</param>
     /// <param name="IsFallback">当天轮到的主题没有内容，改用了替补。</param>
-    /// <param name="AnimeIds">当前这一批作品。</param>
     public sealed record TodayThemeState(
         DateOnly Date,
         TodayThemeKind Theme,
         bool IsFallback,
         IReadOnlyList<int> AnimeIds);
 
-    /// <summary>主题的数据从哪里来。</summary>
     internal enum TodayThemeSource
     {
         /// <summary>只用 Bangumi 数据（标记只用来排除已标记的作品）。</summary>
@@ -38,7 +35,6 @@
         Mixed,
     }
 
-    /// <summary>主题的名称与数据来源。</summary>
     internal static class TodayThemeCatalog
     {
         /// <summary>当天轮到的主题没有内容时改用它。</summary>

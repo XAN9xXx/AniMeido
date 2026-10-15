@@ -18,7 +18,6 @@ namespace AniMeido.Plugin.Base.ViewModels
     }
 
     /// <summary>放送日历中的一部作品及其本地标记。</summary>
-    /// <param name="anime">作品。</param>
     /// <param name="isOther">不是已确认且有星期排期的 TV，归入“其他”一格的作品。</param>
     public sealed partial class CalendarEntry(Anime anime, bool isOther = false) : ObservableObject
     {
@@ -433,9 +432,6 @@ namespace AniMeido.Plugin.Base.ViewModels
             LoadSeasonalAnimeCommand.Execute(null);
         }
 
-        /// <summary>
-        /// 加载当季放送日程与本地标记
-        /// </summary>
         [RelayCommand]
         private async Task LoadSeasonalAnimeAsync(CancellationToken ct = default)
         {
@@ -503,7 +499,6 @@ namespace AniMeido.Plugin.Base.ViewModels
         /// <summary>“其他”这一次加载，测试用来等待它完成。</summary>
         internal Task PendingOthersLoad { get; private set; } = Task.CompletedTask;
 
-        /// <summary>“其他”加载失败后重试。</summary>
         [RelayCommand]
         private Task RetryOthersAsync() => PendingOthersLoad = LoadOthersAsync();
 

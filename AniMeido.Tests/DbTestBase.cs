@@ -65,7 +65,6 @@ namespace AniMeido.Tests
             await cmd.ExecuteNonQueryAsync();
         }
 
-        /// <summary>使用生产 DatabaseService 执行完整迁移。</summary>
         protected async Task RunProductionMigrationAsync()
         {
             var db = new AniMeido.App.Services.DatabaseService(DbFactory, Paths);
@@ -73,7 +72,7 @@ namespace AniMeido.Tests
         }
 
         /// <summary>
-        /// 仅创建基础测试表（不含 migration 版本管理）。
+        /// 兼容旧测试的调用名称，仍执行生产 DatabaseService 的完整迁移。
         /// 注意：新测试应优先使用 RunProductionMigrationAsync。
         /// </summary>
         [Obsolete("请优先使用 RunProductionMigrationAsync 调用生产 DatabaseService")]
@@ -82,7 +81,6 @@ namespace AniMeido.Tests
             await RunProductionMigrationAsync();
         }
 
-        /// <summary>模拟数据库损坏（写入无效数据）。</summary>
         protected void CorruptDatabase()
         {
             File.WriteAllBytes(DbPath, new byte[] { 0x00, 0x00, 0x00, 0x00 });

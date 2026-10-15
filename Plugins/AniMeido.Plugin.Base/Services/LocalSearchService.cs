@@ -5,10 +5,6 @@ using System.Collections.Concurrent;
 
 namespace AniMeido.Plugin.Base.Services
 {
-    /// <summary>
-    /// 本地搜索服务：搜索已标记和已缓存的番剧。
-    /// 搜索范围包括标题和别名，不区分大小写。
-    /// </summary>
     public class LocalSearchService
     {
         private readonly TrackingService _tracking;
@@ -25,16 +21,12 @@ namespace AniMeido.Plugin.Base.Services
         /// <summary>
         /// 搜索已标记的番剧（不含屏蔽）。匹配标题和别名，不区分大小写。
         /// </summary>
-        /// <param name="query">搜索关键字</param>
-        /// <param name="ct">取消令牌</param>
-        /// <returns>匹配的 Anime 列表（含状态信息）</returns>
         public async Task<List<SearchResult>> SearchTrackedAsync(string query, CancellationToken ct = default)
         {
             if (string.IsNullOrWhiteSpace(query))
                 return new List<SearchResult>();
 
             query = query.Trim();
-            // 收集所有已标记的 ID
             var allStatuses = new[]
             {
                 AnimeTrackingStatus.Watching,
@@ -91,9 +83,6 @@ namespace AniMeido.Plugin.Base.Services
         }
 
 
-        /// <summary>
-        /// 尝试从缓存获取 Anime，缓存未命中则从 API 获取。
-        /// </summary>
         private async Task<Anime?> TryGetAnimeAsync(int animeId, CancellationToken ct)
         {
             // 本地搜索不直接从 detail 缓存反序列化（缓存格式为 SubjectResponse），
@@ -139,9 +128,6 @@ namespace AniMeido.Plugin.Base.Services
     }
 
 
-    /// <summary>
-    /// 搜索结果，包含 Anime 及其当前标记状态。
-    /// </summary>
     public class SearchResult
     {
         public Anime Anime { get; }

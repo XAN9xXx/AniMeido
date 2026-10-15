@@ -79,10 +79,6 @@ namespace AniMeido.Plugin.Base.ViewModels
 
 
 
-        /// <summary>
-        /// 加载番剧详情页面数据
-        /// </summary>
-        /// <param name="animeID">番剧的唯一标识符</param>
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task LoadDetailAsync(int animeID, CancellationToken ct = default)
         {
@@ -117,7 +113,6 @@ namespace AniMeido.Plugin.Base.ViewModels
                 HasData = true;
                 OnPropertyChanged(nameof(BangumiUrl));
 
-                // 并行加载 Studio 和角色
                 await Task.WhenAll(
                     LoadStudiosAsync(animeID, loadVersion, ct),
                     LoadCharactersAsync(animeID, loadVersion, ct)
@@ -139,7 +134,6 @@ namespace AniMeido.Plugin.Base.ViewModels
                 MediaFormatText = AnimeReleaseClassifier.GetMediaFormatText(
                     animeDetail.MediaFormat);
 
-                // 加载详情后查询当前关注状态
                 var status = await _trackingService.GetStatusAsync(animeID);
                 if (!IsCurrentLoad(loadVersion, ct))
                 {

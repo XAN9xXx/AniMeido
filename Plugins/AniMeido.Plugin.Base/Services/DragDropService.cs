@@ -27,10 +27,6 @@ namespace AniMeido.Plugin.Base.Services
     /// [主窗口拖拽接收]
     ///   AnimeCardDropHost (Shell 级 fallback) → DragDropService.HandleStandardDragOver/DropAsync
     ///   → BuildAndShowZones → zone DragOver/Drop 事件 → TrackingService.SetStatusAsync
-    ///
-    /// [旧内部拖拽路径]
-    ///   基于 Pointer 坐标与 GhostCard 的旧内部拖拽路径已删除。
-    ///   所有 AnimeCard 使用标准拖拽：CanDrag + DragStarting + RegisterStandardDragHost。
     /// </summary>
     public sealed class DragDropService
     {
@@ -39,11 +35,9 @@ namespace AniMeido.Plugin.Base.Services
 
         private readonly TrackingService _tracking;
 
-        // Zone 状态
         private List<DragZoneConfig> _dragZones = DragZoneConfig.GetDefaults();
         private readonly Dictionary<string, ZoneVisual> _overlayZones = new();
 
-        // 标准拖拽（ActiveDropContext）状态
         private UIElement? _standardPageRoot;
         private Panel? _standardOverlay;
         private DragAction[] _standardExcludeActions = Array.Empty<DragAction>();
@@ -56,20 +50,13 @@ namespace AniMeido.Plugin.Base.Services
             _tracking = tracking;
         }
 
-        /// <summary>重新加载拖放配置。</summary>
         public async Task ReloadConfigAsync()
         {
             _dragZones = await _tracking.LoadDragZoneConfigAsync();
         }
 
-        /// <summary>
-        /// 构建拖放 Zone（页面提供排除规则）。
-        /// </summary>
-        /// <param name="overlay">Zone 的容器元素。</param>
-        /// <param name="excludeActions">需要排除的 DragAction 列表。</param>
         public void BuildAndShowZones(UIElement overlay, params DragAction[] excludeActions)
         {
-            // 清除旧的 Zone（从 overlay 移除）
             foreach (var kv in _overlayZones)
             {
                 if (overlay is Panel p) p.Children.Remove(kv.Value.Root);
@@ -85,7 +72,6 @@ namespace AniMeido.Plugin.Base.Services
                 if (config.Action == DragAction.None || excludeSet.Contains(config.Action))
                     continue;
 
-                // 主标签：动作名称（追番、补番等）
                 var label = new TextBlock
                 {
                     Text = GetActionLabel(config.Action),
@@ -129,7 +115,6 @@ namespace AniMeido.Plugin.Base.Services
                     Tag = config.Id,
                 };
 
-                // 注册标准 DropTarget 事件，支持 AnimeCardDragPayload 接收
 #pragma warning disable CA1031 // zone 内异常不应影响拖放流程
                 zone.DragOver += (s, args) =>
                 {
@@ -206,9 +191,6 @@ namespace AniMeido.Plugin.Base.Services
             _overlayZones.Clear();
         }
 
-        /// <summary>
-        /// 获取拖放完成后的状态变更回调（页面可调用）。
-        /// </summary>
         public static AnimeTrackingStatus DragActionToStatus(DragAction action) => action switch
         {
             DragAction.Watching => AnimeTrackingStatus.Watching,
@@ -249,9 +231,6 @@ namespace AniMeido.Plugin.Base.Services
             _ => "释放至此区域"
         };
 
-        /// <summary>
-        /// Zone 的 DragOver 事件处理。
-        /// </summary>
         public static void HandleZoneDragOver(object sender, DragEventArgs e)
         {
             e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
@@ -264,10 +243,8 @@ namespace AniMeido.Plugin.Base.Services
         /// <summary>
         /// 供 AnimeCardDropHost 调用的外部 Drop 路由。
         /// 根据坐标判断是否命中有效 Zone，命中则执行业务逻辑。
-        /// 使用 RoutePayloadToZoneAsync 与标准拖拽共享路由逻辑。
         /// </summary>
         /// <param name="dropPoint">相对于 overlay 的坐标。</param>
-        /// <param name="payload">反序列化的拖拽载荷。</param>
         /// <returns>是否命中有效 Zone 并执行业务。</returns>
         public async Task<bool> HandleExternalDrop(Point dropPoint, AnimeCardDragPayload payload)
         {
@@ -278,8 +255,6 @@ namespace AniMeido.Plugin.Base.Services
                 System.Diagnostics.Debug.WriteLine("[DragDropService] HandleExternalDrop no valid target, ignored");
             return result;
         }
-
-        // ======== 标准拖拽（ActiveDropContext） ========
 
         /// <summary>
         /// 设置当前页面的标准拖放上下文。页面在 Loaded 时调用。
@@ -313,10 +288,8 @@ namespace AniMeido.Plugin.Base.Services
         /// 根据坐标构建/显示 DropZone、管理高亮、更新 DragVisual 位置和 Zone 提示文字。
         /// </summary>
         /// <param name="e">DragEventArgs，用于 GetPosition 获取 overlay 坐标。</param>
-        /// <param name="coordinateSource">用于 GetPosition 的参照元素，通常为 overlay 自身。</param>
         public void HandleStandardDragOver(DragEventArgs e, UIElement? _)
         {
-            // 确保 DropZone 已构建
             if (_standardOverlay != null && _overlayZones.Count == 0)
             {
                 _standardOverlay.Visibility = Visibility.Visible;
@@ -329,7 +302,6 @@ namespace AniMeido.Plugin.Base.Services
 
             var overlayPt = e.GetPosition(_standardOverlay);
 
-            // 查找当前 Zone
             string? hitZoneId = null;
             foreach (var kv in _overlayZones)
             {
@@ -344,14 +316,12 @@ namespace AniMeido.Plugin.Base.Services
                 }
             }
 
-            // 始终确保标准圆形 DragUI 显示（不隐藏）
             e.DragUIOverride.IsContentVisible = true;
             e.DragUIOverride.IsCaptionVisible = false;
             e.DragUIOverride.IsGlyphVisible = false;
 
             if (hitZoneId != null)
             {
-                // 高亮 + 展开尾条（仅在 zone 切换时）
                 if (hitZoneId != _standardCurrentZoneId)
                 {
                     if (_standardCurrentZoneId != null && _overlayZones.TryGetValue(_standardCurrentZoneId, out var oldZone))
@@ -367,7 +337,6 @@ namespace AniMeido.Plugin.Base.Services
                 }
                 else
                 {
-                    // 每次 DragOver 都更新位置（RenderTransform，不触发布局）
                     UpdateTailPreviewPosition(overlayPt);
                 }
             }
@@ -384,9 +353,6 @@ namespace AniMeido.Plugin.Base.Services
             }
         }
 
-        /// <summary>
-        /// 处理标准拖拽的 Drop。读取 payload 并路由到有效 Zone。
-        /// </summary>
         public async Task<bool> HandleStandardDropAsync(DragEventArgs e, UIElement? _)
         {
             System.Diagnostics.Debug.WriteLine("[DragDropService] StandardDrop called");
@@ -437,9 +403,7 @@ namespace AniMeido.Plugin.Base.Services
 
         /// <summary>
         /// 将 AnimeCardDragPayload 路由到坐标命中的 Zone，并执行标记状态写入。
-        /// 此方法供 HandleStandardDropAsync 和 Zone Drop 事件共享，减少路由逻辑重复。
         /// </summary>
-        /// <param name="payload">已反序列化的拖拽载荷。</param>
         /// <param name="overlayPoint">相对于 overlay 的 Drop 坐标。</param>
         /// <returns>是否命中有效 Zone 并执行标记。</returns>
         private async Task<bool> RoutePayloadToZoneAsync(AnimeCardDragPayload payload, Point overlayPoint)
@@ -469,8 +433,6 @@ namespace AniMeido.Plugin.Base.Services
             return false;
         }
 
-        // ======== DropZone 高亮 + 展开态 DragToken ========
-
         /// <summary>高亮 DropZone（不改变尺寸）。</summary>
         private static void HighlightZone(ZoneVisual zone)
         {
@@ -479,7 +441,6 @@ namespace AniMeido.Plugin.Base.Services
             zone.HintText.Visibility = Visibility.Visible;
         }
 
-        /// <summary>恢复 DropZone 普通外观。</summary>
         private static void UnhighlightZone(ZoneVisual zone)
         {
             zone.Inner.Background = new SolidColorBrush(Color.FromArgb(160, 0x44, 0x88, 0xFF));
@@ -494,19 +455,16 @@ namespace AniMeido.Plugin.Base.Services
         private Border? _dragTokenTailPill;
         private TextBlock? _dragTokenTailHintLabel;
 
-        // Composition visuals（替代 XAML CompositeTransform + Storyboard）
         private Visual? _dragTokenTailRootVisual;   // Offset 跟随光标
         private Visual? _dragTokenTailPillVisual;   // Scale.X + Opacity 展开
         private Visual? _dragTokenTailHintVisual;   // Opacity 展开
 
-        // 固定尺寸
         private const double TailExpandedWidth = 230;
         private const double TailHeight = 52;
         private const double DragTokenRadius = 36;
         private const double TailStartOverlap = 4;
         private const double TailVerticalOffset = 26;
 
-        /// <summary>创建尾条 UI（仅首次调用时执行）。</summary>
         private void EnsureTailPreviewCreated(Canvas canvas, string hintText)
         {
             if (_dragTokenTailPreview != null)
@@ -551,7 +509,6 @@ namespace AniMeido.Plugin.Base.Services
             canvas.Children.Add(root);
             _dragTokenTailPreview = root;
 
-            // 获取 Composition visuals
             _dragTokenTailRootVisual = ElementCompositionPreview.GetElementVisual(root);
             _dragTokenTailRootVisual.Offset = Vector3.Zero;
 
@@ -578,7 +535,6 @@ namespace AniMeido.Plugin.Base.Services
                 0f);
         }
 
-        /// <summary>播放 Composition 展开动画（替代 XAML Storyboard）。</summary>
         private void PlayTailExpandCompositionAnimation()
         {
             if (_dragTokenTailPillVisual == null || _dragTokenTailHintVisual == null)
@@ -586,7 +542,6 @@ namespace AniMeido.Plugin.Base.Services
 
             var compositor = _dragTokenTailPillVisual.Compositor;
 
-            // 重置到初始状态
             _dragTokenTailPillVisual.Scale = new Vector3(0f, 1f, 1f);
             _dragTokenTailPillVisual.Opacity = 0f;
             _dragTokenTailHintVisual.Opacity = 0f;
@@ -595,19 +550,16 @@ namespace AniMeido.Plugin.Base.Services
                 new Vector2(0.2f, 0.0f),
                 new Vector2(0.0f, 1.0f));
 
-            // Scale.X: 0 → 1 (110ms)
             var scaleAnim = compositor.CreateScalarKeyFrameAnimation();
             scaleAnim.InsertKeyFrame(0f, 0f);
             scaleAnim.InsertKeyFrame(1f, 1f, easing);
             scaleAnim.Duration = TimeSpan.FromMilliseconds(110);
 
-            // pill Opacity: 0 → 1 (70ms)
             var pillOpacity = compositor.CreateScalarKeyFrameAnimation();
             pillOpacity.InsertKeyFrame(0f, 0f);
             pillOpacity.InsertKeyFrame(1f, 1f);
             pillOpacity.Duration = TimeSpan.FromMilliseconds(70);
 
-            // hint Opacity: 0 → 1 (110ms)
             var hintOpacity = compositor.CreateScalarKeyFrameAnimation();
             hintOpacity.InsertKeyFrame(0f, 0f);
             hintOpacity.InsertKeyFrame(1f, 1f);
@@ -627,10 +579,9 @@ namespace AniMeido.Plugin.Base.Services
             var cfg = _dragZones.Find(c => c.Id == zoneId);
             var hintText = cfg != null ? GetActionHint(cfg.Action) : "释放以标记";
 
-            // 创建 UI（首次）
             EnsureTailPreviewCreated(canvas, hintText);
 
-            // === zone 切换时更新文案 + 重置 Composition 状态 ===
+            // zone 切换时更新文案并重置 Composition 状态
             if (_dragTokenTailZoneId != zoneId)
             {
                 if (_dragTokenTailHintLabel != null)
@@ -656,12 +607,10 @@ namespace AniMeido.Plugin.Base.Services
             if (_dragTokenTailPreview != null)
                 _dragTokenTailPreview.Visibility = Visibility.Visible;
 
-            // === 立即更新位置 ===
             UpdateTailPreviewPosition(overlayPointerPos);
 
             _dragTokenTailZoneId = zoneId;
 
-            // === 播放 Composition 展开动画 ===
             if (!_dragTokenTailExpanded)
             {
                 _dragTokenTailExpanded = true;
@@ -669,7 +618,6 @@ namespace AniMeido.Plugin.Base.Services
             }
         }
 
-        /// <summary>隐藏横条尾条。</summary>
         private void HideTailPreview()
         {
             if (_dragTokenTailPreview != null)
@@ -698,7 +646,6 @@ namespace AniMeido.Plugin.Base.Services
             _dragTokenTailExpanded = false;
         }
 
-        /// <summary>移除横条尾条并从 overlay 删除。</summary>
         private void RemoveTailPreview()
         {
             if (_dragTokenTailPreview != null && _standardOverlay is Panel panel)
@@ -761,8 +708,6 @@ namespace AniMeido.Plugin.Base.Services
                 kv.Value.HintText.Visibility = Visibility.Collapsed;
             }
         }
-
-        // ======== 页面级标准拖拽宿主注册 ========
 
         private readonly List<UIElement> _pageDragHosts = new();
 
@@ -873,10 +818,6 @@ namespace AniMeido.Plugin.Base.Services
             }
         }
 
-        /// <summary>
-        /// 安全地设置标记状态，捕获并记录异常。
-        /// fire-and-forget，不阻塞拖放操作。
-        /// </summary>
         private async Task SetStatusSafelyAsync(int animeId, AnimeTrackingStatus status)
         {
             try
@@ -892,9 +833,6 @@ namespace AniMeido.Plugin.Base.Services
         }
     }
 
-    /// <summary>
-    /// Zone 的 UI 元素记录。
-    /// </summary>
     internal sealed record ZoneVisual(
         Border Root,
         Border Inner,

@@ -72,7 +72,6 @@ namespace AniMeido.Plugin.Base.Views
                 }
             };
 
-            // 监听角色集合变化
             ViewModel.Characters.CollectionChanged += (s, e) => UpdateCharacters();
 
             ViewModel.LoadDetailCommand.PropertyChanged += (s, e) =>
@@ -458,7 +457,6 @@ namespace AniMeido.Plugin.Base.Views
 
         private Border CreateCharacterCard(CharacterRole character)
         {
-            // 角色头像
             var avatarImage = new Image
             {
                 Width = 64,
@@ -478,7 +476,6 @@ namespace AniMeido.Plugin.Base.Views
                 Child = avatarImage,
             };
 
-            // 角色名
             var nameText = new TextBlock
             {
                 Text = character.CharacterName,
@@ -489,7 +486,6 @@ namespace AniMeido.Plugin.Base.Views
                 HorizontalAlignment = HorizontalAlignment.Center,
             };
 
-            // 声优名
             var cvText = new TextBlock
             {
                 FontSize = 11,
@@ -532,7 +528,6 @@ namespace AniMeido.Plugin.Base.Views
                     0);
             };
 
-            // 点击 → 跳转声优作品页
             card.Tapped += (s, e) =>
             {
                 if (s is Border b && b.Tag is CharacterRole ch && ch.Actors.Count > 0)
@@ -541,7 +536,6 @@ namespace AniMeido.Plugin.Base.Views
                 }
             };
 
-            // hover 缩放动效
             card.PointerEntered += (s, e) =>
             {
                 var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(card);
@@ -567,8 +561,6 @@ namespace AniMeido.Plugin.Base.Views
 
             return card;
         }
-
-        // ======== Bangumi 标签 ========
 
         private async Task LoadBangumiTagsAsync(
             int animeId,
@@ -633,7 +625,6 @@ namespace AniMeido.Plugin.Base.Views
             _savedTagNames.Clear();
             foreach (var t in savedSet) _savedTagNames.Add(t);
 
-            // 去重
             var distinctTags = bangumiTags
                 .Select(t => t.Name)
                 .Distinct()
@@ -682,7 +673,6 @@ namespace AniMeido.Plugin.Base.Views
             textBlock.Foreground = isSaved ? whiteBrush : unsavedFg;
             var updateInProgress = false;
 
-            // 左键 → 跳转搜索结果页
             border.Tapped += (s, e) =>
             {
                 if (s is Border b && b.Tag is string name)
@@ -691,7 +681,6 @@ namespace AniMeido.Plugin.Base.Views
                 }
             };
 
-            // 右键 → 切换收藏状态
             border.RightTapped += async (s, e) =>
             {
                 e.Handled = true;

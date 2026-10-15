@@ -4,7 +4,6 @@ using Microsoft.Data.Sqlite;
 namespace AniMeido.Plugin.Base.Services
 {
     /// <summary>
-    /// 全局 Bangumi Tag 收藏服务。
     /// 数据表: saved_tags (TagName) — Tag 名称全局唯一。
     /// 收藏一个 Tag 后，可配合 Bangumi API 搜索所有带此 Tag 的番剧。
     /// </summary>
@@ -17,7 +16,6 @@ namespace AniMeido.Plugin.Base.Services
             _dbFactory = dbFactory;
         }
 
-        /// <summary>获取所有已收藏的 Tag 名称。</summary>
         public async Task<List<string>> GetAllSavedTagsAsync()
         {
             using var conn = await _dbFactory.OpenAsync();
@@ -30,7 +28,6 @@ namespace AniMeido.Plugin.Base.Services
             return list;
         }
 
-        /// <summary>检查指定 Tag 是否已被收藏。</summary>
         public async Task<bool> IsTagSavedAsync(string tagName)
         {
             using var conn = await _dbFactory.OpenAsync();
@@ -41,7 +38,6 @@ namespace AniMeido.Plugin.Base.Services
             return count > 0;
         }
 
-        /// <summary>收藏一个 Tag（全局）。</summary>
         public async Task SaveTagAsync(string tagName)
         {
             using var conn = await _dbFactory.OpenAsync();
@@ -51,7 +47,6 @@ namespace AniMeido.Plugin.Base.Services
             await cmd.ExecuteNonQueryAsync();
         }
 
-        /// <summary>取消收藏一个 Tag。</summary>
         public async Task RemoveTagAsync(string tagName)
         {
             using var conn = await _dbFactory.OpenAsync();

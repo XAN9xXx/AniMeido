@@ -4,12 +4,10 @@ using Microsoft.Extensions.DependencyInjection;
 namespace AniMeido.App.Services;
 
 /// <summary>
-/// 插件启动逻辑。负责加载内置插件和动态插件，收集导航项。
-/// 使用 Serilog 静态 Log 获取 logger，避免构建临时 ServiceProvider。
+/// 初始化进程内 Base 插件的服务并收集导航项；可选插件由 PluginHostSupervisor 管理。
 /// </summary>
 internal static class PluginStartup
 {
-    /// <summary>加载所有插件并返回导航项列表和插件列表。</summary>
     public static async Task<(List<PluginNavigationItem> NavItems, IReadOnlyList<IPlugin> Plugins)> LoadPluginsAsync(
         IServiceCollection services)
     {

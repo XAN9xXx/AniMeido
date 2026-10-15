@@ -64,25 +64,19 @@ namespace AniMeido.Plugin.Base.Views
             {
                 _zonesReady = true;
 
-                // 导航到预览页面
                 if (PreviewFrame.Content == null)
                     PreviewFrame.Navigate(typeof(DragZonePreviewPage));
 
-                // 布局就绪后添加预览 Zone
                 PopulatePreviewZones();
             }
 
-            // 保持 16:9 比例
             var targetH = e.NewSize.Width * 9.0 / 16.0;
             PreviewBorder.Height = Math.Clamp(targetH, 200, 400);
 
-            // 更新所有 zone 位置
             PositionAllZones();
         }
 
-        // ======== 重建所有 UI ========
-
-        private bool _zonesReady; // 标记布局是否就绪
+        private bool _zonesReady;
 
         private void RebuildAll()
         {
@@ -104,8 +98,6 @@ namespace AniMeido.Plugin.Base.Views
             ZoneConfigList.ItemsSource = null;
         }
 
-        // ======== 预览区 Zone 创建 ========
-
         private void PopulatePreviewZones()
         {
             var grid = PreviewBorder.Child as Grid;
@@ -122,7 +114,6 @@ namespace AniMeido.Plugin.Base.Views
 
         private ZoneVisual CreateZoneVisual(DragZoneConfig config)
         {
-            // 标签
             var label = new TextBlock
             {
                 Text = GetActionLabel(config.Action),
@@ -134,7 +125,6 @@ namespace AniMeido.Plugin.Base.Views
                 VerticalAlignment = VerticalAlignment.Top,
             };
 
-            // 删除按钮
             var deleteBtn = new Border
             {
                 Width = 18,
@@ -173,7 +163,6 @@ namespace AniMeido.Plugin.Base.Views
                 IsHitTestVisible = true,
             };
 
-            // 拖拽移动 — zone 本体
             zone.PointerEntered += OnZonePointerEntered;
             zone.PointerExited += OnZonePointerExited;
             zone.PointerPressed += OnZonePointerPressed;
@@ -181,7 +170,6 @@ namespace AniMeido.Plugin.Base.Views
             zone.PointerReleased += OnZonePointerReleased;
             zone.PointerCanceled += OnZonePointerCanceled;
 
-            // 点击切换动作
             zone.Tapped += OnPreviewZoneTapped;
 
             return new ZoneVisual(zone, label, deleteBtn);
@@ -224,8 +212,6 @@ namespace AniMeido.Plugin.Base.Views
             vis.Label.Text = GetActionLabel(config.Action);
         }
 
-        // ======== 配置面板 ========
-
         private void PopulateConfigPanel()
         {
             var items = _dragZones.Select(z => new ZoneConfigItem
@@ -237,8 +223,6 @@ namespace AniMeido.Plugin.Base.Views
             }).ToList();
             ZoneConfigList.ItemsSource = items;
         }
-
-        // ======== 拖拽移动与边缘缩放 (Zone 本体) ========
 
         private const double EdgeThreshold = 10; // 边缘检测像素阈值
 
@@ -275,7 +259,6 @@ namespace AniMeido.Plugin.Base.Views
 
             if (edge != null)
             {
-                // 边缘缩放
                 _dragAction = "resize";
                 _resizeEdge = edge;
                 _activeZoneId = id;
@@ -288,7 +271,6 @@ namespace AniMeido.Plugin.Base.Views
             }
             else
             {
-                // 拖拽移动
                 _dragAction = "move";
                 _activeZoneId = id;
                 var ptRel = e.GetCurrentPoint(PreviewBorder);
@@ -337,7 +319,6 @@ namespace AniMeido.Plugin.Base.Views
                 double newX = _dragStartX, newY = _dragStartY;
                 double newW = _dragStartW, newH = _dragStartH;
 
-                // 根据边缘计算新位置和尺寸
                 if (_resizeEdge.Contains("left"))
                 {
                     newW = _dragStartX + _dragStartW - px;
@@ -358,7 +339,6 @@ namespace AniMeido.Plugin.Base.Views
                     newH = py - _dragStartY;
                 }
 
-                // 约束最小/最大尺寸
                 newW = Math.Clamp(newW, 0.08, 0.6);
                 newH = Math.Clamp(newH, 0.08, 0.6);
                 newX = Math.Clamp(newX, 0, 1 - newW);
@@ -380,8 +360,6 @@ namespace AniMeido.Plugin.Base.Views
                 return;
             }
         }
-
-        // ======== 光标切换 ========
 
         private void OnZonePointerEntered(object sender, PointerRoutedEventArgs e)
         {
@@ -423,8 +401,6 @@ namespace AniMeido.Plugin.Base.Views
             ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Arrow);
         }
 
-        // ======== 点击切换动作 ========
-
         private void OnPreviewZoneTapped(object sender, TappedRoutedEventArgs e)
         {
             if (sender is Border zone && zone.Tag is string id)
@@ -432,12 +408,10 @@ namespace AniMeido.Plugin.Base.Views
                 var config = _dragZones.Find(z => z.Id == id);
                 if (config == null) return;
 
-                // 循环切换动作
                 var actions = Enum.GetValues<DragAction>();
                 config.Action = (DragAction)(((int)config.Action + 1) % actions.Length);
                 UpdateSingleZone(id);
 
-                // 同步 ComboBox
                 if (ZoneConfigList.ItemsSource is IList<ZoneConfigItem> items)
                 {
                     var item = items.FirstOrDefault(i => i.Id == id);
@@ -447,8 +421,6 @@ namespace AniMeido.Plugin.Base.Views
                 _ = QueueSaveAsync();
             }
         }
-
-        // ======== 删除区域 ========
 
         private void OnDeleteZoneTapped(object sender, TappedRoutedEventArgs e)
         {
@@ -477,8 +449,6 @@ namespace AniMeido.Plugin.Base.Views
             _ = QueueSaveAsync();
         }
 
-        // ======== 添加区域 ========
-
         private void OnAddZone(object sender, RoutedEventArgs e)
         {
             var pw = PreviewBorder.ActualWidth;
@@ -496,7 +466,6 @@ namespace AniMeido.Plugin.Base.Views
             };
             _dragZones.Add(newZone);
 
-            // 添加视觉
             var grid = PreviewBorder.Child as Grid;
             if (grid != null)
             {
@@ -516,8 +485,6 @@ namespace AniMeido.Plugin.Base.Views
             _ = QueueSaveAsync();
         }
 
-        // ======== 配置面板事件 ========
-
         private void OnConfigComboChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_suppressEvents || sender is not ComboBox combo) return;
@@ -531,8 +498,6 @@ namespace AniMeido.Plugin.Base.Views
             _ = QueueSaveAsync();
         }
 
-        // ======== 重置 ========
-
         private async void OnResetDragZones(object sender, RoutedEventArgs e)
         {
             _suppressEvents = true;
@@ -541,8 +506,6 @@ namespace AniMeido.Plugin.Base.Views
             _suppressEvents = false;
             await QueueSaveAsync();
         }
-
-        // ======== 保存 ========
 
         private async Task QueueSaveAsync()
         {
@@ -582,8 +545,6 @@ namespace AniMeido.Plugin.Base.Views
                 Action = config.Action,
             };
 
-        // ======== 辅助方法 ========
-
         private static string GetActionLabel(DragAction action) => action switch
         {
             DragAction.Watching => "追番",
@@ -610,14 +571,10 @@ namespace AniMeido.Plugin.Base.Views
 
     }
 
-    // ======== 预览 Zone 视觉元素 ========
-
     internal record ZoneVisual(
         Border Overlay,
         TextBlock Label,
         Border DeleteButton);
-
-    // ======== 配置面板数据项 ========
 
     internal class ZoneConfigItem : ObservableObject
     {

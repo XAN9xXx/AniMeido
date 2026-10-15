@@ -91,9 +91,9 @@ namespace AniMeido.Tests
             var stack = new NavigationStack();
             var page = new object();
             stack.Push(page, "a");
-            stack.Push(page, "a"); // same page reference
-            stack.Pop(); // remove one
-            Assert.False(stack.CanGoBack); // should only have one entry
+            stack.Push(page, "a");
+            stack.Pop();
+            Assert.False(stack.CanGoBack);
         }
 
         [Theory]

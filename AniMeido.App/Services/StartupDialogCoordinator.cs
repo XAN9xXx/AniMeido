@@ -3,9 +3,6 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace AniMeido.App.Services;
 
-/// <summary>
-/// 启动弹窗协调器：隐私声明 + 开发公告。
-/// </summary>
 public sealed class StartupDialogCoordinator
 {
     private readonly FrameworkElement _xamlRootProvider;
@@ -15,7 +12,6 @@ public sealed class StartupDialogCoordinator
         _xamlRootProvider = xamlRootProvider;
     }
 
-    /// <summary>显示隐私声明弹窗。</summary>
     public async Task ShowPrivacyDialogAsync()
     {
         if (App.PrivacyService.IsAccepted()) return;
@@ -36,7 +32,6 @@ public sealed class StartupDialogCoordinator
             Environment.Exit(0);
     }
 
-    /// <summary>显示开发公告弹窗。</summary>
     public async Task ShowAnnouncementDialogAsync()
     {
         const string regKey = @"HKEY_CURRENT_USER\Software\AniMeido";

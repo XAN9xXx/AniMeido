@@ -2,9 +2,6 @@ using AniMeido.Contracts;
 
 namespace AniMeido.App.Services;
 
-/// <summary>
-/// 应用数据路径的 App 层实现。
-/// </summary>
 public sealed class AppDataPaths : IAppDataPaths
 {
     private static readonly string AppDataDir = Path.Combine(

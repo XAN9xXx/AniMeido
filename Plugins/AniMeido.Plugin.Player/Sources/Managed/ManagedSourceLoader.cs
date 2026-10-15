@@ -120,7 +120,7 @@ internal static class ManagedSourceLoader
                     SearchOption.AllDirectories));
             return legacyManifests.Concat(packagedManifests).ToArray();
         }
-#pragma warning disable CA1031 // Source discovery failure must not break BasePlugin.
+#pragma warning disable CA1031 // Source discovery failure must not break PlayerPlugin.
         catch (Exception)
         {
             return [];

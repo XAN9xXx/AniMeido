@@ -4,7 +4,6 @@ using Microsoft.Data.Sqlite;
 namespace AniMeido.Plugin.Base.Services
 {
     /// <summary>
-    /// 数据库安全备份服务。
     /// 使用 SQLite 在线备份 API（BackupDatabase）确保运行时备份的一致性。
     /// 备份目录由 IAppDataPaths.BackupDirectory 提供。
     /// 保留最近 MaxBackups 个备份。
@@ -22,9 +21,6 @@ namespace AniMeido.Plugin.Base.Services
             Directory.CreateDirectory(_backupDir);
         }
 
-        /// <summary>
-        /// 执行在线备份。使用 SQLite BackupDatabase 确保一致性。
-        /// </summary>
         public async Task<string> BackupAsync()
         {
             // 备份前执行 checkpoint，确保 WAL 内容合并
@@ -49,7 +45,6 @@ namespace AniMeido.Plugin.Base.Services
             await dest.CloseAsync();
             await source.CloseAsync();
 
-            // 清理旧备份
             var backups = Directory.GetFiles(_backupDir, "AniMeido-*.db")
                 .OrderByDescending(f => f)
                 .ToList();

@@ -69,11 +69,10 @@ namespace AniMeido.App
             var pluginPackageManager = PluginPackageManager.CreateDefault();
             services.AddSingleton(pluginPackageManager);
 
-            // 插件加载（在 ServiceProvider 构建前，因为 PluginHost 需要向 services 注册插件服务）
+            // Base 插件在构建 ServiceProvider 前注册自己的服务。
             var (navItems, plugins) = await PluginStartup.LoadPluginsAsync(services);
             App.Plugins = plugins;
 
-            // 构建 DI 容器并初始化数据库
             var provider = services.BuildServiceProvider();
             _serviceProvider = provider;
             Services = provider;
@@ -90,7 +89,6 @@ namespace AniMeido.App
                 desktopSettingsLoad);
             _desktopSettings = await desktopSettingsLoad;
 
-            // 创建主窗口
             var contributionRegistry =
                 provider.GetRequiredService<PluginContributionRegistry>();
             contributionRegistry.SetBuiltInItems(navItems);
@@ -328,7 +326,7 @@ namespace AniMeido.App
 
         internal void RequestExit()
         {
-            // 托盘“退出”和 U3 更新重启共用：触发 Closing，释放 DI/PluginHost，不走托盘隐藏分支。
+            // 托盘“退出”和更新重启共用：触发 Closing，释放 DI/PluginHost，不走托盘隐藏分支。
             _exitRequested = true;
             _window?.Close();
         }

@@ -10,7 +10,7 @@ internal sealed record RollbackDataEntry(string Path, string Version, DateTime T
     public string DisplayText => $"来源版本：{Version} | 时间：{Time:yyyy-MM-dd HH:mm:ss}";
 }
 
-/// <summary>只管理 U2 另存的回滚前数据；没有恢复或修改当前数据库的能力。</summary>
+/// <summary>只管理版本回滚时另存的数据；没有恢复或修改当前数据库的能力。</summary>
 internal sealed class RollbackDataStore(IAppDataPaths paths)
 {
     private const string Prefix = "AniMeido-rollback-from-";
@@ -64,7 +64,7 @@ internal sealed class RollbackDataStore(IAppDataPaths paths)
     {
         var full = ValidateDirectory(directory);
         var name = Path.GetFileName(full)[Prefix.Length..];
-        // U2：<SemVer>-yyyyMMdd-HHmmss[-碰撞时的 GUID]；预览版号自身可以含 '-'。
+        // 目录后缀：<SemVer>-yyyyMMdd-HHmmss[-碰撞时的 GUID]；预览版号自身可以含 '-'。
         for (var i = 0; i + 16 <= name.Length; i++)
         {
             if (name[i] == '-' && DateTime.TryParseExact(name.Substring(i + 1, 15), "yyyyMMdd-HHmmss",

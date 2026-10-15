@@ -7,7 +7,6 @@ using AniMeido.Plugin.Base.Models;
 
 namespace AniMeido.Plugin.Base.Services
 {
-    /// <summary>主题行上的操作。</summary>
     public enum TodayThemeRowKind
     {
         /// <summary>只能打开详情。</summary>
@@ -20,9 +19,6 @@ namespace AniMeido.Plugin.Base.Services
         Finish,
     }
 
-    /// <summary>取候选时需要的本地信息。</summary>
-    /// <param name="Date">当天。</param>
-    /// <param name="Statuses">全部本地标记。</param>
     /// <param name="ExcludedAnimeId">放送日历今日一抽当天抽中的作品，不再列出。</param>
     internal sealed record TodayThemeContext(
         DateOnly Date,
@@ -34,8 +30,6 @@ namespace AniMeido.Plugin.Base.Services
             new Dictionary<int, DateTimeOffset>();
     }
 
-    /// <summary>主题里的一部作品。</summary>
-    /// <param name="Anime">作品。</param>
     /// <param name="Meta">形态、年份等。</param>
     /// <param name="Note">这部作品为什么出现，例如“停了 41 天”；可为空。</param>
     internal sealed record TodayThemeCandidate(
@@ -44,14 +38,11 @@ namespace AniMeido.Plugin.Base.Services
         string Note = "");
 
     /// <summary>统计偏爱题材用的作品。</summary>
-    /// <param name="AnimeIds">作品。</param>
     /// <param name="FromHighRatings">来自你打了高分的作品；为 false 时是最近看完的作品。</param>
     internal sealed record TodayGenreSample(IReadOnlyList<int> AnimeIds, bool FromHighRatings);
 
-    /// <summary>一个主题的全部候选。</summary>
     /// <param name="Caption">标题下方说明这批作品是怎么来的。</param>
     /// <param name="Candidates">候选，换一批时在其中翻页。</param>
-    /// <param name="RowKind">行上的操作。</param>
     /// <param name="ShuffleByDate">按日期打乱候选顺序；为 false 时保持给出的顺序。</param>
     internal sealed record TodayThemeContent(
         string Caption,
@@ -155,8 +146,6 @@ namespace AniMeido.Plugin.Base.Services
             }
         }
 
-        // ======== Bangumi 主题 ========
-
         private async Task<TodayThemeContent?> BuildSeasonAsync(
             int year,
             Season season,
@@ -204,8 +193,6 @@ namespace AniMeido.Plugin.Base.Services
                 .ThenBy(anime => anime.ID)
                 .Take(PoolSize)
                 .ToList();
-
-        // ======== 本地主题 ========
 
         private async Task<TodayThemeContent?> BuildRevisitedAsync(
             TodayThemeContext context,
@@ -388,8 +375,6 @@ namespace AniMeido.Plugin.Base.Services
                 : watched is null ? marked
                 : marked > watched ? marked : watched;
         }
-
-        // ======== 组合主题 ========
 
         private async Task<TodayThemeContent?> BuildFavoriteGenreAsync(
             TodayThemeContext context,
@@ -590,8 +575,6 @@ namespace AniMeido.Plugin.Base.Services
             => items
                 .Where(item => item.Archive.PersonalRating is not null)
                 .ToDictionary(item => item.Archive.AnimeId, item => item.Archive.PersonalRating!.Value);
-
-        // ======== 共用 ========
 
         /// <summary>逐部补作品详情（有缓存）；单部失败时用标题占位，不影响其他作品。</summary>
         private async Task<IReadOnlyDictionary<int, Anime>> ResolveAsync(

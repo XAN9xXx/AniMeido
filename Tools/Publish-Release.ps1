@@ -2,7 +2,7 @@
 
 <#
 .SYNOPSIS
-    Produces local U4 release assets. Never uploads, commits, installs or starts AniMeido.
+    Produces local release assets. Never uploads, commits, installs or starts AniMeido.
 .NOTES
     Run only after reviewing and committing the release source. The signer alone reads PrivateKey.
     Failed output is retained for inspection; an existing version directory is never overwritten.
@@ -157,7 +157,7 @@ try {
     $zip = Join-Path $output $zipName
     [IO.Compression.ZipFile]::CreateFromDirectory($payload, $zip, [IO.Compression.CompressionLevel]::Optimal, $false)
 
-    # 5. Generate -> sign -> verify with every embedded production key (rotation-ready).
+    # 5. Generate -> sign -> verify against embedded production keys (rotation-ready).
     Invoke-DotNet @('build', '.\Tools\AniMeido.UpdateSigner', '-c', 'Release', '-p:AniMeidoUpdateTestSource=false')
     $signer = Join-Path $repo 'Tools\AniMeido.UpdateSigner\bin\x64\Release\net8.0\AniMeido.UpdateSigner.dll'
     $manifest = Join-Path $output 'release.json'
@@ -181,7 +181,7 @@ try {
     }
     if (-not $verified) { throw '签名未通过内置生产公钥验证，拒绝发布。' }
 
-    # 6. Build a fresh install state using the U2 state writer. No previous/pending rollback target.
+    # 6. Build a fresh install state using the install-state writer. No previous/pending rollback target.
     $image = Join-Path $output 'install'
     $null = New-Item -ItemType Directory -Path $image
     $versionDirectory = Join-Path $image "app-$Version"

@@ -111,9 +111,6 @@ namespace AniMeido.Plugin.Base.Services
         }
 
 
-        /// <summary>
-        /// 导出追番数据为 JSON 字符串。
-        /// </summary>
         public async Task<string> ExportAsync()
         {
             var appVersion = System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version;
@@ -271,15 +268,12 @@ namespace AniMeido.Plugin.Base.Services
         }
 
 
-        // ======== 校验与归一化辅助 ========
-
         private const int MaxDragZones = 20;
         private const int MaxTagLength = 100;
         private const int MaxTrackingRecords = 10000;
         private const int MaxP4Records = 100000;
         private const int MaxJsonDepth = 32;
 
-        /// <summary>反序列化并校验导入数据的 SchemaVersion 和基本结构。</summary>
         private static ExportData ParseAndValidate(string json)
         {
             // 校验 JSON 字符串长度（先于反序列化）
@@ -509,8 +503,6 @@ namespace AniMeido.Plugin.Base.Services
     }
 
 
-
-    // ======== 导出数据模型 ========
 
     public class ExportData
     {

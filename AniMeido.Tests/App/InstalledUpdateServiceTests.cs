@@ -300,7 +300,7 @@ public sealed class InstalledUpdateServiceTests
             using (var archive = new ZipArchive(zip, ZipArchiveMode.Create, leaveOpen: true))
             {
                 using var output = archive.CreateEntry(InstallLayout.AppFileName, CompressionLevel.NoCompression).Open();
-                output.Write(new byte[200_000]); // 大于 U1 缓冲区，保证取消测试留下一部分。
+                output.Write(new byte[200_000]); // 大于下载器缓冲区，保证取消测试留下一部分。
             }
             PackageBytes = zip.ToArray();
             ManifestBytes = JsonSerializer.SerializeToUtf8Bytes(new

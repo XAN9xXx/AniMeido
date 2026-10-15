@@ -7,9 +7,6 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace AniMeido.Plugin.Base
 {
-    /// <summary>
-    /// AniMeido 基础插件，提供季度新番浏览与番剧详情查询功能。
-    /// </summary>
     public class BasePlugin : IPlugin
     {
         public string PluginID => "AniMeido.Plugin.Base";
@@ -22,10 +19,6 @@ namespace AniMeido.Plugin.Base
 
         public bool IsRequired => true;
 
-        /// <summary>
-        /// 创建此插件需要注册的导航栏项
-        /// </summary>
-        /// <returns>可枚举的导航栏列表</returns>
         public IEnumerable<PluginNavigationItem> GetNavigationItems()
         {
             return new List<PluginNavigationItem>
@@ -71,11 +64,6 @@ namespace AniMeido.Plugin.Base
             };
         }
 
-        /// <summary>
-        /// DI注入服务
-        /// </summary>
-        /// <param name="services"></param>
-        /// <returns>Task完成标记</returns>
         public Task InitializeAsync(IServiceCollection services)
         {
             services.AddSingleton<SqliteConnectionFactory>();

@@ -12,7 +12,6 @@ public sealed class SqliteConnectionFactory
 {
     private readonly string _connectionString;
 
-    /// <summary>数据库文件路径。</summary>
     public string DatabasePath { get; }
 
     public SqliteConnectionFactory(IAppDataPaths paths)

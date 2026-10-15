@@ -12,16 +12,12 @@ namespace AniMeido.App.Services
         private readonly SqliteConnectionFactory _dbFactory;
         private readonly InstalledAppContext? _installedApp;
 
-        /// <summary>数据库文件路径</summary>
         public string DbPath { get; }
 
-        /// <summary>日志目录路径</summary>
         public string LogDir { get; }
 
-        /// <summary>备份目录路径</summary>
         public string BackupDir { get; }
 
-        /// <summary>最大备份保留数</summary>
         private const int MaxBackups = 10;
         private const int MaxUpdateBackups = 2;
 
@@ -234,7 +230,7 @@ namespace AniMeido.App.Services
                                 throw new SqliteException("Restore database checkpoint is busy.", 5);
                         }, "Prepare and check temporary database", temporaryPath);
                     }
-#pragma warning disable CA1031 // 非暂时性的补表/迁移失败说明该备份不可用；B 类必须中止，不能退回旧备份
+#pragma warning disable CA1031 // 非暂时性的补表/迁移失败说明该备份不可用；暂时性访问失败必须中止，不能退回旧备份
                     catch (Exception ex) when (ex is not DatabaseRestoreUnavailableException && !IsRestoreUnavailable(ex))
                     {
                         Serilog.Log.Warning(ex, "Database backup {Backup} could not be migrated.", backup);

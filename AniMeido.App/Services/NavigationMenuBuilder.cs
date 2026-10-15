@@ -5,12 +5,10 @@ using Microsoft.UI.Xaml.Controls;
 namespace AniMeido.App.Services;
 
 /// <summary>
-/// 导航菜单构建器。从 PluginNavigationItem 列表构建 NavigationView 菜单项。
-/// 优先使用 SymbolIcon，退回到 FontIcon。
+/// 把插件导航项构建为 NavigationView 菜单；图标优先使用 SymbolIcon，退回到 FontIcon。
 /// </summary>
 internal sealed class NavigationMenuBuilder
 {
-    /// <summary>将标签文字映射到 WinUI Symbol 枚举值。</summary>
     private static Symbol? ToSymbol(string label)
     {
         return label switch
@@ -25,7 +23,6 @@ internal sealed class NavigationMenuBuilder
         };
     }
 
-    /// <summary>根据 glyph 字符串创建适配的 IconElement。</summary>
     private static IconElement CreateIcon(string label, string glyph, double fontSize = 18)
     {
         var symbol = ToSymbol(label);
@@ -36,7 +33,6 @@ internal sealed class NavigationMenuBuilder
         return new FontIcon { Glyph = glyph, FontSize = fontSize };
     }
 
-    /// <summary>构建 NavigationView 的普通菜单项和设置页按钮。先清空旧菜单，避免重复添加。</summary>
     public static void Build(NavigationView naviView, IReadOnlyList<PluginNavigationItem> items)
     {
         naviView.MenuItems.Clear();
@@ -55,7 +51,6 @@ internal sealed class NavigationMenuBuilder
             naviView.MenuItems.Add(naviItem);
         }
 
-        // 手动添加设置按钮
         var settingsItem = new NavigationViewItem
         {
             Content = "设置",

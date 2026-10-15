@@ -130,8 +130,6 @@ namespace AniMeido.Plugin.Base.Views
             return new PastSeasonTarget(year, season);
         }
 
-        // ======== 季度切换 ========
-
         private void OnPrevSeasonClick(object sender, RoutedEventArgs e) => StepSeason(-1);
 
         private void OnNextSeasonClick(object sender, RoutedEventArgs e) => StepSeason(1);
@@ -242,8 +240,6 @@ namespace AniMeido.Plugin.Base.Views
 
         private void OnLatestSeasonClick(object sender, RoutedEventArgs e) => SelectSeason(LatestSeason());
 
-        // ======== 加载 ========
-
         private Task LoadSelectedSeasonSafelyAsync(bool forceRefresh = false)
             => LoadSeasonSafelyAsync(_selected, forceRefresh);
 
@@ -251,7 +247,6 @@ namespace AniMeido.Plugin.Base.Views
         {
             _seasonLoadTimer.Stop();
 
-            // 取消上一轮请求
             _loadCts?.Cancel();
             _loadCts?.Dispose();
             var loadCts = new CancellationTokenSource();
@@ -330,8 +325,6 @@ namespace AniMeido.Plugin.Base.Views
             _pluginNavigator.Navigate(typeof(AnimeDetailPage), e.Anime.ID);
         }
 
-        // ======== 筛选与排序 ========
-
         private void InitializeSortControls()
         {
             foreach (var (key, label) in new[]
@@ -408,8 +401,6 @@ namespace AniMeido.Plugin.Base.Views
             ViewModel.ClearFilters();
         }
 
-        // ======== 键盘 ========
-
         /// <summary>[ ] 逐季切换；焦点在输入框里时让给文字输入。</summary>
         private void OnRootKeyDown(object sender, KeyRoutedEventArgs e)
         {
@@ -429,8 +420,6 @@ namespace AniMeido.Plugin.Base.Views
             FilterBox.Focus(FocusState.Keyboard);
             args.Handled = true;
         }
-
-        // ======== 布局 ========
 
         /// <summary>工具栏宽时一行，窄时季度与形态一行、其余一行。</summary>
         private void OnToolbarSizeChanged(object sender, SizeChangedEventArgs e)
@@ -498,8 +487,6 @@ namespace AniMeido.Plugin.Base.Views
                 card.CardWidth = _cardWidth;
         }
 
-        // ======== 生命周期与自定义拖放 ========
-
         private IDisposable? _dropHostRegistration;
 
         private void OnPageLoaded(object sender, RoutedEventArgs e)
@@ -510,7 +497,6 @@ namespace AniMeido.Plugin.Base.Views
                 DragOverlay,
                 DragAction.PlanToWatch);
 
-            // 确保 Unloaded 只注册一次
             RootGrid.Unloaded -= OnRootGridUnloaded;
             RootGrid.Unloaded += OnRootGridUnloaded;
 

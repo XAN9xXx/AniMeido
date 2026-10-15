@@ -3,10 +3,6 @@ using Microsoft.Data.Sqlite;
 
 namespace AniMeido.Plugin.Base.Services
 {
-    /// <summary>
-    /// 浏览记录服务：记录和查询用户查看过的番剧。
-    /// 数据表 browse_history 由 App 层 DatabaseService 创建。
-    /// </summary>
     public class BrowseHistoryService
     {
         private readonly SqliteConnectionFactory _dbFactory;
@@ -16,7 +12,6 @@ namespace AniMeido.Plugin.Base.Services
             _dbFactory = dbFactory;
         }
 
-        /// <summary>记录或更新番剧浏览记录。</summary>
         public async Task RecordAsync(int animeId, string? titleSnapshot)
         {
             using var connection = await _dbFactory.OpenAsync();
@@ -36,7 +31,6 @@ namespace AniMeido.Plugin.Base.Services
             await cmd.ExecuteNonQueryAsync();
         }
 
-        /// <summary>获取浏览记录（最近 -N 条）。</summary>
         public async Task<List<(int AnimeId, string? Title, DateTime LastViewed, int ViewCount)>> GetHistoryAsync(
             int limit = 50,
             CancellationToken cancellationToken = default)
@@ -68,7 +62,6 @@ namespace AniMeido.Plugin.Base.Services
             return results;
         }
 
-        /// <summary>清空浏览记录。</summary>
         public async Task ClearAsync(
             CancellationToken cancellationToken = default)
         {

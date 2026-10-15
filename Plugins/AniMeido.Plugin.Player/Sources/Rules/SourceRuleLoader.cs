@@ -91,7 +91,7 @@ internal static class SourceRuleLoader
                     SearchOption.AllDirectories));
             return looseRules.Concat(packagedRules).ToArray();
         }
-#pragma warning disable CA1031 // Source discovery failure must not break BasePlugin.
+#pragma warning disable CA1031 // Source discovery failure must not break PlayerPlugin.
         catch (Exception)
         {
             return [];

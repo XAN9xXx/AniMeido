@@ -12,7 +12,6 @@ using Windows.Foundation;
 
 namespace AniMeido.Plugin.Base.Views.Controls
 {
-    /// <summary>单击 AnimeCard 时的事件参数。</summary>
     public sealed class AnimeCardClickedEventArgs : EventArgs
     {
         public Anime Anime { get; }
@@ -55,7 +54,6 @@ namespace AniMeido.Plugin.Base.Views.Controls
         private bool _standardDragStarted;
         private Point _pointerDownPoint;
         private const double ClickMoveThreshold = 8.0;
-        // 标记写入中快捷按钮的不透明度。
         private const double PendingActionOpacity = 0.55;
 
         private readonly Brush _highScoreBrush;
@@ -605,12 +603,10 @@ namespace AniMeido.Plugin.Base.Views.Controls
             Anime? clickAnime = DataContext as Anime;
             bool shouldClick = _clickCandidate && !_standardDragStarted && clickAnime != null;
 
-            // 重置状态
             _pointerDown = false;
             _clickCandidate = false;
             _standardDragStarted = false;
 
-            // 触发单击事件
             if (shouldClick)
                 CardClicked?.Invoke(this, new AnimeCardClickedEventArgs(clickAnime!));
 
@@ -682,11 +678,8 @@ namespace AniMeido.Plugin.Base.Views.Controls
                 _clickCandidate = false;
 
             // CanDrag=True：标准拖拽由 WinUI 管理，不干预，不设置 _pointerDown = false
-            // CanDrag=False 路径已删除（所有 AnimeCard 已启用标准拖拽）
             if (CanDrag)
                 return;
-
-            // 不再支持 legacy pointer drag，但保留 _clickCandidate 已由 moved 更新
         }
 
         /// <summary>
@@ -726,7 +719,6 @@ namespace AniMeido.Plugin.Base.Views.Controls
 
             System.Diagnostics.Debug.WriteLine($"[AnimeCard] DragStarting: AllowedOperations=Copy, payload animeId={payload.AnimeId}, title={payload.Title}");
 
-            // 尝试设置圆形封面 DragToken 视觉，失败时静默 fallback 到系统默认视觉
             AnimeCardDragTokenVisualFactory.TryApplyDragToken(args, anime);
         }
 

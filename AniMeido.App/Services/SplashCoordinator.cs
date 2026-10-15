@@ -6,9 +6,6 @@ using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace AniMeido.App.Services;
 
-/// <summary>
-/// 开屏协调器：负责开屏图加载、开屏淡出动画。
-/// </summary>
 public sealed class SplashCoordinator
 {
     private readonly Image _splashImage;
@@ -33,9 +30,6 @@ public sealed class SplashCoordinator
         _splashImage.Source = img;
     }
 
-    /// <summary>
-    /// 等待开屏图加载完成，最多等 5 秒。
-    /// </summary>
     public async Task WaitForImageAsync()
     {
         if (_splashImage.Source is not BitmapImage bmp) return;
@@ -46,9 +40,6 @@ public sealed class SplashCoordinator
         await Task.WhenAny(tcs.Task, Task.Delay(5000));
     }
 
-    /// <summary>
-    /// 淡出开屏图。
-    /// </summary>
     public async Task FadeOutAsync()
     {
         await Task.Delay(800);

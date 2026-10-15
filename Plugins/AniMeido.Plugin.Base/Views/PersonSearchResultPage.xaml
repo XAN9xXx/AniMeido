@@ -15,7 +15,6 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- 标题 -->
         <Border Style="{StaticResource AniMeidoToolbarStyle}">
             <StackPanel Spacing="4">
                 <TextBlock x:Name="TitleBlock"
@@ -27,7 +26,6 @@
             </StackPanel>
         </Border>
 
-        <!-- 结果列表 -->
         <GridView x:Name="ResultGrid"
                       Grid.Row="1"
                       Margin="0,12,0,0"
@@ -58,7 +56,6 @@
                 </GridView.ItemTemplate>
         </GridView>
 
-        <!-- 加载覆盖层 -->
         <Grid Grid.RowSpan="2"
               x:Name="LoadingOverlay"
               Visibility="Collapsed"
@@ -78,7 +75,6 @@
             </StackPanel>
         </Grid>
 
-        <!-- 拖放覆盖层 -->
         <Canvas Grid.RowSpan="2"
                 x:Name="DragOverlay"
                 Visibility="Collapsed"

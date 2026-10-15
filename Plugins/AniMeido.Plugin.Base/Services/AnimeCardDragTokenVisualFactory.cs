@@ -19,12 +19,10 @@ namespace AniMeido.Plugin.Base.Services
         private const double TokenAnchorRatio = 0.5;
         private const int SmoothEdgePixels = 2;
 
-        // ======== 简单内存缓存 ========
         private sealed record TokenCacheKey(string Path, DateTime LastWriteTimeUtc, int Size);
         private static readonly Dictionary<TokenCacheKey, byte[]> TokenPixelCache = new();
         private static readonly object CacheLock = new();
 
-        /// <summary>尝试为拖拽设置圆形封面 DragToken 视觉。</summary>
         public static void TryApplyDragToken(Microsoft.UI.Xaml.DragStartingEventArgs args, Anime anime)
         {
             Debug.WriteLine($"[DragToken] TryApplyDragToken ENTER: animeId={anime.ID}, title={anime.Title}");
@@ -38,7 +36,6 @@ namespace AniMeido.Plugin.Base.Services
         {
             try
             {
-                // ========== Phase 1: 本地缓存封面 ==========
                 if (ImageCacheHelper.HasLocalCache(anime.ID))
                 {
                     string localPath = ImageCacheHelper.GetLocalPath(anime.ID);
@@ -55,7 +52,6 @@ namespace AniMeido.Plugin.Base.Services
                     }
                 }
 
-                // ========== Phase 2: 本地 placeholder ==========
                 string placeholderPath = ImageCacheHelper.PlaceholderPath;
                 if (File.Exists(placeholderPath))
                 {
@@ -69,7 +65,6 @@ namespace AniMeido.Plugin.Base.Services
                     }
                 }
 
-                // ========== Phase 3: 蓝色诊断圆 fallback ==========
                 Debug.WriteLine($"[DragToken] Using blue diagnostic circle as last resort");
                 var fallback = GenerateFallbackCirclePixels();
                 await ApplySoftwareBitmapAsync(args, fallback);
@@ -87,7 +82,6 @@ namespace AniMeido.Plugin.Base.Services
             }
         }
 
-        /// <summary>带缓存的解码：优先查缓存，未命中则解码后写入缓存。</summary>
         private static async Task<byte[]?> GetOrDecodeAsync(string localPath)
         {
             var fileInfo = new FileInfo(localPath);
@@ -124,7 +118,6 @@ namespace AniMeido.Plugin.Base.Services
                 int srcW = (int)decoder.PixelWidth;
                 int srcH = (int)decoder.PixelHeight;
 
-                // 解码全尺寸
                 var fullData = await decoder.GetPixelDataAsync(
                     BitmapPixelFormat.Bgra8,
                     BitmapAlphaMode.Premultiplied,
@@ -189,7 +182,6 @@ namespace AniMeido.Plugin.Base.Services
 
                     if (dist <= fadeStart)
                     {
-                        // 完全在圆内：不透明
                         output[idx] = bgraPixels[idx];
                         output[idx + 1] = bgraPixels[idx + 1];
                         output[idx + 2] = bgraPixels[idx + 2];
@@ -207,7 +199,6 @@ namespace AniMeido.Plugin.Base.Services
                         output[idx + 2] = (byte)(bgraPixels[idx + 2] * a);
                         output[idx + 3] = (byte)alpha;
                     }
-                    // else: 圆外透明
                 }
             }
             return output;
@@ -272,7 +263,6 @@ namespace AniMeido.Plugin.Base.Services
                         pixels[idx + 2] = (byte)(0x00 * a);
                         pixels[idx + 3] = (byte)alpha;
                     }
-                    // else: transparent
                 }
             }
             return pixels;

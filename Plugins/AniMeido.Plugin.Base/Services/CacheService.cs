@@ -20,7 +20,6 @@ namespace AniMeido.Plugin.Base.Services
         private long _generation;
         private volatile bool _isClearing;
 
-        // 内存缓存：key → (json数据, 过期UTC)
         private readonly ConcurrentDictionary<string, (string data, DateTime expiresAt)> _memoryCache = new();
 
         public CacheService(SqliteConnectionFactory dbFactory)
@@ -56,7 +55,6 @@ namespace AniMeido.Plugin.Base.Services
 
                 var expiresAt = DateTime.UtcNow.Add(expiration);
 
-                // 先写入 SQLite（每次使用独立连接）
                 using var connection = await _dbFactory.OpenAsync();
                 using var command = connection.CreateCommand();
                 command.CommandText = """
@@ -71,7 +69,7 @@ namespace AniMeido.Plugin.Base.Services
 
                 await command.ExecuteNonQueryAsync();
 
-                // 再写入内存缓存。ClearAllCacheAsync 与本段互斥，
+                // SQLite 写入成功后再写入内存缓存。ClearAllCacheAsync 与本段互斥，
                 // 因而清空操作返回后不会被旧请求重新填充。
                 _memoryCache[key] = (data, expiresAt);
             }
@@ -83,7 +81,6 @@ namespace AniMeido.Plugin.Base.Services
 
         public Task<string?> GetCacheAsync(string key)
         {
-            // 优先查内存缓存
             if (_memoryCache.TryGetValue(key, out var entry))
             {
                 var now = DateTime.UtcNow;
@@ -95,7 +92,6 @@ namespace AniMeido.Plugin.Base.Services
                     _memoryCache.TryRemove(key, out _);
             }
 
-            // 内存无命中或已过期，查 SQLite
             return GetFromSqliteAsync(key, onlyValid: true);
         }
 
@@ -104,16 +100,12 @@ namespace AniMeido.Plugin.Base.Services
         /// </summary>
         public async Task<string?> GetCacheAllowExpiredAsync(string key)
         {
-            // 即使过期也先查内存
             if (_memoryCache.TryGetValue(key, out var entry))
                 return entry.data;
 
             return await GetFromSqliteAsync(key, onlyValid: false);
         }
 
-        /// <summary>
-        /// 删除指定缓存键（内存 + SQLite）。
-        /// </summary>
         public async Task RemoveCacheAsync(string key)
         {
             await _mutationGate.WaitAsync();
@@ -210,8 +202,6 @@ namespace AniMeido.Plugin.Base.Services
             }
 #pragma warning restore CA1031
         }
-
-        // ---- 私有辅助 ----
 
         private async Task<string?> GetFromSqliteAsync(string key, bool onlyValid)
         {

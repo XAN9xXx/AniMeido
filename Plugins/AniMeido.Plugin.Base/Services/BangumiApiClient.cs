@@ -66,7 +66,6 @@ namespace AniMeido.Plugin.Base.Services
             _freshness = freshness;
         }
 
-        /// <summary>本次运行中由各来源返回的次数，排查时用。</summary>
         public BangumiRouteCounts RouteCounts => new(
             Interlocked.Read(ref _archiveCount),
             Interlocked.Read(ref _fallbackCount),
@@ -103,7 +102,6 @@ namespace AniMeido.Plugin.Base.Services
                 ct);
         }
 
-        /// <summary>记下这次由哪个来源返回；来源发生变化时记一条日志。</summary>
         private void RecordServed(string clientName)
         {
             if (clientName == ArchiveClientName)

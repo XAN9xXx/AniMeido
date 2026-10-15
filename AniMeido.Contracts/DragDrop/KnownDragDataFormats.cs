@@ -1,12 +1,11 @@
 namespace AniMeido.Contracts.DragDrop;
 
 /// <summary>
-/// AniMeido 拖拽系统已知数据格式常量。
-/// 用于 DataPackage.SetData / GetData 时的格式名称标识。
+/// 拖拽载荷相关的标识常量。载荷本身经 StandardDataFormats.Text 传递。
 /// </summary>
 public static class KnownDragDataFormats
 {
-    /// <summary>番剧卡片拖拽格式标识。</summary>
+    /// <summary>载荷 kind 字段的取值；反序列化时按 Ordinal 比较。</summary>
     public const string AnimeCardKind = "AniMeido.AnimeCard";
 
     /// <summary>JSON 文本格式名，用于跨进程拖拽。</summary>

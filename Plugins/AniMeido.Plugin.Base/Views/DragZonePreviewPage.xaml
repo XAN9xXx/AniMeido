@@ -55,7 +55,6 @@
                   HorizontalScrollBarVisibility="Hidden"
                   Padding="12,8">
         <StackPanel Spacing="12">
-            <!-- 星期分组 1 -->
             <Border Style="{StaticResource AniMeidoContentCardStyle}"
                     Padding="12">
                 <StackPanel>
@@ -78,7 +77,6 @@
                 </StackPanel>
             </Border>
 
-            <!-- 星期分组 2 -->
             <Border Style="{StaticResource AniMeidoContentCardStyle}"
                     Padding="12">
                 <StackPanel>

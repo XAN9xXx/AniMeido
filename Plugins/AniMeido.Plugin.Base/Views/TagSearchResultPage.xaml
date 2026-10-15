@@ -16,7 +16,6 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- 标题栏：左侧显示信息，右侧排序选择 -->
         <Border Style="{StaticResource AniMeidoToolbarStyle}">
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -82,7 +81,6 @@
             </Grid>
         </Border>
 
-        <!-- 结果列表（卡片网格） -->
         <GridView x:Name="ResultGrid"
                       Grid.Row="1"
                       Margin="0,12,0,0"
@@ -113,7 +111,6 @@
                 </GridView.ItemTemplate>
         </GridView>
 
-        <!-- 翻页栏 -->
         <Border Grid.Row="2"
                 Background="{ThemeResource CardBackgroundFillColorDefault}"
                 CornerRadius="8"
@@ -136,7 +133,6 @@
             </StackPanel>
         </Border>
 
-        <!-- 加载覆盖层 -->
         <Grid Grid.RowSpan="3"
               x:Name="LoadingOverlay"
               Visibility="Collapsed"
@@ -157,7 +153,6 @@
             </StackPanel>
         </Grid>
 
-        <!-- 拖放覆盖层 -->
         <Canvas Grid.RowSpan="3"
                 x:Name="DragOverlay"
                 Visibility="Collapsed"

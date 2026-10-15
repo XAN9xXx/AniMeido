@@ -2,7 +2,7 @@
 
 <#
 .SYNOPSIS
-    Creates a development-only side-by-side AniMeido installation for manual U2 acceptance.
+    Creates a development-only side-by-side AniMeido installation for manual launcher acceptance.
 .NOTES
     Does not redirect user data. Back up %APPDATA%\AniMeido yourself before acceptance.
 #>
@@ -74,7 +74,7 @@ if (-not $existing -and (Test-Path -LiteralPath $installRoot)) {
 
 Push-Location -LiteralPath $repo
 try {
-    # 复用 U1 SemVer 与 U2 的文件锁/原子 JSON；只从本机缓存还原，脚本本身也不下载包。
+    # 复用更新核心的 SemVer、文件锁和原子 JSON 写入；只从本机缓存还原，脚本本身也不下载包。
     $cache = Join-Path $env:USERPROFILE '.nuget\packages'
     & dotnet build '.\AniMeido.Updates' -c Release $testSourceProperty "-p:RestoreSources=$cache" '-p:NuGetAudit=false'
     if ($LASTEXITCODE -ne 0) { throw 'AniMeido.Updates 构建失败。' }

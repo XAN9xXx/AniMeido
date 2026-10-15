@@ -56,7 +56,6 @@ namespace AniMeido.Plugin.Base.Views
                 DragOverlay,
                 DragAction.PlanToWatch);
 
-            // 确保 Unloaded 只注册一次
             RootGrid.Unloaded -= OnRootGridUnloaded;
             RootGrid.Unloaded += OnRootGridUnloaded;
 
@@ -91,8 +90,6 @@ namespace AniMeido.Plugin.Base.Views
             }
 #pragma warning restore CA1031
         }
-
-        // ======== 搜索 ========
 
         private async void OnSearchQuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
             => await SearchAsync(sender.Text);
@@ -136,8 +133,6 @@ namespace AniMeido.Plugin.Base.Views
         private async void OnLoadMoreClick(object sender, RoutedEventArgs e)
             => await RunSafelyAsync(ViewModel.LoadMoreAsync, "load more");
 
-        // ======== 筛选与排序 ========
-
         private void InitializeSortControls()
         {
             foreach (var (key, label) in new[]
@@ -172,8 +167,6 @@ namespace AniMeido.Plugin.Base.Views
 
             ViewModel.SelectFormat(chip.Format);
         }
-
-        // ======== 跳转 ========
 
         private void OnOpenMineClick(object sender, RoutedEventArgs e)
             => _pluginNavigator.Navigate(typeof(ManagementPage), ViewModel.Query);

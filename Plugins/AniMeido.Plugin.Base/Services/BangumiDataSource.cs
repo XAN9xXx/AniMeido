@@ -6,9 +6,6 @@ using System.Text.Json;
 
 namespace AniMeido.Plugin.Base.Services
 {
-    /// <summary>
-    /// 用于从Bangumi API获取番剧数据的服务类，实现了IAnimeDataSource接口。
-    /// </summary>
     public sealed class BangumiDataSource : Contracts.IAnimeDataSource
     {
         private readonly BangumiApiClient _apiClient;
@@ -25,7 +22,7 @@ namespace AniMeido.Plugin.Base.Services
         private const int PersonWorksCacheVersion = 3;
         private static readonly string? FallbackImageUrl = null;
         private static readonly IReadOnlyList<VoiceActor> FallbackCVs = Array.Empty<VoiceActor>();
-        private static readonly IReadOnlyList<string> StudioFilter = new List<string> { "製作", "原作", "企画", "动画制作", "发行" }; // API中Type 2 代表参与制作的商业实体，此处仅筛选制作/原作。
+        private static readonly IReadOnlyList<string> StudioFilter = new List<string> { "製作", "原作", "企画", "动画制作", "发行" };
 
         /// <summary>判断异常是否为网络错误（含 BangumiApiException 包装的网络异常）。</summary>
         private static bool IsNetworkError(Exception ex) => ex switch
@@ -61,7 +58,6 @@ namespace AniMeido.Plugin.Base.Services
             PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
         };
 
-        // 以年-季度为条件从API筛选番剧，返回Anime列表的辅助方法
         private async Task<List<Anime>> FetchByBrowse(int year, int seasonMonth, CancellationToken ct)
         {
             var result = await _apiClient.GetJsonAsync<PagedSubjectResponse>($"/v0/subjects?type=2&year={year}&month={seasonMonth}&limit=50", ct);
@@ -81,7 +77,6 @@ namespace AniMeido.Plugin.Base.Services
             return animes;
         }
 
-        // 从Bangumi API获取每周新番的日历数据，并将其解析为CalendarDayResponse对象列表。
         private async Task<List<CalendarDayResponse>> FetchCalendarAsync(
             CancellationToken ct,
             bool preferOnline = false)
@@ -103,7 +98,6 @@ namespace AniMeido.Plugin.Base.Services
             CancellationToken cancellationToken) where T : class
         {
             cancellationToken.ThrowIfCancellationRequested();
-            // 尝试从缓存读取
             var cached = await _cacheService.GetCacheAsync(cacheKey);
             if (cached != null)
             {
@@ -114,7 +108,6 @@ namespace AniMeido.Plugin.Base.Services
                 }
                 catch (JsonException ex)
                 {
-                    // 缓存数据损坏，删除坏缓存
                     _logger.LogWarning(ex, "Corrupted cache entry for {Key}, removing", cacheKey);
                     await _cacheService.RemoveCacheAsync(cacheKey);
                 }
@@ -174,7 +167,7 @@ namespace AniMeido.Plugin.Base.Services
                             _logger.LogWarning(jex, "Stale cache corrupted for {Key}, falling back to network error", cacheKey);
                         }
                     }
-                    throw; // 没有过期缓存可用，继续保持原异常向上传播
+                    throw;
                 }
 
                 if (data != null)
@@ -240,7 +233,6 @@ namespace AniMeido.Plugin.Base.Services
 
 
 
-        // 将CalendarItem对象映射为Anime对象，使用默认值处理缺失的信息，并记录无法解析的放送日期的警告日志
         private Anime MapToAnime(CalendarItem item, int year, int seasonMonth)
         {
             DateOnly? parsedDate = DateTime.TryParse(item.AirDate, out var dt) ? DateOnly.FromDateTime(dt) : null;
@@ -268,19 +260,16 @@ namespace AniMeido.Plugin.Base.Services
             { Score = item.Rating?.Score };
         }
 
-        // 将ActorInfo映射为一个VoiceActor
         private static VoiceActor MapToVoiceActor(ActorInfo actor)
         {
             return new VoiceActor(actor.Id, actor.Name, ResolveImageUrl(actor.Image?.Grid) ?? FallbackImageUrl);
         }
 
-        // 将ActorInfo列表映射为VoiceActor列表，处理可能的null值并返回空列表作为默认值。
         private static IReadOnlyList<VoiceActor> MapToVoiceActor(List<ActorInfo>? actors)
         {
             return actors?.Select(a => MapToVoiceActor(a)).ToList() ?? [];
         }
 
-        // 将RelatedCharacterResponse对象映射为CharacterRole对象，提取角色信息和配音演员列表，并处理可能的null值。
         private static CharacterRole MapToCharacterRole(RelatedCharacterResponse character)
         {
             var actors = MapToVoiceActor(character.Actors);
@@ -290,7 +279,6 @@ namespace AniMeido.Plugin.Base.Services
 
 
 
-        // 将 Bangumi 图片 URL 替换为反代地址
         private static string? ResolveImageUrl(string? rawUrl)
         {
             if (string.IsNullOrEmpty(rawUrl)) return null;
@@ -309,7 +297,6 @@ namespace AniMeido.Plugin.Base.Services
             if (!hasCustomPort)
                 builder.Port = -1;
 
-            // 替换 Bangumi 源站为反代
             if (builder.Host.Equals("lain.bgm.tv", StringComparison.OrdinalIgnoreCase))
             {
                 builder.Host = "bgm-proxy.animeido.com";
@@ -319,7 +306,6 @@ namespace AniMeido.Plugin.Base.Services
             return builder.Uri.ToString();
         }
 
-        // 优先使用中文译名，其次日文原名，最后后备文字；同时处理 API 返回空字符串的情况
         private static string ResolveTitle(string? nameCn, string? name)
             => !string.IsNullOrWhiteSpace(nameCn) ? nameCn
              : !string.IsNullOrWhiteSpace(name) ? name
@@ -341,7 +327,6 @@ namespace AniMeido.Plugin.Base.Services
                 .ToArray();
         }
 
-        // 判断条目的放送日期是否属于指定的年份和季度
         private static bool BelongsToSeason(CalendarItem item, int year, Season season)
         {
             if (!DateTime.TryParse(item.AirDate, out var dt))
@@ -351,7 +336,6 @@ namespace AniMeido.Plugin.Base.Services
             return dt.Year == year && SeasonHelper.FromMonth(dt.Month) == season;
         }
 
-        // 根据角色定位返回优先级，主角优先，配角次之，闲角最后。
         private static int GetCharacterPriority(string? relation) => relation switch
         {
             "主角" => 1,
@@ -360,7 +344,6 @@ namespace AniMeido.Plugin.Base.Services
             _ => 3
         };
 
-        // 将DTO SubjectResponse映射为Anime的辅助方法
         /// <summary>
         /// 人物作品：本地 Archive 会带上评分与日期，在线接口没有，这两项保持为 null，
         /// 由调用方决定是否再查详情。
@@ -418,13 +401,6 @@ namespace AniMeido.Plugin.Base.Services
 
 
 
-        /// <summary>
-        /// 以年-季度为条件筛选番剧，调用FetchByBrowse辅助方法
-        /// </summary>
-        /// <param name="year">筛选条件-年</param>
-        /// <param name="season">筛选条件-季度</param>
-        /// <param name="ct">取消令牌</param>
-        /// <returns>Anime列表</returns>
         /// <exception cref="ArgumentOutOfRangeException">筛选条件超出范围</exception>
         public async Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct)
         {
@@ -554,7 +530,6 @@ namespace AniMeido.Plugin.Base.Services
             }
         }
 
-        /// <summary>计算指定季度的放送日期范围。</summary>
         private static (string from, string to) GetSeasonDateRange(int year, Season season)
         {
             return season switch
@@ -630,12 +605,6 @@ namespace AniMeido.Plugin.Base.Services
             return allAnimes;
         }
 
-        /// <summary>
-        /// 获取特定番剧的详细信息
-        /// </summary>
-        /// <param name="animeID">番剧的唯一标识符</param>
-        /// <param name="ct">取消令牌</param>
-        /// <returns>番剧详情信息</returns>
         public async Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct)
         {
             return await GetCacheAsync($"detail:v{ImageUrlCacheVersion}:{animeID}", TimeSpan.FromDays(7),
@@ -647,12 +616,6 @@ namespace AniMeido.Plugin.Base.Services
                 ct);
         }
 
-        /// <summary>
-        /// 获取特定番剧的Studio信息
-        /// </summary>
-        /// <param name="animeID">番剧的唯一标识符</param>
-        /// <param name="ct">取消令牌</param>
-        /// <returns>Studio列表</returns>
         public async Task<List<Studio>> GetStudioAsync(int animeID, CancellationToken ct)
         {
             return await GetCacheAsync($"studio:v{ImageUrlCacheVersion}:{animeID}", TimeSpan.FromDays(7),
@@ -667,12 +630,6 @@ namespace AniMeido.Plugin.Base.Services
                 ct) ?? [];
         }
 
-        /// <summary>
-        /// 获取特定番剧的Tag信息
-        /// </summary>
-        /// <param name="animeID">番剧的唯一标识符</param>
-        /// <param name="ct">取消令牌</param>
-        /// <returns>Tag列表</returns>
         public async Task<List<Tag>> GetTagsAsync(int animeID, CancellationToken ct)
         {
             return await GetCacheAsync($"tags:{animeID}", TimeSpan.FromDays(7),
@@ -685,12 +642,6 @@ namespace AniMeido.Plugin.Base.Services
                 ct) ?? [];
         }
 
-        /// <summary>
-        /// 获取特定番剧的CV信息
-        /// </summary>
-        /// <param name="animeID">番剧的唯一标识符</param>
-        /// <param name="ct">取消令牌</param>
-        /// <returns>VoiceActor列表</returns>
         public async Task<List<VoiceActor>> GetCVsAsync(int animeID, CancellationToken ct)
         {
             return await GetCacheAsync($"cvs:v{ImageUrlCacheVersion}:{animeID}", TimeSpan.FromDays(7),
@@ -707,12 +658,6 @@ namespace AniMeido.Plugin.Base.Services
                 ct) ?? [];
         }
 
-        /// <summary>
-        /// 获取特定番剧的CV-角色对照信息
-        /// </summary>
-        /// <param name="animeID">番剧的唯一标识符</param>
-        /// <param name="ct">取消令牌</param>
-        /// <returns>CV-角色对照列表</returns>
         public async Task<List<CharacterRole>> GetCharacterRolesAsync(int animeID, CancellationToken ct)
         {
             return await GetCacheAsync($"characters:v{ImageUrlCacheVersion}:{animeID}", TimeSpan.FromDays(7),
@@ -726,16 +671,8 @@ namespace AniMeido.Plugin.Base.Services
                 ct) ?? [];
         }
 
-        /// <summary>
-        /// 按 Tag 搜索番剧（通过 Bangumi 搜索 API）。
         private const int SearchPageLimit = 20;      // API强制20
 
-        /// <summary>
-        /// 获取声优/人物参与的作品列表。
-        /// </summary>
-        /// <param name="personId">人物 ID。</param>
-        /// <param name="ct">取消令牌。</param>
-        /// <returns>人物参与的作品列表。</returns>
         public async Task<List<PersonWork>> GetPersonWorksAsync(int personId, CancellationToken ct)
         {
             return await GetCacheAsync($"person_works:v{PersonWorksCacheVersion}:{personId}", TimeSpan.FromDays(7),
@@ -766,13 +703,6 @@ namespace AniMeido.Plugin.Base.Services
                 ct) ?? [];
         }
 
-        /// <summary>
-        /// 按关键词搜索一页番剧。
-        /// </summary>
-        /// <param name="keyword">搜索关键词。</param>
-        /// <param name="offset">分页偏移量。</param>
-        /// <param name="ct">取消令牌。</param>
-        /// <returns>(匹配的 Anime 列表, 总条数)。</returns>
         public async Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct)
         {
             var request = new SearchSubjectRequest(
@@ -794,16 +724,9 @@ namespace AniMeido.Plugin.Base.Services
             return (animes, result.Total);
         }
 
-        /// <summary>
-        /// 按 Bangumi Tag 搜索一页番剧。
-        /// </summary>
-        /// <param name="tag">标签名称</param>
-        /// <param name="offset">分页偏移量</param>
         /// <param name="sort">排序方式："rank" / "date" / "match"</param>
-        /// <param name="ct">取消令牌</param>
         /// <param name="airDateFrom">起始日期（含），格式 "YYYY-MM-DD"，null 不限制</param>
         /// <param name="airDateTo">结束日期（不含），格式 "YYYY-MM-DD"，null 不限制</param>
-        /// <returns>(匹配的 Anime 列表, 总条数)</returns>
         public async Task<(List<Anime> Results, int Total)> SearchByTagAsync(string tag, int offset, string sort, CancellationToken ct, string? airDateFrom = null, string? airDateTo = null)
         {
             var filter = new SearchFilter(

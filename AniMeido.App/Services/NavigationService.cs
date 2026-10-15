@@ -6,9 +6,6 @@ using Microsoft.UI.Xaml.Controls;
 namespace AniMeido.App.Services
 {
     /// <summary>
-    /// App 层导航服务：负责页面创建、返回栈维护、导航参数传递。
-    /// 实现 IPluginNavigator 供插件层请求导航。
-    ///
     /// 返回栈保存页面实例 + 导航参数，确保返回时完整恢复页面内部状态（搜索关键词、滚动位置等）。
     /// 顶层导航（主导航、设置页）会清空返回栈。
     /// </summary>
@@ -20,19 +17,15 @@ namespace AniMeido.App.Services
         private Frame? _frame;
         private object? _lastParameter;
 
-        /// <summary>是否有上一页可返回。</summary>
         public bool CanGoBack => _backStack.CanGoBack;
 
-        /// <summary>当前页面类型。</summary>
         public Type? CurrentPageType { get; private set; }
 
-        /// <summary>是否已完成首次导航。</summary>
         public bool IsFirstNavigationCompleted { get; private set; }
 
-        /// <summary>首次导航完成信号，用于替代 AppServices.FirstPageLoaded。</summary>
+        /// <summary>首次导航挂载页面后的信号，不等待页面异步数据加载。</summary>
         internal TaskCompletionSource FirstNavigationCompleted { get; } = new();
 
-        /// <summary>导航完成后触发，参数为目标页面类型。</summary>
         public event Action<Type?>? Navigated;
 
         public NavigationService(PageFactory pageFactory, ILogger<NavigationService> logger)
@@ -41,16 +34,12 @@ namespace AniMeido.App.Services
             _logger = logger;
         }
 
-        /// <summary>
-        /// 绑定宿主 Frame。
-        /// </summary>
         public void Initialize(Frame frame)
         {
             _frame = frame;
         }
 
         /// <summary>
-        /// 导航到指定页面（实现 IPluginNavigator）。
         /// 由插件内部发起的导航（详情页、Tag 页、人物页）压入返回栈。
         /// </summary>
         public void Navigate(Type pageType, object? parameter = null)
@@ -83,13 +72,8 @@ namespace AniMeido.App.Services
             CurrentPageType = entry.Page.GetType();
             _lastParameter = entry.Parameter;
             Navigated?.Invoke(CurrentPageType);
-
-            // 注意：不重新调用 OnNavigatedToAsync。
-            // 返回栈保存的是完整的页面实例，内部状态（搜索词、滚动位置、数据列表等）应保持原样。
-            // 重新触发会丢失这些状态，与"保存页面实例"的设计目标冲突。
         }
 
-        /// <summary>清空返回栈。</summary>
         public void ClearBackStack() => _backStack.Clear();
 
         private enum NavigationMode { Push, TopLevel }
@@ -111,14 +95,12 @@ namespace AniMeido.App.Services
                 return;
             }
 
-            // 顶层导航清空返回栈，否则保存当前页面实例到返回栈
             if (mode == NavigationMode.TopLevel)
             {
                 _backStack.Clear();
             }
             else if (CurrentPageType != null && _frame.Content is Page currentPage)
             {
-                // 返回栈顶不是当前页时才压入
                 if (_backStack.Peek() is not { } top || (Page)top.Page != currentPage)
                     _backStack.Push(currentPage, _lastParameter);
             }
@@ -143,7 +125,6 @@ namespace AniMeido.App.Services
             if (page is INavigationAware aware)
                 InvokeNavigationAwareAsync(aware, parameter).Forget(_logger, "InvokeNavigationAware");
 
-            // 首次导航完成时设置信号
             if (!IsFirstNavigationCompleted)
             {
                 IsFirstNavigationCompleted = true;
@@ -159,10 +140,6 @@ namespace AniMeido.App.Services
             => currentPageType == targetPageType
                 && Equals(currentParameter, targetParameter);
 
-        /// <summary>
-        /// 安全调用 INavigationAware.OnNavigatedToAsync，捕获并记录异常。
-        /// fire-and-forget，不阻塞导航。
-        /// </summary>
         private async Task InvokeNavigationAwareAsync(INavigationAware aware, object? parameter)
         {
             try

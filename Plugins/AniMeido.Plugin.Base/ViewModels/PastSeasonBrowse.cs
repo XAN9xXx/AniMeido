@@ -175,7 +175,6 @@ public static class PastSeasonBrowse
             (Season)(remainder + 1));
     }
 
-    /// <summary>把季度限制在可浏览范围内。</summary>
     public static PastSeasonTarget Clamp(
         PastSeasonTarget target,
         PastSeasonTarget earliest,

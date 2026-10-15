@@ -23,7 +23,7 @@ namespace AniMeido.App.Services
         public void SetTheme(ElementTheme theme)
         {
             if (_rootElement is null) return;
-            if (_rootElement.RequestedTheme == theme) return; // 相同主题不重复应用
+            if (_rootElement.RequestedTheme == theme) return;
             _rootElement.RequestedTheme = theme;
             Microsoft.Win32.Registry.SetValue(
                 RegistryKey, "ThemeSetting", theme.ToString());

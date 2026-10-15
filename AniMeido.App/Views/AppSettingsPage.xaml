@@ -18,7 +18,6 @@
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
             </StackPanel>
 
-            <!-- 主题设置卡片 -->
             <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
                     CornerRadius="8"
                     Padding="16">
@@ -62,7 +61,6 @@
                 </Grid>
             </Border>
 
-            <!-- 可安装插件管理 -->
             <Grid Margin="0,12,0,0"
                   ColumnSpacing="12">
                 <Grid.ColumnDefinitions>
@@ -170,7 +168,6 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <!-- 当前 App 进程加载的核心插件 -->
             <StackPanel Orientation="Horizontal"
                         Spacing="8"
                         Margin="0,12,0,0">
@@ -210,7 +207,6 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <!-- 关于卡片 -->
             <Border Background="{ThemeResource CardBackgroundFillColorDefault}"
                     CornerRadius="8">
                 <StackPanel>

@@ -10,7 +10,6 @@
         public static IReadOnlyList<int> ByDate(IEnumerable<int> ids, DateOnly date)
             => ByKey(ids, (uint)date.DayNumber);
 
-        /// <summary>按任意键打乱；键相同则顺序相同。</summary>
         public static IReadOnlyList<int> ByKey(IEnumerable<int> ids, uint key)
             => ids
                 .Distinct()

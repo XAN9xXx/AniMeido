@@ -290,8 +290,6 @@ namespace AniMeido.Plugin.Base.Services
             return list;
         }
 
-        // ======== 拖放配置 ========
-
         public async Task SaveDragZoneConfigAsync(List<DragZoneConfig> configs)
         {
             var json = JsonSerializer.Serialize(configs, ConfigJsonOptions);
@@ -324,8 +322,6 @@ namespace AniMeido.Plugin.Base.Services
 
             return DragZoneConfig.GetDefaults();
         }
-
-        // ======== 放送日历“今日一抽” ========
 
         private const string CalendarDailyPickKey = "calendar_daily_pick";
 
@@ -452,7 +448,6 @@ namespace AniMeido.Plugin.Base.Services
             }
         }
 
-        /// <summary>记下番剧时光机每一季显示过的作品。</summary>
         public async Task SaveTimeMachineShownAsync(IReadOnlyDictionary<PastSeasonTarget, IReadOnlyList<int>> shown)
         {
             var json = JsonSerializer.Serialize(

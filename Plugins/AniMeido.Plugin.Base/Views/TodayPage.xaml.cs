@@ -591,8 +591,6 @@ public sealed partial class TodayPage : Page, INavigationAware
         }
     }
 
-    // ======== 今日主题 ========
-
     private async void OnThemePrimaryClick(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: TodayThemeItem item })

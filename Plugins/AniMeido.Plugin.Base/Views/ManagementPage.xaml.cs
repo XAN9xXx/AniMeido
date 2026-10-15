@@ -113,8 +113,6 @@ namespace AniMeido.Plugin.Base.Views
         private void OnErrorInfoBarClosed(InfoBar sender, InfoBarClosedEventArgs args)
             => ViewModel.IsError = false;
 
-        // ======== 导航 ========
-
         private async void OnStatusNavClick(object sender, RoutedEventArgs e)
         {
             if (sender is not FrameworkElement { Tag: TrackingStatusSection section })
@@ -132,8 +130,6 @@ namespace AniMeido.Plugin.Base.Views
             SearchBox.Text = "";
             await RunSafelyAsync(ViewModel.ShowTagsAsync, "show tags");
         }
-
-        // ======== 搜索与排序 ========
 
         private async void OnSearchQuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
         {
@@ -173,8 +169,6 @@ namespace AniMeido.Plugin.Base.Views
                     ViewModel.SetSortKey(key);
             };
         }
-
-        // ======== 列表／网格与批量 ========
 
         private void OnLayoutClick(object sender, RoutedEventArgs e)
         {
@@ -254,8 +248,6 @@ namespace AniMeido.Plugin.Base.Views
             return ChangeAsync(entries, target);
         }
 
-        // ======== 单部修改状态 ========
-
         private void OnRowStatusMenuOpening(object sender, object e)
         {
             if (sender is MenuFlyout { Target: FrameworkElement { Tag: MineEntry entry } } menu)
@@ -321,8 +313,6 @@ namespace AniMeido.Plugin.Base.Views
             }, "change status");
         }
 
-        // ======== 收藏的标签 ========
-
         private async void OnTagChipTapped(object sender, TappedRoutedEventArgs e)
         {
             // 标签上的 × 自己处理点击，不应同时选中这个标签。
@@ -349,8 +339,6 @@ namespace AniMeido.Plugin.Base.Views
             if (ViewModel.SelectedTag is { } tag)
                 _pluginNavigator.Navigate(typeof(TagSearchResultPage), tag);
         }
-
-        // ======== 打开详情 ========
 
         private void OnMineItemClick(object sender, ItemClickEventArgs e)
         {

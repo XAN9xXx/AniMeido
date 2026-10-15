@@ -20,7 +20,6 @@ namespace AniMeido.Plugin.Base.ViewModels
         Tags,
     }
 
-    /// <summary>批量或单部修改状态的结果。</summary>
     public readonly record struct StatusChangeResult(int Succeeded, int Failed);
 
     public partial class ManagementViewModel : ObservableObject
@@ -49,7 +48,6 @@ namespace AniMeido.Plugin.Base.ViewModels
         /// <summary>当前列表（状态或搜索结果），原地同步以保留滚动位置。</summary>
         public ObservableCollection<MineEntry> Entries { get; } = [];
 
-        /// <summary>所选标签下的作品。</summary>
         public ObservableCollection<PastSeasonEntry> TagEntries { get; } = [];
 
         public ObservableCollection<TagItem> TagList { get; } = [];

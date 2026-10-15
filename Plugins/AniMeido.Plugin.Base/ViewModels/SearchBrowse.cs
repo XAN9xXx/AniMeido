@@ -13,7 +13,6 @@ public enum SearchSortKey
 /// <summary>搜索页的最近搜索、分页合并与排序，不依赖 WinUI，便于测试。</summary>
 public static class SearchBrowse
 {
-    /// <summary>最近搜索最多保留的条数。</summary>
     public const int RecentLimit = 8;
 
     /// <summary>把这次搜索放到最前；同一个词（不分大小写）只保留一次，超出上限的旧词丢弃。</summary>

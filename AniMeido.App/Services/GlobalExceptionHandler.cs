@@ -2,12 +2,8 @@
 
 namespace AniMeido.App.Services;
 
-/// <summary>
-/// 全局未处理异常处理。注册到 AppDomain 和 WinUI。
-/// </summary>
 internal static class GlobalExceptionHandler
 {
-    /// <summary>注册三个全局异常处理入口。</summary>
     public static void Register()
     {
         AppDomain.CurrentDomain.UnhandledException += OnCurrentDomainUnhandledException;

@@ -311,7 +311,6 @@
                       VerticalContentAlignment="Top"
                       SizeChanged="OnBodyViewportSizeChanged">
             <Grid x:Name="CalendarBodyGrid" RowDefinitions="Auto,*">
-                <!-- 番剧区 -->
                 <Border x:Name="MainPanel"
                         Grid.Row="0"
                         SizeChanged="OnMainPanelSizeChanged"
@@ -633,7 +632,6 @@
                                                        ItemsStretch="Fill"/>
                                 </ItemsRepeater.Layout>
                             </ItemsRepeater>
-                            <!-- 加载中、失败或没有作品时的说明 -->
                             <Grid Grid.Row="1"
                                   ColumnDefinitions="*,Auto"
                                   ColumnSpacing="12"
@@ -657,7 +655,6 @@
             </Grid>
         </ScrollViewer>
 
-        <!-- 加载/重试覆盖层 -->
         <Grid Grid.Row="1"
               x:Name="LoadingOverlay"
               Visibility="Collapsed"

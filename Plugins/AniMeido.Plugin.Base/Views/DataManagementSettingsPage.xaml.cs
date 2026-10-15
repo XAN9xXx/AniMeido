@@ -383,7 +383,6 @@ namespace AniMeido.Plugin.Base.Views
 
             try
             {
-                // 检查文件大小（上限 10 MB）
                 var fileProps = await file.GetBasicPropertiesAsync();
                 if (fileProps.Size > 10 * 1024 * 1024)
                 {

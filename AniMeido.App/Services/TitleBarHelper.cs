@@ -6,9 +6,6 @@ using WinRT.Interop;
 
 namespace AniMeido.App.Services;
 
-/// <summary>
-/// 标题栏辅助：窗口图标设置、标题栏按钮颜色更新。
-/// </summary>
 public static class TitleBarHelper
 {
     /// <summary>设置 Alt+Tab 窗口图标。</summary>
@@ -34,7 +31,6 @@ public static class TitleBarHelper
             TitleBarHeightOption.Tall;
     }
 
-    /// <summary>更新标题栏按钮颜色以匹配当前主题。</summary>
     public static void UpdateButtonColors(AppWindow appWindow)
     {
         var titleBar = appWindow.TitleBar;

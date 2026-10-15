@@ -5,7 +5,7 @@ namespace AniMeido.Plugin.Player.Sources.Packages;
 
 /// <summary>
 /// Installs a trusted local source package into PlayerPlugin-owned storage.
-/// Changes take effect after AniMeido restarts.
+/// Managed-code source changes require a restart; other sources support catalog reload.
 /// </summary>
 public sealed class SourcePackageInstaller
 {

@@ -5,7 +5,6 @@ namespace AniMeido.Tests
 {
     public class DatabaseMigrationTests : DbTestBase
     {
-        /// <summary>使用生产 DatabaseService 执行完整迁移。</summary>
         private new async Task RunProductionMigrationAsync()
         {
             var db = new DatabaseService(DbFactory, Paths);
@@ -20,13 +19,11 @@ namespace AniMeido.Tests
             using var conn = new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString);
             await conn.OpenAsync();
 
-            // 检查 user_version
             var cmd = conn.CreateCommand();
             cmd.CommandText = "PRAGMA user_version";
             var version = Convert.ToInt32(await cmd.ExecuteScalarAsync());
             Assert.Equal(DatabaseSchema.CurrentVersion, version);
 
-            // 检查所有表是否存在
             cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name";
             var tables = new List<string>();
             using var reader = await cmd.ExecuteReaderAsync();
@@ -99,10 +96,8 @@ namespace AniMeido.Tests
                 await cmd.ExecuteNonQueryAsync();
             }
 
-            // 执行 migration（使用生产 DatabaseService）
             await RunProductionMigrationAsync();
 
-            // 验证 v1 数据还在
             using var verifyConn = new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString);
             await verifyConn.OpenAsync();
             var check = verifyConn.CreateCommand();
@@ -110,7 +105,6 @@ namespace AniMeido.Tests
             var status = Convert.ToInt32(await check.ExecuteScalarAsync());
             Assert.Equal(1, status);
 
-            // 验证 v2 新增表存在
             var tableCmd = verifyConn.CreateCommand();
             tableCmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='saved_tags'";
             var tableExists = await tableCmd.ExecuteScalarAsync();
@@ -173,10 +167,8 @@ namespace AniMeido.Tests
                 await cmd.ExecuteNonQueryAsync();
             }
 
-            // 执行迁移
             await RunProductionMigrationAsync();
 
-            // 验证 user_version
             using var verifyConn = new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString);
             await verifyConn.OpenAsync();
             var versionCmd = verifyConn.CreateCommand();
@@ -200,7 +192,6 @@ namespace AniMeido.Tests
         public async Task Migration_Idempotent_RunningTwiceIsSafe()
         {
             await RunProductionMigrationAsync();
-            // 第二次运行
             await RunProductionMigrationAsync();
 
             using var conn = new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString);

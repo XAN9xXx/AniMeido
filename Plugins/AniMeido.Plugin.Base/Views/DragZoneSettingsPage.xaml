@@ -19,7 +19,6 @@
                            TextWrapping="WrapWholeWords"/>
             </StackPanel>
 
-            <!-- 可视化预览区 -->
             <Border x:Name="PreviewBorder"
                     Height="360"
                     MaxHeight="400"
@@ -37,7 +36,6 @@
                 </Grid>
             </Border>
 
-            <!-- 添加区域按钮 -->
             <Button x:Name="AddZoneButton"
                     Content="＋ 添加区域"
                     HorizontalAlignment="Left"
@@ -45,7 +43,6 @@
                     Height="32"
                     FontSize="13"/>
 
-            <!-- 动态区域配置列表 -->
             <TextBlock Text="区域列表"
                        FontSize="16"
                        FontWeight="SemiBold"

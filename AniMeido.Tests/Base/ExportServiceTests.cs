@@ -33,12 +33,10 @@ namespace AniMeido.Tests
             var tracking = new TrackingService(DbFactory);
             var savedTag = new SavedTagService(DbFactory);
 
-            // 准备数据
             await tracking.SetStatusAsync(1, AnimeTrackingStatus.Watching);
             await tracking.SetStatusAsync(2, AnimeTrackingStatus.Completed);
             await savedTag.SaveTagAsync("原创");
 
-            // 导出
             var svc = new ExportService(tracking, savedTag, DbFactory);
             var json = await svc.ExportAsync();
 
@@ -49,7 +47,6 @@ namespace AniMeido.Tests
                 importDbFactory,
                 mockImportPaths).InitializeAsync();
 
-            // 导入
             var importSvc = new ExportService(
                 new TrackingService(importDbFactory),
                 new SavedTagService(importDbFactory),
@@ -64,7 +61,6 @@ namespace AniMeido.Tests
             Assert.Equal(4, configCount); // 导出时包含默认的4个拖放配置
             Assert.Equal(1, tagCount);
 
-            // 验证导入结果
             var status1 = await new TrackingService(importDbFactory).GetStatusAsync(1);
             var status2 = await new TrackingService(importDbFactory).GetStatusAsync(2);
             var tags = await new SavedTagService(importDbFactory).GetAllSavedTagsAsync();
@@ -82,7 +78,6 @@ namespace AniMeido.Tests
             var svc = CreateService();
             var json = await svc.ExportAsync();
 
-            // 预览
             var preview = ExportService.Preview(json);
             Assert.NotNull(preview);
 

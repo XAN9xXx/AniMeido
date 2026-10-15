@@ -53,7 +53,7 @@ public sealed class InstalledAppContext
         {
             return 0;
         }
-        // U4 的快捷方式必须设置同一个 AppUserModelID；通知设置跨版本保留仍需人工验收。
+        // 安装器创建的快捷方式必须使用同一个 AppUserModelID，保持跨版本通知身份一致。
         return SetCurrentProcessExplicitAppUserModelID("AniMeido.Desktop");
     }
 

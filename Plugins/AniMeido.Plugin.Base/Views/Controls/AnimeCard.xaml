@@ -31,7 +31,6 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- 封面图片 + 重试加载环 -->
                 <Grid x:Name="CoverHost"
                       Grid.Row="0"
                       Height="200">
@@ -44,12 +43,10 @@
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"/>
                     </Border>
-                    <!-- 已看完的作品压暗封面 -->
                     <Border x:Name="CompletedDim"
                             CornerRadius="10,10,0,0"
                             Background="#73000000"
                             Visibility="Collapsed"/>
-                    <!-- 封面重试加载环 -->
                     <Grid x:Name="RetryOverlay"
                           Visibility="Collapsed"
                           Background="{ThemeResource AniMeidoFailedOverlayBrush}">
@@ -103,7 +100,6 @@
                                Foreground="White"/>
                 </Border>
 
-                <!-- 评分角标（封面右下角） -->
                 <Border x:Name="ScoreBadge"
                         Background="{ThemeResource SystemAccentColor}"
                         CornerRadius="10,0,0,0"
@@ -221,7 +217,6 @@
                     </Grid>
                 </Grid>
 
-                <!-- 文字信息 -->
                 <StackPanel Grid.Row="1"
                             Padding="10,8">
                     <!-- 标题固定占两行：网格按第一张卡片的尺寸排列所有卡片，高度不一会截断其他卡片 -->

@@ -116,7 +116,6 @@ namespace AniMeido.Plugin.Base.Views
                 DragOverlay,
                 DragAction.PlanToWatch);
 
-            // 确保 Unloaded 只注册一次
             rootGrid.Unloaded -= OnRootGridUnloaded;
             rootGrid.Unloaded += OnRootGridUnloaded;
 
@@ -205,8 +204,6 @@ namespace AniMeido.Plugin.Base.Views
                 ViewModel.RetryLoadCommand.Execute(null);
             }
         }
-
-        // ======== 布局 ========
 
         /// <summary>
         /// 按天：先紧凑显示下方两块，再由正文滚动保留它们。
@@ -364,8 +361,6 @@ namespace AniMeido.Plugin.Base.Views
         }
 
 
-        // ======== 横向列表 ========
-
         private void OnShelfViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
         {
             if (!e.IsIntermediate)
@@ -411,8 +406,6 @@ namespace AniMeido.Plugin.Base.Views
             e.Handled = true;
         }
 
-        // ======== 工具栏 ========
-
         private void OnFilterTextChanged(object sender, TextChangedEventArgs e)
         {
             ViewModel.SearchText = FilterBox.Text;
@@ -455,8 +448,6 @@ namespace AniMeido.Plugin.Base.Views
             }
         }
 
-        // ======== 卡片与标记 ========
-
         private void OnAnimeCardClicked(object? sender, AnimeCardClickedEventArgs e)
         {
             _pluginNavigator.Navigate(typeof(AnimeDetailPage), e.Anime.ID);
@@ -474,8 +465,6 @@ namespace AniMeido.Plugin.Base.Views
                 _pluginNavigator.Navigate(typeof(AnimeDetailPage), anime.ID);
             }
         }
-
-        // ======== 番剧时光机 ========
 
         private async void OnTimeMachinePlanClick(object sender, RoutedEventArgs e)
         {

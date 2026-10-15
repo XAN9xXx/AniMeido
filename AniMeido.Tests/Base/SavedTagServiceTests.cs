@@ -31,7 +31,7 @@ namespace AniMeido.Tests
             var svc = CreateService();
 
             await svc.SaveTagAsync("原创");
-            await svc.SaveTagAsync("原创"); // duplicate
+            await svc.SaveTagAsync("原创");
             var tags = await svc.GetAllSavedTagsAsync();
 
             Assert.Single(tags);

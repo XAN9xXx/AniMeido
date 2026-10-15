@@ -26,7 +26,6 @@
             </ToggleButton>
         </DataTemplate>
 
-        <!-- 季度面板里的季度按钮 -->
         <Style x:Key="SeasonPickButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
             <Setter Property="HorizontalAlignment" Value="Stretch"/>
             <Setter Property="Padding" Value="0,6"/>
@@ -46,7 +45,6 @@
             <KeyboardAccelerator Modifiers="Control" Key="F" Invoked="OnFindAcceleratorInvoked"/>
         </Grid.KeyboardAccelerators>
 
-        <!-- 标题与本季计数 -->
         <StackPanel Orientation="Horizontal" Spacing="14" Margin="0,0,0,12">
             <TextBlock Text="番剧库" Style="{StaticResource AniMeidoPageTitleStyle}"/>
             <TextBlock Text="{x:Bind ViewModel.SummaryText, Mode=OneWay}"
@@ -194,7 +192,6 @@
             </Grid>
         </Border>
 
-        <!-- 内容区：网格、加载骨架、空结果与错误 -->
         <Grid Grid.Row="3" Margin="0,12,0,0">
             <GridView x:Name="AnimeGridView"
                       ItemsSource="{x:Bind ViewModel.Entries, Mode=OneWay}"

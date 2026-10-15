@@ -70,7 +70,7 @@
                   Margin="56,0,0,1"
                   Background="Transparent"/>
 
-            <!-- 返回按钮：圆角方块，与左侧导航栏对齐 -->
+            <!-- 返回按钮与左侧紧凑导航栏对齐 -->
             <Button x:Name="BackButton"
                     Width="40"
                     Height="36"
@@ -90,7 +90,6 @@
             </Button>
         </Grid>
 
-        <!-- 开屏覆盖层：覆盖全窗口 -->
         <Grid x:Name="SplashOverlay"
               Grid.RowSpan="3"
               Visibility="Visible"

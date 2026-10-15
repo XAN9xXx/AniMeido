@@ -106,7 +106,6 @@ namespace AniMeido.App
             SetTitleBar(AppTitleBar);
             UpdateBackButton();
 
-            // 主题切换时同步标题栏按钮颜色
             App.ThemeService.ThemeChanged += (_, _) => UpdateTitleBarButtons();
 
             // 主窗口关闭时停止排队中的导航状态恢复
@@ -134,7 +133,6 @@ namespace AniMeido.App
         {
             if (pageType == null) return;
 
-            // Settings 页：从 FooterMenuItems 中找到 "设置" 项
             if (pageType == typeof(Views.SettingPage))
             {
                 foreach (var item in MainNaviView.FooterMenuItems)
@@ -152,7 +150,6 @@ namespace AniMeido.App
                 return;
             }
 
-            // 普通页面：按 PluginNavigationItem.PageType 匹配
             foreach (var item in MainNaviView.MenuItems)
             {
                 if (item is NavigationViewItem navItem &&
@@ -209,7 +206,7 @@ namespace AniMeido.App
                 }
             }
 
-            // 等待首个页面加载完成（超时 10 秒兜底）
+            // 等待首次导航挂载页面（最多 10 秒），不等待页面的异步数据加载。
             await Task.WhenAny(_navigationService.FirstNavigationCompleted.Task, Task.Delay(10000));
             if (_isClosing)
                 return;
@@ -221,12 +218,10 @@ namespace AniMeido.App
             if (_isClosing)
                 return;
 
-            // 开屏淡出
             await _splash.FadeOutAsync();
             if (_isClosing)
                 return;
 
-            // 弹窗在开屏结束后显示
             await _dialogs.ShowPrivacyDialogAsync();
             if (_isClosing)
                 return;
@@ -249,7 +244,6 @@ namespace AniMeido.App
             ContentFrame.Content = null;
         }
 
-        //
         private void OnMainWindowClosing(object sender, WindowEventArgs args)
         {
             _isClosing = true;
@@ -261,7 +255,6 @@ namespace AniMeido.App
             _pluginContributions.Changed -= OnPluginContributionsChanged;
         }
 
-        //
         private void BuildNavigationMenu()
         {
             NavigationMenuBuilder.Build(
@@ -288,12 +281,10 @@ namespace AniMeido.App
                 }
             });
 
-        // 
         private void OnNaviItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
         {
             var container = args.InvokedItemContainer as NavigationViewItem;
 
-            // 设置页走单独的导航路径（顶层导航，清空返回栈）
             if (container?.Tag is string tag && tag == "Settings")
             {
                 if (_navigationService.CurrentPageType != typeof(Views.SettingPage))
@@ -304,7 +295,6 @@ namespace AniMeido.App
             if (container == null)
                 return;
 
-            // 应用关闭阶段不再处理导航点击
             if (_isClosing)
                 return;
 
@@ -312,7 +302,6 @@ namespace AniMeido.App
             {
                 if (navItem.Kind == PluginNavigationItemKind.Command && navItem.Command != null)
                 {
-                    // Command 类型入口：执行命令，不改变主窗口导航状态
                     if (navItem.Command.CanExecute(null))
                         navItem.Command.Execute(null);
 
@@ -325,7 +314,6 @@ namespace AniMeido.App
                     return;
                 }
 
-                // Page 类型入口：原有导航逻辑
                 if (navItem.PageType != null)
                 {
                     _navigationService.NavigateTopLevel(navItem.PageType);

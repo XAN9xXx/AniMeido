@@ -30,7 +30,6 @@ namespace AniMeido.Plugin.Base.Views
             PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
         };
 
-        // 年份区间状态
         private int _yearFrom;
         private int _yearTo;
 
@@ -42,8 +41,6 @@ namespace AniMeido.Plugin.Base.Views
         private readonly ObservableCollection<Anime> _animeSource = new();
 
         private bool _isInitializing;
-
-        // ======== 拖放标记 ========
 
         private DragDropService _dragDrop;
         private TrackingService _tracking;
@@ -72,7 +69,6 @@ namespace AniMeido.Plugin.Base.Views
                 DragOverlay,
                 DragAction.PlanToWatch);
 
-            // 确保 Unloaded 只注册一次
             RootGrid.Unloaded -= OnRootGridUnloaded;
             RootGrid.Unloaded += OnRootGridUnloaded;
 
@@ -101,7 +97,6 @@ namespace AniMeido.Plugin.Base.Views
                     return;
                 }
                 _blockedIds = blockedIds;
-                // 如果数据已经加载完成，重新过滤
                 if (_rawData != null)
                 {
                     ApplyPresentation();
@@ -155,7 +150,6 @@ namespace AniMeido.Plugin.Base.Views
                 YearToCombo.Items.Add(new ComboBoxItem { Content = y.ToString(), Tag = y });
             }
 
-            // 默认近 3 年
             _yearFrom = currentYear - 3;
             _yearTo = currentYear;
 
@@ -171,7 +165,6 @@ namespace AniMeido.Plugin.Base.Views
         {
             if (_dataSource == null || _currentTag == null) return;
 
-            // 取消上一轮搜索
             _searchCts?.Cancel();
             _searchCts?.Dispose();
             _searchCts = new CancellationTokenSource();

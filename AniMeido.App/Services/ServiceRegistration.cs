@@ -8,12 +8,8 @@ using Serilog;
 
 namespace AniMeido.App.Services;
 
-/// <summary>
-/// 核心服务注册。集中管理所有 App 级 DI 注册，减少 App.xaml.cs 的职责。
-/// </summary>
 internal static class ServiceRegistration
 {
-    /// <summary>注册所有 App 核心服务。</summary>
     public static IServiceCollection AddAppServices(this IServiceCollection services)
     {
         services.AddLogging(builder =>

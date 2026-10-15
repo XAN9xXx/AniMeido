@@ -67,8 +67,6 @@ namespace AniMeido.Plugin.Base.ViewModels
         /// <summary>
         /// 加载往季番剧页面数据。换季度时保留形态、排序与“隐藏看过”，清空搜索词。
         /// </summary>
-        /// <param name="year">要加载的年份</param>
-        /// <param name="season">要加载的季度</param>
         public async Task LoadPastSeasonAnimeAsync(int year, Season season, CancellationToken ct = default)
         {
             var version = Interlocked.Increment(ref _loadVersion);

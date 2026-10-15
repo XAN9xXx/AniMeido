@@ -18,7 +18,6 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- 错误提示 -->
         <InfoBar x:Name="ErrorInfoBar"
                  Grid.Row="0"
                  Margin="24,16,24,0"
@@ -26,7 +25,6 @@
                  IsClosable="True"
                  IsOpen="False"/>
 
-        <!-- 内容区域 -->
         <ScrollViewer Grid.Row="1"
                       x:Name="ContentScrollViewer">
             <Grid Padding="24,20,24,24">
@@ -35,7 +33,6 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- 左列：封面图 -->
                 <Border Grid.Column="0"
                         CornerRadius="12"
                         Margin="0,0,24,0"
@@ -48,11 +45,9 @@
                            Stretch="Uniform"/>
                 </Border>
 
-                <!-- 右列：信息 -->
                 <StackPanel Grid.Column="1"
                             Spacing="16">
 
-                    <!-- 标题 -->
                     <TextBlock Text="{Binding AnimeDetail.Title}"
                                Style="{StaticResource AniMeidoPageTitleStyle}"
                                TextWrapping="Wrap"/>
@@ -80,17 +75,14 @@
                         </Button>
                     </StackPanel>
 
-                    <!-- 制作/原作 -->
                     <TextBlock x:Name="DetailStudio"
                                FontSize="14"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                Visibility="Collapsed"/>
 
-                    <!-- 分割线 -->
                     <Border Height="1"
                             Background="{ThemeResource DividerStrokeColorDefault}"/>
 
-                    <!-- 发行信息 -->
                     <StackPanel Orientation="Horizontal"
                                 Spacing="8">
                         <TextBlock Text="{Binding AnimeDetail.AirDate}"
@@ -107,13 +99,11 @@
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </StackPanel>
 
-                    <!-- 评分 -->
                     <TextBlock x:Name="DetailScore"
                                FontSize="14"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                Visibility="Collapsed"/>
 
-                    <!-- 简介 -->
                     <Border Style="{StaticResource AniMeidoContentCardStyle}">
                         <StackPanel Spacing="10">
                             <TextBlock Text="简介"
@@ -125,7 +115,6 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- 角色区 -->
                     <StackPanel x:Name="CharacterSection"
                                 Visibility="Collapsed"
                                 Spacing="8">
@@ -140,11 +129,9 @@
                         </ScrollViewer>
                     </StackPanel>
 
-                    <!-- 分割线 -->
                     <Border Height="1"
                             Background="{ThemeResource DividerStrokeColorDefault}"/>
 
-                    <!-- 关注状态按钮 -->
                     <ScrollViewer
                         HorizontalScrollBarVisibility="Hidden"
                         HorizontalScrollMode="Auto"
@@ -182,18 +169,15 @@
                         </ItemsControl>
                     </ScrollViewer>
 
-                    <!-- 当前状态提示 -->
                     <TextBlock
                         FontSize="13"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                         Text="{x:Bind ViewModel.CurrentStatusHint, Mode=OneWay}"
                         Visibility="{x:Bind local:AnimeDetailPage.BooleanToVisibility(ViewModel.HasCurrentStatus), Mode=OneWay}"/>
 
-                    <!-- 分割线 -->
                     <Border Height="1"
                             Background="{ThemeResource DividerStrokeColorDefault}"/>
 
-                    <!-- 标签区域 -->
                     <TextBlock Text="Bangumi 标签"
                                Style="{StaticResource AniMeidoSectionTitleStyle}"/>
                     <StackPanel x:Name="TagContainer"
@@ -201,11 +185,9 @@
                                 Visibility="Collapsed">
                     </StackPanel>
 
-                    <!-- 分割线 -->
                     <Border Height="1"
                             Background="{ThemeResource DividerStrokeColorDefault}"/>
 
-                    <!-- Bangumi 百科入口 -->
                     <Border x:Name="BangumiCard"
                             Style="{StaticResource AniMeidoContentCardStyle}"
                             Padding="14,10"
@@ -237,7 +219,6 @@
             </Grid>
         </ScrollViewer>
 
-        <!-- 加载/重试覆盖层 -->
         <Grid Grid.Row="1"
               x:Name="LoadingOverlay"
               Visibility="Collapsed"

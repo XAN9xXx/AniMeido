@@ -20,7 +20,6 @@
     <DefineConstants>$(DefineConstants);UPDATE_TEST_SOURCE</DefineConstants>
   </PropertyGroup>
 
-  <!-- 测试项目可访问 internal 类型 -->
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
       <_Parameter1>AniMeido.Tests</_Parameter1>
@@ -65,7 +64,6 @@
                       Private="false" />
   </ItemGroup>
 
-  <!-- Publish Properties -->
   <PropertyGroup>
     <PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
     <PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">True</PublishReadyToRun>
@@ -79,7 +77,6 @@
 
   <!-- BasePlugin 是编译期依赖，由 ProjectReference 自动输出到根目录，无需额外复制 -->
 
-  <!-- 复制 App.pri 到 publish 目录 -->
   <Target Name="CopyAppPri" AfterTargets="Publish">
     <Copy SourceFiles="$(OutDir)$(TargetName).pri" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
   </Target>

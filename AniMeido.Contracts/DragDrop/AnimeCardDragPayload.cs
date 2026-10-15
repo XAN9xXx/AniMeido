@@ -22,11 +22,9 @@ namespace AniMeido.Contracts.DragDrop;
 /// </summary>
 public sealed class AnimeCardDragPayload
 {
-    /// <summary>载荷类型标识，固定为 "AniMeido.AnimeCard"。</summary>
     [JsonPropertyName("kind")]
     public string Kind { get; init; } = KnownDragDataFormats.AnimeCardKind;
 
-    /// <summary>结构版本号，用于兼容性判断。</summary>
     [JsonPropertyName("schemaVersion")]
     public int SchemaVersion { get; init; } = 1;
 
@@ -34,19 +32,15 @@ public sealed class AnimeCardDragPayload
     [JsonPropertyName("animeId")]
     public int AnimeId { get; init; }
 
-    /// <summary>番剧标题。</summary>
     [JsonPropertyName("title")]
     public string Title { get; init; } = string.Empty;
 
-    /// <summary>封面图片 URL。</summary>
     [JsonPropertyName("coverImageUrl")]
     public string? CoverImageUrl { get; init; }
 
-    /// <summary>简介摘要。</summary>
     [JsonPropertyName("summary")]
     public string? Summary { get; init; }
 
-    /// <summary>季度年份。</summary>
     [JsonPropertyName("seasonYear")]
     public int SeasonYear { get; init; }
 

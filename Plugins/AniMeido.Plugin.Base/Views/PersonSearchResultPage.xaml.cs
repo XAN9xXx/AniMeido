@@ -35,7 +35,6 @@ namespace AniMeido.Plugin.Base.Views
 
         public async Task OnNavigatedToAsync(object? parameter)
         {
-            // 取消上一轮加载
             _loadCts?.Cancel();
             _loadCts?.Dispose();
             _loadCts = new CancellationTokenSource();
@@ -168,8 +167,6 @@ namespace AniMeido.Plugin.Base.Views
             CancellationToken cancellationToken)
             => !cancellationToken.IsCancellationRequested
                 && loadVersion == _loadVersion;
-
-        // ======== 拖放 ========
 
         private void OnPageLoaded(object sender, RoutedEventArgs e)
         {

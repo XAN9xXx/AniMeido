@@ -1,10 +1,4 @@
 ﻿namespace AniMeido.Contracts.Models
 {
-    /// <summary>
-    /// 表示一个声优。
-    /// </summary>
-    /// <param name="VoiceActorId">声优的唯一标识符。</param>
-    /// <param name="Name">声优的姓名。</param>
-    /// <param name="CoverURL">声优的头像图片URL。</param>
     public record VoiceActor(int VoiceActorId, string Name, string? CoverURL);
 }

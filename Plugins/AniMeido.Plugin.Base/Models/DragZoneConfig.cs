@@ -14,10 +14,8 @@ namespace AniMeido.Plugin.Base.Models
 
     public class DragZoneConfig
     {
-        /// <summary>唯一标识，用于区分各区域。</summary>
         public string Id { get; set; } = Guid.NewGuid().ToString("N")[..8];
 
-        /// <summary>显示名称，如"左上角""新区域"。</summary>
         public string Label { get; set; } = "新区域";
 
         /// <summary>距左侧位置百分比 (0.0 ~ 1.0)。</summary>

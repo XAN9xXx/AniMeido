@@ -6,10 +6,6 @@ namespace AniMeido.App.Services;
 /// </summary>
 internal sealed record NavigationEntry(object Page, object? Parameter);
 
-/// <summary>
-/// 导航返回栈，用于 NavigationService 内部维护页面实例和参数。
-/// 提取为独立的可测试小类，避免在生产 NavigationService 中内联栈逻辑。
-/// </summary>
 internal sealed class NavigationStack
 {
     private readonly Stack<NavigationEntry> _stack = new();
@@ -18,7 +14,6 @@ internal sealed class NavigationStack
     public int Count => _stack.Count;
     public bool CanGoBack => _stack.Count > 0;
 
-    /// <summary>返回栈顶条目（不移除）。</summary>
     public NavigationEntry? Peek() => _stack.Count > 0 ? _stack.Peek() : null;
 
     /// <summary>压入条目。如果栈顶是重复页面（相同对象引用），跳过。</summary>
@@ -42,7 +37,6 @@ internal sealed class NavigationStack
         }
     }
 
-    /// <summary>弹出并返回栈顶条目。</summary>
     public NavigationEntry Pop()
     {
         if (_stack.Count == 0)
@@ -50,6 +44,5 @@ internal sealed class NavigationStack
         return _stack.Pop();
     }
 
-    /// <summary>清空返回栈。</summary>
     public void Clear() => _stack.Clear();
 }
