@@ -25,6 +25,8 @@ namespace AniMeido.Plugin.Base.ViewModels
         private int _nextOffset;
         private CancellationTokenSource? _searchCancellation;
         private int _searchVersion;
+        private bool _localSearchPending;
+        private bool _remoteSearchPending;
 
         /// <summary>Bangumi 结果：已去掉屏蔽，已按形态筛选和排序。</summary>
         public ObservableCollection<PastSeasonEntry> Results { get; } = [];
@@ -113,17 +115,23 @@ namespace AniMeido.Plugin.Base.ViewModels
         /// <summary>返回页面时重读追番状态，卡片标签与屏蔽随之更新。</summary>
         public async Task RefreshStatusesAsync()
         {
-            if (!HasSearched || await TryReadStatusesAsync() is not { } statuses)
+            var version = _searchVersion;
+            // 读取期间提交了新搜索或回到首页，代次都会变化。
+            if (!HasSearched || await TryReadStatusesAsync() is not { } statuses
+                || version != _searchVersion)
                 return;
 
             _statuses = statuses;
-            for (var index = 0; index < LocalMatches.Count; index++)
+            for (var index = LocalMatches.Count - 1; index >= 0; index--)
             {
                 var entry = LocalMatches[index];
                 var status = _statuses.GetValueOrDefault(entry.Anime.ID);
-                if (status != entry.Status)
+                if (status is AnimeTrackingStatus.None or AnimeTrackingStatus.Blocked)
+                    LocalMatches.RemoveAt(index);
+                else if (status != entry.Status)
                     LocalMatches[index] = entry with { Status = status };
             }
+            UpdateLocalSummary();
 
             ApplyResults();
         }
@@ -138,35 +146,52 @@ namespace AniMeido.Plugin.Base.ViewModels
             Query = trimmed;
             HasSearched = true;
             IsSearching = true;
+            IsLoadingMore = false;
+            _localSearchPending = true;
+            _remoteSearchPending = true;
             ClearError();
             _loaded = [];
             _total = 0;
             _nextOffset = 0;
             SelectedFormat = null;
             LocalMatches.Clear();
-            HasLocalMatches = false;
+            UpdateLocalSummary();
             ApplyResults();
             await RememberAsync(trimmed);
 
+            await RunPendingSearchAsync(version, token);
+        }
+
+        /// <summary>返回页面时只恢复尚未完成的搜索分支，保留已发布的结果和筛选。</summary>
+        public Task ResumePendingSearchAsync()
+        {
+            if (!HasSearched || _searchCancellation is not null)
+                return Task.CompletedTask;
+
+            var version = BeginSearch(out var token);
+            IsSearching = _localSearchPending || _remoteSearchPending;
+            ApplyResults();
+            return RunPendingSearchAsync(version, token);
+        }
+
+        private async Task RunPendingSearchAsync(int version, CancellationToken token)
+        {
             try
             {
-                if (await TryReadStatusesAsync() is { } statuses)
-                    _statuses = statuses;
-
-                var localTask = SearchLocalAsync(trimmed, token);
-                var (results, total) = await _dataSource.SearchByKeywordAsync(trimmed, 0, token);
-                var local = await localTask;
                 if (!IsCurrent(version, token))
                     return;
+                var statuses = await TryReadStatusesAsync();
+                if (!IsCurrent(version, token))
+                    return;
+                if (statuses is not null)
+                    _statuses = statuses;
 
-                Replace(LocalMatches, local);
-                HasLocalMatches = LocalMatches.Count > 0;
-                LocalSummary = $"{LocalMatches.Count} 部";
-                _loaded = SearchBrowse.AppendPage([], results);
-                _total = total;
-                _nextOffset = results.Count;
+                // 两路独立发布，远程失败或仍在等待时也能显示已取得的本地匹配。
+                await Task.WhenAll(
+                    _localSearchPending ? PublishLocalMatchesAsync(Query, version, token) : Task.CompletedTask,
+                    _remoteSearchPending ? SearchRemoteAsync(Query, version, token) : Task.CompletedTask);
             }
-            catch (Exception ex) when (HandleException(ex, token))
+            catch (Exception ex) when (HandleException(ex, version, token))
             {
             }
             finally
@@ -200,7 +225,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 // 空页说明已经到底，按实际加载数收尾，避免一直显示“加载更多”。
                 _total = results.Count == 0 ? _loaded.Count : total;
             }
-            catch (Exception ex) when (HandleException(ex, token))
+            catch (Exception ex) when (HandleException(ex, version, token))
             {
             }
             finally
@@ -218,6 +243,8 @@ namespace AniMeido.Plugin.Base.ViewModels
         {
             BeginSearch(out _);
             HasSearched = false;
+            _localSearchPending = false;
+            _remoteSearchPending = false;
             IsSearching = false;
             IsLoadingMore = false;
             ClearError();
@@ -255,6 +282,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             _searchCancellation = null;
             IsSearching = false;
             IsLoadingMore = false;
+            ApplyResults();
         }
 
         private void ApplyResults()
@@ -265,10 +293,55 @@ namespace AniMeido.Plugin.Base.ViewModels
             if (!CollectionSync.SyncInPlace(Results, shown, entry => entry.Anime.ID))
                 Replace(Results, shown);
 
-            SummaryText = HasSearched && !IsSearching ? SearchBrowse.Summary(_total, _loaded.Count) : "";
-            CanLoadMore = HasSearched && !IsSearching && _nextOffset < _total;
-            HasNoResults = HasSearched && !IsSearching && !IsError && Results.Count == 0;
+            SummaryText = HasSearched && !_remoteSearchPending && !IsSearching
+                ? SearchBrowse.Summary(_total, _loaded.Count) : "";
+            CanLoadMore = HasSearched && _searchCancellation is not null
+                && !IsSearching && !_remoteSearchPending && _nextOffset < _total;
+            HasNoResults = HasSearched && !_remoteSearchPending && !IsSearching && !IsError && Results.Count == 0;
             EmptyText = _loaded.Count == 0 ? $"没有找到与“{Query}”相关的番剧" : "当前筛选下没有作品";
+        }
+
+        private async Task PublishLocalMatchesAsync(string query, int version, CancellationToken token)
+        {
+            var local = await SearchLocalAsync(query, token);
+            if (!IsCurrent(version, token))
+                return;
+
+            _localSearchPending = false;
+            Replace(LocalMatches, local);
+            UpdateLocalSummary();
+        }
+
+        private async Task SearchRemoteAsync(string query, int version, CancellationToken token)
+        {
+            try
+            {
+                var (results, total) = await _dataSource.SearchByKeywordAsync(query, 0, token);
+                if (!IsCurrent(version, token))
+                    return;
+
+                _loaded = SearchBrowse.AppendPage([], results);
+                _total = total;
+                _nextOffset = results.Count;
+            }
+            catch (Exception ex) when (HandleException(ex, version, token))
+            {
+                // 就地发布远程错误，不等待可能仍在读取详情的本地搜索。
+            }
+            finally
+            {
+                if (IsCurrent(version, token))
+                {
+                    _remoteSearchPending = false;
+                    ApplyResults();
+                }
+            }
+        }
+
+        private void UpdateLocalSummary()
+        {
+            HasLocalMatches = LocalMatches.Count > 0;
+            LocalSummary = $"{LocalMatches.Count} 部";
         }
 
         private async Task<IReadOnlyList<PastSeasonEntry>> SearchLocalAsync(string query, CancellationToken token)
@@ -332,18 +405,24 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         private int BeginSearch(out CancellationToken token)
         {
+            var version = Interlocked.Increment(ref _searchVersion);
             _searchCancellation?.Cancel();
             _searchCancellation?.Dispose();
             _searchCancellation = new CancellationTokenSource();
             token = _searchCancellation.Token;
-            return Interlocked.Increment(ref _searchVersion);
+            return version;
         }
 
         private bool IsCurrent(int version, CancellationToken token)
             => version == _searchVersion && !token.IsCancellationRequested;
 
-        private bool HandleException(Exception exception, CancellationToken token)
+        private bool HandleException(Exception exception, int version, CancellationToken token)
         {
+            // 已离开页面或已提交新关键词时，旧请求的失败也不能覆盖新状态。
+            if (!IsCurrent(version, token) && exception is OperationCanceledException
+                or HttpRequestException or BangumiApiException or JsonException)
+                return true;
+
             switch (exception)
             {
                 case OperationCanceledException when token.IsCancellationRequested:

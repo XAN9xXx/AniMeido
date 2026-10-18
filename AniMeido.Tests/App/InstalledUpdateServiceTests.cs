@@ -217,6 +217,42 @@ public sealed class InstalledUpdateServiceTests
         Assert.Single(fixture.Requests.Where(request => request.Uri.EndsWith(".zip", StringComparison.Ordinal)));
     }
 
+    [Fact]
+    public async Task PrepareCoordinatesWithCleanupInAnotherInstance()
+    {
+        using var fixture = new Fixture();
+        var manifest = (await fixture.Service.CheckAsync("stable")).Manifest!;
+        var other = new InstallManager(new InstallStateStore(fixture.Root));
+        var checkedLock = false;
+
+        await fixture.Service.PrepareAsync(manifest, new InlineProgress(_ =>
+        {
+            Assert.Single(other.CleanupObsolete());
+            Assert.Throws<InstallException>(() => other.AcquireUpdateLock());
+            checkedLock = true;
+        }));
+
+        Assert.True(checkedLock);
+        Assert.Empty(other.CleanupObsolete());
+        Assert.Equal("2.3.0", other.ReadState().Pending);
+        Assert.True(InstallLayout.IsValidVersion(fixture.Root, "2.3.0"));
+    }
+
+    [Fact]
+    public async Task PrepareRejectsOtherInstanceUpdateBeforeDownloading()
+    {
+        using var fixture = new Fixture();
+        var manifest = (await fixture.Service.CheckAsync("stable")).Manifest!;
+        var other = new InstallManager(new InstallStateStore(fixture.Root));
+        using (other.AcquireUpdateLock())
+        {
+            await Assert.ThrowsAsync<InstallException>(() => fixture.Service.PrepareAsync(manifest));
+            Assert.DoesNotContain(fixture.Requests, request => request.Uri.EndsWith(".zip", StringComparison.Ordinal));
+            Assert.Null(other.ReadState().Pending);
+        }
+        Assert.Equal("2.3.0", await fixture.Service.PrepareAsync(manifest));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

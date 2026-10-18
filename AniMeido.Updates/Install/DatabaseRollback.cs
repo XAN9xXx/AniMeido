@@ -36,6 +36,8 @@ public static class DatabaseRollback
         var archived = false;
         var stagingCreated = false;
         var restoreTemporaryCreated = false;
+        var detachedSidecars = new List<(string Original, string Detached)>();
+        var databaseReplaced = false;
         try
         {
             // 无效备份不能改动任何文件，因此在另存之前先校验，且持有只读句柄直到复制完成。
@@ -73,18 +75,50 @@ public static class DatabaseRollback
                 backup.CopyTo(target);
                 target.Flush(flushToDisk: true);
             }
-            File.Delete(database + "-wal");
-            File.Delete(database + "-shm");
+            // 暂时移走而非删除：后续 SHM 移动或主库替换失败时，原 WAL 必须能原样放回。
+            foreach (var suffix in new[] { "-wal", "-shm" })
+            {
+                var original = database + suffix;
+                var detached = Path.Combine(archive, "AniMeido.db" + suffix + ".detached");
+                try
+                {
+                    File.Move(original, detached);
+                    detachedSidecars.Add((original, detached));
+                }
+                catch (FileNotFoundException)
+                {
+                    // 当前数据库可以没有 sidecar。
+                }
+            }
             File.Move(restoreTemporary, database, overwrite: true);
+            databaseReplaced = true;
             return new DatabaseRollbackResult(true, archive, null);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // 已完成的另存目录永不删除；恢复中止，InstallManager 不提交回滚状态。
-            return new DatabaseRollbackResult(false, archived ? archive : null, ex.Message);
+            var error = ex.Message;
+            for (var index = detachedSidecars.Count - 1; index >= 0; index--)
+            {
+                var (original, detached) = detachedSidecars[index];
+                try
+                {
+                    File.Move(detached, original);
+                }
+                catch (Exception recoveryError) when (recoveryError is IOException or UnauthorizedAccessException)
+                {
+                    // 不覆盖外部新建的文件；原始 sidecar 与完整归档都保留，明确报告恢复失败。
+                    error += $"\n无法放回 {original}，原文件保留在 {detached}：{recoveryError.Message}";
+                }
+            }
+            return new DatabaseRollbackResult(false, archived ? archive : null, error);
         }
         finally
         {
+            if (databaseReplaced)
+            {
+                foreach (var (_, detached) in detachedSidecars)
+                    TryDeleteTemporary(detached, isDirectory: false);
+            }
             if (stagingCreated)
             {
                 TryDeleteTemporary(staging, isDirectory: true);

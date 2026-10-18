@@ -142,7 +142,6 @@ namespace AniMeido.Plugin.Base.ViewModels
         private DateOnly _date;
         private TodayThemeKind _shownKind;
         private bool _loaded;
-        private bool _usesPersonalData;
 
         internal TodayThemeViewModel(
             IAnimeDataSource dataSource,
@@ -239,16 +238,17 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         /// <summary>
         /// 页面回到前台时调用（例如从详情页或档案馆返回，页面实例被复用）：
-        /// 被取消、还没有结果的加载重新开始；正在显示依赖个人数据的主题时重新计算，
-        /// 刚在别处评了分、改了标记的作品随之更新。失败的等用户点重试。
+        /// 重读个人状态，更新刚在别处评了分、改了标记的作品；
+        /// 公共主题复用候选缓存，不重复请求网络。失败的等用户点重试。
         /// </summary>
-        public void ResumeIfNeeded()
+        public void ResumeIfNeeded() => ResumeIfNeeded(DateOnly.FromDateTime(DateTime.Today));
+
+        internal void ResumeIfNeeded(DateOnly date)
         {
             if (_cts is not null || IsFailed)
                 return;
 
-            if (!_loaded || _usesPersonalData)
-                _ = LoadAsync();
+            PendingLoad = LoadForDateAsync(date);
         }
 
         internal async Task LoadForDateAsync(DateOnly date)
@@ -314,13 +314,11 @@ namespace AniMeido.Plugin.Base.ViewModels
                     ? $"今天轮到“{TodayThemeCatalog.GetTitle(kind)}”，但暂时没有符合条件的作品"
                     : content?.Caption ?? "";
                 SourceText = TodayThemeCatalog.GetSourceText(shownKind);
-                _usesPersonalData = TodayThemeCatalog.UsesPersonalData(shownKind);
                 IsFallback = isFallback;
 
                 _order = BuildOrder(content, context, keep);
                 _date = date;
                 _shownKind = shownKind;
-                CanShowNextBatch = CountSelectable() > BatchSize;
 
                 var stored = await TryLoadStateAsync();
                 if (cts.IsCancellationRequested)
@@ -382,11 +380,12 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         /// <summary>
         /// 执行行上的标记操作。“补番 / 关注”再点一次取消；“看完了 / 弃番”直接写入。
-        /// 上一次还没写完时不执行，返回 false；写入失败时抛出，由页面提示。
+        /// 上一次还没写完或主题正在刷新时不执行，返回 false；刷新读到的状态会盖过这次点击的显示。
+        /// 写入失败时抛出，由页面提示。
         /// </summary>
         public async Task<bool> ApplyStatusAsync(TodayThemeItem item, AnimeTrackingStatus status)
         {
-            if (item.IsSavingStatus)
+            if (item.IsSavingStatus || IsLoading)
                 return false;
 
             item.IsSavingStatus = true;
@@ -404,7 +403,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 }
 
                 // 标记过的作品不再换进来，“换一批”是否可用随之变化。
-                CanShowNextBatch = CountSelectable() > BatchSize;
+                CanShowNextBatch = HasUnshownCandidates();
                 return true;
             }
             finally
@@ -483,7 +482,8 @@ namespace AniMeido.Plugin.Base.ViewModels
             => _order.FirstOrDefault(item => item.Anime.ID == animeId) is { } item
                 && (item.RowKind != TodayThemeRowKind.Mark || item.Status == AnimeTrackingStatus.None);
 
-        private int CountSelectable() => _order.Count(item => IsSelectable(item.Anime.ID));
+        private bool HasUnshownCandidates()
+            => _order.Any(item => !_batchIds.Contains(item.Anime.ID) && IsSelectable(item.Anime.ID));
 
         /// <summary>显示一批；高分类主题一批内按评分从高到低排列。</summary>
         private void ShowBatch(IReadOnlyList<int> ids)
@@ -495,7 +495,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 _order.FirstOrDefault()?.RowKind == TodayThemeRowKind.Mark
                     ? batch.OrderByDescending(item => item.Anime.Score ?? 0)
                     : batch);
-            CanShowNextBatch = CountSelectable() > BatchSize;
+            CanShowNextBatch = HasUnshownCandidates();
         }
 
         /// <summary>

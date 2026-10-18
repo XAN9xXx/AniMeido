@@ -89,7 +89,7 @@ public sealed partial class TodayPage : Page, INavigationAware
     {
         // 从详情页或档案馆返回时复用的是同一个页面，不会再触发导航加载。
         // 离开时主加载被取消的，整页重新加载（会一并加载今日主题）；
-        // 否则只补上被取消的主题加载，本地主题重新读取。第一次显示由导航触发加载，这里不重复。
+        // 否则刷新主题的个人状态（公共候选复用缓存）。第一次显示由导航触发加载，这里不重复。
         if (_wasLoaded)
         {
             if (ViewModel.IsLoadInterrupted)

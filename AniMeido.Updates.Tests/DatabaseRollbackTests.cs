@@ -126,6 +126,34 @@ public sealed class DatabaseRollbackTests
             temp.PathFor("data/Backups/update/AniMeido-before-unsafe")));
     }
 
+    [Theory]
+    [InlineData("-shm")]
+    [InlineData("")]
+    public void FailureAfterDetachingWalRestoresAllOriginalFiles(string lockedSuffix)
+    {
+        using var temp = new InstallTestRoot();
+        var database = temp.MakeDatabase("data/AniMeido.db", "new");
+        var backup = temp.MakeDatabase("before.db", "old");
+        File.WriteAllText(database + "-wal", "committed but not checkpointed");
+        File.WriteAllText(database + "-shm", "shm");
+        var original = File.ReadAllBytes(database);
+        var archive = DatabaseRollback.GetArchiveDirectory(temp.PathFor("data"), "2.2.0");
+        // 允许归档读取，但阻止移动 SHM 或替换主库；此时 WAL 已经移走。
+        using var held = new FileStream(database + lockedSuffix, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+        var result = DatabaseRollback.Restore(temp.PathFor("data"), backup, archive);
+
+        Assert.False(result.Success);
+        Assert.Equal(archive, result.ArchiveDirectory);
+        Assert.Equal(original, File.ReadAllBytes(database));
+        Assert.Equal("committed but not checkpointed", File.ReadAllText(database + "-wal"));
+        Assert.Equal("shm", File.ReadAllText(database + "-shm"));
+        Assert.Equal(original, File.ReadAllBytes(Path.Combine(archive, "AniMeido.db")));
+        Assert.Equal("committed but not checkpointed", File.ReadAllText(Path.Combine(archive, "AniMeido.db-wal")));
+        Assert.Empty(Directory.GetFiles(archive, "*.detached"));
+        Assert.False(File.Exists(database + ".restore-tmp"));
+    }
+
     private static string[] Snapshot(string root) => Directory.GetFiles(root, "*", SearchOption.AllDirectories)
         .OrderBy(path => path, StringComparer.Ordinal)
         .Select(path => path + ":" + Convert.ToBase64String(File.ReadAllBytes(path))).ToArray();

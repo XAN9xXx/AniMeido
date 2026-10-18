@@ -127,6 +127,8 @@ public sealed class InstalledUpdateService
             await _context.StartupCleanup.WaitAsync(cancellationToken).ConfigureAwait(false);
             var manager = CreateManager();
             var version = manifest.Version.ToString();
+            cancellationToken.ThrowIfCancellationRequested();
+            using var updateLock = manager.AcquireUpdateLock();
             var target = InstallLayout.VersionDirectory(_context.InstallRoot!, version);
             var state = manager.ReadState();
             if (Directory.Exists(target) || File.Exists(target))

@@ -87,6 +87,7 @@ Type: filesandordirs; Name: "{app}\*.staging"
 Type: filesandordirs; Name: "{app}\packages"
 Type: files; Name: "{app}\state.json"
 Type: files; Name: "{app}\state.lock"
+Type: files; Name: "{app}\update.lock"
 Type: dirifempty; Name: "{app}"
 
 [Code]

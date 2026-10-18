@@ -6,6 +6,23 @@ public sealed class InstallManager(InstallStateStore store, Action<string>? log 
 {
     public InstallState ReadState() => store.Read();
 
+    /// <summary>
+    /// 下载、解压到登记 pending 全程与清理共用此跨进程锁。
+    /// 先取得此锁，再访问 state.lock；不在网络请求期间占用状态锁。
+    /// </summary>
+    public IDisposable AcquireUpdateLock()
+    {
+        try
+        {
+            return new FileStream(Path.Combine(store.Root, "update.lock"), FileMode.OpenOrCreate,
+                FileAccess.ReadWrite, FileShare.None);
+        }
+        catch (IOException ex)
+        {
+            throw new InstallException("无法取得 update.lock；另一个实例可能正在准备更新或清理，请稍后重试。", ex);
+        }
+    }
+
     /// <summary>已有 App 正在运行时，只读正式状态；不恢复状态，也不删除 tmp。</summary>
     public string GetCurrentExecutableReadOnly() => store.WithLock(() =>
         InstallLayout.ExecutablePath(store.Root, store.ReadExistingLocked().Current));
@@ -129,6 +146,7 @@ public sealed class InstallManager(InstallStateStore store, Action<string>? log 
         var errors = new List<CleanupError>();
         try
         {
+            using var updateLock = AcquireUpdateLock();
             store.WithLock(() =>
             {
                 var state = store.ReadLocked();

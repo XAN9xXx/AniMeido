@@ -111,6 +111,27 @@ public sealed class SourcePackageInstallerTests : IDisposable
         Assert.Empty(await installer.ListAsync(CancellationToken.None));
     }
 
+    [Theory]
+    [InlineData(".example")]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData("example.backup-source")]
+    [InlineData("example.remove-source")]
+    [InlineData("example.BACKUP-source")]
+    [InlineData("example.REMOVE-source")]
+    [InlineData("example.")]
+    public async Task InstallAsync_RejectsIdsDiscoveryCannotFind(string id)
+    {
+        var sourcesDirectory = Path.Combine(_testDirectory, "Sources");
+        var installer = new SourcePackageInstaller(sourcesDirectory);
+        var package = CreatePackage(id, "1.0.0", "{}");
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => installer.InstallAsync(package, CancellationToken.None));
+
+        Assert.Empty(await installer.ListAsync(CancellationToken.None));
+        Assert.Empty(SourcePackageDiscovery.EnumerateEnabledPackageDirectories(sourcesDirectory));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_testDirectory))

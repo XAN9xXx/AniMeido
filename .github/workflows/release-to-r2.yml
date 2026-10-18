@@ -7,6 +7,13 @@ on:
 permissions:
   contents: read
 
+# Serialize all R2 publications, including reruns. Never cancel between the signature and manifest uploads.
+concurrency:
+  group: release-to-r2
+  cancel-in-progress: false
+  # Keep pending releases rather than replacing the previous one (up to 100 pending runs).
+  queue: max
+
 jobs:
   upload:
     runs-on: ubuntu-latest

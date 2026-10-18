@@ -251,6 +251,54 @@ public sealed class TodayThemeTests : DbTestBase
         Assert.True(vm.HasStatusText);
     }
 
+    [Theory]
+    [InlineData(TodayThemeKind.LastSeasonTop)]
+    [InlineData(TodayThemeKind.OneYearAgoSeason)]
+    [InlineData(TodayThemeKind.Movies)]
+    public async Task Resume_PublicThemeRefreshesStatusesWithoutRefetchingCandidates(TodayThemeKind kind)
+    {
+        await RunProductionMigrationAsync();
+        var tracking = new TrackingService(DbFactory);
+        var source = new ThemeSource();
+        var vm = NewViewModel(source, tracking);
+        var date = DateWith(kind);
+        await vm.LoadForDateAsync(date);
+        var blocked = vm.Items[0];
+        var followedId = vm.Items[1].Anime.ID;
+        var seasonRequests = source.SeasonRequests;
+        var searchRequests = source.SearchCount;
+        await tracking.SetStatusAsync(blocked.Anime.ID, AnimeTrackingStatus.Blocked);
+        await tracking.SetStatusAsync(followedId, AnimeTrackingStatus.Following);
+
+        vm.ResumeIfNeeded(date);
+        await vm.PendingLoad;
+
+        Assert.False(vm.IsFailed);
+        Assert.DoesNotContain(vm.Items, item => item.Anime.ID == blocked.Anime.ID);
+        Assert.Contains(vm.Items, item => item.Anime.ID == followedId && item.Status == AnimeTrackingStatus.Following);
+        Assert.Equal(seasonRequests, source.SeasonRequests);
+        Assert.Equal(searchRequests, source.SearchCount);
+    }
+
+    [Fact]
+    public async Task NextBatch_RemainsAvailableForUnshownSeventhCandidateAfterMarking()
+    {
+        await RunProductionMigrationAsync();
+        var vm = NewViewModel(new ThemeSource { SeasonSize = 7 }, new TrackingService(DbFactory));
+        await vm.LoadForDateAsync(DateWith(TodayThemeKind.LastSeasonTop));
+        var unseen = Enumerable.Range(101, 7).Except(vm.Items.Select(item => item.Anime.ID)).Single();
+        var marked = vm.Items[0];
+
+        await vm.ApplyStatusAsync(marked, AnimeTrackingStatus.PlanToWatch);
+
+        Assert.True(vm.CanShowNextBatch);
+        await vm.NextBatchCommand.ExecuteAsync(null);
+        Assert.Contains(vm.Items, item => item.Anime.ID == unseen);
+        Assert.DoesNotContain(vm.Items, item => item.Anime.ID == marked.Anime.ID);
+        Assert.Equal(TodayThemeViewModel.BatchSize, vm.Items.Count);
+        Assert.False(vm.CanShowNextBatch);
+    }
+
     [Fact]
     public void SelectRevisited_KeepsUnmarkedViewedTwiceNewestFirst()
     {
@@ -669,6 +717,8 @@ public sealed class TodayThemeTests : DbTestBase
         /// <summary>每一季都没有作品。</summary>
         public bool EmptySeasons { get; init; }
 
+        public int SeasonSize { get; init; } = 20;
+
         public int SeasonRequests { get; private set; }
 
         public int SearchCount { get; private set; }
@@ -683,7 +733,7 @@ public sealed class TodayThemeTests : DbTestBase
                 ? Task.FromException<List<Anime>>(new HttpRequestException("offline"))
                 : Task.FromResult(EmptySeasons
                     ? new List<Anime>()
-                    : Enumerable.Range(101, 20).Select(id => Item(id, 6.0 + (id - 100) * 0.1)).ToList());
+                    : Enumerable.Range(101, SeasonSize).Select(id => Item(id, 6.0 + (id - 100) * 0.1)).ToList());
         }
 
         public string? LastTag { get; private set; }

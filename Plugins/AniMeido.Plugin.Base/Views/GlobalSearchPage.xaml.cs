@@ -19,6 +19,7 @@ namespace AniMeido.Plugin.Base.Views
         private readonly IPluginNavigator _pluginNavigator;
         private readonly ILogger<GlobalSearchPage> _logger;
         private IDisposable? _dropHostRegistration;
+        private int _loadVersion;
 
         public GlobalSearchViewModel ViewModel { get; }
 
@@ -50,6 +51,7 @@ namespace AniMeido.Plugin.Base.Views
 
         private async void OnPageLoaded(object sender, RoutedEventArgs e)
         {
+            var version = ++_loadVersion;
             _dropHostRegistration?.Dispose();
             _dropHostRegistration = _dragDrop.AttachStandardDragHost(
                 RootGrid,
@@ -61,11 +63,17 @@ namespace AniMeido.Plugin.Base.Views
 
             // 返回页面时：刷新首页内容，并按最新追番状态更新结果（刚屏蔽的会移除）。
             await RunSafelyAsync(ViewModel.LoadLandingAsync, "load landing");
+            if (version != _loadVersion)
+                return;
             await RunSafelyAsync(ViewModel.RefreshStatusesAsync, "refresh statuses");
+            if (version != _loadVersion)
+                return;
+            await RunSafelyAsync(ViewModel.ResumePendingSearchAsync, "resume search");
         }
 
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
         {
+            ++_loadVersion;
             ViewModel.CancelPendingSearch();
             _dropHostRegistration?.Dispose();
             _dropHostRegistration = null;

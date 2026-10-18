@@ -1,6 +1,7 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Desktop;
 using AniMeido.Contracts.Playback;
+using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using Microsoft.Data.Sqlite;
@@ -126,10 +127,11 @@ public sealed partial class ArchivePage : Page, INavigationAware
         var cancellationToken = _pageLifetime.Token;
         try
         {
-            if (!_coverRequests.TryGetValue(animeId.Value, out var request))
+            if (!_coverRequests.TryGetValue(animeId.Value, out var request)
+                || request.IsFaulted || request.IsCanceled)
             {
                 request = FetchArchiveCoverAsync(animeId.Value, cancellationToken);
-                _coverRequests.Add(animeId.Value, request);
+                _coverRequests[animeId.Value] = request;
             }
 
             // 详情已取到时同步配置：同一封面不会被清空重载。
@@ -156,11 +158,11 @@ public sealed partial class ArchivePage : Page, INavigationAware
             when (cancellationToken.IsCancellationRequested)
         {
         }
-        catch (Exception ex) when (ex is HttpRequestException
+        catch (Exception ex) when (ex is HttpRequestException or BangumiApiException
             or IOException or InvalidOperationException
             or TaskCanceledException or JsonException)
         {
-            _coverRequests.Remove(animeId.Value);
+            // 失败的请求留在 _coverRequests 里也无妨：下次取用时发现失败会重新请求。
             ManagedImageLoader.Cancel(image);
         }
     }
@@ -893,12 +895,13 @@ public sealed partial class ArchivePage : Page, INavigationAware
     {
         try
         {
-            if (!_coverRequests.TryGetValue(animeId, out var request))
+            if (!_coverRequests.TryGetValue(animeId, out var request)
+                || request.IsFaulted || request.IsCanceled)
             {
                 request = FetchArchiveCoverAsync(
                     animeId,
                     _pageLifetime?.Token ?? cancellationToken);
-                _coverRequests.Add(animeId, request);
+                _coverRequests[animeId] = request;
             }
             var anime = await request;
             if (selectionVersion == _selectionVersion
@@ -923,11 +926,11 @@ public sealed partial class ArchivePage : Page, INavigationAware
             when (cancellationToken.IsCancellationRequested)
         {
         }
-        catch (Exception ex) when (ex is HttpRequestException
+        catch (Exception ex) when (ex is HttpRequestException or BangumiApiException
             or IOException or InvalidOperationException
             or TaskCanceledException or JsonException)
         {
-            _coverRequests.Remove(animeId);
+            // 主视觉留空即可；失败的请求下次取用时会重新发起。
         }
     }
 

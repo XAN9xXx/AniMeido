@@ -4,6 +4,11 @@ internal static class SourcePackageDiscovery
 {
     public const string DisabledMarkerName = ".disabled";
 
+    internal static bool IsReservedDirectoryName(string name)
+        => name.StartsWith(".", StringComparison.Ordinal)
+            || name.Contains(".backup-", StringComparison.OrdinalIgnoreCase)
+            || name.Contains(".remove-", StringComparison.OrdinalIgnoreCase);
+
     public static IEnumerable<string> EnumerateEnabledPackageDirectories(
         string sourcesDirectory)
     {
@@ -28,9 +33,7 @@ internal static class SourcePackageDiscovery
     {
         var name = Path.GetFileName(directory);
         return !string.IsNullOrWhiteSpace(name)
-            && !name.StartsWith(".", StringComparison.Ordinal)
-            && !name.Contains(".backup-", StringComparison.OrdinalIgnoreCase)
-            && !name.Contains(".remove-", StringComparison.OrdinalIgnoreCase)
+            && !IsReservedDirectoryName(name)
             && File.Exists(Path.Combine(directory, "source-package.json"));
     }
 }

@@ -605,6 +605,9 @@ public sealed class SourcePackageInstaller
     {
         if (manifest.FormatVersion is not (1 or 2)
             || string.IsNullOrWhiteSpace(manifest.Id)
+            || SourcePackageDiscovery.IsReservedDirectoryName(manifest.Id)
+            // Windows 路径会去掉末尾的点，"abc." 与 "abc" 会落到同一个目录。
+            || manifest.Id.EndsWith('.')
             || manifest.Id.Any(character =>
                 !char.IsAsciiLetterOrDigit(character)
                 && character is not '.' and not '-' and not '_')

@@ -45,7 +45,11 @@ if (-not (Test-Path -LiteralPath $sourceDirectory -PathType Container)) {
 if ([IO.Path]::GetExtension($outputFile) -ne '.animeido-source') {
     throw '输出文件扩展名必须是 .animeido-source。'
 }
-if ($SourceId -notmatch '^[A-Za-z0-9._-]+$') {
+if ($SourceId -notmatch '^[A-Za-z0-9._-]+$' -or
+    $SourceId.StartsWith('.', [StringComparison]::Ordinal) -or
+    $SourceId.EndsWith('.', [StringComparison]::Ordinal) -or
+    $SourceId.Contains('.backup-', [StringComparison]::OrdinalIgnoreCase) -or
+    $SourceId.Contains('.remove-', [StringComparison]::OrdinalIgnoreCase)) {
     throw "源 ID 格式无效：$SourceId"
 }
 if (-not [Version]::TryParse($Version, [ref]([Version]$null))) {

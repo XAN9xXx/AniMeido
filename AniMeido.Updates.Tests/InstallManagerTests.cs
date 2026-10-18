@@ -430,6 +430,36 @@ public sealed class InstallManagerTests
     }
 
     [Fact]
+    public void UpdateLockProtectsPackagesStagingAndUnregisteredVersionFromOtherManager()
+    {
+        using var temp = new InstallTestRoot();
+        temp.Save();
+        var second = new InstallManager(new InstallStateStore(temp.Root));
+        var target = temp.AddVersion("2.3.0");
+        var staging = temp.AddVersion("2.4.0.staging");
+        Directory.CreateDirectory(temp.PathFor("packages"));
+        var zip = temp.PathFor("packages/prepared.zip");
+        File.WriteAllText(zip, "closed ZIP awaiting extraction");
+
+        using (temp.Manager.AcquireUpdateLock())
+        {
+            Assert.Throws<InstallException>(() => second.AcquireUpdateLock());
+            Assert.Single(second.CleanupObsolete());
+            Assert.True(File.Exists(zip));
+            Assert.True(Directory.Exists(staging));
+            Assert.True(Directory.Exists(target));
+            Assert.Null(second.ReadState().Pending); // 更新锁不能长时间占用 state.lock。
+            temp.Manager.SetPending("2.3.0");
+        }
+
+        Assert.Empty(second.CleanupObsolete());
+        Assert.True(Directory.Exists(target));
+        Assert.Equal("2.3.0", second.ReadState().Pending);
+        Assert.False(File.Exists(zip));
+        Assert.False(Directory.Exists(staging));
+    }
+
+    [Fact]
     public void CleanupPackagesDeletesAllZipAndOnlyExpiredPartial()
     {
         using var temp = new InstallTestRoot();
