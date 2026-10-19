@@ -185,35 +185,6 @@
                                 Visibility="Collapsed">
                     </StackPanel>
 
-                    <Border Height="1"
-                            Background="{ThemeResource DividerStrokeColorDefault}"/>
-
-                    <Border x:Name="BangumiCard"
-                            Style="{StaticResource AniMeidoContentCardStyle}"
-                            Padding="14,10"
-                            IsTapEnabled="True"
-                            Tapped="OnBangumiCardTapped"
-                            PointerEntered="OnBangumiPointerEntered"
-                            PointerExited="OnBangumiPointerExited"
-                            PointerPressed="OnBangumiPointerPressed"
-                            PointerReleased="OnBangumiPointerReleased"
-                            HorizontalAlignment="Left">
-                        <StackPanel Orientation="Horizontal"
-                                    Spacing="8">
-                            <FontIcon Glyph="&#xE774;"
-                                      FontSize="14"
-                                      Foreground="{ThemeResource SystemAccentColor}"
-                                      VerticalAlignment="Center"/>
-                            <TextBlock Text="查看 Bangumi 百科条目"
-                                       VerticalAlignment="Center"
-                                       FontSize="14"
-                                       FontWeight="SemiBold"/>
-                            <FontIcon Glyph="&#xE2B1;"
-                                      FontSize="12"
-                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                      VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Border>
 
                 </StackPanel>
             </Grid>

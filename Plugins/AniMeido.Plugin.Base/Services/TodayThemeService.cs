@@ -399,7 +399,7 @@ namespace AniMeido.Plugin.Base.Services
                     }
                     catch (Exception ex) when (
                         ex is HttpRequestException
-                        or BangumiApiException
+                        or MetadataServiceException
                         or InvalidOperationException
                         or System.Text.Json.JsonException
                         or TaskCanceledException)
@@ -594,7 +594,7 @@ namespace AniMeido.Plugin.Base.Services
                     }
                     catch (Exception ex) when (
                         ex is HttpRequestException
-                        or BangumiApiException
+                        or MetadataServiceException
                         or InvalidOperationException
                         or System.Text.Json.JsonException
                         or TaskCanceledException)

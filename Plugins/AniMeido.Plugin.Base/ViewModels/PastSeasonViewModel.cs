@@ -100,7 +100,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 ErrorMessage = $"网络请求失败：{ex.Message}";
                 IsError = true;
             }
-            catch (BangumiApiException ex)
+            catch (MetadataServiceException ex)
             {
                 if (!IsCurrentLoad(version, ct))
                     return;

@@ -1,4 +1,4 @@
-﻿using AniMeido.Contracts;
+using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models;
@@ -16,19 +16,12 @@ namespace AniMeido.Plugin.Base.Views
     public sealed partial class TagSearchResultPage : Page, INavigationAware
     {
         private IAnimeDataSource? _dataSource;
-        private CacheService? _cacheService;
         private IPluginNavigator _pluginNavigator;
         private string? _currentTag;
         private string _currentSort = "rank";
         private bool _sortDescending = true;
         private const int PageSize = 20;
         private const int YearStart = 1960;
-
-        private static readonly JsonSerializerOptions JsonOptions = new()
-        {
-            PropertyNameCaseInsensitive = true,
-            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
-        };
 
         private int _yearFrom;
         private int _yearTo;
@@ -54,7 +47,6 @@ namespace AniMeido.Plugin.Base.Views
             ResultGrid.ItemsSource = _animeSource;
             _dragDrop = dragDropService;
             _dataSource = dataSource;
-            _cacheService = cacheService;
             _tracking = trackingService;
             _pluginNavigator = pluginNavigator;
         }
@@ -175,35 +167,6 @@ namespace AniMeido.Plugin.Base.Views
             _animeSource.Clear();
             PaginationBar.Visibility = Visibility.Collapsed;
 
-            var cacheKey = $"tag_search:{_currentTag}:{_yearFrom}:{_yearTo}";
-
-            if (_cacheService != null)
-            {
-                var cached = await _cacheService.GetCacheAsync(cacheKey);
-                token.ThrowIfCancellationRequested();
-                if (version != _searchVersion) return;
-                if (cached != null)
-                {
-                    try
-                    {
-                        var deserialized = JsonSerializer.Deserialize<List<Anime>>(
-                            cached,
-                            JsonOptions);
-                        if (deserialized != null)
-                        {
-                            _rawData = deserialized;
-                            ApplyPresentation();
-                            ShowPage(0);
-                            return;
-                        }
-                    }
-                    catch (JsonException)
-                    {
-                        await _cacheService.RemoveCacheAsync(cacheKey);
-                    }
-                }
-            }
-
             if (version != _searchVersion) return;
             LoadingOverlay.Visibility = Visibility.Visible;
             LoadingRing.IsActive = true;
@@ -226,34 +189,12 @@ namespace AniMeido.Plugin.Base.Views
 
             try
             {
-                var cacheGeneration = _cacheService?.CaptureGeneration() ?? 0;
-                var allResults = new List<Anime>();
-                var seenIds = new HashSet<int>();
-                var yearCount = _yearTo - _yearFrom + 1;
-
-                for (int y = _yearFrom; y <= _yearTo; y++)
-                {
-                    var idx = y - _yearFrom + 1;
-                    LoadingText.Text = $"正在加载 {y} 年数据… 第 {idx}/{yearCount} 年";
-                    await LoadYearDataAsync(y, allResults, seenIds, token);
-                }
-
+                var allResults = await TagSearchResults.LoadAsync(
+                    _dataSource, _currentTag, _yearFrom, _yearTo, token);
                 token.ThrowIfCancellationRequested();
                 if (version != _searchVersion) return;
                 _rawData = allResults;
                 ApplyPresentation();
-
-                if (_cacheService != null)
-                {
-                    // 缓存原始搜索结果（不含屏蔽过滤），展示时再应用当前屏蔽列表
-                    var json = JsonSerializer.Serialize(allResults, JsonOptions);
-                    await _cacheService.SetCacheAsync(
-                        cacheKey,
-                        json,
-                        TimeSpan.FromHours(6),
-                        cacheGeneration);
-                }
-
                 ShowPage(0);
             }
             catch (HttpRequestException ex)
@@ -264,7 +205,7 @@ namespace AniMeido.Plugin.Base.Views
                     ClearResults();
                 }
             }
-            catch (BangumiApiException ex)
+            catch (MetadataServiceException ex)
             {
                 if (version == _searchVersion)
                 {
@@ -295,31 +236,6 @@ namespace AniMeido.Plugin.Base.Views
                     LoadingOverlay.Visibility = Visibility.Collapsed;
                     LoadingRing.IsActive = false;
                 }
-            }
-        }
-
-        private async Task LoadYearDataAsync(int year, List<Anime> results, HashSet<int> seenIds, CancellationToken cancellationToken)
-        {
-            if (_dataSource == null || _currentTag == null) return;
-
-            var dateFrom = $"{year}-01-01";
-            var dateTo = $"{year + 1}-01-01";
-
-            for (int offset = 0; ;)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var (data, _) = await _dataSource.SearchByTagAsync(_currentTag, offset, "match", cancellationToken,
-                    airDateFrom: dateFrom, airDateTo: dateTo);
-
-                if (data.Count == 0) break;
-
-                foreach (var anime in data)
-                    if (seenIds.Add(anime.ID))
-                        results.Add(anime);
-
-                if (data.Count < PageSize) break;
-                offset += PageSize;
             }
         }
 
@@ -379,7 +295,7 @@ namespace AniMeido.Plugin.Base.Views
             if (SortSelector.SelectedItem is ComboBoxItem item && item.Tag is string sort)
             {
                 _currentSort = sort;
-                _allData = SortLocally(_allData);
+                ApplyPresentation();
                 ShowPage(0);
             }
         }
@@ -390,24 +306,12 @@ namespace AniMeido.Plugin.Base.Views
 
             _sortDescending = SortOrderToggle.IsChecked == true;
             SortOrderToggle.Content = _sortDescending ? "↓" : "↑";
-            _allData = SortLocally(_allData);
+            ApplyPresentation();
             ShowPage(0);
         }
 
-        private List<Anime> SortLocally(List<Anime> items)
-        {
-            var sorted = _currentSort switch
-            {
-                "rank" => items.OrderBy(a => a.Score ?? 0),
-                "date" => items.OrderBy(a => a.AirDate.HasValue ? 0 : 1)
-                               .ThenBy(a => a.AirDate ?? DateOnly.MinValue),
-                _ => (IOrderedEnumerable<Anime>)items.OrderBy(a => 0)
-            };
-
-            return _sortDescending
-                ? sorted.Reverse().ToList()
-                : sorted.ToList();
-        }
+        private List<Anime> SortLocally(List<Anime> items) =>
+            TagSearchResults.Sort(items, _currentSort, _sortDescending);
 
         private void ApplyPresentation()
         {

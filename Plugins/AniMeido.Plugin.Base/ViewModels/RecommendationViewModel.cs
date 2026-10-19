@@ -707,7 +707,7 @@ public partial class RecommendationViewModel : ObservableObject
     private static bool IsExpectedFailure(Exception exception)
         => exception is InvalidOperationException
             or HttpRequestException
-            or BangumiApiException
+            or MetadataServiceException
             or OperationCanceledException
             or Microsoft.Data.Sqlite.SqliteException
             or System.Text.Json.JsonException;

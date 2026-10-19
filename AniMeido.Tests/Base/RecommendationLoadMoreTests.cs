@@ -10,7 +10,21 @@ namespace AniMeido.Tests;
 
 public class RecommendationLoadMoreTests : DbTestBase
 {
-    private const string SnapshotKey = "recommendations:snapshot:v1";
+    private const string SnapshotKey = "recommendations:metadata:snapshot:v1";
+
+    [Fact]
+    public async Task LegacyBangumiSnapshot_IsNotReadAsPublicIds()
+    {
+        await RunProductionMigrationAsync();
+        var cache = new CacheService(DbFactory);
+        using var candidates = CreateCandidates(new PagedSource());
+        using var service = CreateService(candidates, cache);
+        await cache.SetCacheAsync("recommendations:snapshot:v1",
+            JsonSerializer.Serialize(InitialSnapshot(), JsonOptions), TimeSpan.FromDays(90));
+
+        Assert.Null(await service.GetCachedSnapshotAsync(allowExpired: true));
+        Assert.NotNull(await cache.GetCacheAsync("recommendations:snapshot:v1"));
+    }
 
     [Fact]
     public async Task LoadMore_PersistsShownItemsAndExcludesThemAfterRestart()

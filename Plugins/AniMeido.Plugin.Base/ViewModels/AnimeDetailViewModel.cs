@@ -40,9 +40,6 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         public ObservableCollection<CharacterRole> Characters { get; private set; } = new();
 
-        public string? BangumiUrl => _lastAnimeID > 0
-            ? $"https://bgm.tv/subject/{_lastAnimeID}"
-            : null;
         private int _lastAnimeID;
         private readonly IAnimeDataSource _animeDataSource;
         private readonly TrackingService _trackingService;
@@ -111,7 +108,6 @@ namespace AniMeido.Plugin.Base.ViewModels
                 }
 
                 HasData = true;
-                OnPropertyChanged(nameof(BangumiUrl));
 
                 await Task.WhenAll(
                     LoadStudiosAsync(animeID, loadVersion, ct),
@@ -147,7 +143,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 ErrorMessage = $"网络请求失败：{ex.Message}";
                 IsError = true;
             }
-            catch (BangumiApiException ex)
+            catch (MetadataServiceException ex)
             {
                 ErrorMessage = $"数据源请求失败：{ex.Message}";
                 IsError = true;
@@ -263,7 +259,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 // Studio 解析失败不阻塞详情
             }
-            catch (BangumiApiException)
+            catch (MetadataServiceException)
             {
                 // Studio 数据源失败不阻塞详情
             }
@@ -296,7 +292,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 // 角色解析失败不阻塞详情
             }
-            catch (BangumiApiException)
+            catch (MetadataServiceException)
             {
                 // 角色数据源失败不阻塞详情
             }

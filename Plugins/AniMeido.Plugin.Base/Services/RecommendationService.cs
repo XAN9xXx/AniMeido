@@ -8,7 +8,8 @@ namespace AniMeido.Plugin.Base.Services;
 
 public sealed class RecommendationService : IDisposable
 {
-    private const string SnapshotCacheKey = "recommendations:snapshot:v1";
+    // 快照含作品 ID，不复用旧 Bangumi ID 空间中的快照；不在 C1 清除旧缓存。
+    private const string SnapshotCacheKey = "recommendations:metadata:snapshot:v1";
     private static readonly TimeSpan SnapshotFreshness = TimeSpan.FromHours(24);
     private static readonly TimeSpan SnapshotRetention = TimeSpan.FromDays(90);
     private static readonly JsonSerializerOptions JsonOptions = new()

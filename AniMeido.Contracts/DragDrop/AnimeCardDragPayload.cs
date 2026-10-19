@@ -28,7 +28,7 @@ public sealed class AnimeCardDragPayload
     [JsonPropertyName("schemaVersion")]
     public int SchemaVersion { get; init; } = 1;
 
-    /// <summary>番剧 ID（Bangumi ID）。</summary>
+    /// <summary>番剧 ID（资料服务公共 ID）。</summary>
     [JsonPropertyName("animeId")]
     public int AnimeId { get; init; }
 

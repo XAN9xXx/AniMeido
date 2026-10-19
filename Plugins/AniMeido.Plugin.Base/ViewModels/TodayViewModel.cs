@@ -277,7 +277,7 @@ public partial class TodayViewModel : ObservableObject
             }
             catch (Exception ex) when (
                 ex is HttpRequestException
-                or BangumiApiException
+                or MetadataServiceException
                 or InvalidOperationException
                 or System.Text.Json.JsonException)
             {
@@ -346,7 +346,7 @@ public partial class TodayViewModel : ObservableObject
         }
         catch (Exception ex) when (
             ex is HttpRequestException
-            or BangumiApiException
+            or MetadataServiceException
             or InvalidOperationException
             or System.Text.Json.JsonException)
         {
@@ -647,7 +647,7 @@ public partial class TodayViewModel : ObservableObject
             }
             catch (Exception ex) when (
                 ex is HttpRequestException
-                or BangumiApiException
+                or MetadataServiceException
                 or InvalidOperationException
                 or System.Text.Json.JsonException
                 or TaskCanceledException)

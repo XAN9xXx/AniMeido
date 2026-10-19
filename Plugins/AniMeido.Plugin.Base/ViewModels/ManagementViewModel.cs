@@ -520,7 +520,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                         throw;
                     }
                     catch (Exception ex) when (ex is HttpRequestException
-                        or BangumiApiException
+                        or MetadataServiceException
                         or InvalidOperationException
                         or JsonException)
                     {
@@ -555,7 +555,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 case HttpRequestException:
                     ErrorMessage = $"网络请求失败：{exception.Message}";
                     break;
-                case BangumiApiException:
+                case MetadataServiceException:
                     ErrorMessage = $"数据源请求失败：{exception.Message}";
                     break;
                 case SqliteException:

@@ -107,7 +107,7 @@ namespace AniMeido.Plugin.Base.Views
                 if (IsCurrentLoad(loadVersion, cancellationToken))
                     ResultCount.Text = $"加载失败：{ex.Message}";
             }
-            catch (BangumiApiException ex)
+            catch (MetadataServiceException ex)
             {
                 if (IsCurrentLoad(loadVersion, cancellationToken))
                     ResultCount.Text = $"数据源请求失败：{ex.Message}";
@@ -144,7 +144,7 @@ namespace AniMeido.Plugin.Base.Views
             }
             catch (Exception ex) when (
                 ex is HttpRequestException
-                or BangumiApiException
+                or MetadataServiceException
                 or JsonException)
             {
                 return new Anime(

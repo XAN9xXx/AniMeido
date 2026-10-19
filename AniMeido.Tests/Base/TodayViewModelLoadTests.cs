@@ -279,7 +279,7 @@ public sealed class TodayViewModelLoadTests : DbTestBase
         public List<Anime> Schedule { get; init; } = [];
 
         private static Task<T> Offline<T>()
-            => Task.FromException<T>(new BangumiApiException("offline"));
+            => Task.FromException<T>(new MetadataServiceException("offline"));
 
         public Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct) => Offline<List<Anime>>();
         public Task<List<Anime>> GetCurrentBroadcastScheduleAsync(CancellationToken ct) => Task.FromResult(Schedule);

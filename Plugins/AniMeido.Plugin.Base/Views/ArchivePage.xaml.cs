@@ -158,7 +158,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
             when (cancellationToken.IsCancellationRequested)
         {
         }
-        catch (Exception ex) when (ex is HttpRequestException or BangumiApiException
+        catch (Exception ex) when (ex is HttpRequestException or MetadataServiceException
             or IOException or InvalidOperationException
             or TaskCanceledException or JsonException)
         {
@@ -926,7 +926,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
             when (cancellationToken.IsCancellationRequested)
         {
         }
-        catch (Exception ex) when (ex is HttpRequestException or BangumiApiException
+        catch (Exception ex) when (ex is HttpRequestException or MetadataServiceException
             or IOException or InvalidOperationException
             or TaskCanceledException or JsonException)
         {

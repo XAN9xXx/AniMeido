@@ -330,7 +330,7 @@ public partial class SmartListsViewModel : ObservableObject
         {
         }
         catch (Exception ex) when (
-            ex is BangumiApiException
+            ex is MetadataServiceException
             or HttpRequestException
             or InvalidOperationException
             or System.Text.Json.JsonException)
@@ -449,7 +449,7 @@ public partial class SmartListsViewModel : ObservableObject
                     throw;
                 }
                 catch (Exception ex) when (
-                    ex is BangumiApiException
+                    ex is MetadataServiceException
                         or HttpRequestException
                         or System.Text.Json.JsonException)
                 {
