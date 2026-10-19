@@ -1,0 +1,408 @@
+﻿{
+  "source": "animeido-metadata master.db vocab_map (provider=bangumi, source_field=work-meta-tags)",
+  "exportedAt": "2026-10-19",
+  "items": [
+    {
+      "bangumi": "BL",
+      "category": "tag",
+      "code": "bl",
+      "action": "map"
+    },
+    {
+      "bangumi": "CM",
+      "category": "format",
+      "code": "cm",
+      "action": "map"
+    },
+    {
+      "bangumi": "GL",
+      "category": "tag",
+      "code": "yuri",
+      "action": "map"
+    },
+    {
+      "bangumi": "MV",
+      "category": "format",
+      "code": "mv",
+      "action": "map"
+    },
+    {
+      "bangumi": "OVA",
+      "category": "format",
+      "code": "ova",
+      "action": "map"
+    },
+    {
+      "bangumi": "PV",
+      "category": "format",
+      "code": "pv",
+      "action": "map"
+    },
+    {
+      "bangumi": "R18",
+      "category": null,
+      "code": null,
+      "action": "drop"
+    },
+    {
+      "bangumi": "TV",
+      "category": "format",
+      "code": "tv",
+      "action": "map"
+    },
+    {
+      "bangumi": "WEB",
+      "category": "format",
+      "code": "web",
+      "action": "map"
+    },
+    {
+      "bangumi": "中国",
+      "category": "country",
+      "code": "CN",
+      "action": "map"
+    },
+    {
+      "bangumi": "乙女",
+      "category": "tag",
+      "code": "otome",
+      "action": "map"
+    },
+    {
+      "bangumi": "俄罗斯",
+      "category": "country",
+      "code": "RU",
+      "action": "map"
+    },
+    {
+      "bangumi": "偶像",
+      "category": "tag",
+      "code": "idol",
+      "action": "map"
+    },
+    {
+      "bangumi": "冒险",
+      "category": "tag",
+      "code": "adventure",
+      "action": "map"
+    },
+    {
+      "bangumi": "剧场版",
+      "category": "format",
+      "code": "movie",
+      "action": "map"
+    },
+    {
+      "bangumi": "剧情",
+      "category": "tag",
+      "code": "drama",
+      "action": "map"
+    },
+    {
+      "bangumi": "动态漫画",
+      "category": "format",
+      "code": "motion-comic",
+      "action": "map"
+    },
+    {
+      "bangumi": "动画改",
+      "category": "source_type",
+      "code": "anime",
+      "action": "map"
+    },
+    {
+      "bangumi": "历史",
+      "category": "tag",
+      "code": "historical",
+      "action": "map"
+    },
+    {
+      "bangumi": "原创",
+      "category": "source_type",
+      "code": "original",
+      "action": "map"
+    },
+    {
+      "bangumi": "台湾",
+      "category": "country",
+      "code": "TW",
+      "action": "map"
+    },
+    {
+      "bangumi": "同人",
+      "category": "source_type",
+      "code": "doujin",
+      "action": "map"
+    },
+    {
+      "bangumi": "后宫",
+      "category": "tag",
+      "code": "harem",
+      "action": "map"
+    },
+    {
+      "bangumi": "喜剧",
+      "category": "tag",
+      "code": "comedy",
+      "action": "map"
+    },
+    {
+      "bangumi": "奇幻",
+      "category": "tag",
+      "code": "fantasy",
+      "action": "map"
+    },
+    {
+      "bangumi": "女性向",
+      "category": "tag",
+      "code": "female-oriented",
+      "action": "map"
+    },
+    {
+      "bangumi": "子供向",
+      "category": "tag",
+      "code": "kids",
+      "action": "map"
+    },
+    {
+      "bangumi": "小说改",
+      "category": "source_type",
+      "code": "novel",
+      "action": "map"
+    },
+    {
+      "bangumi": "少女向",
+      "category": "tag",
+      "code": "shoujo",
+      "action": "map"
+    },
+    {
+      "bangumi": "少年向",
+      "category": "tag",
+      "code": "shounen",
+      "action": "map"
+    },
+    {
+      "bangumi": "影视改",
+      "category": "source_type",
+      "code": "live-action",
+      "action": "map"
+    },
+    {
+      "bangumi": "恋爱",
+      "category": "tag",
+      "code": "romance",
+      "action": "map"
+    },
+    {
+      "bangumi": "恐怖",
+      "category": "tag",
+      "code": "horror",
+      "action": "map"
+    },
+    {
+      "bangumi": "悬疑",
+      "category": "tag",
+      "code": "suspense",
+      "action": "map"
+    },
+    {
+      "bangumi": "惊悚",
+      "category": "tag",
+      "code": "thriller",
+      "action": "map"
+    },
+    {
+      "bangumi": "战斗",
+      "category": "tag",
+      "code": "action",
+      "action": "map"
+    },
+    {
+      "bangumi": "捷克",
+      "category": "country",
+      "code": "CZ",
+      "action": "map"
+    },
+    {
+      "bangumi": "推理",
+      "category": "tag",
+      "code": "mystery",
+      "action": "map"
+    },
+    {
+      "bangumi": "无cp",
+      "category": null,
+      "code": null,
+      "action": "drop"
+    },
+    {
+      "bangumi": "日常",
+      "category": "tag",
+      "code": "slice-of-life",
+      "action": "map"
+    },
+    {
+      "bangumi": "日本",
+      "category": "country",
+      "code": "JP",
+      "action": "map"
+    },
+    {
+      "bangumi": "机战",
+      "category": "tag",
+      "code": "mecha",
+      "action": "map"
+    },
+    {
+      "bangumi": "校园",
+      "category": "tag",
+      "code": "school",
+      "action": "map"
+    },
+    {
+      "bangumi": "欧美",
+      "category": "country",
+      "code": "XW",
+      "action": "map"
+    },
+    {
+      "bangumi": "武侠",
+      "category": "tag",
+      "code": "wuxia",
+      "action": "map"
+    },
+    {
+      "bangumi": "法国",
+      "category": "country",
+      "code": "FR",
+      "action": "map"
+    },
+    {
+      "bangumi": "游戏改",
+      "category": "source_type",
+      "code": "game",
+      "action": "map"
+    },
+    {
+      "bangumi": "漫画改",
+      "category": "source_type",
+      "code": "manga",
+      "action": "map"
+    },
+    {
+      "bangumi": "玄幻",
+      "category": "tag",
+      "code": "xuanhuan",
+      "action": "map"
+    },
+    {
+      "bangumi": "百合",
+      "category": "tag",
+      "code": "yuri",
+      "action": "map"
+    },
+    {
+      "bangumi": "短片",
+      "category": "format",
+      "code": "short",
+      "action": "map"
+    },
+    {
+      "bangumi": "短片集",
+      "category": "format",
+      "code": "short",
+      "action": "map"
+    },
+    {
+      "bangumi": "科幻",
+      "category": "tag",
+      "code": "sci-fi",
+      "action": "map"
+    },
+    {
+      "bangumi": "穿越",
+      "category": "tag",
+      "code": "transmigration",
+      "action": "map"
+    },
+    {
+      "bangumi": "美国",
+      "category": "country",
+      "code": "US",
+      "action": "map"
+    },
+    {
+      "bangumi": "美食",
+      "category": "tag",
+      "code": "food",
+      "action": "map"
+    },
+    {
+      "bangumi": "耽美",
+      "category": "tag",
+      "code": "bl",
+      "action": "map"
+    },
+    {
+      "bangumi": "职场",
+      "category": "tag",
+      "code": "workplace",
+      "action": "map"
+    },
+    {
+      "bangumi": "苏联",
+      "category": "country",
+      "code": "SU",
+      "action": "map"
+    },
+    {
+      "bangumi": "英国",
+      "category": "country",
+      "code": "GB",
+      "action": "map"
+    },
+    {
+      "bangumi": "萌系",
+      "category": "tag",
+      "code": "moe",
+      "action": "map"
+    },
+    {
+      "bangumi": "运动",
+      "category": "tag",
+      "code": "sports",
+      "action": "map"
+    },
+    {
+      "bangumi": "青年向",
+      "category": "tag",
+      "code": "seinen",
+      "action": "map"
+    },
+    {
+      "bangumi": "韩国",
+      "category": "country",
+      "code": "KR",
+      "action": "map"
+    },
+    {
+      "bangumi": "音乐",
+      "category": "tag",
+      "code": "music",
+      "action": "map"
+    },
+    {
+      "bangumi": "香港",
+      "category": "country",
+      "code": "HK",
+      "action": "map"
+    },
+    {
+      "bangumi": "马来西亚",
+      "category": "country",
+      "code": "MY",
+      "action": "map"
+    }
+  ]
+}
