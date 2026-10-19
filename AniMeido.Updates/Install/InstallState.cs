@@ -16,6 +16,8 @@ public sealed record InstallState
     public int FailedStarts { get; init; }
     public MigrationRecord? Migration { get; init; }
     public RolledBackNotice? RolledBackFrom { get; init; }
+    public PendingRestoreRequest? PendingRestore { get; init; }
+    public RestoreNotice? LastRestore { get; init; }
     [JsonRequired]
     public string[] FailedVersions { get; init; } = [];
 
@@ -28,11 +30,37 @@ public sealed record InstallState
             || (Migration is not null && (!SemanticVersion.TryParse(Migration.Version, out _)
                 || string.IsNullOrWhiteSpace(Migration.Backup) || !Path.IsPathFullyQualified(Migration.Backup)))
             || (RolledBackFrom is not null && (!SemanticVersion.TryParse(RolledBackFrom.Version, out _)
-                || RolledBackFrom.Reason is not (RolledBackNotice.StartFailed or RolledBackNotice.UserRestored))))
+                || RolledBackFrom.Reason is not (RolledBackNotice.StartFailed or RolledBackNotice.UserRestored)))
+            || (PendingRestore is not null && !IsAbsolutePath(PendingRestore.Directory))
+            || (LastRestore is not null && (!IsAbsolutePath(LastRestore.Directory)
+                || (LastRestore.Archive is not null && !IsAbsolutePath(LastRestore.Archive)))))
         {
             throw new InstallException("state.json 的安装状态无效或 schema 不受支持。");
         }
     }
+
+    private static bool IsAbsolutePath(string? path)
+        => !string.IsNullOrWhiteSpace(path) && Path.IsPathFullyQualified(path);
+}
+
+public sealed record PendingRestoreRequest
+{
+    [JsonRequired]
+    public required string Directory { get; init; }
+    [JsonRequired]
+    public DateTimeOffset RequestedAt { get; init; }
+}
+
+public sealed record RestoreNotice
+{
+    [JsonRequired]
+    public required string Directory { get; init; }
+    public string? Archive { get; init; }
+    [JsonRequired]
+    public bool Success { get; init; }
+    public string? Error { get; init; }
+    [JsonRequired]
+    public DateTimeOffset At { get; init; }
 }
 
 public sealed record MigrationRecord

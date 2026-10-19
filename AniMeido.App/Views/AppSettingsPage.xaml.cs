@@ -14,6 +14,7 @@ namespace AniMeido.App.Views
         private readonly InstalledUpdateService _installedUpdates;
         private readonly InstalledAppContext _installedApp;
         private readonly RollbackDataStore _rollbackData;
+        private readonly string _dataDirectory;
         private CancellationTokenSource? _updateCheckCancellation;
         private readonly PluginPackageManager _pluginPackageManager;
         private readonly PluginHostSupervisor _pluginHostSupervisor;
@@ -34,6 +35,7 @@ namespace AniMeido.App.Views
             _installedUpdates = installedUpdates;
             _installedApp = installedApp;
             _rollbackData = new RollbackDataStore(paths);
+            _dataDirectory = Path.GetDirectoryName(paths.DatabasePath)!;
             _pluginPackageManager = pluginPackageManager;
             _pluginHostSupervisor = pluginHostSupervisor;
             _desktopSettings = desktopSettings;
@@ -531,6 +533,40 @@ namespace AniMeido.App.Views
                 Serilog.Log.Warning(ex, "无法打开回滚前数据文件夹");
                 if (IsLoaded)
                     await UpdatePromptDialog.ShowMessageAsync(XamlRoot, "打开文件夹失败", ex.Message);
+            }
+        }
+
+        private async void OnRestoreRollbackDataClick(object sender, RoutedEventArgs e)
+        {
+            if (!_installedApp.IsInstalled || sender is not Button { Tag: string path } button)
+                return;
+            button.IsEnabled = false;
+            try
+            {
+                // 弹确认框前检查路径、文件头、结构版本和 pending；确认后写请求时再检查一次。
+                var directory = _installedApp.ValidateRestore(_dataDirectory, _rollbackData.ValidateDirectory(path));
+                if (!await UpdatePromptDialog.ConfirmAsync(XamlRoot, "恢复数据并重启",
+                    $"将用以下数据替换当前数据库：\n{directory}\n\n"
+                    + "当前数据库（含 WAL/SHM）会先另存到 Backups\\update\\AniMeido-before-restore-<时间>。\n"
+                    + "回滚后在旧版本里新增的记录不会保留在恢复后的数据库中。是否恢复并立即重启 AniMeido？", "恢复并重启"))
+                    return;
+                if (!IsLoaded || XamlRoot is null)
+                    return;
+                if (Application.Current is not App app)
+                    throw new InvalidOperationException("应用退出入口不可用。");
+                _installedApp.RequestRestore(_dataDirectory, directory);
+                _installedUpdates.Restart(app.RequestExit);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException
+                or InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                Serilog.Log.Warning(ex, "无法请求恢复数据并重启");
+                if (IsLoaded && XamlRoot is { } root)
+                    await UpdatePromptDialog.ShowMessageAsync(root, "无法恢复数据", ex.Message);
+            }
+            finally
+            {
+                button.IsEnabled = true;
             }
         }
 

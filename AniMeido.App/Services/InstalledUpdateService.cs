@@ -131,6 +131,8 @@ public sealed class InstalledUpdateService
             using var updateLock = manager.AcquireUpdateLock();
             var target = InstallLayout.VersionDirectory(_context.InstallRoot!, version);
             var state = manager.ReadState();
+            if (state.PendingRestore is not null)
+                throw new InstallException("已有待恢复数据，请先重启完成恢复再更新。");
             if (Directory.Exists(target) || File.Exists(target))
             {
                 if (state.Pending == version && InstallLayout.IsValidVersion(_context.InstallRoot!, version))
@@ -173,9 +175,10 @@ public sealed class InstalledUpdateService
         try
         {
             var manager = CreateManager();
-            var pending = manager.ReadState().Pending;
-            if (pending is null || !InstallLayout.IsValidVersion(_context.InstallRoot!, pending))
-                throw new InstallException("没有有效的待更新版本。");
+            var state = manager.ReadState();
+            if (state.PendingRestore is null
+                && (state.Pending is not { } pending || !InstallLayout.IsValidVersion(_context.InstallRoot!, pending)))
+                throw new InstallException("没有有效的待更新版本或待恢复数据。");
             var launcher = Path.Combine(_context.InstallRoot!, "AniMeido.exe");
             if (!File.Exists(launcher))
                 throw new FileNotFoundException($"找不到启动器：{launcher}", launcher);
@@ -187,7 +190,7 @@ public sealed class InstalledUpdateService
             start.ArgumentList.Add("--wait-pid");
             start.ArgumentList.Add(Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
             if (!_startLauncher(start))
-                throw new InstallException("无法创建启动器进程，应用未退出，待更新版本已保留。");
+                throw new InstallException("无法创建启动器进程，应用未退出，待更新版本或待恢复请求已保留。");
             requestExit();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Win32Exception

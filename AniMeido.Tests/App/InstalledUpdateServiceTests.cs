@@ -310,6 +310,52 @@ public sealed class InstalledUpdateServiceTests
         public void Report(long value) => report(value);
     }
 
+    [Fact]
+    public void RestoreRequestUsesExistingWaitPidRestartAndLauncherFailureNeverExits()
+    {
+        using var fixture = new Fixture();
+        var request = new PendingRestoreRequest
+        {
+            Directory = Path.Combine(fixture.Root, "synthetic-restore"), RequestedAt = DateTimeOffset.UtcNow,
+        };
+        fixture.Store.Write(fixture.Store.Read() with { PendingRestore = request });
+        File.WriteAllText(Path.Combine(fixture.Root, "AniMeido.exe"), "never executed");
+        var exit = false;
+        Assert.Throws<InstallException>(() => fixture.Service.Restart(() => exit = true));
+        Assert.False(exit);
+        Assert.Equal(request, fixture.Store.Read().PendingRestore);
+        var startCalled = false;
+        fixture.CreateService(start =>
+        {
+            Assert.Equal(new[] { "--wait-pid", Environment.ProcessId.ToString() }, start.ArgumentList);
+            Assert.False(start.UseShellExecute);
+            startCalled = true;
+            return true;
+        }).Restart(() => { Assert.True(startCalled); exit = true; });
+        Assert.True(exit);
+        Assert.Equal(request, fixture.Store.Read().PendingRestore);
+        Assert.Null(fixture.Store.Read().Pending);
+    }
+
+    [Fact]
+    public async Task RestoreRequestPreventsUpdateDownloadAndExtraction()
+    {
+        using var fixture = new Fixture();
+        var manifest = (await fixture.Service.CheckAsync("stable")).Manifest!;
+        fixture.Store.Write(fixture.Store.Read() with
+        {
+            PendingRestore = new PendingRestoreRequest
+            {
+                Directory = Path.Combine(fixture.Root, "synthetic-restore"), RequestedAt = DateTimeOffset.UtcNow,
+            },
+        });
+        await Assert.ThrowsAsync<InstallException>(() => fixture.Service.PrepareAsync(manifest));
+        Assert.DoesNotContain(fixture.Requests, request => request.Uri.EndsWith(".zip", StringComparison.Ordinal));
+        Assert.False(Directory.Exists(InstallLayout.VersionDirectory(fixture.Root, "2.3.0")));
+        Assert.Null(fixture.Store.Read().Pending);
+        Assert.NotNull(fixture.Store.Read().PendingRestore);
+    }
+
     private sealed class Fixture : IDisposable
     {
         private readonly MockAppDataPaths _paths = new();

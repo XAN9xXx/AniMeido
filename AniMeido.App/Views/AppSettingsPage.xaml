@@ -327,7 +327,7 @@
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <StackPanel x:Name="RollbackDataPanel" Margin="16,8,16,12" Spacing="8" Visibility="Collapsed">
                         <TextBlock Text="回滚前数据" FontSize="15"/>
-                        <TextBlock Text="这些数据不会自动删除。当前仅支持查看文件夹和删除，不提供恢复功能。"
+                        <TextBlock Text="这些数据不会自动删除。恢复将替换当前数据库，并先另存当前数据；恢复需要重启 AniMeido。"
                                    FontSize="12" TextWrapping="Wrap"/>
                         <ItemsControl x:Name="RollbackDataList">
                             <ItemsControl.ItemTemplate>
@@ -335,6 +335,7 @@
                                     <StackPanel Spacing="8" Margin="0,0,0,12">
                                         <TextBlock Text="{Binding DisplayText}" TextWrapping="Wrap"/>
                                         <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Button Content="恢复" Tag="{Binding Path}" Click="OnRestoreRollbackDataClick"/>
                                             <Button Content="打开文件夹" Tag="{Binding Path}" Click="OnOpenRollbackDataClick"/>
                                             <Button Content="删除" Tag="{Binding Path}" Click="OnDeleteRollbackDataClick"/>
                                         </StackPanel>

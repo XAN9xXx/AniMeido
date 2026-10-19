@@ -62,6 +62,7 @@ namespace AniMeido.App
 
         private async Task InitializeApplicationAsync()
         {
+            ShowRestoreNoticeBeforeDatabaseInitialization();
             var services = new ServiceCollection()
                 .AddAppServices();
             services.AddSingleton(_installedApp);
@@ -135,6 +136,39 @@ namespace AniMeido.App
             _ = StartPluginHostSafelyAsync(pluginHostSupervisor);
             _ = UpdateStartupTask.CheckForUpdateSilentlyAsync(provider, _window);
             QueueRolledBackNotice();
+        }
+
+        private void ShowRestoreNoticeBeforeDatabaseInitialization()
+        {
+            try
+            {
+                _installedApp.ShowRestoreNotice(notice =>
+                {
+                    var message = notice.Success
+                        ? $"已从以下数据恢复：\n{notice.Directory}\n\n恢复前的当前数据已另存到：\n{notice.Archive}"
+                        : $"未能恢复所选数据：\n{notice.Directory}\n\n原因：{notice.Error}"
+                            + (notice.Archive is null ? "\n当前数据库未变。" : $"\n恢复前数据另存到：\n{notice.Archive}");
+                    // 这时还没有 WinUI 窗口；先提示再初始化/迁移数据库，避免初始化失败吞掉结果。
+                    if (GlobalExceptionHandler.NativeMethods.MessageBox(IntPtr.Zero, message,
+                        notice.Success ? "AniMeido - 数据已恢复" : "AniMeido - 数据恢复失败",
+                        notice.Success ? 0x00000040u : 0x00000030u) == 0)
+                        throw new InvalidOperationException("无法显示数据恢复结果，结果已保留。");
+                });
+                _installedApp.ShowUnprocessedRestoreRequest(request =>
+                {
+                    var message = $"上次请求的数据恢复没有执行：\n{request.Directory}\n\n"
+                        + "启动器可能版本过旧，不支持恢复。当前数据库未变；请安装最新版 AniMeido 后在设置页重新恢复。";
+                    if (GlobalExceptionHandler.NativeMethods.MessageBox(IntPtr.Zero, message,
+                        "AniMeido - 数据恢复未执行", 0x00000030u) == 0)
+                        throw new InvalidOperationException("无法显示恢复未执行的提示，请求已保留。");
+                });
+            }
+#pragma warning disable CA1031 // 结果提示失败保留通知，不阻止正常数据库初始化。
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "无法显示数据恢复结果");
+            }
+#pragma warning restore CA1031
         }
 
         private void MarkInstalledAppHealthy()

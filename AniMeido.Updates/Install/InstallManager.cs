@@ -33,7 +33,8 @@ public sealed class InstallManager(InstallStateStore store, Action<string>? log 
 
     /// <summary>持锁期间复查进程并创建子进程，避免两个启动器在进程尚未创建的间隙重复计数。</summary>
     public string Launch(Func<bool> hasRunningApp, Action<string> start,
-        Func<RollbackRequest, RollbackChoice> choose, string dataDirectory) => store.WithLock(() =>
+        Func<RollbackRequest, RollbackChoice> choose, string dataDirectory,
+        Func<string, int>? readDatabaseVersion = null) => store.WithLock(() =>
     {
         string current;
         if (hasRunningApp())
@@ -43,12 +44,102 @@ public sealed class InstallManager(InstallStateStore store, Action<string>? log 
         }
         else
         {
+            RestorePendingLocked(dataDirectory, () => !hasRunningApp(), readDatabaseVersion ?? InstalledDatabaseVersion.Read);
             var decision = PrepareLaunchLocked(choose, dataDirectory, () => !hasRunningApp());
             current = decision.State.Current;
         }
         var executable = InstallLayout.ExecutablePath(store.Root, current);
         start(executable);
         return executable;
+    });
+
+    private void RestorePendingLocked(string dataDirectory, Func<bool> noAppRunning,
+        Func<string, int> readDatabaseVersion)
+    {
+        var state = store.ReadLocked();
+        if (state.PendingRestore is not { } request || !noAppRunning())
+            return;
+        DatabaseRollbackResult result;
+        try
+        {
+            if (state.Pending is not null)
+                throw new InstallException("有待切换版本，请先完成更新，未恢复数据库。");
+            var version = readDatabaseVersion(InstallLayout.ExecutablePath(store.Root, state.Current));
+            var archive = DatabaseRollback.GetRestoreArchiveDirectory(dataDirectory);
+            result = DatabaseRollback.RestoreArchived(dataDirectory, request.Directory, archive, version);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException
+            or BadImageFormatException or InvalidOperationException)
+        {
+            result = new(false, null, ex.Message);
+        }
+        store.WriteLocked(state with
+        {
+            PendingRestore = null,
+            LastRestore = new RestoreNotice
+            {
+                Directory = request.Directory, Archive = result.ArchiveDirectory,
+                Success = result.Success, Error = result.Error, At = DateTimeOffset.UtcNow,
+            },
+            // 新恢复的数据应先获得完整的启动机会，不能沿用旧库的失败计数立即回滚。
+            CurrentHealthy = result.Success ? false : state.CurrentHealthy,
+            FailedStarts = result.Success ? 0 : state.FailedStarts,
+            Migration = result.Success ? null : state.Migration,
+        });
+        log?.Invoke(result.Success ? $"已从 {request.Directory} 恢复，当前数据另存到 {result.ArchiveDirectory}。"
+            : $"恢复数据失败：{result.Error}");
+    }
+
+    public string ValidateRestore(string dataDirectory, string directory, int currentVersion) => store.WithLock(() =>
+    {
+        EnsureCanRestore(store.ReadLocked());
+        return DatabaseRollback.ValidateRestore(dataDirectory, directory, currentVersion);
+    });
+
+    public void RequestRestore(string dataDirectory, string directory, int currentVersion)
+    {
+        // 与准备更新的下载/解压阶段互斥，避免恢复请求写入后才发现有更新正在准备。
+        using var updateLock = AcquireUpdateLock();
+        store.WithLock(() =>
+        {
+            var state = store.ReadLocked();
+            EnsureCanRestore(state);
+            var full = DatabaseRollback.ValidateRestore(dataDirectory, directory, currentVersion);
+            store.WriteLocked(state with
+            {
+                PendingRestore = new PendingRestoreRequest { Directory = full, RequestedAt = DateTimeOffset.UtcNow },
+            });
+            return true;
+        });
+    }
+
+    private static void EnsureCanRestore(InstallState state)
+    {
+        if (state.Pending is not null)
+            throw new InstallException("有待切换版本，请先完成更新再恢复数据。");
+        if (state.PendingRestore is not null)
+            throw new InstallException("已有待恢复数据，请先重启 AniMeido 完成恢复。");
+    }
+
+    public RestoreNotice? ReadRestoreNotice() => store.Read().LastRestore;
+
+    /// <summary>App 启动时仍存在的请求说明启动器没有处理它（例如旧版启动器不认识该字段）。</summary>
+    public PendingRestoreRequest? ReadPendingRestore() => store.Read().PendingRestore;
+
+    public void ClearPendingRestore(PendingRestoreRequest request) => store.WithLock(() =>
+    {
+        var state = store.ReadLocked();
+        if (state.PendingRestore == request)
+            store.WriteLocked(state with { PendingRestore = null });
+        return true;
+    });
+
+    public void ClearRestoreNotice(RestoreNotice notice) => store.WithLock(() =>
+    {
+        var state = store.ReadLocked();
+        if (state.LastRestore == notice)
+            store.WriteLocked(state with { LastRestore = null });
+        return true;
     });
 
     private LaunchDecision PrepareLaunchLocked(Func<RollbackRequest, RollbackChoice>? choose,
@@ -122,6 +213,8 @@ public sealed class InstallManager(InstallStateStore store, Action<string>? log 
     {
         var pending = SemanticVersion.Parse(version);
         var state = store.ReadLocked();
+        if (state.PendingRestore is not null)
+            throw new InstallException("已有待恢复数据，请先重启完成恢复再更新。");
         if (!InstallLayout.IsValidVersion(store.Root, version) || pending.CompareTo(SemanticVersion.Parse(state.Current)) <= 0)
         {
             throw new InstallException("待切换版本必须是有效的版本目录，且版本号高于 current。");
