@@ -28,6 +28,11 @@
   <!-- 数据、日志与内容处理 -->
   <ItemGroup>
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.8" />
+    <!-- 仅提升原生 SQLite 传递依赖，修复 CVE-2025-6965；托管 provider / core 保持不变。 -->
+    <PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.12" />
+    <!-- 只在 SQLite 的业务依赖根显式引用，避免全局传递锁定连带升级其他包。 -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3"
+                      Condition="'$(MSBuildProjectName)' == 'AniMeido.Plugin.Base' Or '$(MSBuildProjectName)' == 'AniMeido.Plugin.AI'" />
     <PackageVersion Include="Serilog.Extensions.Logging" Version="10.0.0" />
     <PackageVersion Include="Serilog.Sinks.Debug" Version="3.0.0" />
     <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
