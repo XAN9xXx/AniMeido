@@ -106,7 +106,7 @@ public sealed class ForegroundWindowCaptureService :
         var interopGuid = typeof(IGraphicsCaptureItemInterop).GUID;
         var result = Marshal.QueryInterface(
             factory.ThisPtr,
-            ref interopGuid,
+            in interopGuid,
             out var interopPointer);
         Marshal.ThrowExceptionForHR(result);
         try
@@ -164,7 +164,7 @@ public sealed class ForegroundWindowCaptureService :
                 "54EC77FA-1377-44E6-8C32-88FD5F44C84C");
             result = Marshal.QueryInterface(
                 d3dDevice,
-                ref dxgiGuid,
+                in dxgiGuid,
                 out var dxgiDevice);
             Marshal.ThrowExceptionForHR(result);
             try
