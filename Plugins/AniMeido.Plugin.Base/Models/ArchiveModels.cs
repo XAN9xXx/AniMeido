@@ -161,11 +161,9 @@ public sealed record ScreenshotSettings(
 {
     public static ScreenshotSettings CreateDefault()
     {
-        var pictures = Environment.GetFolderPath(
-            Environment.SpecialFolder.MyPictures);
         return new ScreenshotSettings(
             true,
-            Path.Combine(pictures, "AniMeido", "Screenshots"),
+            Path.Combine(AppDataRoots.Pictures, "Screenshots"),
             true,
             true);
     }

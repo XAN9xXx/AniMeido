@@ -325,7 +325,9 @@ public sealed class TrayIconService : IDisposable
     }
 
     private static NotifyIconData CreateIconData(nint window, nint icon)
-        => new()
+    {
+        var tip = "AniMeido" + AppDataRoots.DisplaySuffix;
+        return new()
         {
             Size = (uint)Marshal.SizeOf<NotifyIconData>(),
             Window = window,
@@ -333,8 +335,9 @@ public sealed class TrayIconService : IDisposable
             Flags = NifMessage | NifIcon | NifTip,
             CallbackMessage = WmTrayCallback,
             Icon = icon,
-            Tip = "AniMeido",
+            Tip = tip.Length > 127 ? tip[..127] : tip,
         };
+    }
 
     private delegate nint WindowProcedure(
         nint window,

@@ -468,9 +468,7 @@ internal sealed class ImageDownloadCoordinator
 /// <summary>BasePlugin image cache facade used by XAML-created controls.</summary>
 internal static class ImageCacheHelper
 {
-    private static readonly string CacheDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "AniMeido", "cache", "images");
+    internal static string CacheDirectory => Path.Combine(AppDataRoots.Roaming, "cache", "images");
     private static readonly HashSet<string> AllowedImageHosts = new(
         StringComparer.OrdinalIgnoreCase)
     {
@@ -480,10 +478,12 @@ internal static class ImageCacheHelper
     {
         Timeout = TimeSpan.FromSeconds(15),
     };
-    private static readonly ImageDownloadCoordinator Coordinator = new(
-        CacheDir,
+    // 仅查询默认路径时不创建缓存目录；真正使用缓存时再初始化下载器。
+    private static readonly Lazy<ImageDownloadCoordinator> DownloadCoordinator = new(() => new(
+        CacheDirectory,
         SharedHttpClient,
-        uriValidator: uri => AllowedImageHosts.Contains(uri.Host));
+        uriValidator: uri => AllowedImageHosts.Contains(uri.Host)));
+    private static ImageDownloadCoordinator Coordinator => DownloadCoordinator.Value;
     private static readonly SemaphoreSlim EvictionLock = new(1, 1);
     private static readonly object EvictionScheduleLock = new();
     private static CancellationTokenSource? _evictionDelayCancellation;

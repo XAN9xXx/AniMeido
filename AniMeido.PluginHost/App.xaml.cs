@@ -12,12 +12,23 @@ public partial class App : Application
 
     public App()
     {
+        try
+        {
+            _ = AppDataRoots.Roaming;
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            MessageBox(0, ex.Message, "AniMeido 插件宿主无法启动", 0x00000010);
+            Environment.Exit(1);
+        }
         InitializeComponent();
         UnhandledException += OnUnhandledException;
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        if (AppDataRoots.IsIsolated)
+            HostLog.Warning($"独立数据模式，数据根目录：{AppDataRoots.IsolatedRoot}");
         var pipeName = CommandLineOptions.GetPipeName(
             Environment.GetCommandLineArgs());
         var callbackPipeName = CommandLineOptions.GetCallbackPipeName(
@@ -33,6 +44,9 @@ public partial class App : Application
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
         _ = ConnectAsync(pipeName, callbackPipeName);
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "MessageBoxW", CharSet = System.Runtime.InteropServices.CharSet.Unicode, ExactSpelling = true)]
+    private static extern int MessageBox(nint window, string text, string caption, uint type);
 
     private async Task ConnectAsync(
         string pipeName,

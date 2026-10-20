@@ -4,9 +4,7 @@ namespace AniMeido.App.Services;
 
 public sealed class AppDataPaths : IAppDataPaths
 {
-    private static readonly string AppDataDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "AniMeido");
+    private static string AppDataDir => AppDataRoots.Roaming;
 
     public string DatabasePath => Path.Combine(AppDataDir, "AniMeido.db");
     public string BackupDirectory => Path.Combine(AppDataDir, "Backups");

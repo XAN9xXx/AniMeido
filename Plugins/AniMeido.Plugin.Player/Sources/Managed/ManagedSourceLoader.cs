@@ -5,6 +5,8 @@ namespace AniMeido.Plugin.Player.Sources.Managed;
 
 internal static class ManagedSourceLoader
 {
+    internal static string SourcesDirectory => Path.Combine(AppDataRoots.Local, "Player", "Sources");
+
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -95,12 +97,7 @@ internal static class ManagedSourceLoader
     {
         try
         {
-            var sourceDirectory = Path.Combine(
-                Environment.GetFolderPath(
-                    Environment.SpecialFolder.LocalApplicationData),
-                "AniMeido",
-                "Player",
-                "Sources");
+            var sourceDirectory = SourcesDirectory;
             Directory.CreateDirectory(sourceDirectory);
             var legacyManifests = Directory.EnumerateDirectories(
                     sourceDirectory,

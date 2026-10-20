@@ -26,10 +26,7 @@ internal sealed class PluginInstallationPaths
 
     public static PluginInstallationPaths CreateDefault()
     {
-        var localAppData = Environment.GetFolderPath(
-            Environment.SpecialFolder.LocalApplicationData);
-        return new PluginInstallationPaths(
-            Path.Combine(localAppData, "AniMeido", "Plugins"));
+        return new PluginInstallationPaths(Path.Combine(AppDataRoots.Local, "Plugins"));
     }
 
     public void EnsureDirectories()

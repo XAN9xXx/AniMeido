@@ -11,10 +11,32 @@ using System.Text.Json;
 
 namespace AniMeido.Tests;
 
+[Collection(DevDataRootCollection.Name)]
 public sealed class PluginHostSupervisorTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), $"AniMeido-supervisor-{Guid.NewGuid():N}");
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(5);
+
+    [Fact]
+    public async Task Session_ChildInheritsDataRoot_AndHostWritesIsolatedLogs()
+    {
+        using var environment = new DevDataRootEnvironment(_root);
+        var executable = Assert.Single(Directory.GetFiles(AppDataRootsTests.BuildOutput("AniMeido.PluginHost"),
+            "AniMeido.PluginHost.exe", SearchOption.AllDirectories));
+        await using var session = new PluginHostSession(
+            new HostedPluginDescriptor(Path.Combine(_root, "empty-plugin"), new PluginManifest
+            {
+                PluginId = "fixture.isolation", DisplayName = "Fixture", EntryAssembly = "missing.dll",
+            }), executable, new NoProgress(), new NoGateway(), NullLogger.Instance);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await session.StartAsync(cancellation.Token);
+        Assert.True(session.IsRunning);
+        var logs = Directory.GetFiles(Path.Combine(_root, "Roaming", "logs"), "*.log", SearchOption.AllDirectories);
+        var text = string.Join("\n", logs.Select(File.ReadAllText));
+        Assert.Contains("[PluginHost]", text);
+        Assert.Contains("[Warning]", text);
+        Assert.Contains(_root, text);
+    }
 
     [Fact]
     public async Task Start_EmptyInstallationPublishesStatusAndDoesNotStartProcess()

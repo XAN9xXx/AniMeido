@@ -9,15 +9,12 @@ internal sealed class AiPluginPaths
 
     internal AiPluginPaths(string? rootDirectory)
     {
-        RootDirectory = rootDirectory ?? Path.Combine(
-                Environment.GetFolderPath(
-                    Environment.SpecialFolder.LocalApplicationData),
-                "AniMeido",
-                "Plugins",
-                "AniMeido.Plugin.AI");
+        RootDirectory = rootDirectory ?? DefaultRootDirectory;
         Directory.CreateDirectory(RootDirectory);
         Directory.CreateDirectory(ExportDirectory);
     }
+
+    internal static string DefaultRootDirectory => Path.Combine(AppDataRoots.Local, "Plugins", "AniMeido.Plugin.AI");
 
     public string RootDirectory { get; }
 

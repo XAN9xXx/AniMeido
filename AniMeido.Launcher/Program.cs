@@ -9,14 +9,18 @@ internal static partial class Program
 {
     private const uint YesNoWarning = 0x00000004 | 0x00000030;
     private const uint ErrorMessage = 0x00000010;
+    internal static string DataDirectory => AppDataRoots.Roaming;
 
     [STAThread]
     private static int Main(string[] args)
     {
-        var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "AniMeido");
-        var log = new LauncherLog(Path.Combine(dataDirectory, "logs", "launcher.log"));
+        LauncherLog? log = null;
         try
         {
+            var dataDirectory = DataDirectory;
+            log = new LauncherLog(Path.Combine(dataDirectory, "logs", "launcher.log"));
+            if (AppDataRoots.IsIsolated)
+                log.Write($"[Warning] 独立数据模式，数据根目录：{AppDataRoots.IsolatedRoot}");
             var executable = Environment.ProcessPath ?? throw new InstallException("无法确定启动器位置。");
             var root = Path.GetDirectoryName(executable)!;
             var forwarded = new List<string>();
@@ -48,8 +52,9 @@ internal static partial class Program
 #pragma warning disable CA1031 // 启动器最外层必须兜底提示，不能让 WinExe 静默退出。
         catch (Exception ex)
         {
-            log.Write($"致命错误：{ex}");
-            MessageBoxW(0, $"{ex.Message}\n\n日志：{log.Path}", "AniMeido 无法启动", ErrorMessage);
+            log?.Write($"致命错误：{ex}");
+            var logHint = log is null ? "" : $"\n\n日志：{log.Path}";
+            MessageBoxW(0, $"{ex.Message}{logHint}", "AniMeido 无法启动", ErrorMessage);
             return 1;
         }
 #pragma warning restore CA1031

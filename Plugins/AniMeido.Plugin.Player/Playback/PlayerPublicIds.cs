@@ -5,8 +5,7 @@ namespace AniMeido.Plugin.Player.Playback;
 
 internal static class PlayerPublicIds
 {
-    internal static string SharedMigrationPath => Path.Combine(Environment.GetFolderPath(
-        Environment.SpecialFolder.ApplicationData), "AniMeido", "id-migration-v9.json");
+    internal static string SharedMigrationPath => Path.Combine(AppDataRoots.Roaming, "id-migration-v9.json");
     internal static string SharedRemapPath => Path.Combine(Path.GetDirectoryName(SharedMigrationPath)!, "id-remap-log.json");
 
     internal sealed record RemapEntry(long Seq, int From, int To, string At);

@@ -53,4 +53,7 @@
     <Message Importance="high" Text="AI plugin package: $(PluginPackageOutput)" />
   </Target>
 
+  <ItemGroup>
+    <Compile Include="..\..\Shared\AppDataRoots.cs" Link="Shared\AppDataRoots.cs" />
+  </ItemGroup>
 </Project>

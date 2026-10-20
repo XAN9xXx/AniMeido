@@ -302,11 +302,7 @@ public sealed class SourcePackageInstaller
 
     internal static string GetSourcesDirectory()
         => Path.Combine(
-            Environment.GetFolderPath(
-                Environment.SpecialFolder.LocalApplicationData),
-            "AniMeido",
-            "Player",
-            "Sources");
+            AppDataRoots.Local, "Player", "Sources");
 
     private async Task<string> InstallCoreAsync(
         string packagePath,

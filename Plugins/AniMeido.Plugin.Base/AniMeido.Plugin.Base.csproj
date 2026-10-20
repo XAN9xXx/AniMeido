@@ -37,4 +37,7 @@
     </AssemblyAttribute>
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\..\Shared\AppDataRoots.cs" Link="Shared\AppDataRoots.cs" />
+  </ItemGroup>
 </Project>

@@ -13,4 +13,7 @@
     <ItemGroup>
         <ProjectReference Include="..\AniMeido.Updates\AniMeido.Updates.csproj" />
     </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\Shared\AppDataRoots.cs" Link="Shared\AppDataRoots.cs" />
+  </ItemGroup>
 </Project>

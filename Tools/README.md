@@ -119,8 +119,11 @@ manifest 的输出文件也拒绝覆盖。退出码：0 成功、1 校验/签名
 若启动器发布报 `'vswhere.exe' 不是内部或外部命令`（本机 VS 18 的环境脚本按 PATH 查找 vswhere），先执行 `$env:PATH = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;" + $env:PATH` 再运行脚本。
 脚本只从本机 NuGet 缓存还原，不下载缺失依赖；缺失时停止，不替换 `state.json`。
 
-**重要：数据目录仍是真实的 `%APPDATA%\AniMeido`，插件仍使用原有的用户目录。**
-执行以下步骤前请关闭全部 AniMeido 及 PluginHost，并自行备份用户数据；这不是数据隔离的测试沙箱。
+**验收请指定 `-DataRoot`，并通过生成的 `Start-Dev.cmd` 启动。**
+数据分别映射到 `<DataRoot>\Roaming`、`Local`、`Pictures`；Launcher、App、PluginHost 和内置插件共用同一规则。
+变量未设置时所有默认路径保持不变；直接双击 Launcher 不会读取 Start-Dev.cmd 里的设置。
+独立根必须是普通绝对路径，不能位于真实 Roaming/Local 数据和 `%LOCALAPPDATA%\Programs\AniMeido` 中；路径不能含 junction/符号链接，也不能是文件。无效值直接报错退出，绝不回退。
+注册表偏好、通知身份和安装登记不隔离。验收前请退出使用同一开发安装的 AniMeido/PluginHost。
 不要使用 Program Files、`%LocalAppData%\Programs\AniMeido` 或真实用户数据目录作为 `-Root`。
 新根必须为空，版本目录已存在则拒绝；已有安装必须加 `-AsPending`，让启动器负责切换。
 失败的发布暂存目录会保留，检查后由维护者自行清理，不自动覆盖。
@@ -129,24 +132,24 @@ manifest 的输出文件也拒绝覆盖。退出码：0 成功、1 校验/签名
 
 ```powershell
 # 1. 建立第一版，App 按现有 win-x64 profile 自包含发布（包含 PluginHost）
-.\Tools\New-DevInstall.ps1 -Root D:\AniMeido-U2-Dev -Version 2.2.0
-& D:\AniMeido-U2-Dev\AniMeido.exe
+.\Tools\New-DevInstall.ps1 -Root D:\AniMeido-U2-Dev -DataRoot D:\AniMeidoDev\u2 -Version 2.2.0
+& D:\AniMeido-U2-Dev\Start-Dev.cmd
 # 数据库完成初始化且主窗口 Activate 后，state.json 的 currentHealthy 应为 true
 # 关闭主程序（若驻留托盘，请用“退出”，不是仅关闭窗口）
 
 # 2. 加入新版本；此时只设 pending，current 仍为 2.2.0
-.\Tools\New-DevInstall.ps1 -Root D:\AniMeido-U2-Dev -Version 2.3.0 -AsPending
-& D:\AniMeido-U2-Dev\AniMeido.exe
+.\Tools\New-DevInstall.ps1 -Root D:\AniMeido-U2-Dev -DataRoot D:\AniMeidoDev\u2 -Version 2.3.0 -AsPending
+& D:\AniMeido-U2-Dev\Start-Dev.cmd
 # 切换为 2.3.0，previous 为 2.2.0；显示主窗口后新版本标记为健康
 # 再次完整退出主程序
 
 # 3. 加入立即退出的假版本：whoami.exe 改名为 AniMeido.App.exe，不会标记健康
-.\Tools\New-DevInstall.ps1 -Root D:\AniMeido-U2-Dev -Version 2.4.0 -AsPending -Broken
-& D:\AniMeido-U2-Dev\AniMeido.exe  # 第一次：切换到假版本，failedStarts=1
+.\Tools\New-DevInstall.ps1 -Root D:\AniMeido-U2-Dev -DataRoot D:\AniMeidoDev\u2 -Version 2.4.0 -AsPending -Broken
+& D:\AniMeido-U2-Dev\Start-Dev.cmd  # 第一次：切换到假版本，failedStarts=1
 # 等待假版本退出后再执行，不能连点
-& D:\AniMeido-U2-Dev\AniMeido.exe  # 第二次：failedStarts=2
+& D:\AniMeido-U2-Dev\Start-Dev.cmd  # 第二次：failedStarts=2
 # 再等假版本退出
-& D:\AniMeido-U2-Dev\AniMeido.exe  # 第三次：自动回到 2.3.0，主窗口显示一次回滚提示
+& D:\AniMeido-U2-Dev\Start-Dev.cmd  # 第三次：自动回到 2.3.0，主窗口显示一次回滚提示
 ```
 
 预期：`failedVersions` 包含 `2.4.0`；回滚提示读取后 `rolledBackFrom` 清空；
@@ -154,18 +157,38 @@ manifest 的输出文件也拒绝覆盖。退出码：0 成功、1 校验/签名
 `-Broken` 不执行数据库迁移，所以验证的是**无迁移自动回滚**分支。
 迁移后回滚应另用确实升级 schema 且无法显示主窗口的版本人工验收：选择“是”先另存 db/wal/shm，
 再恢复迁移前备份；“否”保留新版本、重新给两次机会。回滚前数据保存在
-`%APPDATA%\AniMeido\Backups\update\AniMeido-rollback-from-*\`，不会被迁移备份滚动清理删除。
+`<DataRoot>\Roaming\Backups\update\AniMeido-rollback-from-*\`，不会被迁移备份滚动清理删除。
 
-启动器日志为 `%APPDATA%\AniMeido\logs\launcher.log`（超过 1 MB 后轮换为 `launcher.1.log`）。
+独立模式启动器日志为 `<DataRoot>\Roaming\logs\launcher.log`（超过 1 MB 后轮换为 `launcher.1.log`）。
 `--wait-pid <PID>` 最长等待 30 秒，超时不切换；当前安装已有主程序运行时只按 current 多开，不计失败。
 安装模式使用固定 AppUserModelID `AniMeido.Desktop`；U4 快捷方式必须设置相同值，
 **切换版本后通知设置是否保留、通知激活路径、托盘和退出行为仍需人工验收**。
 
+## C2b 合成库与独立数据验收
+
+`ANIMEIDO_C2B_FIXTURE_DIRECTORY` 指定合成库生成位置。输出到一个新根的 `<根>\Roaming\`，即可通过 `ANIMEIDO_DATA_ROOT=<根>` 直接启动，不再需要 Windows 沙盒。
+生成器拒绝覆盖已有目录；在第一次启动 App 前生成，不复制真实用户数据库。
+
+```powershell
+$previous = $env:ANIMEIDO_C2B_FIXTURE_DIRECTORY
+try {
+    $env:ANIMEIDO_C2B_FIXTURE_DIRECTORY = 'D:\AniMeidoDev\c2b\Roaming'
+    dotnet test .\AniMeido.Tests --no-restore --filter FullyQualifiedName~GenerateSyntheticPendingReviewDatabase
+} finally {
+    $env:ANIMEIDO_C2B_FIXTURE_DIRECTORY = $previous
+}
+.\Tools\New-DevInstall.ps1 -Root D:\AniMeidoDev\install -DataRoot D:\AniMeidoDev\c2b -Version 2.1.2
+& D:\AniMeidoDev\install\Start-Dev.cmd
+```
+
+确认主窗口标题和托盘提示包含“（独立数据：c2b）”，`Roaming\logs` 中有根目录明确的 Warning。
+在“待确认记录”执行一次 C2b 操作，再确认真实 `%APPDATA%\AniMeido` 和 `%LOCALAPPDATA%\AniMeido` 的修改时间未变化。
+以上是维护者人工验收步骤，不由脚本或测试自动启动 UI。
+
 ## U3 应用内更新人工验收（本地签名源）
 
 以下全部由维护者手动执行。构建、单元测试不代表 WinUI、托盘退出或版本切换已验收。
-沿用 U2 限制：独立开发安装根；**数据目录仍是真实的 `%APPDATA%\AniMeido`**。
-验收前关闭全部 AniMeido/PluginHost 并自行备份数据。脚本不会启动应用，也不是数据隔离沙箱。
+沿用 U2：使用独立安装根和 `-DataRoot`，通过 `Start-Dev.cmd` 启动。脚本不会启动应用；未指定数据根时仍遵循当前环境变量。
 
 ### 测试密钥与编译开关
 
@@ -199,7 +222,7 @@ $source = Join-Path $acceptance 'source'
 $cache = Join-Path $env:USERPROFILE '.nuget\packages'
 $private = Join-Path $acceptance 'keys\update-test.pem'
 $public = Join-Path $acceptance 'keys\update-test-public.txt'
-.\Tools\New-DevInstall.ps1 -Root $install -Version 2.2.0 -UpdateTestSource
+.\Tools\New-DevInstall.ps1 -Root $install -DataRoot (Join-Path $acceptance 'data') -Version 2.2.0 -UpdateTestSource
 
 foreach ($release in @(
     @{ Channel = 'stable'; Version = '2.3.0' },

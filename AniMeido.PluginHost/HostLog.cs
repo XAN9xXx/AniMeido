@@ -9,9 +9,7 @@ internal static class HostLog
     private const long MaxWarningFileBytes = 50 * 1024;
     private const int MaxWarningEventBytes = 8 * 1024;
     private static readonly object Gate = new();
-    private static readonly string Root = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "AniMeido", "logs");
+    private static string Root => Path.Combine(AppDataRoots.Roaming, "logs");
     private static DateOnly _lastCleanupDay;
     // 当天正在写的 warnings 文件序号，避免每条都从第一个文件逐个打开查找。
     private static (DateOnly Day, int Index) _warningFile;

@@ -116,4 +116,7 @@
           DestinationFiles="@(PluginHostOutput->'$(PublishDir)PluginHost\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
+  <ItemGroup>
+    <Compile Include="..\Shared\AppDataRoots.cs" Link="Shared\AppDataRoots.cs" />
+  </ItemGroup>
 </Project>

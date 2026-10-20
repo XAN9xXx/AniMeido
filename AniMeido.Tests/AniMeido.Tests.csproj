@@ -24,6 +24,9 @@
         <ProjectReference Include="..\AniMeido.App\AniMeido.App.csproj" />
         <ProjectReference Include="..\Plugins\AniMeido.Plugin.Base\AniMeido.Plugin.Base.csproj" />
         <ProjectReference Include="..\Plugins\AniMeido.Plugin.Player\AniMeido.Plugin.Player.csproj" />
+        <ProjectReference Include="..\AniMeido.Launcher\AniMeido.Launcher.csproj" ReferenceOutputAssembly="false" />
+        <ProjectReference Include="..\Plugins\AniMeido.Plugin.AI\AniMeido.Plugin.AI.csproj"
+                          ReferenceOutputAssembly="false" Condition="'$(EnableExperimentalAiTests)' != 'true'" />
         <ProjectReference Include="..\Plugins\AniMeido.Plugin.AI\AniMeido.Plugin.AI.csproj"
                           Condition="'$(EnableExperimentalAiTests)' == 'true'" />
     </ItemGroup>

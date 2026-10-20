@@ -5,6 +5,8 @@ namespace AniMeido.Plugin.Player.Sources.Rules;
 
 internal static class SourceRuleLoader
 {
+    internal static string SourcesDirectory => Path.Combine(AppDataRoots.Local, "Player", "Sources");
+
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -72,12 +74,7 @@ internal static class SourceRuleLoader
     {
         try
         {
-            var sourceDirectory = Path.Combine(
-                Environment.GetFolderPath(
-                    Environment.SpecialFolder.LocalApplicationData),
-                "AniMeido",
-                "Player",
-                "Sources");
+            var sourceDirectory = SourcesDirectory;
             Directory.CreateDirectory(sourceDirectory);
             var looseRules = Directory.EnumerateFiles(
                 sourceDirectory,

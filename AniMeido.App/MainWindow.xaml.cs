@@ -90,6 +90,12 @@ namespace AniMeido.App
             string? migrationBackupDirectory = null)
         {
             InitializeComponent();
+            if (AppDataRoots.IsIsolated)
+            {
+                Title += AppDataRoots.DisplaySuffix;
+                AppTitleText.Text = Title;
+                AppTitleText.Visibility = Visibility.Visible;
+            }
             _migrationGate = migrationGate;
             _migrationBackupDirectory = migrationBackupDirectory;
 

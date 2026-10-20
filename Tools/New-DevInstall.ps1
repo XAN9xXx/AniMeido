@@ -4,7 +4,7 @@
 .SYNOPSIS
     Creates a development-only side-by-side AniMeido installation for manual launcher acceptance.
 .NOTES
-    Does not redirect user data. Back up %APPDATA%\AniMeido yourself before acceptance.
+    Use -DataRoot with a separate absolute directory, then run Start-Dev.cmd to isolate acceptance data.
 #>
 [CmdletBinding()]
 param(
@@ -12,6 +12,8 @@ param(
     [string]$Root,
     [Parameter(Mandatory = $true)]
     [string]$Version,
+    [ValidateNotNullOrEmpty()]
+    [string]$DataRoot,
     [switch]$AsPending,
     [switch]$Broken,
     [switch]$UpdateTestSource
@@ -70,6 +72,20 @@ if (-not $existing -and (Test-Path -LiteralPath $installRoot)) {
     if (@(Get-ChildItem -LiteralPath $installRoot -Force).Count -ne 0) {
         throw '新安装的 Root 必须为空，避免改动其他文件。'
     }
+}
+
+$isolatedRoot = $null
+if ($PSBoundParameters.ContainsKey('DataRoot')) {
+    # 直接复用各进程编译的解析器；公开入口只存在于本脚本的内存编译中。
+    $validationSource = "#nullable enable`r`n" + [IO.File]::ReadAllText((Join-Path $repo 'Shared\AppDataRoots.cs')) + @'
+
+public static class DevDataRootValidation
+{
+    public static string Validate(string value) => AppDataRoots.ValidateIsolatedRoot(value);
+}
+'@
+    Add-Type -TypeDefinition $validationSource
+    $isolatedRoot = [AniMeido.DevDataRootValidation]::Validate($DataRoot)
 }
 
 Push-Location -LiteralPath $repo
@@ -147,8 +163,27 @@ try {
         $state.CurrentHealthy = $false
         $store.Write($state)
     }
+    if ($null -ne $isolatedRoot) {
+        # % 会被 cmd 展开；禁用延迟展开后，目录名里的 ! 保持原样。
+        $escapedRoot = $isolatedRoot.Replace('%', '%%')
+        $command = @"
+@echo off
+setlocal DisableDelayedExpansion
+chcp 65001 >nul
+set "ANIMEIDO_DATA_ROOT=$escapedRoot"
+"%~dp0AniMeido.exe" %*
+exit /b %errorlevel%
+"@
+        [IO.File]::WriteAllText((Join-Path $installRoot 'Start-Dev.cmd'),
+            $command.ReplaceLineEndings("`r`n") + "`r`n", [Text.UTF8Encoding]::new($false))
+    }
     Write-Host "开发安装准备完成：$launcher"
-    Write-Warning '用户数据仍为真实 %APPDATA%\AniMeido；启动前请自行备份。本脚本没有启动主程序。'
+    if ($null -ne $isolatedRoot) {
+        Write-Host "独立数据目录：$isolatedRoot；请通过 Start-Dev.cmd 启动。本脚本没有启动主程序。"
+    }
+    else {
+        Write-Warning '未指定 -DataRoot；请使用 -DataRoot 和生成的 Start-Dev.cmd 隔离验收数据。直接启动 Launcher 仍遵循当前环境变量（未设置时使用真实数据）。本脚本没有启动主程序。'
+    }
 }
 finally {
     Pop-Location

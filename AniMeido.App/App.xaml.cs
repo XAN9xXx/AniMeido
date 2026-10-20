@@ -25,9 +25,19 @@ namespace AniMeido.App
 
         public App()
         {
+            try
+            {
+                StartupLogger.Initialize();
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                // 数据路径无效时不能初始化日志，更不能回退后打开日常数据。
+                GlobalExceptionHandler.NativeMethods.MessageBox(
+                    IntPtr.Zero, ex.Message, "AniMeido 无法启动", 0x00000010);
+                Environment.Exit(1);
+            }
             _installedApp = new InstalledAppContext();
             var identityResult = _installedApp.SetNotificationIdentity();
-            StartupLogger.Initialize();
             if (identityResult < 0)
             {
                 Log.Warning("设置 AniMeido.Desktop AppUserModelID 失败：{HResult}", identityResult);
