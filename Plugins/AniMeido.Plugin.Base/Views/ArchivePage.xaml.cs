@@ -262,6 +262,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         {
             _pageLifetime = new CancellationTokenSource();
         }
+        UpdatePendingPanelAvailability();
     }
 
     private async Task EnsureActivePanelAsync()
@@ -1569,6 +1570,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         _pageLifetime?.Cancel();
         _pageLifetime?.Dispose();
         _pageLifetime = null;
+        UpdatePendingPanelAvailability();
         foreach (var state in _panelStates.Values)
         {
             state.CancelInflight();

@@ -11,6 +11,9 @@ public sealed partial class ArchivePage
     private bool _pendingSubscribed;
     private bool _pendingActionRunning;
 
+    private void UpdatePendingPanelAvailability() => PendingReviewPanel.IsEnabled =
+        _pageLifetime is { IsCancellationRequested: false } && !_pendingActionRunning;
+
     private void SubscribePendingChanges()
     {
         if (_pendingSubscribed) return;
@@ -87,7 +90,7 @@ public sealed partial class ArchivePage
         if (_pendingActionRunning || _pageLifetime is null) return;
         _pendingActionRunning = true;
         var lifetime = _pageLifetime;
-        PendingReviewPanel.IsEnabled = false;
+        UpdatePendingPanelAvailability();
         try { await action(lifetime.Token); }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or Microsoft.Data.Sqlite.SqliteException
@@ -99,7 +102,7 @@ public sealed partial class ArchivePage
         finally
         {
             _pendingActionRunning = false;
-            if (ReferenceEquals(_pageLifetime, lifetime)) PendingReviewPanel.IsEnabled = true;
+            UpdatePendingPanelAvailability();
         }
     }
 
