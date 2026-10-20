@@ -840,7 +840,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         ArchiveSelectionEmptyState.Visibility = Visibility.Collapsed;
         ArchiveDetailPanel.Visibility = Visibility.Visible;
         ArchiveTitle.Text = selectedArchive.Archive.TitleSnapshot;
-        ArchiveAnimeMetadata.Text = selectedArchive.Archive.AnimeId < 0 || selectedArchive.Unavailable ? "资料不可用" : $"公共 ID #{selectedArchive.Archive.AnimeId}";
+        ArchiveAnimeMetadata.Text = selectedArchive.Archive.AnimeId < 0 || selectedArchive.Unavailable ? "资料不可用" : "";
         ArchiveRatingText.Text = selectedArchive.RatingText;
         ArchiveStatusText.Text = selectedArchive.StatusText;
         ArchiveTagsText.Text = selectedArchive.Tags.Count == 0
@@ -917,13 +917,13 @@ public sealed partial class ArchivePage : Page, INavigationAware
             if (selectionVersion == _selectionVersion
                 && !cancellationToken.IsCancellationRequested)
             {
-                ArchiveAnimeMetadata.Text = anime is null
-                    ? $"Bangumi #{animeId}"
+                // 作品 ID 是内部标识（迁移后已不是 Bangumi 条目号，负数表示资料里没有），不显示给用户。
+                ArchiveAnimeMetadata.Text = anime is null || animeId < 0
+                    ? "资料不可用"
                     : string.Join(" · ", new[]
                     {
                         anime.AirDate?.Year.ToString(),
                         anime.Studio,
-                        $"Bangumi #{animeId}",
                     }.Where(value => !string.IsNullOrWhiteSpace(value)));
                 ManagedImageLoader.ConfigureCover(
                     ArchiveHeroCover,

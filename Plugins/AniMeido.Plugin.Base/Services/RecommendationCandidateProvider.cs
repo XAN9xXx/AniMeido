@@ -71,7 +71,7 @@ public sealed class RecommendationCandidateProvider : IDisposable
                 var detail = await TryGetDetailAsync(seed.AnimeId, token);
                 result[seed.AnimeId] = seed with
                 {
-                    Title = detail?.Title ?? $"Bangumi #{seed.AnimeId}",
+                    Title = detail?.Title ?? AnimeTitleFallback.Untitled,
                 };
             });
         return seeds.Select(seed => result[seed.AnimeId]).ToArray();

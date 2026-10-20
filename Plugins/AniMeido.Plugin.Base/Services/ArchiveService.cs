@@ -466,7 +466,7 @@ public sealed class ArchiveService
                 ParseTimestamp(reader.GetString(6)));
             moments.Add(new AnnualReviewMoment(
                 entry,
-                reader.IsDBNull(7) ? $"作品 #{entry.AnimeId}" : reader.GetString(7)));
+                reader.IsDBNull(7) ? AnimeTitleFallback.Untitled : reader.GetString(7)));
         }
 
         return moments;
@@ -580,7 +580,7 @@ public sealed class ArchiveService
             FROM (
                 SELECT w.EventId,
                        w.AnimeId,
-                       COALESCE(a.TitleSnapshot, 'Bangumi #' || w.AnimeId)
+                       COALESCE(a.TitleSnapshot, @untitled)
                            AS Title,
                        w.ObservedAt AS OccurredAt,
                        w.EpisodeNumber AS EpisodeFrom,
@@ -610,6 +610,7 @@ public sealed class ArchiveService
         command.Parameters.AddWithValue(
             "@animeId",
             animeId is null ? DBNull.Value : animeId.Value);
+        command.Parameters.AddWithValue("@untitled", AnimeTitleFallback.Untitled);
         var results = new List<WatchHistoryItem>();
         await using var reader = await command.ExecuteReaderAsync(
             cancellationToken);

@@ -160,7 +160,7 @@ public sealed class PublicIdMigrationTests : DbTestBase
         using var cmd = connection.CreateCommand(); cmd.CommandText = "SELECT TitleSnapshot FROM legacy_anime_refs ORDER BY LegacyBangumiId";
         using var reader = await cmd.ExecuteReaderAsync();
         var titles = new List<string>(); while (await reader.ReadAsync()) titles.Add(reader.GetString(0));
-        Assert.Equal(new[] { "档案", "计划", "浏览", "手工记录", "隐藏记录", "截图标题", "缓存标题", "Bangumi 条目 #8" }, titles);
+        Assert.Equal(new[] { "档案", "计划", "浏览", "手工记录", "隐藏记录", "截图标题", "缓存标题", "未命名作品" }, titles);
     }
 
     [Fact]
@@ -205,7 +205,7 @@ public sealed class PublicIdMigrationTests : DbTestBase
         var remote = new MetadataDataSource(NullLogger<MetadataDataSource>.Instance, client, new CacheService(DbFactory));
         var source = new PersonalAnimeDataSource(remote, DbFactory);
         var anime = Assert.IsType<Anime>(await source.GetAnimeDetailAsync(-9, default));
-        Assert.Equal("Bangumi 条目 #9", anime.Title); Assert.Null(anime.CoverURL); Assert.Empty(anime.CVs);
+        Assert.Equal("未命名作品", anime.Title); Assert.Null(anime.CoverURL); Assert.Empty(anime.CVs);
         Assert.Equal("资料不可用", MineBrowse.MetaText(anime));
         Assert.Equal(count, handler.Paths.Count);
         Assert.Contains("资料不可用", new TodayBrowseEntry(anime, "刚刚").DisplaySubtitle);

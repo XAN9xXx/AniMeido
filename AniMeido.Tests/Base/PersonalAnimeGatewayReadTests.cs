@@ -60,7 +60,7 @@ public sealed class PersonalAnimeGatewayReadTests : DbTestBase
         Assert.Equal(expected, result.Count);
         Assert.All(result, item =>
         {
-            Assert.Equal($"Bangumi #{item.AnimeId}", item.Title);
+            Assert.Equal("未命名作品", item.Title);
             Assert.Equal(AnimeTrackingStatus.Watching, item.TrackingStatus);
             Assert.False(item.HasPlan);
             Assert.False(item.HasArchive);
@@ -191,7 +191,7 @@ public sealed class PersonalAnimeGatewayReadTests : DbTestBase
             PersonalAnimeDataCategory.ArchiveTextAndHistory | PersonalAnimeDataCategory.BrowseSummary));
         var item = Assert.Single(result.Items);
         Assert.Equal(999, item.AnimeId);
-        Assert.Equal("Bangumi #999", item.Title);
+        Assert.Equal("未命名作品", item.Title);
         Assert.Null(item.Description); Assert.Null(item.AirDate); Assert.Null(item.BangumiScore);
         Assert.Null(item.TrackingStatus); Assert.Null(item.Plan); Assert.Null(item.Progress);
         Assert.Null(item.PersonalRating); Assert.Null(item.ArchiveSummary); Assert.Null(item.BrowseSummary);

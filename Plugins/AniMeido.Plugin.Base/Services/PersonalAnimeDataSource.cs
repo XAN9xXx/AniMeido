@@ -1,5 +1,6 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Models;
 
 namespace AniMeido.Plugin.Base.Services;
 
@@ -28,7 +29,7 @@ internal sealed class PersonalAnimeDataSource(MetadataDataSource remote, SqliteC
             return anime;
         }
         var title = snapshot as string;
-        return new Anime(animeID, title ?? (animeID < 0 ? $"Bangumi 条目 #{-(long)animeID}" : $"作品 #{animeID}"), null, [], null, null, "资料不可用", 0, 0);
+        return new Anime(animeID, title ?? AnimeTitleFallback.Untitled, null, [], null, null, "资料不可用", 0, 0);
     }
     internal static bool IsUnavailable(Anime anime) => anime.ID < 0 || (anime.Description == "资料不可用" && anime.SeasonYear == 0);
 

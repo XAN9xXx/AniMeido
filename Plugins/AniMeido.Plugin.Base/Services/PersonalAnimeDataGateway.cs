@@ -1,4 +1,4 @@
-using AniMeido.Contracts;
+﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using AniMeido.Contracts.Notifications;
 using AniMeido.Contracts.PersonalAnime;
@@ -101,7 +101,7 @@ public sealed class PersonalAnimeDataGateway : IPersonalAnimeDataGateway
             var title = archive?.Archive.TitleSnapshot
                 ?? plan?.TitleSnapshot
                 ?? browse.Title
-                ?? $"Bangumi #{animeId}";
+                ?? AnimeTitleFallback.Untitled;
             if (!string.IsNullOrWhiteSpace(search)
                 && !title.Contains(search, StringComparison.OrdinalIgnoreCase))
             {
@@ -322,7 +322,7 @@ public sealed class PersonalAnimeDataGateway : IPersonalAnimeDataGateway
                 ?? archive?.TitleSnapshot
                 ?? plan?.TitleSnapshot
                 ?? browseItem.Title
-                ?? $"Bangumi #{animeId}",
+                ?? AnimeTitleFallback.Untitled,
             needsPublic ? Truncate(detail?.Description, 8_000) : null,
             needsPublic ? detail?.AirDate : null,
             needsPublic ? detail?.Score : null,

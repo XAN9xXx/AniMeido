@@ -605,7 +605,7 @@ namespace AniMeido.Plugin.Base.Services
 
                     result[item.AnimeId] = anime ?? new Anime(
                         item.AnimeId,
-                        item.Title ?? $"Bangumi #{item.AnimeId}",
+                        item.Title ?? AnimeTitleFallback.Untitled,
                         null,
                         [],
                         null,

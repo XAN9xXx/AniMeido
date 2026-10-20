@@ -60,7 +60,7 @@ public sealed class PendingReviewService(SqliteConnectionFactory db, PersonalIdR
         .Select(r => MigrationInput.Id(r.GetValueOrDefault("AnimeId"))).Where(id => id != 0).Distinct();
 
     internal static string Title(MigrationInput input, int id) => input.Titles.GetValueOrDefault(id)
-        ?? (id < 0 ? $"Bangumi 条目 #{-(long)id}" : $"作品 #{id}");
+        ?? AnimeTitleFallback.Untitled;
 
     internal static async Task<MigrationInput> ReadRecordsAsync(SqliteConnection connection, SqliteTransaction? tx, CancellationToken ct)
     {

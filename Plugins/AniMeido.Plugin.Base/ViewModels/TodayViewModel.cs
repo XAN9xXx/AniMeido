@@ -607,7 +607,7 @@ public partial class TodayViewModel : ObservableObject
                 await _actionCenter.UpsertPlanAsync(
                     row.AnimeId,
                     resolved.GetValueOrDefault(row.AnimeId)?.Title
-                        ?? $"Bangumi #{row.AnimeId}",
+                        ?? AnimeTitleFallback.Untitled,
                     AnimePlanPriority.Normal,
                     targetStartDate: null,
                     sortOrder: 0,

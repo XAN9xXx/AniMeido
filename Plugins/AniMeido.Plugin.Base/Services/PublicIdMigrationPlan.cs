@@ -108,7 +108,7 @@ internal sealed class PublicIdMigrationPlan
         {
             plan.WorkIds[id] = -id;
             plan.LegacyRefs.Add(new LegacyAnimeReference(-id, id, reason,
-                input.Titles.GetValueOrDefault(id) ?? $"Bangumi 条目 #{id}", DateTimeOffset.UtcNow.ToString("O")));
+                input.Titles.GetValueOrDefault(id) ?? AnimeTitleFallback.Untitled, DateTimeOffset.UtcNow.ToString("O")));
         }
     }
 }
