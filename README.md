@@ -71,7 +71,7 @@ AniMeido is a local-first anime tracker for Windows. It helps you follow the cur
 
 Anime metadata comes from [Bangumi](https://bgm.tv/). The UI is currently Chinese only.
 
-Built with C# / .NET 8 / WinUI 3, with an out-of-process plugin host and a versioned JSON-RPC plugin protocol. Next up: a signed in-app update system, a self-hosted multi-source metadata service, and a migration to [Uno Platform](https://platform.uno/) for Android, with macOS and Linux to follow.
+Built with C# / .NET 10 / WinUI 3, with an out-of-process plugin host and a versioned JSON-RPC plugin protocol. Next up: a signed in-app update system, a self-hosted multi-source metadata service, and a migration to [Uno Platform](https://platform.uno/) for Android, with macOS and Linux to follow.
 
 Download from [animeido.com](https://animeido.com/). Bug reports and pull requests are welcome.
 
