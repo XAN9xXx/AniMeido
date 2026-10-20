@@ -20,7 +20,7 @@ public sealed class PendingReviewViewModel(PendingReviewService pending, Persona
         Kept = items.Where(i => i.KeptAt is not null).ToList();
     }
 
-    public Task<(List<Anime> Results, int Total)> SearchAsync(string query, int offset, CancellationToken ct) =>
+    public Task<(List<Anime> Results, int Total, int NextOffset)> SearchAsync(string query, int offset, CancellationToken ct) =>
         source.SearchByKeywordAsync(query, offset, ct);
 
     public async Task<IReadOnlyList<LocalAnimeTarget>> GetTargetsAsync(int from, CancellationToken ct) =>

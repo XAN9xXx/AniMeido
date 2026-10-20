@@ -153,15 +153,18 @@ public sealed partial class MetadataDataSource : IAnimeDataSource
         return requested.Where(items.ContainsKey).Select(id => items[id]).ToList();
     }
 
-    public async Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct)
+    public async Task<(List<Anime> Results, int Total, int NextOffset)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(offset);
-        if (string.IsNullOrWhiteSpace(keyword)) return ([], 0);
+        if (string.IsNullOrWhiteSpace(keyword)) return ([], 0, offset);
         var query = Uri.EscapeDataString(keyword);
         var response = await CachedAsync($"metadata:search:{query}:{offset}", TimeSpan.FromMinutes(5), true,
             () => SendJsonAsync<MetadataPage<MetadataSearchItem>>($"/v1/search?q={query}&type=work&offset={offset}&limit={PageSize}", ct), ct)
             .ConfigureAwait(false);
-        return (await WorksByIdsAsync(response.Items.Select(i => i.Id), ct).ConfigureAwait(false), response.Total);
+        if (response.Items.Count == 0 && offset < response.Total)
+            throw new MetadataServiceException("资料服务在完整读取搜索分页前返回了空页。");
+        return (await WorksByIdsAsync(response.Items.Select(i => i.Id), ct).ConfigureAwait(false),
+            response.Total, offset + response.Items.Count);
     }
 
     public async Task<(List<Anime> Results, int Total)> SearchByTagAsync(string tag, int offset, string sort,

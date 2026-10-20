@@ -471,8 +471,11 @@ public sealed class GlobalSearchViewModelTests : DbTestBase
         public Func<int, CancellationToken, Task<Anime?>> Detail { get; init; }
             = (id, _) => Task.FromResult<Anime?>(Item(id));
 
-        public Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct)
-            => Search(keyword, offset, ct);
+        public async Task<(List<Anime> Results, int Total, int NextOffset)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct)
+        {
+            var (results, total) = await Search(keyword, offset, ct);
+            return (results, total, offset + results.Count);
+        }
         public Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct)
             => Detail(animeID, ct);
         public Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct)

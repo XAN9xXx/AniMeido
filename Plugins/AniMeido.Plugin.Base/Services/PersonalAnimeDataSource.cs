@@ -47,7 +47,7 @@ internal sealed class PersonalAnimeDataSource(MetadataDataSource remote, SqliteC
     public async Task<List<VoiceActor>> GetCVsAsync(int animeID, CancellationToken ct) => await IsUnavailableAsync(animeID, ct).ConfigureAwait(false) ? [] : await remote.GetCVsAsync(animeID, ct).ConfigureAwait(false);
     public async Task<List<CharacterRole>> GetCharacterRolesAsync(int animeID, CancellationToken ct) => await IsUnavailableAsync(animeID, ct).ConfigureAwait(false) ? [] : await remote.GetCharacterRolesAsync(animeID, ct).ConfigureAwait(false);
     public Task<List<PersonWork>> GetPersonWorksAsync(int personId, CancellationToken ct) => remote.GetPersonWorksAsync(personId, ct);
-    public Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct) => remote.SearchByKeywordAsync(keyword, offset, ct);
+    public Task<(List<Anime> Results, int Total, int NextOffset)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct) => remote.SearchByKeywordAsync(keyword, offset, ct);
     public Task<(List<Anime> Results, int Total)> SearchByTagAsync(string tag, int offset, string sort, CancellationToken ct, string? airDateFrom = null, string? airDateTo = null)
         => remote.SearchByTagAsync(tag, offset, sort, ct, airDateFrom, airDateTo);
 }

@@ -785,7 +785,7 @@ public sealed class TodayThemeTests : DbTestBase
         }
         public Task<List<VoiceActor>> GetCVsAsync(int animeID, CancellationToken ct) => Unexpected<Task<List<VoiceActor>>>();
         public Task<List<CharacterRole>> GetCharacterRolesAsync(int animeID, CancellationToken ct) => Unexpected<Task<List<CharacterRole>>>();
-        public Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct)
-            => Unexpected<Task<(List<Anime>, int)>>();
+        public Task<(List<Anime> Results, int Total, int NextOffset)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct)
+            => Unexpected<Task<(List<Anime>, int, int)>>();
     }
 }

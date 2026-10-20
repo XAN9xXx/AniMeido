@@ -216,14 +216,13 @@ namespace AniMeido.Plugin.Base.ViewModels
             ClearError();
             try
             {
-                var (results, total) = await _dataSource.SearchByKeywordAsync(Query, _nextOffset, token);
+                var (results, total, nextOffset) = await _dataSource.SearchByKeywordAsync(Query, _nextOffset, token);
                 if (!IsCurrent(version, token))
                     return;
 
-                _nextOffset += results.Count;
+                _nextOffset = nextOffset;
                 _loaded = SearchBrowse.AppendPage(_loaded, results);
-                // 空页说明已经到底，按实际加载数收尾，避免一直显示“加载更多”。
-                _total = results.Count == 0 ? _loaded.Count : total;
+                _total = total;
             }
             catch (Exception ex) when (HandleException(ex, version, token))
             {
@@ -316,13 +315,13 @@ namespace AniMeido.Plugin.Base.ViewModels
         {
             try
             {
-                var (results, total) = await _dataSource.SearchByKeywordAsync(query, 0, token);
+                var (results, total, nextOffset) = await _dataSource.SearchByKeywordAsync(query, 0, token);
                 if (!IsCurrent(version, token))
                     return;
 
                 _loaded = SearchBrowse.AppendPage([], results);
                 _total = total;
-                _nextOffset = results.Count;
+                _nextOffset = nextOffset;
             }
             catch (Exception ex) when (HandleException(ex, version, token))
             {

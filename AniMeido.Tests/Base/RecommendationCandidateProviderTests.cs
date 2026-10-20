@@ -211,7 +211,7 @@ public class RecommendationCandidateProviderTests
             CancellationToken ct) => throw new NotSupportedException();
         public Task<List<PersonWork>> GetPersonWorksAsync(int id,
             CancellationToken ct) => throw new NotSupportedException();
-        public Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(
+        public Task<(List<Anime> Results, int Total, int NextOffset)> SearchByKeywordAsync(
             string keyword, int offset, CancellationToken ct)
             => throw new NotSupportedException();
     }
@@ -307,7 +307,7 @@ public class RecommendationCandidateProviderTests
             CancellationToken ct)
             => throw new NotSupportedException();
 
-        public Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(
+        public Task<(List<Anime> Results, int Total, int NextOffset)> SearchByKeywordAsync(
             string keyword,
             int offset,
             CancellationToken ct)
@@ -383,7 +383,7 @@ public class RecommendationCandidateProviderTests
             CancellationToken ct)
             => throw new NotSupportedException();
 
-        public Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(
+        public Task<(List<Anime> Results, int Total, int NextOffset)> SearchByKeywordAsync(
             string keyword,
             int offset,
             CancellationToken ct)
@@ -472,7 +472,7 @@ public class RecommendationCandidateProviderTests
             CancellationToken ct)
             => throw new NotSupportedException();
 
-        public Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(
+        public Task<(List<Anime> Results, int Total, int NextOffset)> SearchByKeywordAsync(
             string keyword,
             int offset,
             CancellationToken ct)

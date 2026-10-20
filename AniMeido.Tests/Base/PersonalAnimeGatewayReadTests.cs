@@ -305,7 +305,7 @@ public sealed class PersonalAnimeGatewayReadTests : DbTestBase
         public Task<List<CharacterRole>> GetCharacterRolesAsync(int id, CancellationToken ct) => throw new NotSupportedException();
         public Task<List<PersonWork>> GetPersonWorksAsync(int id, CancellationToken ct) => throw new NotSupportedException();
         public Task<(List<Anime> Results, int Total)> SearchByTagAsync(string tag, int offset, string sort, CancellationToken ct, string? airDateFrom = null, string? airDateTo = null) => throw new NotSupportedException();
-        public Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct) => throw new NotSupportedException();
+        public Task<(List<Anime> Results, int Total, int NextOffset)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct) => throw new NotSupportedException();
     }
 
     private sealed class NoWriteNotifications : IAppNotificationService, IDisposable

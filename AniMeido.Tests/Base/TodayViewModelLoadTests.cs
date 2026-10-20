@@ -291,8 +291,8 @@ public sealed class TodayViewModelLoadTests : DbTestBase
         public Task<List<PersonWork>> GetPersonWorksAsync(int personId, CancellationToken ct) => Offline<List<PersonWork>>();
         public Task<(List<Anime> Results, int Total)> SearchByTagAsync(string tag, int offset, string sort, CancellationToken ct,
             string? airDateFrom = null, string? airDateTo = null) => Offline<(List<Anime>, int)>();
-        public Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct)
-            => Offline<(List<Anime>, int)>();
+        public Task<(List<Anime> Results, int Total, int NextOffset)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct)
+            => Offline<(List<Anime>, int, int)>();
     }
 
     private sealed class NoopNotificationService : IAppNotificationService

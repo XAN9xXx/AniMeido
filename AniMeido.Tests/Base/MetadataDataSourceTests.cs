@@ -2,6 +2,7 @@
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Services;
+using AniMeido.Plugin.Base.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Collections.Concurrent;
@@ -189,6 +190,7 @@ public sealed class MetadataDataSourceTests : DbTestBase
         using var client = Client(handler);
         var result = await Source(client).SearchByKeywordAsync("a&中文", 20, default);
         Assert.Equal(52, result.Total);
+        Assert.Equal(22, result.NextOffset);
         Assert.Equal(new[] { 3, 1 }, result.Results.Select(w => w.ID));
     }
 
@@ -521,7 +523,70 @@ public sealed class MetadataDataSourceTests : DbTestBase
         using var client = Client(handler);
         var result = await Source(client).SearchByKeywordAsync("测试", 0, default);
         Assert.Equal(4, result.Total);
+        Assert.Equal(4, result.NextOffset);
         Assert.Equal(1, Assert.Single(result.Results).ID);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GlobalSearch_ContinuesPastFilteredPagesWithoutRepeatingResults(bool filterFirstPage)
+    {
+        await RunProductionMigrationAsync();
+        using var handler = KeywordPagesHandler(filterFirstPage);
+        using var client = Client(handler);
+        var source = new PersonalAnimeDataSource(Source(client), DbFactory);
+        var tracking = new TrackingService(DbFactory);
+        var vm = new GlobalSearchViewModel(source, tracking, new LocalSearchService(tracking, source), new SavedTagService(DbFactory));
+
+        await vm.SearchAsync("测试");
+        Assert.Equal(filterFirstPage ? [] : new[] { 1 }, vm.Results.Select(entry => entry.Anime.ID));
+        Assert.True(vm.CanLoadMore);
+
+        await vm.LoadMoreAsync();
+        Assert.Equal(filterFirstPage ? [] : new[] { 1 }, vm.Results.Select(entry => entry.Anime.ID));
+        Assert.True(vm.CanLoadMore);
+
+        await vm.LoadMoreAsync();
+        await vm.LoadMoreAsync();
+        Assert.Equal(filterFirstPage ? new[] { 41 } : new[] { 1, 41 }, vm.Results.Select(entry => entry.Anime.ID));
+        Assert.False(vm.CanLoadMore);
+        Assert.False(vm.IsError);
+        Assert.Equal(new[] { "0", "20", "40" }, handler.GetPaths.Where(p => p.StartsWith("/v1/search?", StringComparison.Ordinal))
+            .Select(p => Query(new Uri("https://fixture.invalid" + p), "offset")));
+    }
+
+    [Fact]
+    public async Task PendingTargetSearch_ReturnsRawNextOffsetEvenWhenWholePageIsFiltered()
+    {
+        await RunProductionMigrationAsync();
+        using var handler = KeywordPagesHandler(filterFirstPage: false);
+        using var client = Client(handler);
+        var remap = new PersonalIdRemapService(DbFactory, NullLogger<PersonalIdRemapService>.Instance);
+        var vm = new PendingReviewViewModel(new PendingReviewService(DbFactory, remap), remap,
+            new PersonalAnimeDataSource(Source(client), DbFactory));
+
+        var first = await vm.SearchAsync("测试", 0, default);
+        Assert.Equal(1, Assert.Single(first.Results).ID);
+        Assert.Equal(20, first.NextOffset);
+        var middle = await vm.SearchAsync("测试", first.NextOffset, default);
+        Assert.Empty(middle.Results);
+        Assert.Equal(40, middle.NextOffset);
+        Assert.True(middle.NextOffset < middle.Total);
+        var last = await vm.SearchAsync("测试", middle.NextOffset, default);
+        Assert.Equal(41, Assert.Single(last.Results).ID);
+        Assert.Equal(last.Total, last.NextOffset);
+        Assert.Equal(new[] { "0", "20", "40" }, handler.GetPaths.Where(p => p.StartsWith("/v1/search?", StringComparison.Ordinal))
+            .Select(p => Query(new Uri("https://fixture.invalid" + p), "offset")));
+    }
+
+    [Fact]
+    public async Task KeywordSearch_RejectsRawEmptyPageBeforeTotalInsteadOfLoopingAtSameOffset()
+    {
+        await CreateBaseTablesAsync();
+        using var handler = new StubHandler(_ => Reply(new { total = 41, items = Array.Empty<object>() }));
+        using var client = Client(handler);
+        await Assert.ThrowsAsync<MetadataServiceException>(() => Source(client).SearchByKeywordAsync("测试", 20, default));
     }
 
     [Fact]
@@ -602,6 +667,24 @@ public sealed class MetadataDataSourceTests : DbTestBase
             }) });
         });
     }
+
+    private static StubHandler KeywordPagesHandler(bool filterFirstPage) => new(r =>
+    {
+        if (r.RequestUri!.AbsolutePath == "/v1/search")
+        {
+            var offset = int.Parse(Query(r, "offset"));
+            return Reply(new { total = 41, items = Enumerable.Range(1, 41).Skip(offset).Take(20).Select(id => new { id }) });
+        }
+        Assert.Equal("/v1/works", r.RequestUri.AbsolutePath);
+        var ids = Query(r, "ids").Split(',').Select(int.Parse).ToList();
+        return Reply(new
+        {
+            total = ids.Count,
+            items = ids.Select(id => id == 41 || (id == 1 && !filterFirstPage) ? Work(id)
+                : new { id, status = (id % 3) switch { 0 => "merged", 1 => "deactivated", _ => "not_found" } }),
+        });
+    });
+
     private static string Query(HttpRequestMessage r, string key) => Query(r.RequestUri!, key);
     private static string Query(Uri uri, string key) => uri.Query.TrimStart('?').Split('&')
         .Select(p => p.Split('=', 2)).Where(p => p.Length == 2 && p[0] == key).Select(p => Uri.UnescapeDataString(p[1])).Single();

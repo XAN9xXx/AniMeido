@@ -413,8 +413,8 @@ public sealed class CurrentSeasonOtherTests : DbTestBase
         public Task<List<PersonWork>> GetPersonWorksAsync(int personId, CancellationToken ct) => Unexpected<Task<List<PersonWork>>>();
         public Task<(List<Anime> Results, int Total)> SearchByTagAsync(string tag, int offset, string sort, CancellationToken ct,
             string? airDateFrom = null, string? airDateTo = null) => Unexpected<Task<(List<Anime>, int)>>();
-        public Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct)
-            => Unexpected<Task<(List<Anime>, int)>>();
+        public Task<(List<Anime> Results, int Total, int NextOffset)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct)
+            => Unexpected<Task<(List<Anime>, int, int)>>();
 
         public static Anime Item(int id, int? weekday, AnimeMediaFormat format) => new(
             id,

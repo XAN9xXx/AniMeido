@@ -145,10 +145,10 @@ public sealed partial class ArchivePage
                 if (query.Length == 0) { results.ItemsSource = null; return; }
                 var page = await _pendingReview.SearchAsync(query, offset, token);
                 if (token.IsCancellationRequested) return;
-                offset += page.Results.Count;
+                offset = page.NextOffset;
                 publicResults.AddRange(page.Results.Where(a => a.ID > 0 && a.ID != item.AnimeId));
                 results.ItemsSource = publicResults.DistinctBy(a => a.ID).Select(a => new LocalAnimeTarget(a.ID, a.Title)).ToList();
-                moreButton.IsEnabled = offset < page.Total && page.Results.Count > 0;
+                moreButton.IsEnabled = offset < page.Total;
                 message.Text = publicResults.Count == 0 ? "没有找到作品；未更改任何记录。" : $"已加载 {publicResults.Count} 部作品";
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { }

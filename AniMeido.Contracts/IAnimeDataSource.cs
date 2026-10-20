@@ -39,6 +39,7 @@ namespace AniMeido.Contracts
         /// <summary>
         /// 按关键词搜索番剧（通过资料服务）。
         /// </summary>
-        Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct);
+        /// <returns>补全后的作品、远端总数和按原始页消费数推进的下一页偏移；空结果不代表已经到底。</returns>
+        Task<(List<Anime> Results, int Total, int NextOffset)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct);
     }
 }
