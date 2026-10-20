@@ -12,6 +12,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading.Channels;
 
 namespace AniMeido.Tests;
 
@@ -61,7 +62,7 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
         Assert.All(await target.Archive.GetScreenshotsAsync(), item => Assert.Equal(117, item.AnimeId));
         Assert.NotNull(await target.Archive.GetArchiveAsync(117));
         Assert.Equal(AnimeTrackingStatus.Watching, await new TrackingService(factory).GetStatusAsync(117));
-        Assert.Single(handler.Paths.Where(p => p.StartsWith("/v1/mapping/work", StringComparison.Ordinal)));
+        Assert.Single(handler.Paths, p => p.StartsWith("/v1/mapping/work", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -489,30 +490,57 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
         }
     }
 
-    private static Task RunWithContinuationHookAsync(Func<Task> operation, Action beforeContinuation) => Task.Run(() =>
+    private static Task RunWithContinuationHookAsync(
+        Func<Task> operation, Action beforeContinuation) => Task.Run(async () =>
     {
         using var context = new HookContext(beforeContinuation);
         var previous = SynchronizationContext.Current;
         SynchronizationContext.SetSynchronizationContext(context);
+        Task pending;
         try
         {
-            var pending = operation();
-            while (!pending.IsCompleted) context.RunOne();
-            pending.GetAwaiter().GetResult();
+            pending = operation();
         }
-        finally { SynchronizationContext.SetSynchronizationContext(previous); }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+        }
+        while (!pending.IsCompleted)
+            await context.RunOneAsync(pending);
+        await pending;
     });
 
     private sealed class HookContext(Action hook) : SynchronizationContext, IDisposable
     {
-        private readonly BlockingCollection<(SendOrPostCallback Callback, object? State)> _queue = new();
-        public override void Post(SendOrPostCallback d, object? state) => _queue.Add((d, state));
-        public void RunOne()
+        private readonly Channel<(SendOrPostCallback Callback, object? State)> _queue =
+            Channel.CreateUnbounded<(SendOrPostCallback, object?)>();
+
+        public override void Post(SendOrPostCallback d, object? state)
         {
-            if (!_queue.TryTake(out var work, TimeSpan.FromSeconds(5))) throw new TimeoutException("Import continuation stalled");
-            hook();
-            work.Callback(work.State);
+            if (!_queue.Writer.TryWrite((d, state)))
+                throw new InvalidOperationException("Import continuation queue closed");
         }
-        public void Dispose() => _queue.Dispose();
+
+        public async Task RunOneAsync(Task pending)
+        {
+            // 等待续体时释放线程池线程；操作也可能在不捕获此上下文的路径上完成。
+            var available = _queue.Reader.WaitToReadAsync().AsTask();
+            await Task.WhenAny(pending, available).WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            if (!_queue.Reader.TryRead(out var work))
+                return;
+            var previous = Current;
+            SetSynchronizationContext(this);
+            try
+            {
+                hook();
+                work.Callback(work.State);
+            }
+            finally
+            {
+                SetSynchronizationContext(previous);
+            }
+        }
+
+        public void Dispose() => _queue.Writer.TryComplete();
     }
 }

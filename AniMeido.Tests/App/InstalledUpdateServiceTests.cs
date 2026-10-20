@@ -214,7 +214,7 @@ public sealed class InstalledUpdateServiceTests
         using var fixture = new Fixture();
         var manifest = (await fixture.Service.CheckAsync("stable")).Manifest!;
         await Task.WhenAll(fixture.Service.PrepareAsync(manifest), fixture.Service.PrepareAsync(manifest));
-        Assert.Single(fixture.Requests.Where(request => request.Uri.EndsWith(".zip", StringComparison.Ordinal)));
+        Assert.Single(fixture.Requests, request => request.Uri.EndsWith(".zip", StringComparison.Ordinal));
     }
 
     [Fact]

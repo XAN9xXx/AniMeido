@@ -535,7 +535,7 @@ public sealed class MetadataDataSourceTests : DbTestBase
         Assert.Equal(Enumerable.Range(1, 25).Reverse(), results.Select(a => a.ID));
         var sorted = TagSearchResults.Sort(results, "rank", descending: true);
         Assert.Equal(results.Select(a => a.ID), sorted.Select(a => a.ID));
-        Assert.Single(handler.GetPaths.Where(p => p.StartsWith("/v1/brief")));
+        Assert.Single(handler.GetPaths, p => p.StartsWith("/v1/brief"));
         Assert.Equal(2, handler.GetPaths.Count(p => p.StartsWith("/v1/works?ids=")));
     }
 

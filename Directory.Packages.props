@@ -1,4 +1,4 @@
-<Project>
+﻿<Project>
   <!--
     NuGet 中央包版本管理：所有包的版本只在这里登记，各 csproj 的 PackageReference 只写包名。
     在 VS 中通过"管理解决方案的 NuGet 程序包"升级时，修改的也是这个文件。
@@ -45,7 +45,8 @@
   <!-- 测试 -->
   <ItemGroup>
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
-    <PackageVersion Include="xunit" Version="2.6.2" />
-    <PackageVersion Include="xunit.runner.visualstudio" Version="2.5.4" />
+    <!-- xUnit 2.8 起默认使用 conservative 并行调度，避免低核数时异步续体被新测试饿死。 -->
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>
 </Project>

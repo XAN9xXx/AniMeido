@@ -126,7 +126,7 @@ public sealed class CurrentSeasonCalendarTests
         var entries = CurrentSeasonViewModel.BuildEntries(resolved, new Dictionary<int, AnimeTrackingStatus>());
 
         Assert.Equal(new[] { 1, 2 }, entries.Where(entry => entry.IsOther).Select(entry => entry.Anime.ID));
-        Assert.Equal(3, Assert.Single(entries.Where(entry => !entry.IsOther)).Anime.ID);
+        Assert.Equal(3, Assert.Single(entries, entry => !entry.IsOther).Anime.ID);
     }
 
     [Fact]

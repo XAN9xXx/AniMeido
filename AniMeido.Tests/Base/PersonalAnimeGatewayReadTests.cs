@@ -116,7 +116,7 @@ public sealed class PersonalAnimeGatewayReadTests : DbTestBase
             var entry = Assert.Single(item.ArchiveEntries);
             Assert.Equal("第3集私人感想", entry.Body);
             Assert.Equal(3, entry.EpisodeNumber);
-            var watch = Assert.Single(item.WatchHistory.Where(value => value.IsManual));
+            var watch = Assert.Single(item.WatchHistory, value => value.IsManual);
             Assert.Equal("manual-fixture", watch.EventId);
             Assert.Equal("补录备注", watch.Note);
             Assert.Equal(1, watch.EpisodeFrom);
