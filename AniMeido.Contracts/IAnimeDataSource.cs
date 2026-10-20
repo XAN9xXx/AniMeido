@@ -3,7 +3,7 @@
 namespace AniMeido.Contracts
 {
     /// <summary>
-    /// animeID、personId 均为 Bangumi ID。未找到时详情返回 null，列表返回空列表。
+    /// animeID、personId 均为资料服务公共 ID。未找到时详情返回 null，列表返回空列表。
     /// </summary>
     public interface IAnimeDataSource
     {
@@ -27,7 +27,7 @@ namespace AniMeido.Contracts
         Task<List<CharacterRole>> GetCharacterRolesAsync(int animeID, CancellationToken ct);
 
         /// <summary>
-        /// 按 Tag 搜索番剧（通过 Bangumi 搜索 API），支持分页、排序和时间范围。
+        /// 按 Tag 搜索番剧（通过资料服务），支持分页、排序和时间范围。
         /// </summary>
         /// <param name="sort">排序方式："rank" / "date" / "match"。</param>
         /// <param name="airDateFrom">起始日期（含），格式 "YYYY-MM-DD"，null 表示不限制。</param>
@@ -37,7 +37,7 @@ namespace AniMeido.Contracts
         Task<List<PersonWork>> GetPersonWorksAsync(int personId, CancellationToken ct);
 
         /// <summary>
-        /// 按关键词搜索番剧（通过 Bangumi 搜索 API）。
+        /// 按关键词搜索番剧（通过资料服务）。
         /// </summary>
         Task<(List<Anime> Results, int Total)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct);
     }

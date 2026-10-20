@@ -81,7 +81,7 @@ public sealed class ExportPrimaryKeyTests : DbTestBase
                 {keyClause}
             );
             INSERT INTO tracking VALUES(1, 1, '2026-09-01');
-            INSERT INTO saved_tags VALUES('本地收藏');
+            INSERT INTO saved_tags(TagName) VALUES('本地收藏');
             INSERT INTO anime_plans(AnimeId, TitleSnapshot, CreatedAt, UpdatedAt)
             VALUES(1, '本地计划', '2026-09-01', '2026-09-01');
             INSERT INTO recommendation_hidden_anime(AnimeId, TitleSnapshot, HiddenAt)
@@ -174,6 +174,7 @@ public sealed class ExportPrimaryKeyTests : DbTestBase
     private static ExportData Package(string table, Dictionary<string, string?> row) => new()
     {
         SchemaVersion = ExportService.SchemaVersion,
+        IdSpace = "animeido-public",
         P4Tables = new(StringComparer.Ordinal) { [table] = [row] },
     };
 

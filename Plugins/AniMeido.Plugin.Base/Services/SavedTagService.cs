@@ -28,6 +28,16 @@ namespace AniMeido.Plugin.Base.Services
             return list;
         }
 
+        public async Task<List<SavedTagState>> GetSavedTagStatesAsync()
+        {
+            using var connection = await _dbFactory.OpenAsync();
+            using var cmd = connection.CreateCommand(); cmd.CommandText = "SELECT TagName,Invalid FROM saved_tags ORDER BY TagName";
+            using var reader = await cmd.ExecuteReaderAsync();
+            var result = new List<SavedTagState>();
+            while (await reader.ReadAsync()) result.Add(new SavedTagState(reader.GetString(0), reader.GetBoolean(1)));
+            return result;
+        }
+
         public async Task<bool> IsTagSavedAsync(string tagName)
         {
             using var conn = await _dbFactory.OpenAsync();
@@ -55,5 +65,10 @@ namespace AniMeido.Plugin.Base.Services
             cmd.Parameters.AddWithValue("@tag", tagName);
             await cmd.ExecuteNonQueryAsync();
         }
+    }
+
+    public sealed record SavedTagState(string Name, bool Invalid)
+    {
+        public string DisplayName => Invalid ? Name + "（已失效）" : Name;
     }
 }

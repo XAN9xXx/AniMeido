@@ -95,7 +95,7 @@ namespace AniMeido.Plugin.Base.Services
             {
                 return null;
             }
-            catch (BangumiApiException)
+            catch (MetadataServiceException)
             {
                 return null;
             }

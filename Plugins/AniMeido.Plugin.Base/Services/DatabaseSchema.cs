@@ -9,7 +9,17 @@ namespace AniMeido.Plugin.Base.Services;
 /// </summary>
 public static class DatabaseSchema
 {
-    public const int CurrentVersion = 8;
+    public const int CurrentVersion = 9;
+    public const int OfflineVersion = 8;
+
+    public static async Task<bool> UpgradeEmptyDatabaseAsync(SqliteConnection connection)
+    {
+        if (await GetSchemaVersionAsync(connection) != OfflineVersion) return false;
+        var input = await PublicIdMigrationService.ReadInputAsync(connection);
+        if (input.Tables.Values.Any(rows => rows.Count > 0)) return false;
+        await PublicIdMigrationService.ApplyAsync(connection, new PublicIdMigrationPlan { SourceState = input.State() });
+        return true;
+    }
 
     public static async Task CreateInitialBusinessTablesBeforeConfigAsync(
         SqliteConnection connection)

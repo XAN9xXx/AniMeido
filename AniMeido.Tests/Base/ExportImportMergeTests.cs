@@ -119,7 +119,7 @@ public sealed class ExportImportMergeTests : DbTestBase
             UPDATE anime_archives SET PersonalRating = 6;
             UPDATE archive_entries SET Body = '本地笔记';
             INSERT INTO config(Key, Value) VALUES('drag_zones', '本地配置');
-            INSERT INTO saved_tags VALUES('仅本地收藏');
+            INSERT INTO saved_tags(TagName) VALUES('仅本地收藏');
             """);
         var json = await CreateService(source).ExportAsync();
         var package = ExportService.Preview(json)!;
@@ -155,7 +155,7 @@ public sealed class ExportImportMergeTests : DbTestBase
     private static Task SeedMergeDataAsync(SqliteConnectionFactory factory)
         => ExecuteAsync(factory, """
             INSERT INTO tracking VALUES(42, 1, '2026-09-01T00:00:00Z');
-            INSERT INTO saved_tags VALUES('科幻');
+            INSERT INTO saved_tags(TagName) VALUES('科幻');
             INSERT INTO anime_plans(AnimeId, TitleSnapshot, CreatedAt, UpdatedAt)
             VALUES(42, '导入计划', '2026-09-01', '2026-09-01');
             INSERT INTO plan_reminders(ReminderId, AnimeId, Kind, ScheduledFor)
@@ -165,7 +165,7 @@ public sealed class ExportImportMergeTests : DbTestBase
             INSERT INTO personal_tags(TagId, Name) VALUES(1, '科幻');
             INSERT INTO anime_personal_tags VALUES(42, 1);
             INSERT INTO episode_progress VALUES(42, 1, 100, 1200, 0, '2026-09-01');
-            INSERT INTO recommendation_feature_preferences VALUES(0, 'SCI-FI', '科幻', 1, '2026-09-01');
+            INSERT INTO recommendation_feature_preferences(FeatureKind,FeatureKey,DisplayName,Adjustment,UpdatedAt) VALUES(0, 'SCI-FI', '科幻', 1, '2026-09-01');
             """);
 
     private static async Task ExecuteAsync(SqliteConnectionFactory factory, string sql)

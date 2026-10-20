@@ -2,7 +2,6 @@ using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
-using System.Text.Json;
 
 namespace AniMeido.Tests
 {
@@ -147,36 +146,30 @@ namespace AniMeido.Tests
         public async Task Restart_OfflineSeasonRequestReturnsRetainedExpiredCache()
         {
             await CreateBaseTablesAsync();
-            var key = BangumiDataSource.GetSeasonCacheKey(2025, Season.Spring);
-            var anime = new Anime(321, "离线季度缓存", null, [], null, null, "cached", 2025, 4);
-            var data = JsonSerializer.Serialize(new[] { anime }, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-            });
+            const string version = "20261019.2";
+            var key = MetadataDataSource.GetSeasonCacheKey(2025, Season.Spring, version);
+            var data = """
+                {"dataVersion":"20261019.2","total":1,"items":[
+                    {"id":321,"names":[{"kind":"main","lang":"zh-Hans","text":"离线季度缓存"}],"firstDate":"2025-04-01"}
+                ]}
+                """;
             await SeedCacheAsync(key, data, DateTime.UtcNow.AddDays(-2));
+            await SeedCacheAsync(MetadataDataSource.VersionCacheKey, version, DateTime.UtcNow.AddDays(1));
 
             // 数据已经在 SQLite；新实例的内存缓存为空，模拟应用重启。
             var cache = new CacheService(DbFactory);
             await cache.CleanExpiredAsync();
             Assert.Null(await cache.GetCacheAsync(key));
-            var archiveHandler = new OfflineHandler();
-            var onlineHandler = new OfflineHandler();
-            using var archive = new HttpClient(archiveHandler) { BaseAddress = new Uri("https://archive.example.test") };
-            using var online = new HttpClient(onlineHandler) { BaseAddress = new Uri("https://online.example.test") };
-            var api = new BangumiApiClient(
-                new OfflineHttpClientFactory(archive, online),
-                NullLogger<BangumiApiClient>.Instance,
-                new FreshArchive());
-            var source = new BangumiDataSource(NullLogger<BangumiDataSource>.Instance, api, cache);
+            var handler = new OfflineHandler();
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("https://metadata.example.test") };
+            var source = new MetadataDataSource(NullLogger<MetadataDataSource>.Instance, client, cache);
 
             var result = await source.GetAnimeBySeasonAsync(2025, Season.Spring, CancellationToken.None);
 
             var restored = Assert.Single(result);
-            Assert.Equal(anime.ID, restored.ID);
-            Assert.Equal(anime.Title, restored.Title);
-            Assert.Equal(1, archiveHandler.RequestCount);
-            Assert.Equal(1, onlineHandler.RequestCount);
-            Assert.Equal(new BangumiRouteCounts(0, 0, 1), api.RouteCounts);
+            Assert.Equal(321, restored.ID);
+            Assert.Equal("离线季度缓存", restored.Title);
+            Assert.Equal(2, handler.RequestCount); // HEAD 版本检查、季度 GET；均由假 handler 拦截。
             Assert.Equal(data, await ReadCacheRowAsync(key));
             Assert.Null(await cache.GetCacheAsync(key));
         }
@@ -199,22 +192,6 @@ namespace AniMeido.Tests
             command.CommandText = "SELECT Data FROM cache WHERE CacheKey = @key";
             command.Parameters.AddWithValue("@key", key);
             return (string?)await command.ExecuteScalarAsync();
-        }
-
-        private sealed class FreshArchive : IArchiveFreshness
-        {
-            public bool PreferFallback => false;
-            public Task EnsureCheckedAsync(CancellationToken ct) => Task.CompletedTask;
-        }
-
-        private sealed class OfflineHttpClientFactory(HttpClient archive, HttpClient online) : IHttpClientFactory
-        {
-            public HttpClient CreateClient(string name) => name switch
-            {
-                BangumiApiClient.ArchiveClientName => archive,
-                BangumiApiClient.FallbackClientName => online,
-                _ => throw new InvalidOperationException($"Unexpected client: {name}"),
-            };
         }
 
         private sealed class OfflineHandler : HttpMessageHandler

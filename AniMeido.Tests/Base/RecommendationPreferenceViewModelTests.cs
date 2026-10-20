@@ -204,6 +204,32 @@ public class RecommendationPreferenceViewModelTests : DbTestBase
         Assert.False(vm.TakeResumeReload());
     }
 
+    [Fact]
+    public async Task InvalidPreferences_AreDisplayedButNotUsedToGenerateProfile()
+    {
+        await RunProductionMigrationAsync();
+        using (var connection = await DbFactory.OpenAsync())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                INSERT INTO recommendation_feature_preferences VALUES(1,'legacy:bangumi:9','旧制作方',1,'2026-10-19',1);
+                INSERT INTO saved_tags VALUES('未知标签',1);
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
+        var source = new NoNetworkSource { Popular = () => Task.FromResult(new List<Anime>()) };
+        using var candidates = new RecommendationCandidateProvider(source, NullLogger<RecommendationCandidateProvider>.Instance);
+        using var service = CreateService(candidates);
+        var vm = new RecommendationViewModel(service, new RecommendationBrowseState());
+        Assert.True(await vm.RefreshAsync());
+        Assert.Empty(service.LastProfile);
+        var invalid = Assert.Single(vm.Profile);
+        Assert.Equal("legacy:bangumi:9", invalid.Feature.Key); Assert.Contains("已失效", invalid.Feature.DisplayName);
+        Assert.Equal(RecommendationAdjustment.Like, invalid.Adjustment);
+        await vm.SetPreferenceAsync(invalid.Feature, null);
+        Assert.Empty(await service.GetFeaturePreferencesAsync());
+    }
+
     private RecommendationService CreateService(RecommendationCandidateProvider candidates) => new(
         DbFactory, new TrackingService(DbFactory), new SavedTagService(DbFactory),
         new ArchiveService(DbFactory), new BrowseHistoryService(DbFactory),

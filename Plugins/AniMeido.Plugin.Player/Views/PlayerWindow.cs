@@ -1646,7 +1646,8 @@ internal sealed class PlayerWindow : Window
     private void RenderAnimeContext()
     {
         _animeTitle.Text =
-            $"{_session.AnimeContext.Title} · Bangumi #{_session.AnimeContext.AnimeId}";
+            _session.AnimeContext.AnimeId < 0 ? $"{_session.AnimeContext.Title} · 资料不可用"
+                : $"{_session.AnimeContext.Title} · 公共 ID #{_session.AnimeContext.AnimeId}";
         Title = $"{_session.AnimeContext.Title} - AniMeido 在线播放器";
     }
 

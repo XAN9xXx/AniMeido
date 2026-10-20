@@ -287,7 +287,8 @@ public partial class SmartListsViewModel : ObservableObject
         }
 
         Results = new ObservableCollection<SmartListCandidate>(
-            SmartListEvaluator.Apply(definition, candidates));
+            SmartListEvaluator.Apply(definition with
+            { Invalid = await _actionCenter.HasInvalidTagsAsync(definition.Rules, evaluationToken) }, candidates));
     }
 
     partial void OnSelectedDefinitionChanged(
@@ -330,7 +331,7 @@ public partial class SmartListsViewModel : ObservableObject
         {
         }
         catch (Exception ex) when (
-            ex is BangumiApiException
+            ex is MetadataServiceException
             or HttpRequestException
             or InvalidOperationException
             or System.Text.Json.JsonException)
@@ -449,7 +450,7 @@ public partial class SmartListsViewModel : ObservableObject
                     throw;
                 }
                 catch (Exception ex) when (
-                    ex is BangumiApiException
+                    ex is MetadataServiceException
                         or HttpRequestException
                         or System.Text.Json.JsonException)
                 {

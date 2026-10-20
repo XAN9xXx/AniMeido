@@ -54,7 +54,7 @@ public sealed class GlobalSearchViewModelTests : DbTestBase
         var source = new SearchSource
         {
             Search = (_, _, _) => Task.FromException<(List<Anime>, int)>(domainError
-                ? new BangumiApiException("offline") : new HttpRequestException("offline")),
+                ? new MetadataServiceException("offline") : new HttpRequestException("offline")),
         };
         var vm = NewViewModel(source, tracking);
 
@@ -142,7 +142,7 @@ public sealed class GlobalSearchViewModelTests : DbTestBase
         {
             Detail = (_, _) => detail.Task,
             Search = (_, _, _) => Task.FromException<(List<Anime>, int)>(domainError
-                ? new BangumiApiException("offline") : new HttpRequestException("offline")),
+                ? new MetadataServiceException("offline") : new HttpRequestException("offline")),
         }, tracking);
         vm.PropertyChanged += (_, args) =>
         {

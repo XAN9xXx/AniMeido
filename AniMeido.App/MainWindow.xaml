@@ -57,6 +57,17 @@
 
         </NavigationView>
 
+        <Grid x:Name="MigrationBlock" Grid.Row="2" Visibility="Collapsed">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16" MaxWidth="520">
+                <TextBlock Text="需要联网完成一次资料迁移" FontSize="24" TextWrapping="Wrap"/>
+                <TextBlock x:Name="MigrationStatus" Text="个人记录尚未切换到公共 ID。请联网后重试；完成前不会加载资料页面。" TextWrapping="Wrap"/>
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <Button x:Name="MigrationRetry" Content="重试" Click="OnRetryMigrationClick"/>
+                    <Button Content="打开备份文件夹" Click="OnOpenMigrationBackupsClick"/>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+
         <!-- 标题栏：高 48，与系统标题栏按钮的 Tall 高度一致 -->
         <Grid Height="48"
               VerticalAlignment="Top">

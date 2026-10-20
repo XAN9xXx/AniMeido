@@ -39,7 +39,11 @@ public sealed record RecommendationFeaturePreference(
     string Key,
     string DisplayName,
     RecommendationAdjustment Adjustment,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    bool Invalid = false)
+{
+    public string StateDisplayName => Invalid ? DisplayName + "（已失效）" : DisplayName;
+}
 
 public sealed record RecommendationHiddenAnime(
     int AnimeId,

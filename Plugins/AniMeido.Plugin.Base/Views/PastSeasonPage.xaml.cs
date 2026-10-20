@@ -265,7 +265,7 @@ namespace AniMeido.Plugin.Base.Views
             if (forceRefresh)
             {
                 await _cacheService.RemoveCacheAsync(
-                    BangumiDataSource.GetSeasonCacheKey(target.Year, target.Season));
+                    await MetadataDataSource.GetSeasonCacheKeyAsync(_cacheService, target.Year, target.Season));
                 if (version != _loadVersion)
                     return;
             }

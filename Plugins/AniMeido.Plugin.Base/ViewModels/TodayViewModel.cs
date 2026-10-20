@@ -13,6 +13,7 @@ public sealed record TodayAnimeEntry(
     Anime Anime,
     string Subtitle)
 {
+    public string DisplaySubtitle => Anime.ID < 0 ? Subtitle + " · 资料不可用" : Subtitle;
     public double ProgressPercent { get; init; }
     public bool HasProgress { get; init; }
 
@@ -39,7 +40,10 @@ public sealed record TodayBroadcastDay(string Label, IReadOnlyList<Anime> Items)
 
 public sealed record TodayBrowseEntry(
     Anime Anime,
-    string Subtitle);
+    string Subtitle)
+{
+    public string DisplaySubtitle => Anime.ID < 0 ? Subtitle + " · 资料不可用" : Subtitle;
+}
 
 public sealed record TodayPlanEntry(
     AnimePlan Plan,
@@ -64,7 +68,7 @@ public sealed record TodayPlanEntry(
     /// <summary>日期、提醒与较高优先级合成一行；默认值不显示。</summary>
     public string Meta => string.Join(
         " · ",
-        new[] { Subtitle, HasPriority ? $"{PriorityText}优先级" : "" }
+        new[] { Subtitle, HasPriority ? $"{PriorityText}优先级" : "", Plan.AnimeId < 0 ? "资料不可用" : "" }
             .Where(part => part.Length > 0));
     public bool HasNormalMeta => !IsOverdue && Meta.Length > 0;
     public bool HasOverdueMeta => IsOverdue && Meta.Length > 0;
@@ -277,7 +281,7 @@ public partial class TodayViewModel : ObservableObject
             }
             catch (Exception ex) when (
                 ex is HttpRequestException
-                or BangumiApiException
+                or MetadataServiceException
                 or InvalidOperationException
                 or System.Text.Json.JsonException)
             {
@@ -346,7 +350,7 @@ public partial class TodayViewModel : ObservableObject
         }
         catch (Exception ex) when (
             ex is HttpRequestException
-            or BangumiApiException
+            or MetadataServiceException
             or InvalidOperationException
             or System.Text.Json.JsonException)
         {
@@ -647,7 +651,7 @@ public partial class TodayViewModel : ObservableObject
             }
             catch (Exception ex) when (
                 ex is HttpRequestException
-                or BangumiApiException
+                or MetadataServiceException
                 or InvalidOperationException
                 or System.Text.Json.JsonException
                 or TaskCanceledException)

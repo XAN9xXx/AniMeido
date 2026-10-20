@@ -225,7 +225,7 @@
                                    VerticalAlignment="Center"
                                    FontSize="15"/>
                         <TextBlock Grid.Column="1"
-                                   Text="Bangumi API (bgm.tv)"
+                                   Text="AniMeido 资料服务（基于 Bangumi 等）"
                                    VerticalAlignment="Center"
                                    FontSize="14"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>

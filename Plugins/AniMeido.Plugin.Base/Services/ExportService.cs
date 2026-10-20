@@ -10,11 +10,12 @@ namespace AniMeido.Plugin.Base.Services
     /// 导出内容：追番状态、拖放配置、标签及行动中心数据。
     /// 不包含：缓存数据（可重新拉取）。
     /// </summary>
-    public class ExportService
+    public partial class ExportService
     {
         private readonly TrackingService _tracking;
         private readonly SavedTagService _savedTagService;
         private readonly SqliteConnectionFactory _dbFactory;
+        private readonly PublicIdMigrationService? _migration;
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             WriteIndented = true,
@@ -25,7 +26,7 @@ namespace AniMeido.Plugin.Base.Services
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         };
 
-        public const int SchemaVersion = 5;
+        public const int SchemaVersion = 6;
         private static readonly IReadOnlyDictionary<string, string[]> PersonalDataTableColumns =
             new Dictionary<string, string[]>(StringComparer.Ordinal)
             {
@@ -93,7 +94,7 @@ namespace AniMeido.Plugin.Base.Services
                 ["recommendation_feature_preferences"] =
                 [
                     "FeatureKind", "FeatureKey", "DisplayName",
-                    "Adjustment", "UpdatedAt",
+                    "Adjustment", "UpdatedAt", "Invalid",
                 ],
                 ["recommendation_hidden_anime"] =
                 [
@@ -103,11 +104,13 @@ namespace AniMeido.Plugin.Base.Services
 
 
 
-        public ExportService(TrackingService tracking, SavedTagService savedTagService, SqliteConnectionFactory dbFactory)
+        public ExportService(TrackingService tracking, SavedTagService savedTagService, SqliteConnectionFactory dbFactory,
+            PublicIdMigrationService? migration = null)
         {
             _tracking = tracking;
             _savedTagService = savedTagService;
             _dbFactory = dbFactory;
+            _migration = migration;
         }
 
 
@@ -120,12 +123,14 @@ namespace AniMeido.Plugin.Base.Services
 
             var tracking = await _tracking.GetAllTrackingAsync();
             var config = await _tracking.LoadDragZoneConfigAsync();
-            var savedTags = await _savedTagService.GetAllSavedTagsAsync();
             var p4Tables = await ExportP4TablesAsync();
 
             var export = new ExportData
             {
                 SchemaVersion = SchemaVersion,
+                IdSpace = "animeido-public",
+                LegacyAnimeRefs = await ExportLegacyRefsAsync(),
+                VocabularyNames = (await MetadataTagAvailability.ReadNamesAsync(_dbFactory, default))?.ToList(),
                 ExportedAt = DateTime.UtcNow.ToString("O"),
                 AppVersion = versionStr,
                 Tracking = tracking.Select(t => new TrackingEntry
@@ -135,7 +140,7 @@ namespace AniMeido.Plugin.Base.Services
                     UpdatedAt = t.UpdatedAt,
                 }).ToList(),
                 DragZones = config,
-                SavedTags = savedTags.Select(name => new SavedTagEntry { TagName = name }).ToList(),
+                SavedTags = (await _savedTagService.GetSavedTagStatesAsync()).Select(t => new SavedTagEntry { TagName = t.Name, Invalid = t.Invalid }).ToList(),
                 P4Tables = p4Tables,
             };
 
@@ -157,17 +162,18 @@ namespace AniMeido.Plugin.Base.Services
             int tagCount,
             int actionCenterCount)> ImportAsync(string json)
         {
-            var export = ParseAndValidate(json);
+            var export = (await PrepareImportAsync(json)).Data;
 
             using var connection = await _dbFactory.OpenAsync();
             using var transaction = connection.BeginTransaction();
 
             try
             {
+                await ImportLegacyRefsAsync(connection, transaction, export);
                 int trackingCount = 0;
                 foreach (var entry in export.Tracking)
                 {
-                    if (entry.AnimeId <= 0) continue;
+                    if (entry.AnimeId == 0) continue;
                     if (!IsValidTrackingStatus(entry.Status)) continue;
 
                     var normalizedTime = NormalizeTimestamp(entry.UpdatedAt);
@@ -217,8 +223,9 @@ namespace AniMeido.Plugin.Base.Services
 
                         using var cmd = connection.CreateCommand();
                         cmd.Transaction = transaction;
-                        cmd.CommandText = "INSERT INTO saved_tags (TagName) VALUES (@tag) ON CONFLICT(TagName) DO NOTHING";
+                        cmd.CommandText = "INSERT INTO saved_tags (TagName,Invalid) VALUES (@tag,@invalid) ON CONFLICT(TagName) DO NOTHING";
                         cmd.Parameters.AddWithValue("@tag", tagName);
+                        cmd.Parameters.AddWithValue("@invalid", st.Invalid ? 1 : 0);
                         await cmd.ExecuteNonQueryAsync();
                         tagCount++;
                     }
@@ -302,6 +309,23 @@ namespace AniMeido.Plugin.Base.Services
             if (export.SchemaVersion <= 0 || export.SchemaVersion > SchemaVersion)
                 throw new InvalidDataException(
                     $"不支持的导出文件版本：{export.SchemaVersion}。当前版本：{SchemaVersion}。");
+            if (export.SchemaVersion == SchemaVersion && export.IdSpace != "animeido-public")
+                throw new InvalidDataException("v6 导出文件必须声明 animeido-public ID 空间。");
+            foreach (var reference in export.LegacyAnimeRefs ?? [])
+                if (reference.LegacyBangumiId <= 0 || reference.LocalId != -reference.LegacyBangumiId
+                    || reference.Reason is not ("not_found" or "deactivated" or "conflict"))
+                    throw new InvalidDataException("旧条目引用登记无效。");
+            var legacyIds = (export.LegacyAnimeRefs ?? []).Select(r => r.LocalId).ToHashSet();
+            if (legacyIds.Count != (export.LegacyAnimeRefs?.Count ?? 0))
+                throw new InvalidDataException("旧条目引用登记重复。");
+            if (export.SchemaVersion == SchemaVersion)
+            {
+                var workIds = export.Tracking.Select(t => t.AnimeId).Concat(
+                    (export.P4Tables ?? []).Where(t => PublicIdMigrationService.WorkTables.Contains(t.Key))
+                    .SelectMany(t => t.Value).Select(r => r.TryGetValue("AnimeId", out var id) ? MigrationInput.Id(id) : 0));
+                if (workIds.Any(id => id < 0 && !legacyIds.Contains(id)))
+                    throw new InvalidDataException("负数作品 ID 缺少旧条目引用登记。");
+            }
 
             if (export.Tracking.Count > MaxTrackingRecords)
                 throw new InvalidDataException(
@@ -457,7 +481,7 @@ namespace AniMeido.Plugin.Base.Services
                         }
                         else
                         {
-                            command.Parameters[index].Value = value ?? (object)DBNull.Value;
+                            command.Parameters[index].Value = value ?? (table.Value[index] == "Invalid" ? "0" : (object)DBNull.Value);
                         }
                     }
 
@@ -507,6 +531,9 @@ namespace AniMeido.Plugin.Base.Services
     public class ExportData
     {
         public int SchemaVersion { get; set; }
+        public string? IdSpace { get; set; }
+        public List<LegacyAnimeReference>? LegacyAnimeRefs { get; set; }
+        public List<string>? VocabularyNames { get; set; }
         public string ExportedAt { get; set; } = "";
         public string AppVersion { get; set; } = "";
         public List<TrackingEntry> Tracking { get; set; } = new();
@@ -529,5 +556,6 @@ namespace AniMeido.Plugin.Base.Services
     public class SavedTagEntry
     {
         public string TagName { get; set; } = "";
+        public bool Invalid { get; set; }
     }
 }

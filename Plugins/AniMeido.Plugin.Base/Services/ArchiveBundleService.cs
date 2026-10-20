@@ -10,7 +10,7 @@ namespace AniMeido.Plugin.Base.Services;
 
 public sealed class ArchiveBundleService
 {
-    private const int BundleSchemaVersion = 1;
+    private const int BundleSchemaVersion = 2;
     private const int RollbackRetryBudgetMilliseconds = 2000;
     private const int RollbackRetryDelayMilliseconds = 100;
     private const int RollbackMaxAttempts = 21;
@@ -156,14 +156,27 @@ public sealed class ArchiveBundleService
             metadataJson,
             JsonOptions)
             ?? throw new InvalidDataException("截图元数据无效。");
-        if (metadata.SchemaVersion != BundleSchemaVersion)
+        if (metadata.SchemaVersion is not (1 or BundleSchemaVersion))
         {
             throw new InvalidDataException("不支持此完整档案版本。");
         }
         ValidateBundleMetadata(metadata);
 
-        _ = ExportService.Preview(dataJson)
+        var preview = ExportService.Preview(dataJson)
             ?? throw new InvalidDataException("基础 JSON 数据无效。");
+        if ((metadata.SchemaVersion == 1) != (preview.SchemaVersion <= 5))
+            throw new InvalidDataException("完整档案与基础 JSON 的 ID 空间版本不一致。");
+        var prepared = await _export.PrepareImportAsync(dataJson, metadata.Screenshots.Select(s => s.Metadata), cancellationToken);
+        var legacyIds = (prepared.Data.LegacyAnimeRefs ?? []).Select(r => r.LocalId).ToHashSet();
+        if (metadata.SchemaVersion == BundleSchemaVersion
+            && metadata.Screenshots.Any(s => s.Metadata.AnimeId is < 0 and var id && !legacyIds.Contains(id)))
+            throw new InvalidDataException("截图的负数作品 ID 缺少旧条目引用登记。");
+        metadata = metadata with { Screenshots = metadata.Screenshots.Select(s => s with
+        {
+            Metadata = s.Metadata.AnimeId is > 0 and var id && prepared.WorkIds.TryGetValue(id, out var publicId)
+                ? s.Metadata with { AnimeId = publicId } : s.Metadata,
+        }).ToList() };
+        dataJson = JsonSerializer.Serialize(prepared.Data, JsonOptions);
         var settings = await _archive.GetScreenshotSettingsAsync(
             cancellationToken);
         var existing = (await _archive.GetScreenshotsAsync(

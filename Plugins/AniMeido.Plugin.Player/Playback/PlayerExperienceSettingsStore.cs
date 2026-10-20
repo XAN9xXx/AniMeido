@@ -13,23 +13,25 @@ internal sealed class PlayerExperienceSettingsStore
 
     private readonly string? _path;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly string? _migrationPath;
 
     public PlayerExperienceSettingsStore()
         : this(Path.Combine(
             SourcePackageInstaller.GetSourcesDirectory(),
             "Settings",
-            "experience.json"))
+            "experience.json"), PlayerPublicIds.SharedMigrationPath)
     {
     }
 
-    internal PlayerExperienceSettingsStore(string? path)
+    internal PlayerExperienceSettingsStore(string? path, string? migrationPath = null)
     {
         _path = path;
+        _migrationPath = migrationPath;
     }
 
     public Task<PlayerExperienceSettings> ReadAsync(
         CancellationToken cancellationToken)
-        => WithGateAsync(ReadCoreAsync, cancellationToken);
+        => WithGateAsync(ReadAndMigrateAsync, cancellationToken);
 
     public async Task UpdatePreferencesAsync(
         double volume,
@@ -43,7 +45,7 @@ internal sealed class PlayerExperienceSettingsStore
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var settings = await ReadCoreAsync(cancellationToken);
+            var settings = await ReadAndMigrateAsync(cancellationToken);
             settings.Volume = Math.Clamp(volume, 0, 100);
             settings.IsMuted = muted;
             settings.Speed = Math.Clamp(speed, 0.5, 2);
@@ -69,7 +71,7 @@ internal sealed class PlayerExperienceSettingsStore
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var settings = await ReadCoreAsync(cancellationToken);
+            var settings = await ReadAndMigrateAsync(cancellationToken);
             settings.RouteHealth.TryGetValue(routeKey, out var previous);
             previous ??= new RouteHealthRecord();
             settings.RouteHealth[routeKey] = succeeded
@@ -144,6 +146,23 @@ internal sealed class PlayerExperienceSettingsStore
         }
     }
 
+    private async Task<PlayerExperienceSettings> ReadAndMigrateAsync(CancellationToken ct)
+    {
+        var settings = await ReadCoreAsync(ct);
+        if (settings.IdMigrationVersion >= 9 || await PlayerPublicIds.ReadAsync(_migrationPath, ct) is not { } ids) return settings;
+        if (_path is not null && File.Exists(_path))
+        {
+            settings = JsonSerializer.Deserialize<PlayerExperienceSettings>(await File.ReadAllTextAsync(_path, ct), SerializerOptions)
+                ?? throw new InvalidDataException("Player 设置无效，未迁移或覆盖文件。");
+            if (settings.SchemaVersion != 1) throw new InvalidDataException("Player 设置版本不兼容。");
+            settings = Normalize(settings);
+        }
+        settings.PreferredRouteByAnime = PlayerPublicIds.Rewrite(settings.PreferredRouteByAnime, ids, sourceKeys: false);
+        settings.IdMigrationVersion = 9;
+        await WriteCoreAsync(settings, ct);
+        return settings;
+    }
+
     private async Task WriteCoreAsync(
         PlayerExperienceSettings settings,
         CancellationToken cancellationToken)
@@ -189,6 +208,7 @@ internal sealed class PlayerExperienceSettingsStore
 internal sealed class PlayerExperienceSettings
 {
     public int SchemaVersion { get; set; } = 1;
+    public int IdMigrationVersion { get; set; }
 
     public double Volume { get; set; } = 100;
 

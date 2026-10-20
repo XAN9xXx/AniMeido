@@ -158,7 +158,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
             when (cancellationToken.IsCancellationRequested)
         {
         }
-        catch (Exception ex) when (ex is HttpRequestException or BangumiApiException
+        catch (Exception ex) when (ex is HttpRequestException or MetadataServiceException
             or IOException or InvalidOperationException
             or TaskCanceledException or JsonException)
         {
@@ -830,7 +830,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         ArchiveSelectionEmptyState.Visibility = Visibility.Collapsed;
         ArchiveDetailPanel.Visibility = Visibility.Visible;
         ArchiveTitle.Text = selectedArchive.Archive.TitleSnapshot;
-        ArchiveAnimeMetadata.Text = $"Bangumi #{selectedArchive.Archive.AnimeId}";
+        ArchiveAnimeMetadata.Text = selectedArchive.Archive.AnimeId < 0 ? "资料不可用" : $"公共 ID #{selectedArchive.Archive.AnimeId}";
         ArchiveRatingText.Text = selectedArchive.RatingText;
         ArchiveStatusText.Text = selectedArchive.StatusText;
         ArchiveTagsText.Text = selectedArchive.Tags.Count == 0
@@ -926,7 +926,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
             when (cancellationToken.IsCancellationRequested)
         {
         }
-        catch (Exception ex) when (ex is HttpRequestException or BangumiApiException
+        catch (Exception ex) when (ex is HttpRequestException or MetadataServiceException
             or IOException or InvalidOperationException
             or TaskCanceledException or JsonException)
         {

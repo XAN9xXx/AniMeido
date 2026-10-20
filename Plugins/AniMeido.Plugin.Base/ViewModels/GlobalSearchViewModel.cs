@@ -353,7 +353,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
             catch (Exception ex) when (ex is OperationCanceledException
                 or HttpRequestException
-                or BangumiApiException
+                or MetadataServiceException
                 or SqliteException
                 or InvalidOperationException
                 or JsonException)
@@ -420,7 +420,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         {
             // 已离开页面或已提交新关键词时，旧请求的失败也不能覆盖新状态。
             if (!IsCurrent(version, token) && exception is OperationCanceledException
-                or HttpRequestException or BangumiApiException or JsonException)
+                or HttpRequestException or MetadataServiceException or JsonException)
                 return true;
 
             switch (exception)
@@ -433,7 +433,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 case HttpRequestException:
                     ErrorMessage = $"搜索失败：{exception.Message}";
                     break;
-                case BangumiApiException:
+                case MetadataServiceException:
                     ErrorMessage = $"数据源请求失败：{exception.Message}";
                     break;
                 case JsonException:

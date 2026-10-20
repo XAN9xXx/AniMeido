@@ -67,7 +67,7 @@ namespace AniMeido.Plugin.Base
         public Task InitializeAsync(IServiceCollection services)
         {
             services.AddSingleton<SqliteConnectionFactory>();
-            services.AddBangumiService();
+            services.AddMetadataService();
             services.AddSingleton<ExportService>();
             services.AddSingleton<SavedTagService>();
             services.AddSingleton<DragDropService>();

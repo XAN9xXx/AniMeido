@@ -469,7 +469,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 ErrorMessage = $"网络请求失败：{ex.Message}";
                 IsError = true;
             }
-            catch (BangumiApiException ex)
+            catch (MetadataServiceException ex)
             {
                 ErrorMessage = $"数据源请求失败：{ex.Message}";
                 IsError = true;
@@ -633,7 +633,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 throw;
             }
             catch (Exception ex) when (ex is HttpRequestException
-                or BangumiApiException
+                or MetadataServiceException
                 or TaskCanceledException
                 or InvalidOperationException
                 or JsonException)

@@ -26,7 +26,7 @@ public sealed class DatabaseRestoreTests : DbTestBase
         Assert.True(await service.TryRestoreFromBackupAsync());
 
         using var restored = await DbFactory.OpenAsync();
-        Assert.Equal(DatabaseSchema.CurrentVersion, await DatabaseSchema.GetSchemaVersionAsync(restored));
+        Assert.Equal(DatabaseSchema.OfflineVersion, await DatabaseSchema.GetSchemaVersionAsync(restored));
         using var command = restored.CreateCommand();
         command.CommandText = "SELECT AnimeID FROM tracking";
         Assert.Equal(42L, await command.ExecuteScalarAsync());
@@ -88,7 +88,7 @@ public sealed class DatabaseRestoreTests : DbTestBase
         Assert.True(await service.TryRestoreFromBackupAsync());
 
         using var restored = await DbFactory.OpenAsync();
-        Assert.Equal(DatabaseSchema.CurrentVersion, await DatabaseSchema.GetSchemaVersionAsync(restored));
+        Assert.Equal(DatabaseSchema.OfflineVersion, await DatabaseSchema.GetSchemaVersionAsync(restored));
         using var command = restored.CreateCommand();
         command.CommandText = "SELECT AnimeID FROM tracking";
         Assert.Equal(84L, await command.ExecuteScalarAsync());

@@ -31,7 +31,7 @@
                               ItemContainerStyle="{StaticResource AniMeidoListItemStyle}">
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="models:SmartListDefinition">
-                                <TextBlock Text="{x:Bind Name}" Padding="8"/>
+                                <TextBlock Text="{x:Bind DisplayName}" Padding="8"/>
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>

@@ -8,7 +8,8 @@ namespace AniMeido.Plugin.Base.Services;
 
 public sealed class RecommendationService : IDisposable
 {
-    private const string SnapshotCacheKey = "recommendations:snapshot:v1";
+    // 快照含作品 ID，不复用旧 Bangumi ID 空间中的快照；不在 C1 清除旧缓存。
+    private const string SnapshotCacheKey = "recommendations:metadata:snapshot:v1";
     private static readonly TimeSpan SnapshotFreshness = TimeSpan.FromHours(24);
     private static readonly TimeSpan SnapshotRetention = TimeSpan.FromDays(90);
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -144,7 +145,8 @@ public sealed class RecommendationService : IDisposable
             }
             var preferences = await GetFeaturePreferencesAsync(
                 cancellationToken);
-            var savedTags = await _savedTags.GetAllSavedTagsAsync();
+            preferences = preferences.Where(p => !p.Invalid).ToList();
+            var savedTags = (await _savedTags.GetSavedTagStatesAsync()).Where(t => !t.Invalid).Select(t => t.Name).ToList();
             var seeds = await BuildSeedsAsync(
                 tracking,
                 cancellationToken);
@@ -331,7 +333,7 @@ public sealed class RecommendationService : IDisposable
             cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT FeatureKind, FeatureKey, DisplayName, Adjustment, UpdatedAt
+            SELECT FeatureKind, FeatureKey, DisplayName, Adjustment, UpdatedAt, Invalid
             FROM recommendation_feature_preferences
             ORDER BY FeatureKind, DisplayName COLLATE NOCASE
             """;
@@ -347,7 +349,7 @@ public sealed class RecommendationService : IDisposable
                 (RecommendationAdjustment)reader.GetInt32(3),
                 DateTimeOffset.Parse(
                     reader.GetString(4),
-                    CultureInfo.InvariantCulture)));
+                    CultureInfo.InvariantCulture), reader.GetBoolean(5)));
         }
 
         return result;
@@ -610,7 +612,7 @@ public sealed class RecommendationService : IDisposable
             .Select(item => item.AnimeId)
             .ToHashSet();
         return seeds.Values
-            .Where(item => !blocked.Contains(item.AnimeId))
+            .Where(item => item.AnimeId > 0 && !blocked.Contains(item.AnimeId))
             .OrderByDescending(item => Math.Abs(item.NormalizedWeight))
             .Take(30)
             .Select(item => new RecommendationSeed(

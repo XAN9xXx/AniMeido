@@ -10,7 +10,7 @@ namespace AniMeido.App.Services;
 /// </summary>
 internal sealed class MainWindowDragDropAdapter : IDisposable
 {
-    private readonly DragDropService _dragDropService;
+    private readonly Lazy<DragDropService> _dragDropService;
     private readonly AnimeCardDropHost _dropHost = new();
     private Frame? _contentFrame;
     private UIElement? _rootGrid;
@@ -18,9 +18,14 @@ internal sealed class MainWindowDragDropAdapter : IDisposable
     private bool _disposed;
 
     public MainWindowDragDropAdapter(DragDropService dragDropService)
+        : this(() => dragDropService)
     {
-        _dragDropService = dragDropService
-            ?? throw new ArgumentNullException(nameof(dragDropService));
+        ArgumentNullException.ThrowIfNull(dragDropService);
+    }
+
+    internal MainWindowDragDropAdapter(Func<DragDropService> createService)
+    {
+        _dragDropService = new Lazy<DragDropService>(createService);
     }
 
     public void Attach(
@@ -44,6 +49,7 @@ internal sealed class MainWindowDragDropAdapter : IDisposable
         _contentFrame = contentFrame;
 
         _contentFrame.Loaded += OnContentFrameLoaded;
+        if (_contentFrame.IsLoaded) OnContentFrameLoaded(_contentFrame, null!);
     }
 
     private void OnContentFrameLoaded(object sender, RoutedEventArgs e)
@@ -60,8 +66,8 @@ internal sealed class MainWindowDragDropAdapter : IDisposable
         _dropHost.Register(mainNavigationView);
         _dropHost.Register(contentFrame);
         _dropHost.SetHandlers(
-            dragOver: e => _dragDropService.HandleStandardDragOver(e, rootGrid),
-            dropAsync: e => _dragDropService.HandleStandardDropAsync(e, rootGrid));
+            dragOver: e => _dragDropService.Value.HandleStandardDragOver(e, rootGrid),
+            dropAsync: e => _dragDropService.Value.HandleStandardDropAsync(e, rootGrid));
 
         System.Diagnostics.Debug.WriteLine(
             "[MainWindow] DropHost connected to DragDropService standard handlers");
@@ -83,7 +89,7 @@ internal sealed class MainWindowDragDropAdapter : IDisposable
 
         try
         {
-            _dragDropService.PrepareForWindowClose();
+            if (_dragDropService.IsValueCreated) _dragDropService.Value.PrepareForWindowClose();
         }
         finally
         {

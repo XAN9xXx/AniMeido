@@ -10,7 +10,10 @@ using Microsoft.Data.Sqlite;
 
 namespace AniMeido.Plugin.Base.ViewModels
 {
-    public record TagItem(string TagName, bool IsSelected);
+    public record TagItem(string TagName, bool IsSelected, bool Invalid = false)
+    {
+        public string DisplayName => Invalid ? TagName + "（已失效）" : TagName;
+    }
 
     /// <summary>右侧显示的内容：某个状态、跨状态搜索结果或收藏的标签。</summary>
     public enum MineView
@@ -51,6 +54,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         public ObservableCollection<PastSeasonEntry> TagEntries { get; } = [];
 
         public ObservableCollection<TagItem> TagList { get; } = [];
+        private HashSet<string> _invalidTagNames = new(StringComparer.OrdinalIgnoreCase);
 
         [ObservableProperty]
         private TrackingStatusSection _selectedSection;
@@ -141,7 +145,8 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 var rows = await _trackingService.GetAllTrackingAsync();
                 var ratings = await TryReadRatingsAsync(token);
-                var tags = await _savedTagService.GetAllSavedTagsAsync();
+                var tagStates = await _savedTagService.GetSavedTagStatesAsync();
+                var tags = tagStates.Select(t => t.Name).ToList();
                 if (!IsCurrent(version, token))
                     return;
 
@@ -149,6 +154,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                     row => row.AnimeId,
                     row => (row.Status, MineBrowse.ParseMarkedAt(row.UpdatedAt)));
                 _myRatings = ratings ?? _myRatings;
+                _invalidTagNames = tagStates.Where(t => t.Invalid).Select(t => t.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 ApplyCounts();
                 SyncTagList(tags);
 
@@ -408,6 +414,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             IsTagLoading = true;
             try
             {
+                if (_invalidTagNames.Contains(tag)) { TagEntries.Clear(); TagResultSummary = "已失效"; return; }
                 var (results, total) = await _animeDataSource.SearchByTagAsync(tag, 0, "rank", token);
                 if (!IsCurrent(version, token) || SelectedTag != tag)
                     return;
@@ -469,7 +476,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             if (SelectedTag is { } selected && !tags.Contains(selected))
                 SelectedTag = null;
 
-            var wanted = tags.Select(tag => new TagItem(tag, tag == SelectedTag)).ToList();
+            var wanted = tags.Select(tag => new TagItem(tag, tag == SelectedTag, _invalidTagNames.Contains(tag))).ToList();
             if (!CollectionSync.SyncInPlace(TagList, wanted, item => item.TagName))
             {
                 TagList.Clear();
@@ -520,7 +527,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                         throw;
                     }
                     catch (Exception ex) when (ex is HttpRequestException
-                        or BangumiApiException
+                        or MetadataServiceException
                         or InvalidOperationException
                         or JsonException)
                     {
@@ -555,7 +562,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 case HttpRequestException:
                     ErrorMessage = $"网络请求失败：{exception.Message}";
                     break;
-                case BangumiApiException:
+                case MetadataServiceException:
                     ErrorMessage = $"数据源请求失败：{exception.Message}";
                     break;
                 case SqliteException:

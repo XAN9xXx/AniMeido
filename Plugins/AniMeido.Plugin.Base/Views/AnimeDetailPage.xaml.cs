@@ -80,13 +80,6 @@ namespace AniMeido.Plugin.Base.Views
                     UpdateOverlayState();
             };
 
-            BangumiCard.SizeChanged += (s, e) =>
-            {
-                var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(BangumiCard);
-                visual.CenterPoint = new System.Numerics.Vector3(
-                    (float)e.NewSize.Width / 2,
-                    (float)e.NewSize.Height / 2, 0);
-            };
         }
 
         private async void OnPersonalArchiveClick(
@@ -334,65 +327,6 @@ namespace AniMeido.Plugin.Base.Views
         public static Visibility BooleanToVisibility(bool value) =>
             value ? Visibility.Visible : Visibility.Collapsed;
 
-        private async void OnBangumiCardTapped(object sender, TappedRoutedEventArgs e)
-        {
-            var url = ViewModel.BangumiUrl;
-            if (url is not null)
-            {
-                await Windows.System.Launcher.LaunchUriAsync(new Uri(url));
-            }
-        }
-
-        private void OnBangumiPointerEntered(object sender, PointerRoutedEventArgs e)
-        {
-            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(BangumiCard);
-            var compositor = visual.Compositor;
-            visual.Properties.InsertVector3("Translation", new System.Numerics.Vector3(0, 0, 16));
-            var sx = compositor.CreateScalarKeyFrameAnimation();
-            sx.InsertKeyFrame(1.0f, 1.05f); sx.Duration = TimeSpan.FromMilliseconds(200);
-            var sy = compositor.CreateScalarKeyFrameAnimation();
-            sy.InsertKeyFrame(1.0f, 1.05f); sy.Duration = TimeSpan.FromMilliseconds(200);
-            visual.StartAnimation("Scale.X", sx);
-            visual.StartAnimation("Scale.Y", sy);
-        }
-
-        private void OnBangumiPointerExited(object sender, PointerRoutedEventArgs e)
-        {
-            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(BangumiCard);
-            var compositor = visual.Compositor;
-            visual.Properties.InsertVector3("Translation", new System.Numerics.Vector3(0, 0, 0));
-            var sx = compositor.CreateScalarKeyFrameAnimation();
-            sx.InsertKeyFrame(1.0f, 1.0f); sx.Duration = TimeSpan.FromMilliseconds(200);
-            var sy = compositor.CreateScalarKeyFrameAnimation();
-            sy.InsertKeyFrame(1.0f, 1.0f); sy.Duration = TimeSpan.FromMilliseconds(200);
-            visual.StartAnimation("Scale.X", sx);
-            visual.StartAnimation("Scale.Y", sy);
-        }
-
-        private void OnBangumiPointerPressed(object sender, PointerRoutedEventArgs e)
-        {
-            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(BangumiCard);
-            var compositor = visual.Compositor;
-            var sx = compositor.CreateScalarKeyFrameAnimation();
-            sx.InsertKeyFrame(1.0f, 0.95f); sx.Duration = TimeSpan.FromMilliseconds(100);
-            var sy = compositor.CreateScalarKeyFrameAnimation();
-            sy.InsertKeyFrame(1.0f, 0.95f); sy.Duration = TimeSpan.FromMilliseconds(100);
-            visual.StartAnimation("Scale.X", sx);
-            visual.StartAnimation("Scale.Y", sy);
-        }
-
-        private void OnBangumiPointerReleased(object sender, PointerRoutedEventArgs e)
-        {
-            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(BangumiCard);
-            var compositor = visual.Compositor;
-            var sx = compositor.CreateScalarKeyFrameAnimation();
-            sx.InsertKeyFrame(1.0f, 1.05f); sx.Duration = TimeSpan.FromMilliseconds(100);
-            var sy = compositor.CreateScalarKeyFrameAnimation();
-            sy.InsertKeyFrame(1.0f, 1.05f); sy.Duration = TimeSpan.FromMilliseconds(100);
-            visual.StartAnimation("Scale.X", sx);
-            visual.StartAnimation("Scale.Y", sy);
-        }
-
         private void UpdateCoverImage()
         {
             var anime = ViewModel.AnimeDetail;
@@ -579,7 +513,7 @@ namespace AniMeido.Plugin.Base.Views
             {
                 return;
             }
-            catch (BangumiApiException)
+            catch (MetadataServiceException)
             {
                 return;
             }

@@ -31,6 +31,7 @@ internal sealed class PlayerWindowManager :
     private readonly PlaybackDiagnosticRecorder _diagnostics;
     private readonly PlayerExperienceSettingsStore _experienceSettings;
     private readonly IAnimePlaybackProgressReporter _playbackProgressReporter;
+    private readonly SourceMappingStore? _mappingStore;
     private PlayerWindow? _playerWindow;
     private SourceManagementWindow? _settingsWindow;
     private bool _endingSession;
@@ -53,7 +54,8 @@ internal sealed class PlayerWindowManager :
         WebMediaResolver webResolver,
         PlaybackDiagnosticRecorder diagnostics,
         PlayerExperienceSettingsStore experienceSettings,
-        IAnimePlaybackProgressReporter playbackProgressReporter)
+        IAnimePlaybackProgressReporter playbackProgressReporter,
+        SourceMappingStore? mappingStore = null)
     {
         _sourceCatalog = sourceCatalog;
         _sourcePackageInstaller = sourcePackageInstaller;
@@ -64,6 +66,7 @@ internal sealed class PlayerWindowManager :
         _diagnostics = diagnostics;
         _experienceSettings = experienceSettings;
         _playbackProgressReporter = playbackProgressReporter;
+        _mappingStore = mappingStore;
     }
 
     public async Task LaunchAsync(
@@ -79,6 +82,8 @@ internal sealed class PlayerWindowManager :
 
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
+        if (_mappingStore is not null) await _mappingStore.EnsurePublicIdsAsync(cancellationToken);
+        await _experienceSettings.ReadAsync(cancellationToken);
         if (_playerWindow is not null)
         {
             try
@@ -112,7 +117,7 @@ internal sealed class PlayerWindowManager :
         return Task.FromResult(_playerWindow?.GetActiveContextSnapshot());
     }
 
-    public Task OpenSettingsAsync(
+    public async Task OpenSettingsAsync(
         string settingsId,
         CancellationToken cancellationToken = default)
     {
@@ -124,6 +129,8 @@ internal sealed class PlayerWindowManager :
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        if (_mappingStore is not null) await _mappingStore.EnsurePublicIdsAsync(cancellationToken);
+        await _experienceSettings.ReadAsync(cancellationToken);
         if (!string.Equals(
             settingsId,
             PlayerSettingsId,
@@ -135,7 +142,6 @@ internal sealed class PlayerWindowManager :
         }
 
         OpenSourceManagement();
-        return Task.CompletedTask;
     }
 
     private void OpenSourceManagement()

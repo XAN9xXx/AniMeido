@@ -146,7 +146,12 @@ public sealed class PersonalAnimeGatewayReadTests : DbTestBase
         using (var connection = await DbFactory.OpenAsync())
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = "INSERT INTO recommendation_feature_preferences VALUES('Tag', 'fixture', '偏好标签', 1, '2025-01-01T00:00:00Z')";
+            command.CommandText = """
+                INSERT INTO recommendation_feature_preferences(FeatureKind,FeatureKey,DisplayName,Adjustment,UpdatedAt)
+                    VALUES('Tag', 'fixture', '偏好标签', 1, '2025-01-01T00:00:00Z');
+                INSERT INTO recommendation_feature_preferences VALUES(1,'legacy:bangumi:9','旧制作方',1,'2025-01-01T00:00:00Z',1);
+                INSERT INTO saved_tags VALUES('未知旧标签',1);
+                """;
             await command.ExecuteNonQueryAsync();
         }
         await GuardAgainstWritesAsync();

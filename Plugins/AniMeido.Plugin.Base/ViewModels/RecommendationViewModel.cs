@@ -434,8 +434,9 @@ public partial class RecommendationViewModel : ObservableObject
             }
 
             ApplySnapshot(result.Snapshot);
-            Profile = new(result.Profile.OrderByDescending(
-                item => item.EffectiveScore));
+            var displayProfile = await WithInvalidPreferencesAsync(result.Profile, cancellationToken);
+            if (generation != _refreshGeneration || cancellationToken.IsCancellationRequested) return false;
+            Profile = new(displayProfile);
             _browse.Profile = Profile.ToArray();
             OnPropertyChanged(nameof(IsColdStart));
             var hasDifferentItems = result.Snapshot.Items
@@ -639,8 +640,9 @@ public partial class RecommendationViewModel : ObservableObject
         OnPropertyChanged(nameof(HasHiddenAnime));
         if (_recommendations.LastProfile.Count > 0)
         {
-            Profile = new(_recommendations.LastProfile.OrderByDescending(
-                item => item.EffectiveScore));
+            var profile = await WithInvalidPreferencesAsync(_recommendations.LastProfile, cancellationToken);
+            if (!IsCurrentLoad(generation, cancellationToken)) return;
+            Profile = new(profile);
         }
         else
         {
@@ -656,13 +658,23 @@ public partial class RecommendationViewModel : ObservableObject
                     new RecommendationFeature(
                         item.Kind,
                         item.Key,
-                        item.DisplayName),
+                        item.StateDisplayName),
                     0,
                     item.Adjustment,
                     [])));
         }
 
         OnPropertyChanged(nameof(IsColdStart));
+    }
+
+    private async Task<IEnumerable<RecommendationFeatureProfile>> WithInvalidPreferencesAsync(
+        IReadOnlyList<RecommendationFeatureProfile> profile, CancellationToken cancellationToken)
+    {
+        var invalid = (await _recommendations.GetFeaturePreferencesAsync(cancellationToken)).Where(p => p.Invalid);
+        // 只追加到显示画像；传入推荐计算的画像仍排除失效偏好。
+        return profile.OrderByDescending(p => p.EffectiveScore).Concat(invalid.Select(p =>
+            new RecommendationFeatureProfile(new RecommendationFeature(p.Kind, p.Key, p.StateDisplayName),
+                0, p.Adjustment, [])));
     }
 
     private bool IsCurrentLoad(
@@ -707,7 +719,7 @@ public partial class RecommendationViewModel : ObservableObject
     private static bool IsExpectedFailure(Exception exception)
         => exception is InvalidOperationException
             or HttpRequestException
-            or BangumiApiException
+            or MetadataServiceException
             or OperationCanceledException
             or Microsoft.Data.Sqlite.SqliteException
             or System.Text.Json.JsonException;

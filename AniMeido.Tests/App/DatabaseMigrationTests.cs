@@ -173,7 +173,7 @@ namespace AniMeido.Tests
             await verifyConn.OpenAsync();
             var versionCmd = verifyConn.CreateCommand();
             versionCmd.CommandText = "PRAGMA user_version";
-            Assert.Equal(DatabaseSchema.CurrentVersion, Convert.ToInt32(await versionCmd.ExecuteScalarAsync()));
+            Assert.Equal(DatabaseSchema.OfflineVersion, Convert.ToInt32(await versionCmd.ExecuteScalarAsync()));
 
             // 验证 Distinct TagName 被保留（"原创"只出现一次）
             var tagCmd = verifyConn.CreateCommand();
@@ -275,7 +275,7 @@ namespace AniMeido.Tests
             Assert.Equal(88L, await statusCommand.ExecuteScalarAsync());
             statusCommand.CommandText = "SELECT Value FROM config WHERE Key = 'historical-key'";
             Assert.Equal("historical-value", await statusCommand.ExecuteScalarAsync());
-            await AssertCurrentSchemaAndIdempotenceAsync();
+            await AssertOfflineSchemaAndIdempotenceAsync();
         }
 
         [Fact]
@@ -319,7 +319,7 @@ namespace AniMeido.Tests
             Assert.Equal("历史笔记", await verifyCommand.ExecuteScalarAsync());
             verifyCommand.CommandText = "SELECT Name FROM personal_tags JOIN anime_personal_tags USING(TagId) WHERE AnimeId = 96";
             Assert.Equal("历史标签", await verifyCommand.ExecuteScalarAsync());
-            await AssertCurrentSchemaAndIdempotenceAsync();
+            await AssertOfflineSchemaAndIdempotenceAsync();
         }
 
         [Fact]
@@ -346,7 +346,7 @@ namespace AniMeido.Tests
             await verify.OpenAsync();
             var verifyCommand = verify.CreateCommand();
             verifyCommand.CommandText = "PRAGMA user_version";
-            Assert.Equal(DatabaseSchema.CurrentVersion, Convert.ToInt32(await verifyCommand.ExecuteScalarAsync()));
+            Assert.Equal(DatabaseSchema.OfflineVersion, Convert.ToInt32(await verifyCommand.ExecuteScalarAsync()));
             verifyCommand.CommandText =
                 "SELECT Status FROM tracking WHERE AnimeID = 622206";
             Assert.Equal(3, Convert.ToInt32(await verifyCommand.ExecuteScalarAsync()));
@@ -360,7 +360,7 @@ namespace AniMeido.Tests
             Assert.Equal(1L, await verifyCommand.ExecuteScalarAsync());
             verifyCommand.CommandText = "SELECT TitleSnapshot FROM recommendation_hidden_anime WHERE AnimeId = 622207";
             Assert.Equal("历史隐藏作品", await verifyCommand.ExecuteScalarAsync());
-            await AssertCurrentSchemaAndIdempotenceAsync();
+            await AssertOfflineSchemaAndIdempotenceAsync();
         }
 
         [Fact]
@@ -478,12 +478,12 @@ namespace AniMeido.Tests
             Assert.Equal(previousVersion, await DatabaseSchema.GetSchemaVersionAsync(connection));
         }
 
-        private async Task AssertCurrentSchemaAndIdempotenceAsync()
+        private async Task AssertOfflineSchemaAndIdempotenceAsync()
         {
             using var connection = await DbFactory.OpenAsync();
             using var command = connection.CreateCommand();
             command.CommandText = "PRAGMA user_version";
-            Assert.Equal(DatabaseSchema.CurrentVersion, Convert.ToInt32(await command.ExecuteScalarAsync()));
+            Assert.Equal(DatabaseSchema.OfflineVersion, Convert.ToInt32(await command.ExecuteScalarAsync()));
             command.CommandText = "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name";
             var tables = new List<string>();
             using (var reader = await command.ExecuteReaderAsync())
@@ -507,7 +507,7 @@ namespace AniMeido.Tests
 
             Assert.Equal(before, await SnapshotTablesAsync(connection, tables));
             command.CommandText = "PRAGMA user_version";
-            Assert.Equal(DatabaseSchema.CurrentVersion, Convert.ToInt32(await command.ExecuteScalarAsync()));
+            Assert.Equal(DatabaseSchema.OfflineVersion, Convert.ToInt32(await command.ExecuteScalarAsync()));
         }
 
         private static async Task<string> SnapshotTablesAsync(
@@ -531,7 +531,15 @@ namespace AniMeido.Tests
         [Fact]
         public async Task Migration_FromV7ToV8_RestoresOnlyLegacyStartedCatchUpPlans()
         {
-            await RunProductionMigrationAsync();
+            using (var offline = await DbFactory.OpenAsync())
+            {
+                await DatabaseSchema.CreateInitialBusinessTablesBeforeConfigAsync(offline);
+                using var config = offline.CreateCommand();
+                config.CommandText = "CREATE TABLE config(Key TEXT PRIMARY KEY,Value TEXT NOT NULL)";
+                await config.ExecuteNonQueryAsync();
+                await DatabaseSchema.CreateInitialBusinessTablesAfterConfigAsync(offline);
+                await DatabaseSchema.RunMigrationsAsync(offline);
+            }
 
             await using (var connection =
                 new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString))
