@@ -27,6 +27,8 @@ public sealed partial class ArchivePage : Page, INavigationAware
     private readonly ScreenshotShortcutAction _shortcut;
     private readonly IWindowHandleProvider _windowHandleProvider;
     private readonly ILogger<ArchivePage> _logger;
+    private readonly ViewModels.PendingReviewViewModel _pendingReview;
+    private readonly PersonalIdRemapService _idRemap;
     private readonly CollectionViewSource _screenshotGroups;
     private IReadOnlyList<ArchiveListItem> _allArchives = [];
     private IReadOnlyList<AnimeScreenshot> _allScreenshots = [];
@@ -62,7 +64,9 @@ public sealed partial class ArchivePage : Page, INavigationAware
         ScreenshotArchiveService screenshots,
         ScreenshotShortcutAction shortcut,
         IWindowHandleProvider windowHandleProvider,
-        ILogger<ArchivePage> logger)
+        ILogger<ArchivePage> logger,
+        PendingReviewService pendingReview,
+        PersonalIdRemapService idRemap)
     {
         _archive = archive;
         _animeDataSource = animeDataSource;
@@ -71,6 +75,8 @@ public sealed partial class ArchivePage : Page, INavigationAware
         _shortcut = shortcut;
         _windowHandleProvider = windowHandleProvider;
         _logger = logger;
+        _idRemap = idRemap;
+        _pendingReview = new ViewModels.PendingReviewViewModel(pendingReview, idRemap, animeDataSource);
         InitializeComponent();
         _screenshotGroups = (CollectionViewSource)Resources["ScreenshotGroupsSource"];
         StatusFilter.SelectedIndex = 0;
@@ -215,8 +221,11 @@ public sealed partial class ArchivePage : Page, INavigationAware
             ref _navigationVersion);
         _navigationInitialized = true;
         EnsurePageLifetime();
-        ShowPanel(requestedScreenshotId is null ? "archives" : "screenshots");
         var lifetime = _pageLifetime;
+        SubscribePendingChanges();
+        await RefreshPendingAsync();
+        if (!IsNavigationCurrent(navigationVersion, lifetime)) return;
+        ShowPanel(requestedScreenshotId is null ? "archives" : "screenshots");
         await EnsureActivePanelAsync();
         if (!IsNavigationCurrent(navigationVersion, lifetime))
         {
@@ -830,7 +839,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         ArchiveSelectionEmptyState.Visibility = Visibility.Collapsed;
         ArchiveDetailPanel.Visibility = Visibility.Visible;
         ArchiveTitle.Text = selectedArchive.Archive.TitleSnapshot;
-        ArchiveAnimeMetadata.Text = selectedArchive.Archive.AnimeId < 0 ? "资料不可用" : $"公共 ID #{selectedArchive.Archive.AnimeId}";
+        ArchiveAnimeMetadata.Text = selectedArchive.Archive.AnimeId < 0 || selectedArchive.Unavailable ? "资料不可用" : $"公共 ID #{selectedArchive.Archive.AnimeId}";
         ArchiveRatingText.Text = selectedArchive.RatingText;
         ArchiveStatusText.Text = selectedArchive.StatusText;
         ArchiveTagsText.Text = selectedArchive.Tags.Count == 0
@@ -1533,6 +1542,8 @@ public sealed partial class ArchivePage : Page, INavigationAware
         }
 
         EnsurePageLifetime();
+        SubscribePendingChanges();
+        _ = RefreshPendingAsync();
         if (!_isPlaybackAvailabilitySubscribed)
         {
             _playbackLauncher.AvailabilityChanged += OnPlaybackAvailabilityChanged;
@@ -1550,6 +1561,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
 
     private void OnPageUnloaded(object sender, RoutedEventArgs e)
     {
+        UnsubscribePendingChanges();
         // Once initialized, this remains true because GoBack can restore the
         // page instance without calling OnNavigatedToAsync again.
         Interlocked.Increment(ref _navigationVersion);

@@ -9,7 +9,8 @@ namespace AniMeido.Plugin.Base.Services;
 /// </summary>
 public static class DatabaseSchema
 {
-    public const int CurrentVersion = 9;
+    public const int CurrentVersion = 10;
+    public const int PublicIdVersion = 9;
     public const int OfflineVersion = 8;
 
     public static async Task<bool> UpgradeEmptyDatabaseAsync(SqliteConnection connection)
@@ -18,6 +19,7 @@ public static class DatabaseSchema
         var input = await PublicIdMigrationService.ReadInputAsync(connection);
         if (input.Tables.Values.Any(rows => rows.Count > 0)) return false;
         await PublicIdMigrationService.ApplyAsync(connection, new PublicIdMigrationPlan { SourceState = input.State() });
+        await RunMigrationsAsync(connection);
         return true;
     }
 
@@ -341,6 +343,19 @@ public static class DatabaseSchema
                     (int)AnimeTrackingStatus.PlanToWatch);
                 await cmd.ExecuteNonQueryAsync();
                 version = 8;
+            }
+            // v8 必须先经联网迁移写到 v9，不能从这里跳过 ID 空间切换。
+            if (version >= PublicIdVersion && version < 10)
+            {
+                cmd.Parameters.Clear();
+                cmd.CommandText = """
+                    ALTER TABLE legacy_anime_refs ADD COLUMN KeptAt TEXT NULL;
+                    CREATE TABLE public_id_issues(
+                        AnimeId INTEGER PRIMARY KEY, Kind TEXT NOT NULL, MergedInto INTEGER NULL,
+                        TitleSnapshot TEXT, DetectedAt TEXT NOT NULL, KeptAt TEXT NULL);
+                    PRAGMA user_version = 10;
+                    """;
+                await cmd.ExecuteNonQueryAsync();
             }
             tx.Commit();
         }

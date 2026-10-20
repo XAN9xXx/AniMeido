@@ -7,6 +7,34 @@ internal static class PlayerPublicIds
 {
     internal static string SharedMigrationPath => Path.Combine(Environment.GetFolderPath(
         Environment.SpecialFolder.ApplicationData), "AniMeido", "id-migration-v9.json");
+    internal static string SharedRemapPath => Path.Combine(Path.GetDirectoryName(SharedMigrationPath)!, "id-remap-log.json");
+
+    internal sealed record RemapEntry(long Seq, int From, int To, string At);
+
+    internal static async Task<List<RemapEntry>> ReadRemapsAsync(string? path, CancellationToken ct)
+    {
+        if (path is null || !File.Exists(path)) return [];
+        var rows = JsonSerializer.Deserialize<List<RemapEntry>>(await File.ReadAllTextAsync(path, ct),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? throw new InvalidDataException("Player ID 改写日志无效。");
+        if (rows.Where((r, i) => r.Seq != i + 1L || r.From == 0 || r.To == 0 || r.From == r.To).Any())
+            throw new InvalidDataException("Player ID 改写日志序号或 ID 无效。");
+        return rows;
+    }
+
+    internal static Dictionary<string, string> ApplyRemaps(Dictionary<string, string> values,
+        IEnumerable<RemapEntry> entries, bool sourceKeys)
+    {
+        var result = new Dictionary<string, string>(values, StringComparer.Ordinal);
+        foreach (var entry in entries)
+            foreach (var key in result.Keys.Where(key => int.TryParse(sourceKeys ? key.Split(':', 2)[0] : key,
+                NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) && id == entry.From).ToList())
+            {
+                var suffix = sourceKeys && key.Contains(':') ? key[key.IndexOf(':')..] : "";
+                var value = result[key]; result.Remove(key);
+                result.TryAdd(entry.To.ToString(CultureInfo.InvariantCulture) + suffix, value);
+            }
+        return result;
+    }
 
     internal static async Task<Dictionary<int, int>?> ReadAsync(string? path, CancellationToken ct)
     {

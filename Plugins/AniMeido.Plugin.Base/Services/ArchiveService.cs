@@ -131,7 +131,8 @@ public sealed class ArchiveService
                    (SELECT COUNT(*) FROM archive_entries e
                     WHERE e.AnimeId = a.AnimeId),
                    (SELECT COUNT(*) FROM screenshots s
-                    WHERE s.AnimeId = a.AnimeId)
+                    WHERE s.AnimeId = a.AnimeId),
+                   EXISTS(SELECT 1 FROM public_id_issues i WHERE i.AnimeId=a.AnimeId AND i.Kind='deactivated')
             FROM anime_archives a
             LEFT JOIN tracking t ON t.AnimeId = a.AnimeId
             ORDER BY a.UpdatedAt DESC
@@ -140,7 +141,7 @@ public sealed class ArchiveService
             AnimeArchive Archive,
             int EntryCount,
             int ScreenshotCount,
-            AniMeido.Contracts.Models.AnimeTrackingStatus? Status)>();
+            AniMeido.Contracts.Models.AnimeTrackingStatus? Status, bool Unavailable)>();
         await using (var reader = await command.ExecuteReaderAsync(
             cancellationToken))
         {
@@ -153,7 +154,7 @@ public sealed class ArchiveService
                     reader.IsDBNull(6)
                         ? null
                         : (AniMeido.Contracts.Models.AnimeTrackingStatus)
-                            reader.GetInt32(6)));
+                            reader.GetInt32(6), reader.GetBoolean(9)));
             }
         }
 
@@ -184,7 +185,7 @@ public sealed class ArchiveService
                 tagsByAnime.GetValueOrDefault(row.Archive.AnimeId) ?? [],
                 row.EntryCount,
                 row.ScreenshotCount,
-                row.Status))
+                row.Status, row.Unavailable))
             .ToList();
     }
 

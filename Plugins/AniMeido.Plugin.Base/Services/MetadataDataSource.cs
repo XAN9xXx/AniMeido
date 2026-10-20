@@ -72,7 +72,10 @@ public sealed partial class MetadataDataSource : IAnimeDataSource
                     ?? throw new JsonException("资料服务返回空的错误响应。"),
             }).ConfigureAwait(false);
         if (result.Problem is { Code: "merged", MergedInto: > 0 } problem && followMerge && problem.MergedInto != id)
+        {
+            QueueMergedCheck(id);
             return await FetchDetailAsync(problem.MergedInto.Value, ct, followMerge: false).ConfigureAwait(false);
+        }
         if (result.Problem is { Code: not ("merged" or "not_found" or "deactivated") })
             throw new MetadataServiceException("资料服务返回未知的 404 错误。");
         return result;

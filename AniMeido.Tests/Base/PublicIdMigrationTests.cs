@@ -17,14 +17,14 @@ public sealed class PublicIdMigrationTests : DbTestBase
     private const string At = "2026-10-19T00:00:00Z";
 
     [Fact]
-    public async Task NewAndEmptyV8Databases_ReachV9WithoutNetwork()
+    public async Task NewAndEmptyV8Databases_ReachCurrentWithoutNetwork()
     {
         await new DatabaseService(DbFactory, Paths).InitializeAsync();
         using var handler = new MappingHandler { RejectAll = true };
         using var client = Client(handler);
         var service = Service(client);
         await service.MigrateAsync();
-        Assert.Equal(9, await VersionAsync());
+        Assert.Equal(DatabaseSchema.CurrentVersion, await VersionAsync());
         Assert.Empty(handler.Paths);
         Assert.True(File.Exists(Path.Combine(Paths.RootDirectory, "id-migration-v9.json")));
 
@@ -40,7 +40,7 @@ public sealed class PublicIdMigrationTests : DbTestBase
         }
         await new PublicIdMigrationService(factory, client, NullLogger<PublicIdMigrationService>.Instance).MigrateAsync();
         using var check = await factory.OpenAsync();
-        Assert.Equal(9, await DatabaseSchema.GetSchemaVersionAsync(check));
+        Assert.Equal(DatabaseSchema.CurrentVersion, await DatabaseSchema.GetSchemaVersionAsync(check));
         Assert.Empty(handler.Paths);
     }
 
@@ -54,7 +54,7 @@ public sealed class PublicIdMigrationTests : DbTestBase
         using var client = Client(handler);
         var service = Service(client);
         await service.MigrateAsync();
-        Assert.Equal(9, await VersionAsync());
+        Assert.Equal(DatabaseSchema.CurrentVersion, await VersionAsync());
         foreach (var table in PublicIdMigrationService.WorkTables)
             Assert.True(await ScalarAsync($"SELECT COUNT(*) FROM {table} WHERE AnimeId=2") > 0, table);
         Assert.Equal(1, await ScalarAsync("SELECT COUNT(*) FROM tracking WHERE AnimeId=3"));
@@ -94,7 +94,7 @@ public sealed class PublicIdMigrationTests : DbTestBase
         handler.FailOnMappingBatch = 0;
         Assert.True(await gate.TryRunAsync());
         Assert.True(gate.IsReady);
-        Assert.Equal(9, await VersionAsync());
+        Assert.Equal(DatabaseSchema.CurrentVersion, await VersionAsync());
         Assert.Equal(101, await ScalarAsync("SELECT COUNT(*) FROM tracking"));
     }
 
@@ -114,7 +114,7 @@ public sealed class PublicIdMigrationTests : DbTestBase
         Assert.Equal(0, await ScalarAsync("SELECT COUNT(*) FROM sqlite_master WHERE name='legacy_anime_refs'"));
         await ExecuteAsync("DROP TRIGGER fail_v9");
         Assert.True(await gate.TryRunAsync());
-        Assert.Equal(9, await VersionAsync());
+        Assert.Equal(DatabaseSchema.CurrentVersion, await VersionAsync());
     }
 
     [Theory]
@@ -267,7 +267,7 @@ public sealed class PublicIdMigrationTests : DbTestBase
         using var handler = new MappingHandler(); using var client = Client(handler);
         var failure = await Record.ExceptionAsync(() => Service(client).MigrateAsync());
         Assert.True(failure is IOException or UnauthorizedAccessException);
-        Assert.Equal(9, await VersionAsync());
+        Assert.Equal(DatabaseSchema.CurrentVersion, await VersionAsync());
         var count = handler.Paths.Count;
         Directory.Delete(path); await Service(client).MigrateAsync();
         Assert.True(File.Exists(path)); Assert.Equal(count, handler.Paths.Count);
@@ -293,7 +293,7 @@ public sealed class PublicIdMigrationTests : DbTestBase
         await Assert.ThrowsAsync<HttpRequestException>(() => Service(client).MigrateAsync());
         Assert.Equal(8, await VersionAsync()); Assert.Equal(before, await SnapshotAsync());
         handler.FailAllRequests = false; await Service(client).MigrateAsync();
-        Assert.Equal(9, await VersionAsync()); Assert.Contains(handler.Paths, p => p.Contains("/v1/vocab"));
+        Assert.Equal(DatabaseSchema.CurrentVersion, await VersionAsync()); Assert.Contains(handler.Paths, p => p.Contains("/v1/vocab"));
     }
 
     [Fact]
@@ -310,7 +310,7 @@ public sealed class PublicIdMigrationTests : DbTestBase
         var gate = new StartupMigrationGate(() => Service(client).MigrateAsync());
         Assert.False(await gate.TryRunAsync()); Assert.Equal(8, await VersionAsync());
         await ExecuteAsync("DROP TRIGGER fail_empty_v9");
-        Assert.True(await gate.TryRunAsync()); Assert.Equal(9, await VersionAsync());
+        Assert.True(await gate.TryRunAsync()); Assert.Equal(DatabaseSchema.CurrentVersion, await VersionAsync());
         Assert.Empty(handler.Paths);
     }
 

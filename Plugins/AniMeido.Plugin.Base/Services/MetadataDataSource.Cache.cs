@@ -15,6 +15,16 @@ public sealed partial class MetadataDataSource
     private readonly object _cacheMissGateLock = new();
     private string? _dataVersion;
     private DateTimeOffset _nextVersionCheck;
+    internal event Action<string>? DataVersionChanged;
+    internal event Action<int>? MergedDetailObserved;
+
+    internal void QueueMergedCheck(int id) => MergedDetailObserved?.Invoke(id);
+
+    internal async Task<string> GetCurrentDataVersionAsync(CancellationToken ct)
+    {
+        await EnsureVersionAsync(ct).ConfigureAwait(false);
+        return _dataVersion!;
+    }
 
     internal static string GetSeasonCacheKey(int year, Season season, string dataVersion) =>
         VersionedKey($"metadata:season:{year}:{season}", dataVersion);
@@ -58,10 +68,12 @@ public sealed partial class MetadataDataSource
             ? values.FirstOrDefault() : null;
         if (string.IsNullOrWhiteSpace(version))
             throw new MetadataServiceException("资料服务未返回 X-Data-Version。");
-        if (Interlocked.Exchange(ref _dataVersion, version) != version
+        var changed = Interlocked.Exchange(ref _dataVersion, version) != version;
+        if (changed
             || await _cacheService.GetCacheAsync(VersionCacheKey).ConfigureAwait(false) is null)
             await _cacheService.SetCacheAsync(VersionCacheKey, version, TimeSpan.FromDays(365), generation)
                 .ConfigureAwait(false);
+        if (changed) DataVersionChanged?.Invoke(version);
         return version;
     }
 

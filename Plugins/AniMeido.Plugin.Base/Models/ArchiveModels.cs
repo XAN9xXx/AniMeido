@@ -97,14 +97,15 @@ public sealed record ArchiveListItem(
     IReadOnlyList<string> Tags,
     int EntryCount,
     int ScreenshotCount,
-    AniMeido.Contracts.Models.AnimeTrackingStatus? TrackingStatus)
+    AniMeido.Contracts.Models.AnimeTrackingStatus? TrackingStatus,
+    bool Unavailable = false)
 {
     public string Title => Archive.TitleSnapshot;
 
     public string Metadata
         => $"{(Archive.PersonalRating is null ? "未评分" : $"{Archive.PersonalRating:0.0} 分")}"
             + $" · {EntryCount} 条感想 · {ScreenshotCount} 张截图"
-            + (Archive.AnimeId < 0 ? " · 资料不可用" : "");
+            + (Archive.AnimeId < 0 || Unavailable ? " · 资料不可用" : "");
 
     public string TagSummary => string.Join("、", Tags);
 

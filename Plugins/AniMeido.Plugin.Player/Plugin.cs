@@ -20,6 +20,13 @@ namespace AniMeido.Plugin.Player;
 /// </summary>
 public sealed class PlayerPlugin : IPlugin
 {
+    private readonly SourceMappingStore? _startupMappings;
+    private readonly PlayerExperienceSettingsStore? _startupSettings;
+
+    public PlayerPlugin() { }
+
+    internal PlayerPlugin(SourceMappingStore mappings, PlayerExperienceSettingsStore settings)
+    { _startupMappings = mappings; _startupSettings = settings; }
     private static readonly Assembly PluginAssembly =
         typeof(PlayerPlugin).Assembly;
 
@@ -38,19 +45,23 @@ public sealed class PlayerPlugin : IPlugin
 
     public bool IsRequired => false;
 
-    public Task InitializeAsync(IServiceCollection services)
+    public async Task InitializeAsync(IServiceCollection services)
     {
+        var mappings = _startupMappings ?? new SourceMappingStore();
+        var settings = _startupSettings ?? new PlayerExperienceSettingsStore();
+        await mappings.EnsurePublicIdsAsync(default);
+        await settings.ReadAsync(default);
         services.TryAddSingleton<
             IAnimePlaybackProgressReporter,
             NullAnimePlaybackProgressReporter>();
         services.AddSingleton<HttpClient>();
         services.AddSingleton<SourcePackageInstaller>();
-        services.AddSingleton<SourceMappingStore>();
+        services.AddSingleton(mappings);
         services.AddSingleton<EasyPreferenceStore>();
         services.AddSingleton<PlayerRuntimeSettingsStore>();
         services.AddSingleton<HostWebSessionManager>();
         services.AddSingleton<PlaybackDiagnosticRecorder>();
-        services.AddSingleton<PlayerExperienceSettingsStore>();
+        services.AddSingleton(settings);
         services.AddSingleton<WebMediaResolver>();
         services.AddSingleton<SourceSubscriptionService>();
         services.AddSingleton<OnlineSourceCatalog>();
@@ -61,7 +72,6 @@ public sealed class PlayerPlugin : IPlugin
             provider.GetRequiredService<PlayerWindowManager>());
         services.AddSingleton<IPluginSettingsLauncher>(provider =>
             provider.GetRequiredService<PlayerWindowManager>());
-        return Task.CompletedTask;
     }
 
     public IEnumerable<PluginNavigationItem> GetNavigationItems() => [];

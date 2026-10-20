@@ -90,7 +90,7 @@ public static class MineBrowse
     /// <summary>开播日期、形态与 Bangumi 评分，缺失的部分省略或写明。</summary>
     public static string MetaText(Anime anime)
     {
-        if (anime.ID < 0) return "资料不可用";
+        if (PersonalAnimeDataSource.IsUnavailable(anime)) return "资料不可用";
         var parts = new List<string>
         {
             anime.AirDate is { } date

@@ -128,7 +128,11 @@ namespace AniMeido.Plugin.Base.Services
         /// <summary>
         /// 清空所有缓存数据（内存 + SQLite + 图片文件）。
         /// </summary>
-        public async Task ClearAllCacheAsync()
+        public Task ClearAllCacheAsync() => ClearCacheCoreAsync(clearImages: true);
+
+        internal Task ClearMetadataForIdRemapAsync() => ClearCacheCoreAsync(clearImages: false);
+
+        private async Task ClearCacheCoreAsync(bool clearImages)
         {
             await _mutationGate.WaitAsync();
             try
@@ -142,7 +146,7 @@ namespace AniMeido.Plugin.Base.Services
                 command.CommandText = "DELETE FROM cache";
                 await command.ExecuteNonQueryAsync();
 
-                ImageCacheHelper.ClearAll();
+                if (clearImages) ImageCacheHelper.ClearAll();
             }
             finally
             {

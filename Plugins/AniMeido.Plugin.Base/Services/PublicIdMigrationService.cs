@@ -41,7 +41,11 @@ public sealed partial class PublicIdMigrationService
                     await ApplyAsync(connection, plan, ct).ConfigureAwait(false);
                 }
                 else if (version != DatabaseSchema.CurrentVersion)
-                    throw new InvalidDataException($"无法从数据库版本 {version} 进行公共 ID 迁移。");
+                {
+                    if (version != DatabaseSchema.PublicIdVersion)
+                        throw new InvalidDataException($"无法从数据库版本 {version} 进行公共 ID 迁移。");
+                }
+                await DatabaseSchema.RunMigrationsAsync(connection).ConfigureAwait(false);
             }
             await WritePlayerMapAsync(ct).ConfigureAwait(false);
         }

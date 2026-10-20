@@ -14,19 +14,21 @@ internal sealed class PlayerExperienceSettingsStore
     private readonly string? _path;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly string? _migrationPath;
+    private readonly string? _remapPath;
 
     public PlayerExperienceSettingsStore()
         : this(Path.Combine(
             SourcePackageInstaller.GetSourcesDirectory(),
             "Settings",
-            "experience.json"), PlayerPublicIds.SharedMigrationPath)
+            "experience.json"), PlayerPublicIds.SharedMigrationPath, PlayerPublicIds.SharedRemapPath)
     {
     }
 
-    internal PlayerExperienceSettingsStore(string? path, string? migrationPath = null)
+    internal PlayerExperienceSettingsStore(string? path, string? migrationPath = null, string? remapPath = null)
     {
         _path = path;
         _migrationPath = migrationPath;
+        _remapPath = remapPath;
     }
 
     public Task<PlayerExperienceSettings> ReadAsync(
@@ -149,7 +151,9 @@ internal sealed class PlayerExperienceSettingsStore
     private async Task<PlayerExperienceSettings> ReadAndMigrateAsync(CancellationToken ct)
     {
         var settings = await ReadCoreAsync(ct);
-        if (settings.IdMigrationVersion >= 9 || await PlayerPublicIds.ReadAsync(_migrationPath, ct) is not { } ids) return settings;
+        var ids = settings.IdMigrationVersion < 9 ? await PlayerPublicIds.ReadAsync(_migrationPath, ct) : null;
+        var remaps = await PlayerPublicIds.ReadRemapsAsync(_remapPath, ct);
+        if (ids is null && !remaps.Any(r => r.Seq > settings.LastRemapSeq)) return settings;
         if (_path is not null && File.Exists(_path))
         {
             settings = JsonSerializer.Deserialize<PlayerExperienceSettings>(await File.ReadAllTextAsync(_path, ct), SerializerOptions)
@@ -157,8 +161,14 @@ internal sealed class PlayerExperienceSettingsStore
             if (settings.SchemaVersion != 1) throw new InvalidDataException("Player 设置版本不兼容。");
             settings = Normalize(settings);
         }
-        settings.PreferredRouteByAnime = PlayerPublicIds.Rewrite(settings.PreferredRouteByAnime, ids, sourceKeys: false);
-        settings.IdMigrationVersion = 9;
+        if (settings.IdMigrationVersion < 9 && ids is not null)
+        {
+            settings.PreferredRouteByAnime = PlayerPublicIds.Rewrite(settings.PreferredRouteByAnime, ids, sourceKeys: false);
+            settings.IdMigrationVersion = 9;
+        }
+        settings.PreferredRouteByAnime = PlayerPublicIds.ApplyRemaps(settings.PreferredRouteByAnime,
+            remaps.Where(r => r.Seq > settings.LastRemapSeq), sourceKeys: false);
+        if (remaps.Count > 0) settings.LastRemapSeq = Math.Max(settings.LastRemapSeq, remaps[^1].Seq);
         await WriteCoreAsync(settings, ct);
         return settings;
     }
@@ -209,6 +219,7 @@ internal sealed class PlayerExperienceSettings
 {
     public int SchemaVersion { get; set; } = 1;
     public int IdMigrationVersion { get; set; }
+    public long LastRemapSeq { get; set; }
 
     public double Volume { get; set; } = 100;
 

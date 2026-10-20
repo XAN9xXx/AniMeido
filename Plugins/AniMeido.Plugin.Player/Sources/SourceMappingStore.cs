@@ -14,19 +14,22 @@ internal sealed class SourceMappingStore
     private Dictionary<string, string>? _mappings;
     private readonly string? _migrationPath;
     private int _idMigrationVersion;
+    private readonly string? _remapPath;
+    private long _lastRemapSeq;
 
     public SourceMappingStore()
         : this(Path.Combine(
             Packages.SourcePackageInstaller.GetSourcesDirectory(),
             "Mappings",
-            "mappings.json"), PlayerPublicIds.SharedMigrationPath)
+            "mappings.json"), PlayerPublicIds.SharedMigrationPath, PlayerPublicIds.SharedRemapPath)
     {
     }
 
-    internal SourceMappingStore(string? path, string? migrationPath = null)
+    internal SourceMappingStore(string? path, string? migrationPath = null, string? remapPath = null)
     {
         _path = path;
         _migrationPath = migrationPath;
+        _remapPath = remapPath;
     }
 
     internal async Task EnsurePublicIdsAsync(CancellationToken ct)
@@ -107,6 +110,7 @@ internal sealed class SourceMappingStore
                     ?? throw new InvalidDataException("播放源映射文件无效。");
                 _mappings = envelope.Mappings;
                 _idMigrationVersion = envelope.IdMigrationVersion;
+                _lastRemapSeq = envelope.LastRemapSeq;
             }
             else _mappings = doc.RootElement.Deserialize<Dictionary<string, string>>(SerializerOptions) ?? [];
         }
@@ -117,12 +121,20 @@ internal sealed class SourceMappingStore
             _mappings = rewritten;
             _idMigrationVersion = 9;
         }
+        var remaps = await PlayerPublicIds.ReadRemapsAsync(_remapPath, cancellationToken);
+        if (remaps.Any(r => r.Seq > _lastRemapSeq))
+        {
+            var rewritten = PlayerPublicIds.ApplyRemaps(_mappings, remaps.Where(r => r.Seq > _lastRemapSeq), sourceKeys: true);
+            var seq = remaps[^1].Seq;
+            await SaveValuesAsync(rewritten, _idMigrationVersion, cancellationToken, seq);
+            _mappings = rewritten; _lastRemapSeq = seq;
+        }
     }
 
     private async Task SaveAsync(CancellationToken cancellationToken)
         => await SaveValuesAsync(_mappings!, _idMigrationVersion, cancellationToken);
 
-    private async Task SaveValuesAsync(Dictionary<string, string> mappings, int version, CancellationToken cancellationToken)
+    private async Task SaveValuesAsync(Dictionary<string, string> mappings, int version, CancellationToken cancellationToken, long? seq = null)
     {
         if (_path is null)
         {
@@ -133,7 +145,8 @@ internal sealed class SourceMappingStore
         var temporaryPath = $"{_path}.{Guid.NewGuid():N}.tmp";
         try
         {
-            var value = version >= 9 ? (object)new MappingFile(version, mappings) : mappings;
+            var lastSeq = seq ?? _lastRemapSeq;
+            var value = version >= 9 || lastSeq > 0 ? (object)new MappingFile(version, mappings, lastSeq) : mappings;
             await File.WriteAllTextAsync(temporaryPath, JsonSerializer.Serialize(value, SerializerOptions), cancellationToken);
             File.Move(temporaryPath, _path, overwrite: true);
         }
@@ -142,5 +155,5 @@ internal sealed class SourceMappingStore
 
     private static string GetKey(int animeId, string sourceId)
         => $"{animeId}:{sourceId}";
-    private sealed record MappingFile(int IdMigrationVersion, Dictionary<string, string> Mappings);
+    private sealed record MappingFile(int IdMigrationVersion, Dictionary<string, string> Mappings, long LastRemapSeq = 0);
 }

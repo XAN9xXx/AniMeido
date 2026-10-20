@@ -286,6 +286,7 @@ namespace AniMeido.App.Services
         // 否则每次启动都会滚掉真正的更新前备份并改写启动器的恢复路径。备份本身不含此标记，从备份恢复的库会重新备份。
         private static async Task<bool> HasPublicIdMigrationBackupAsync(SqliteConnection connection, int previousVersion)
         {
+            // 只复用停在 v8 的 C2a 备份。v9 -> v10 必须另做离线更新前备份。
             if (previousVersion != DatabaseSchema.OfflineVersion)
                 return false;
             using var command = connection.CreateCommand();

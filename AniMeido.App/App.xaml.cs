@@ -176,6 +176,7 @@ namespace AniMeido.App
             {
                 await dataReady;
                 if (_shutdownStarted) return;
+                provider.GetRequiredService<AniMeido.Plugin.Base.Services.PublicIdCheckService>().Start();
                 await provider.GetRequiredService<GlobalShortcutManager>().StartAsync();
                 await StartPluginHostSafelyAsync(provider.GetRequiredService<PluginHostSupervisor>());
             }

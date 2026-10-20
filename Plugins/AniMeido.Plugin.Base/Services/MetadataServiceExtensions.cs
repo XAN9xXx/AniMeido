@@ -30,6 +30,13 @@ public static class MetadataServiceExtensions
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(MetadataServiceSettings.ClientName),
             sp.GetRequiredService<CacheService>()));
         services.AddSingleton<IAnimeDataSource, PersonalAnimeDataSource>();
+        services.AddSingleton<PersonalIdRemapService>();
+        services.AddSingleton<PendingReviewService>();
+        services.AddSingleton<PublicIdCheckService>(sp => new PublicIdCheckService(
+            sp.GetRequiredService<SqliteConnectionFactory>(),
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient(MetadataServiceSettings.ClientName),
+            sp.GetRequiredService<MetadataDataSource>(), sp.GetRequiredService<PersonalIdRemapService>(),
+            sp.GetRequiredService<ILogger<PublicIdCheckService>>()));
         services.AddSingleton<PublicIdMigrationService>(sp => new PublicIdMigrationService(
             sp.GetRequiredService<SqliteConnectionFactory>(),
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(MetadataServiceSettings.ClientName),

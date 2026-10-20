@@ -59,12 +59,12 @@ public partial class ExportService
     {
         using var connection = await _dbFactory.OpenAsync();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT LocalId,LegacyBangumiId,Reason,TitleSnapshot,RecordedAt FROM legacy_anime_refs ORDER BY LocalId";
+        command.CommandText = "SELECT LocalId,LegacyBangumiId,Reason,TitleSnapshot,RecordedAt,KeptAt FROM legacy_anime_refs ORDER BY LocalId";
         using var reader = await command.ExecuteReaderAsync();
         var refs = new List<LegacyAnimeReference>();
         while (await reader.ReadAsync())
             refs.Add(new LegacyAnimeReference(reader.GetInt32(0), reader.GetInt32(1), reader.GetString(2),
-                reader.IsDBNull(3) ? null : reader.GetString(3), reader.GetString(4)));
+                reader.IsDBNull(3) ? null : reader.GetString(3), reader.GetString(4), reader.IsDBNull(5) ? null : reader.GetString(5)));
         return refs;
     }
 
@@ -74,13 +74,16 @@ public partial class ExportService
         {
             using var command = connection.CreateCommand(); command.Transaction = tx;
             command.CommandText = """
-                INSERT INTO legacy_anime_refs VALUES(@id,@old,@reason,@title,@at)
+                INSERT INTO legacy_anime_refs(LocalId,LegacyBangumiId,Reason,TitleSnapshot,RecordedAt,KeptAt)
+                VALUES(@id,@old,@reason,@title,@at,@kept)
                 ON CONFLICT(LocalId) DO UPDATE SET LegacyBangumiId=excluded.LegacyBangumiId,
-                    Reason=excluded.Reason,TitleSnapshot=excluded.TitleSnapshot,RecordedAt=excluded.RecordedAt
+                    Reason=excluded.Reason,TitleSnapshot=excluded.TitleSnapshot,RecordedAt=excluded.RecordedAt,KeptAt=excluded.KeptAt
                 """;
             command.Parameters.AddWithValue("@id", item.LocalId); command.Parameters.AddWithValue("@old", item.LegacyBangumiId);
             command.Parameters.AddWithValue("@reason", item.Reason); command.Parameters.AddWithValue("@title", item.TitleSnapshot ?? (object)DBNull.Value);
-            command.Parameters.AddWithValue("@at", item.RecordedAt); await command.ExecuteNonQueryAsync();
+            command.Parameters.AddWithValue("@at", item.RecordedAt);
+            command.Parameters.AddWithValue("@kept", item.KeptAt ?? (object)DBNull.Value);
+            await command.ExecuteNonQueryAsync();
         }
         if (data.VocabularyNames is not null)
         {

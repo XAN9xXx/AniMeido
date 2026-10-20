@@ -5,7 +5,7 @@ using System.Text.Json;
 namespace AniMeido.Plugin.Base.Services;
 
 public sealed record LegacyAnimeReference(int LocalId, int LegacyBangumiId, string Reason,
-    string? TitleSnapshot, string RecordedAt);
+    string? TitleSnapshot, string RecordedAt, string? KeptAt = null);
 
 internal sealed record IdMapping(int SourceId, int? PublicId, string Status);
 internal sealed record MigratedPreference(int Kind, string Key, string DisplayName, int Adjustment, string UpdatedAt, bool Invalid);
