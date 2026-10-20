@@ -260,7 +260,11 @@ public sealed class AppDataRootsTests : IDisposable
     private static Assembly BuildAssembly(string project, string? name = null)
     {
         var output = BuildOutput(project);
-        var file = Assert.Single(Directory.GetFiles(output, (name ?? Path.GetFileName(project)) + ".dll", SearchOption.AllDirectories));
+        // 本机发布过的 RID 子目录会留下同名旧文件，取最近一次构建写出的那个。
+        var file = Directory.GetFiles(output, (name ?? Path.GetFileName(project)) + ".dll", SearchOption.AllDirectories)
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .FirstOrDefault();
+        Assert.NotNull(file);
         return Assembly.LoadFrom(file);
     }
 
