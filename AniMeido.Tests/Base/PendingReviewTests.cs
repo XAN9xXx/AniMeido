@@ -352,6 +352,82 @@ public sealed class PendingReviewTests : DbTestBase
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CommittedRemap_CompletesAndNotifiesWhenCallerCancelsBeforeLogPublication(bool failPublication)
+    {
+        await RunProductionMigrationAsync();
+        await SeedAsync(-1);
+        await AddLegacyAsync(1);
+        // 改写最后写入日志时才生成缓存行，让提交后的缓存清理失败；警告回调精确触发取消。
+        await ExecuteAsync("""
+            CREATE TRIGGER seed_cache_after_remap_log AFTER INSERT ON config
+            WHEN NEW.Key='public-id-remap-log'
+            BEGIN INSERT INTO cache VALUES('cancel-after-commit','fixture','2099-01-01'); END;
+            CREATE TRIGGER fail_post_commit_cache_clear BEFORE DELETE ON cache
+            WHEN OLD.CacheKey='cancel-after-commit'
+            BEGIN SELECT RAISE(ABORT,'synthetic cache clear failure'); END;
+            """);
+        using var cancellation = new CancellationTokenSource();
+        var cache = new CacheService(DbFactory);
+        var remap = new PersonalIdRemapService(DbFactory, new CancelOnCacheFailureLogger(cancellation), cache);
+        var changed = 0;
+        remap.Changed += () => changed++;
+        var path = Path.Combine(Paths.RootDirectory, "id-remap-log.json");
+        if (failPublication) Directory.CreateDirectory(path);
+
+        await remap.RebindAsync(-1, 2, false, cancellation.Token);
+
+        Assert.True(cancellation.IsCancellationRequested);
+        Assert.Equal(1, changed);
+        foreach (var table in PublicIdMigrationService.WorkTables)
+        {
+            Assert.Equal(1L, await ScalarAsync($"SELECT COUNT(*) FROM {table} WHERE AnimeId=2"));
+            Assert.Equal(0L, await ScalarAsync($"SELECT COUNT(*) FROM {table} WHERE AnimeId=-1"));
+        }
+        Assert.Equal(0L, await ScalarAsync("SELECT COUNT(*) FROM legacy_anime_refs"));
+        Assert.Equal(!failPublication, File.Exists(path));
+        var committed = await SnapshotAsync();
+
+        if (failPublication) Directory.Delete(path);
+        await remap.FlushLogAsync();
+        await remap.FlushLogAsync();
+
+        Assert.Equal(committed, await SnapshotAsync());
+        Assert.Equal(1, changed);
+        using var json = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+        var entry = Assert.Single(json.RootElement.EnumerateArray());
+        Assert.Equal(1, entry.GetProperty("seq").GetInt64());
+        Assert.Equal(-1, entry.GetProperty("from").GetInt32());
+        Assert.Equal(2, entry.GetProperty("to").GetInt32());
+        await AssertForeignKeysAsync();
+    }
+
+    [Fact]
+    public async Task Remap_CancelledBeforeCommitRollsBackAndDoesNotNotify()
+    {
+        await RunProductionMigrationAsync();
+        await SeedAsync(-1);
+        await AddLegacyAsync(1);
+        using var cancellation = new CancellationTokenSource();
+        var remap = Remap();
+        var changed = 0;
+        remap.Changed += () => changed++;
+        var before = await SnapshotAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => remap.RunTransactionAsync(async (connection, tx) =>
+        {
+            var records = await PendingReviewService.ReadRecordsAsync(connection, tx, cancellation.Token);
+            await PersonalIdRemapService.RewriteAsync(connection, tx, -1, 2, records, cancellation.Token);
+            cancellation.Cancel();
+        }, cancellation.Token));
+
+        Assert.Equal(before, await SnapshotAsync());
+        Assert.Equal(0, changed);
+        Assert.False(File.Exists(Path.Combine(Paths.RootDirectory, "id-remap-log.json")));
+    }
+
+    [Theory]
     [InlineData("finished", "airing")]
     [InlineData("upcoming", "unknown")]
     [InlineData("future-service-status", null)]
@@ -411,6 +487,17 @@ public sealed class PendingReviewTests : DbTestBase
         Assert.Equal(1L, await ScalarAsync("SELECT COUNT(*) FROM tracking WHERE AnimeId=2"));
         var item = Assert.Single(await new PendingReviewService(DbFactory, Remap()).GetItemsAsync());
         Assert.Equal(2, item.AnimeId); Assert.Equal("merged_conflict", item.Reason); Assert.Equal(10, item.MergedInto);
+    }
+
+    private sealed class CancelOnCacheFailureLogger(CancellationTokenSource cancellation) : ILogger<PersonalIdRemapService>
+    {
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning && exception is SqliteException) cancellation.Cancel();
+        }
     }
 
     private sealed class CheckLogger : ILogger<PublicIdCheckService>

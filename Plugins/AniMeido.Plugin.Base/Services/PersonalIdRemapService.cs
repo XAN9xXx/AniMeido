@@ -62,7 +62,8 @@ public sealed partial class PersonalIdRemapService(SqliteConnectionFactory db, I
                 catch (Exception ex) when (ex is SqliteException or IOException)
                 { logger.LogWarning(ex, "Committed ID remap cache invalidation failed"); }
             }
-            await FlushLogSafelyAsync(ct).ConfigureAwait(false);
+            // 提交后记录已生效，调用方取消不能中断日志发布和 Changed 通知。
+            await FlushLogSafelyAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
