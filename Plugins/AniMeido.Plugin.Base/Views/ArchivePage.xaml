@@ -12,13 +12,12 @@
             <Border Style="{StaticResource AniMeidoCardStyle}" Margin="0,0,0,8" HorizontalAlignment="Stretch">
                 <StackPanel Spacing="6">
                     <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                    <TextBlock Text="{x:Bind IdentityText}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <TextBlock Text="{x:Bind ReasonText}"/>
-                    <TextBlock Text="{x:Bind CountsText}" TextWrapping="Wrap"/>
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Content="改绑" Tag="{x:Bind}" Click="OnPendingRebindClick"/>
-                        <Button Content="并入" Tag="{x:Bind}" Click="OnPendingMergeClick"/>
-                        <Button Content="保留" Tag="{x:Bind}" Click="OnPendingKeepClick"/>
+                    <TextBlock Text="{x:Bind ExplanationText}" TextWrapping="Wrap"/>
+                    <TextBlock Text="{x:Bind RecordsText}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                        <Button Content="{x:Bind PrimaryActionText}" Tag="{x:Bind}" Click="OnPendingPrimaryClick" Style="{StaticResource AccentButtonStyle}"/>
+                        <Button Content="暂不处理" Tag="{x:Bind}" Click="OnPendingKeepClick"/>
+                        <HyperlinkButton Content="在 Bangumi 查看原条目" NavigateUri="{x:Bind BangumiUri}" Visibility="{x:Bind HasBangumiUri}"/>
                     </StackPanel>
                 </StackPanel>
             </Border>
@@ -26,11 +25,13 @@
         <DataTemplate x:Key="KeptReviewTemplate" x:DataType="models:PendingReviewItem">
             <Border Style="{StaticResource AniMeidoCardStyle}" Margin="0,0,0,8" HorizontalAlignment="Stretch">
                 <StackPanel Spacing="6">
-                    <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold"/>
-                    <TextBlock Text="{x:Bind IdentityText}"/>
-                    <TextBlock Text="{x:Bind ReasonText}"/>
-                    <TextBlock Text="{x:Bind CountsText}" TextWrapping="Wrap"/>
-                    <Button Content="取消保留" Tag="{x:Bind}" Click="OnPendingUnkeepClick" HorizontalAlignment="Left"/>
+                    <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                    <TextBlock Text="{x:Bind ExplanationText}" TextWrapping="Wrap"/>
+                    <TextBlock Text="{x:Bind RecordsText}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                        <Button Content="重新处理" Tag="{x:Bind}" Click="OnPendingUnkeepClick"/>
+                        <HyperlinkButton Content="在 Bangumi 查看原条目" NavigateUri="{x:Bind BangumiUri}" Visibility="{x:Bind HasBangumiUri}"/>
+                    </StackPanel>
                 </StackPanel>
             </Border>
         </DataTemplate>
@@ -73,8 +74,10 @@
             <Button x:Name="PendingReviewBanner" Visibility="Collapsed" Click="OnTogglePendingClick" HorizontalAlignment="Stretch"/>
             <ScrollViewer x:Name="PendingReviewPanel" Visibility="Collapsed" MaxHeight="380" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Spacing="8">
+                    <TextBlock Text="番剧资料更新后，这几部作品没能自动对上。你的记录都还在，在你确认之前不会有任何改动。"
+                               TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <ItemsControl x:Name="PendingReviewList" ItemTemplate="{StaticResource PendingReviewTemplate}"/>
-                    <Expander x:Name="KeptReviewGroup" Header="已保留" HorizontalAlignment="Stretch" IsExpanded="False">
+                    <Expander x:Name="KeptReviewGroup" Header="暂不处理" HorizontalAlignment="Stretch" IsExpanded="False">
                         <ItemsControl x:Name="KeptReviewList" ItemTemplate="{StaticResource KeptReviewTemplate}" HorizontalAlignment="Stretch"/>
                     </Expander>
                 </StackPanel>

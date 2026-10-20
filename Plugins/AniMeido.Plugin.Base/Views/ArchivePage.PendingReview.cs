@@ -48,8 +48,10 @@ public sealed partial class ArchivePage
             PendingReviewList.ItemsSource = _pendingReview.Pending;
             KeptReviewList.ItemsSource = _pendingReview.Kept;
             KeptReviewGroup.Visibility = _pendingReview.Kept.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            KeptReviewGroup.Header = $"暂不处理（{_pendingReview.Kept.Count}）";
             PendingReviewBanner.Content = _pendingReview.Pending.Count > 0
-                ? $"有 {_pendingReview.Pending.Count} 部作品的记录需要确认" : "查看已保留记录";
+                ? $"有 {_pendingReview.Pending.Count} 部作品没能对上番剧资料，点此查看"
+                : $"查看暂不处理的作品（{_pendingReview.Kept.Count}）";
             PendingReviewBanner.Visibility = _pendingReview.Pending.Count + _pendingReview.Kept.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             if (PendingReviewBanner.Visibility == Visibility.Collapsed) PendingReviewPanel.Visibility = Visibility.Collapsed;
         }
@@ -57,7 +59,7 @@ public sealed partial class ArchivePage
         catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or InvalidOperationException)
         {
             _logger.LogWarning(ex, "Failed to load pending personal records");
-            if (ReferenceEquals(_pageLifetime, lifetime)) ShowStatus("无法读取待确认记录，请刷新重试。", InfoBarSeverity.Warning);
+            if (ReferenceEquals(_pageLifetime, lifetime)) ShowStatus("没能读取需要确认的作品，点右上角“刷新”再试一次。", InfoBarSeverity.Warning);
         }
     }
 
@@ -73,16 +75,12 @@ public sealed partial class ArchivePage
         await RunPendingActionAsync(async ct => { await _pendingReview.SetKeptAsync(item, kept, ct); await RefreshPendingAsync(); });
     }
 
-    private async void OnPendingRebindClick(object sender, RoutedEventArgs e)
+    private async void OnPendingPrimaryClick(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: PendingReviewItem item })
-            await RunPendingActionAsync(ct => SelectPendingTargetAsync(item, false, ct));
-    }
-
-    private async void OnPendingMergeClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { Tag: PendingReviewItem item })
-            await RunPendingActionAsync(ct => SelectPendingTargetAsync(item, true, ct));
+        if (sender is not Button { Tag: PendingReviewItem item }) return;
+        await RunPendingActionAsync(ct => item.HasKnownTarget
+            ? ConfirmPendingTargetAsync(item, new LocalAnimeTarget(item.MergedInto!.Value, item.MergedIntoTitle ?? "另一部作品"), ct)
+            : SelectPendingTargetAsync(item, item.PicksFromOwnRecords, ct));
     }
 
     private async Task RunPendingActionAsync(Func<CancellationToken, Task> action)
@@ -108,7 +106,7 @@ public sealed partial class ArchivePage
 
     private async Task SelectPendingTargetAsync(PendingReviewItem item, bool localOnly, CancellationToken ct)
     {
-        var search = new TextBox { PlaceholderText = localOnly ? "搜索本地已有记录的作品" : "搜索公共作品" };
+        var search = new TextBox { PlaceholderText = localOnly ? "输入番剧名称筛选" : "输入番剧名称" };
         var results = new ListView { Height = 280, SelectionMode = ListViewSelectionMode.Single };
         var message = new TextBlock { TextWrapping = TextWrapping.Wrap };
         var searchButton = new Button { Content = "搜索" };
@@ -119,7 +117,7 @@ public sealed partial class ArchivePage
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = localOnly ? "并入已有记录" : "改绑到公共作品",
+            Title = localOnly ? "合并到你记录过的另一部作品" : "选择对应的番剧",
             Content = controls,
             PrimaryButtonText = "选择",
             CloseButtonText = "取消",
@@ -152,13 +150,13 @@ public sealed partial class ArchivePage
                 publicResults.AddRange(page.Results.Where(a => a.ID > 0 && a.ID != item.AnimeId));
                 results.ItemsSource = publicResults.DistinctBy(a => a.ID).Select(a => new LocalAnimeTarget(a.ID, a.Title)).ToList();
                 moreButton.IsEnabled = offset < page.Total;
-                message.Text = publicResults.Count == 0 ? "没有找到作品；未更改任何记录。" : $"已加载 {publicResults.Count} 部作品";
+                message.Text = publicResults.Count == 0 ? "没有找到，换个名称试试。" : $"找到 {publicResults.Count} 部";
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { }
             catch (Exception ex) when (ex is HttpRequestException or Exceptions.MetadataServiceException or IOException or OperationCanceledException)
             {
                 _logger.LogWarning(ex, "Pending record target search failed");
-                if (!token.IsCancellationRequested) message.Text = "搜索失败，请重试；未更改任何记录。";
+                if (!token.IsCancellationRequested) message.Text = "搜索失败，请稍后再试。";
             }
             finally { searching = false; if (!token.IsCancellationRequested) searchButton.IsEnabled = true; }
         }
@@ -174,16 +172,25 @@ public sealed partial class ArchivePage
         var choice = await dialog.ShowAsync();
         request.Cancel();
         if (choice != ContentDialogResult.Primary || results.SelectedItem is not LocalAnimeTarget target || ct.IsCancellationRequested) return;
+        await ConfirmPendingTargetAsync(item, target, ct);
+    }
+
+    private async Task ConfirmPendingTargetAsync(PendingReviewItem item, LocalAnimeTarget target, CancellationToken ct)
+    {
         var targets = await _pendingReview.GetTargetsAsync(item.AnimeId, ct);
         var merging = targets.Any(t => t.AnimeId == target.AnimeId);
         var confirm = new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = merging ? "所选作品已有记录，将合并" : "确认改绑",
-            Content = merging
-                ? $"将〈{item.Title}〉并入〈{target.Title}〉。同时有追番状态、计划、播放进度时，较旧的那份会被丢弃（对应计划提醒也会删除）；感想、截图和观看记录会保留，档案笔记会拼接。"
-                : $"将〈{item.Title}〉的全部个人记录改绑到〈{target.Title}〉，不丢弃记录。",
-            PrimaryButtonText = merging ? "确认合并" : "确认改绑",
+            Title = merging ? $"合并到《{target.Title}》？" : $"把记录移到《{target.Title}》？",
+            Content = new TextBlock
+            {
+                TextWrapping = TextWrapping.Wrap,
+                Text = merging
+                    ? "两边的观看记录、截图、感想和个人标签都会保留，档案笔记会接在一起。追番状态和计划只能留一份，会保留最近更新的那份；观看进度按集合并。"
+                    : $"《{item.Title}》的所有记录都会移到《{target.Title}》下，不会丢失任何内容。"
+            },
+            PrimaryButtonText = merging ? "合并" : "移过去",
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close
         };

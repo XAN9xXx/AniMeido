@@ -489,6 +489,33 @@ public sealed class PendingReviewTests : DbTestBase
         Assert.Equal(2, item.AnimeId); Assert.Equal("merged_conflict", item.Reason); Assert.Equal(10, item.MergedInto);
     }
 
+    [Fact]
+    public void ItemText_GroupsTablesIntoUserCategoriesAndPicksActionByReason()
+    {
+        var counts = new Dictionary<string, int>
+        {
+            ["tracking"] = 1, ["tracking_events"] = 4, ["episode_progress"] = 3, ["archive_entries"] = 2,
+            ["screenshots"] = 5, ["browse_history"] = 9, ["recommendation_hidden_anime"] = 1,
+        };
+        var notFound = new PendingReviewItem(-7, 7, "甲", "not_found", null, null, null, counts);
+        Assert.Equal("你的记录：追番状态、观看进度、2 条感想、5 张截图", notFound.RecordsText);
+        Assert.Equal("选择对应的番剧…", notFound.PrimaryActionText);
+        Assert.Equal(new Uri("https://bgm.tv/subject/7"), notFound.BangumiUri);
+
+        var merged = notFound with { AnimeId = 2, LegacyBangumiId = null, Reason = "merged_conflict", MergedInto = 5, MergedIntoTitle = "乙" };
+        Assert.True(merged.HasKnownTarget);
+        Assert.Equal("合并到《乙》", merged.PrimaryActionText);
+        Assert.Contains("《乙》", merged.ExplanationText);
+        Assert.False(merged.HasBangumiUri);
+
+        var conflict = notFound with { Reason = "conflict" };
+        Assert.True(conflict.PicksFromOwnRecords);
+        Assert.False(conflict.HasKnownTarget);
+
+        var browsedOnly = notFound with { RecordCounts = new Dictionary<string, int> { ["browse_history"] = 1 } };
+        Assert.Equal("你只浏览过这部作品，没有其他记录。", browsedOnly.RecordsText);
+    }
+
     private sealed class CancelOnCacheFailureLogger(CancellationTokenSource cancellation) : ILogger<PersonalIdRemapService>
     {
         public bool IsEnabled(LogLevel logLevel) => true;

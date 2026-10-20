@@ -6,9 +6,6 @@ namespace AniMeido.Plugin.Base.Services;
 
 public sealed class PendingReviewService(SqliteConnectionFactory db, PersonalIdRemapService remap)
 {
-    private static readonly string[] CountLabels = ["追番状态", "浏览记录", "计划", "计划提醒", "播放进度", "分集进度",
-        "观看记录", "档案", "档案感想", "个人标签", "截图", "手工观看记录", "标记历史", "隐藏推荐"];
-
     public async Task<IReadOnlyList<PendingReviewItem>> GetItemsAsync(CancellationToken ct = default)
     {
         using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
@@ -26,14 +23,16 @@ public sealed class PendingReviewService(SqliteConnectionFactory db, PersonalIdR
         {
             var id = reader.GetInt32(0);
             var counts = new Dictionary<string, int>();
-            for (var i = 0; i < PublicIdMigrationService.WorkTables.Length; i++)
+            foreach (var table in PublicIdMigrationService.WorkTables)
             {
-                var count = records.Rows(PublicIdMigrationService.WorkTables[i]).Count(r => MigrationInput.Id(r["AnimeId"]) == id);
-                if (count > 0) counts[CountLabels[i]] = count;
+                var count = records.Rows(table).Count(r => MigrationInput.Id(r["AnimeId"]) == id);
+                if (count > 0) counts[table] = count;
             }
+            int? mergedInto = reader.IsDBNull(3) ? null : reader.GetInt32(3);
             result.Add(new PendingReviewItem(id, reader.IsDBNull(1) ? null : reader.GetInt32(1),
                 reader.IsDBNull(4) ? Title(records, id) : reader.GetString(4), reader.GetString(2),
-                reader.IsDBNull(3) ? null : reader.GetInt32(3), reader.IsDBNull(5) ? null : reader.GetString(5), counts));
+                mergedInto, mergedInto is { } target ? records.Titles.GetValueOrDefault(target) : null,
+                reader.IsDBNull(5) ? null : reader.GetString(5), counts));
         }
         return result;
     }
