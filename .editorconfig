@@ -12,6 +12,11 @@ charset = utf-8-bom
 trim_trailing_whitespace = true
 insert_final_newline = true
 
+# GitHub Actions 工作流按 YAML 惯例：2 空格缩进、不带 BOM
+[*.{yml,yaml}]
+indent_size = 2
+charset = utf-8
+
 [*.cs]
 indent_style = space
 indent_size = 4
