@@ -26,16 +26,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up .NET SDK
+      - name: Set up .NET 10 SDK
         uses: actions/setup-dotnet@v4
         with:
-          global-json-file: global.json
-
-      - name: Install .NET 8.0.x runtime
-        run: |
-          $installScript = Join-Path $env:RUNNER_TEMP 'dotnet-install.ps1'
-          Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile $installScript
-          & $installScript -Channel 8.0 -Runtime dotnet -Architecture x64 -InstallDir $env:DOTNET_ROOT -SkipNonVersionedFiles -NoPath
+          dotnet-version: '10.0.x'
 
       - name: Restore
         run: dotnet restore AniMeido.slnx

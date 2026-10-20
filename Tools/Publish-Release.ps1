@@ -1,4 +1,4 @@
-﻿#Requires -Version 7.0
+﻿#Requires -Version 7.6
 
 <#
 .SYNOPSIS
@@ -159,7 +159,7 @@ try {
 
     # 5. Generate -> sign -> verify against embedded production keys (rotation-ready).
     Invoke-DotNet @('build', '.\Tools\AniMeido.UpdateSigner', '-c', 'Release', '-p:AniMeidoUpdateTestSource=false')
-    $signer = Join-Path $repo 'Tools\AniMeido.UpdateSigner\bin\x64\Release\net8.0\AniMeido.UpdateSigner.dll'
+    $signer = Join-Path $repo 'Tools\AniMeido.UpdateSigner\bin\x64\Release\net10.0\AniMeido.UpdateSigner.dll'
     $manifest = Join-Path $output 'release.json'
     $notesPath = Join-Path $output 'release-notes.txt'
     [IO.File]::WriteAllText($notesPath, $releaseNotes, [Text.UTF8Encoding]::new($false))

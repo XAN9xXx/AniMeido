@@ -1,7 +1,10 @@
 ﻿# Tools：插件打包与发布辅助脚本
 
 本目录的脚本都需要 **PowerShell 7（`pwsh`）**。Windows 自带的 Windows PowerShell 5.1 不支持脚本中用到的 .NET API，
-脚本开头的 `#Requires -Version 7.0` 会让它在 5.1 下直接拒绝运行，而不是执行到一半出错。
+脚本开头的 `#Requires` 会让不满足版本要求的 PowerShell 直接拒绝运行，而不是执行到一半出错。
+
+`New-DevInstall.ps1` 和 `Publish-Release.ps1` 会在 PowerShell 进程内加载 net10.0 的更新核心，
+因此需要 **PowerShell 7.6 或更高版本（基于 .NET 10）**；仅安装 .NET 10 SDK 不会升级旧版 PowerShell 的运行时。
 
 `refactor/` 是本地的历史排查资料，被 `.gitignore` 忽略，不随仓库分发。
 
@@ -308,7 +311,7 @@ $env:ANIMEIDO_UPDATE_TEST_ROOT = $source
    工具拒绝覆盖已有文件；不要把私钥路径指向仓库、CI 工作目录或云同步目录。
 
    ```powershell
-   dotnet .\Tools\AniMeido.UpdateSigner\bin\x64\Release\net8.0\AniMeido.UpdateSigner.dll keygen --private E:\OfflineKeys\update.pem --public E:\OfflineKeys\update-public.txt
+   dotnet .\Tools\AniMeido.UpdateSigner\bin\x64\Release\net10.0\AniMeido.UpdateSigner.dll keygen --private E:\OfflineKeys\update.pem --public E:\OfflineKeys\update-public.txt
    ```
 
 3. 只将公钥文件的单行 SPKI Base64 内容放到 `UpdateTrustedKeys.cs` 的 `#if UPDATE_TEST_SOURCE`
@@ -320,7 +323,7 @@ $env:ANIMEIDO_UPDATE_TEST_ROOT = $source
 
 ### 生成一次发布产物
 
-需要 PowerShell 7、.NET SDK、Native AOT C++ 工具链和 Inno Setup 6。
+需要 PowerShell 7.6 或更高版本、.NET 10 SDK、Native AOT C++ 工具链和 Inno Setup 6。
 `-IsccPath` 默认 `D:\Inno Setup 6\ISCC.exe`，可指定其他安装位置。
 PATH 找不到 `vswhere.exe` 时，脚本会自动补上 `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer`，
 结束时恢复原 PATH；如果那里也没有该程序则停止。
