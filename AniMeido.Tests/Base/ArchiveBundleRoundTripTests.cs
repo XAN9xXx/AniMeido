@@ -1,4 +1,5 @@
 ﻿using AniMeido.Contracts.Models;
+using AniMeido.App.Services;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using Microsoft.Data.Sqlite;
@@ -10,11 +11,59 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace AniMeido.Tests;
 
 public sealed class ArchiveBundleRoundTripTests : DbTestBase
 {
+    [Fact]
+    public async Task LegacyBundle_UsesOneConversionPlanForDataAndScreenshotPublicIds()
+    {
+        await RunProductionMigrationAsync();
+        var source = CreateServices(DbFactory, Paths);
+        await SeedAsync(source.Archive, DbFactory, "legacy", largeSecond: false);
+        var original = Path.Combine(Paths.RootDirectory, "current.zip");
+        var legacy = Path.Combine(Paths.RootDirectory, "legacy.zip");
+        await source.Bundle.ExportAsync(original);
+        var contents = new Dictionary<string, byte[]>();
+        using (var zip = ZipFile.OpenRead(original))
+            foreach (var entry in zip.Entries.Where(e => e.FullName != "sha256.txt"))
+            {
+                using var input = entry.Open(); using var bytes = new MemoryStream(); await input.CopyToAsync(bytes);
+                contents[entry.FullName] = bytes.ToArray();
+            }
+        var data = JsonNode.Parse(contents["data.json"])!.AsObject();
+        data["schemaVersion"] = 5; data.Remove("idSpace"); data.Remove("legacyAnimeRefs");
+        contents["data.json"] = Encoding.UTF8.GetBytes(data.ToJsonString());
+        var metadata = JsonNode.Parse(contents["screenshots.json"])!.AsObject();
+        metadata["schemaVersion"] = 1;
+        contents["screenshots.json"] = Encoding.UTF8.GetBytes(metadata.ToJsonString());
+        using (var zip = ZipFile.Open(legacy, ZipArchiveMode.Create))
+        {
+            foreach (var item in contents)
+            {
+                using var output = zip.CreateEntry(item.Key).Open(); await output.WriteAsync(item.Value);
+            }
+            using var manifest = new StreamWriter(zip.CreateEntry("sha256.txt").Open());
+            foreach (var item in contents.OrderBy(p => p.Key, StringComparer.Ordinal))
+                await manifest.WriteAsync($"{Convert.ToHexString(SHA256.HashData(item.Value))}  {item.Key}\n");
+        }
+        var targetPaths = CreateAdditionalPaths(); var factory = new SqliteConnectionFactory(targetPaths);
+        await new DatabaseService(factory, targetPaths).InitializeAsync();
+        using var handler = new PublicIdMigrationTests.MappingHandler();
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://metadata.example.test") };
+        var migration = new PublicIdMigrationService(factory, client, NullLogger<PublicIdMigrationService>.Instance);
+        var target = CreateServices(factory, targetPaths, migration: migration);
+        await target.Archive.SaveScreenshotSettingsAsync(new ScreenshotSettings(true,
+            Path.Combine(targetPaths.RootDirectory, "pictures"), false, false));
+        Assert.Equal(2, await target.Bundle.ImportAsync(legacy));
+        Assert.All(await target.Archive.GetScreenshotsAsync(), item => Assert.Equal(117, item.AnimeId));
+        Assert.NotNull(await target.Archive.GetArchiveAsync(117));
+        Assert.Equal(AnimeTrackingStatus.Watching, await new TrackingService(factory).GetStatusAsync(117));
+        Assert.Single(handler.Paths.Where(p => p.StartsWith("/v1/mapping/work", StringComparison.Ordinal)));
+    }
+
     [Fact]
     public async Task Bundle_RoundTripPreservesPersonalDataScreenshotBytesAndTags()
     {
@@ -325,11 +374,11 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
     private static readonly DateTimeOffset Captured = new(2025, 7, 20, 12, 0, 0, TimeSpan.Zero);
 
     private static (ArchiveService Archive, ArchiveBundleService Bundle) CreateServices(SqliteConnectionFactory factory, MockAppDataPaths paths,
-        ILogger<ArchiveBundleService>? logger = null)
+        ILogger<ArchiveBundleService>? logger = null, PublicIdMigrationService? migration = null)
     {
         var archive = new ArchiveService(factory);
         return (archive, new ArchiveBundleService(new ExportService(new TrackingService(factory),
-            new SavedTagService(factory), factory), archive, new BackupService(factory, paths),
+            new SavedTagService(factory), factory, migration), archive, new BackupService(factory, paths),
             logger ?? NullLogger<ArchiveBundleService>.Instance));
     }
 

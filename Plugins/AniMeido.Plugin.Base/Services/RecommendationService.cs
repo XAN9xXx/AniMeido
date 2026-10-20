@@ -145,7 +145,8 @@ public sealed class RecommendationService : IDisposable
             }
             var preferences = await GetFeaturePreferencesAsync(
                 cancellationToken);
-            var savedTags = await _savedTags.GetAllSavedTagsAsync();
+            preferences = preferences.Where(p => !p.Invalid).ToList();
+            var savedTags = (await _savedTags.GetSavedTagStatesAsync()).Where(t => !t.Invalid).Select(t => t.Name).ToList();
             var seeds = await BuildSeedsAsync(
                 tracking,
                 cancellationToken);
@@ -332,7 +333,7 @@ public sealed class RecommendationService : IDisposable
             cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT FeatureKind, FeatureKey, DisplayName, Adjustment, UpdatedAt
+            SELECT FeatureKind, FeatureKey, DisplayName, Adjustment, UpdatedAt, Invalid
             FROM recommendation_feature_preferences
             ORDER BY FeatureKind, DisplayName COLLATE NOCASE
             """;
@@ -348,7 +349,7 @@ public sealed class RecommendationService : IDisposable
                 (RecommendationAdjustment)reader.GetInt32(3),
                 DateTimeOffset.Parse(
                     reader.GetString(4),
-                    CultureInfo.InvariantCulture)));
+                    CultureInfo.InvariantCulture), reader.GetBoolean(5)));
         }
 
         return result;
@@ -611,7 +612,7 @@ public sealed class RecommendationService : IDisposable
             .Select(item => item.AnimeId)
             .ToHashSet();
         return seeds.Values
-            .Where(item => !blocked.Contains(item.AnimeId))
+            .Where(item => item.AnimeId > 0 && !blocked.Contains(item.AnimeId))
             .OrderByDescending(item => Math.Abs(item.NormalizedWeight))
             .Take(30)
             .Select(item => new RecommendationSeed(

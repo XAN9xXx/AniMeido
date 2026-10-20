@@ -96,12 +96,13 @@ namespace AniMeido.App
                 contributionRegistry,
                 provider.GetRequiredService<NavigationService>(),
                 new MainWindowDragDropAdapter(
-                    provider.GetRequiredService<
-                        AniMeido.Plugin.Base.Services.DragDropService>()));
+                    () => provider.GetRequiredService<
+                        AniMeido.Plugin.Base.Services.DragDropService>()),
+                new StartupMigrationGate(ct => provider.GetRequiredService<
+                    AniMeido.Plugin.Base.Services.PublicIdMigrationService>().MigrateAsync(ct)),
+                provider.GetRequiredService<DatabaseService>().BackupDir);
             MainWindow = _window;
 
-            var pluginHostSupervisor =
-                provider.GetRequiredService<PluginHostSupervisor>();
             var windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(
                 _window);
             var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(
@@ -122,8 +123,7 @@ namespace AniMeido.App
             // 数据库初始化已完成，主窗口已经 Activate；这不是首帧或全部后台功能的健康保证。
             MarkInstalledAppHealthy();
             _window.ShowLegacyInstallationNotice(provider.GetRequiredService<LegacyInstallationService>());
-            await provider.GetRequiredService<GlobalShortcutManager>()
-                .StartAsync();
+            _ = StartDataServicesWhenReadyAsync(provider, _window.DataReady.Task);
             if (_desktopSettings.KeepInTrayOnClose)
             {
                 await StartTrayIconAtStartupAsync(provider);
@@ -132,9 +132,23 @@ namespace AniMeido.App
             if (_window.Content is FrameworkElement root)
                 ThemeService.InitializeTheme(root);
 
-            _ = StartPluginHostSafelyAsync(pluginHostSupervisor);
             _ = UpdateStartupTask.CheckForUpdateSilentlyAsync(provider, _window);
             QueueRolledBackNotice();
+        }
+
+        private async Task StartDataServicesWhenReadyAsync(IServiceProvider provider, Task dataReady)
+        {
+            try
+            {
+                await dataReady;
+                if (_shutdownStarted) return;
+                await provider.GetRequiredService<GlobalShortcutManager>().StartAsync();
+                await StartPluginHostSafelyAsync(provider.GetRequiredService<PluginHostSupervisor>());
+            }
+            catch (OperationCanceledException) when (_shutdownStarted) { }
+#pragma warning disable CA1031 // 数据就绪后的后台初始化失败不能使可用窗口退出。
+            catch (Exception ex) { Log.Warning(ex, "资料迁移后的后台服务初始化失败"); }
+#pragma warning restore CA1031
         }
 
         private void MarkInstalledAppHealthy()

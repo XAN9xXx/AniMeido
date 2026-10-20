@@ -287,7 +287,8 @@ public partial class SmartListsViewModel : ObservableObject
         }
 
         Results = new ObservableCollection<SmartListCandidate>(
-            SmartListEvaluator.Apply(definition, candidates));
+            SmartListEvaluator.Apply(definition with
+            { Invalid = await _actionCenter.HasInvalidTagsAsync(definition.Rules, evaluationToken) }, candidates));
     }
 
     partial void OnSelectedDefinitionChanged(

@@ -24,7 +24,7 @@ public sealed class InstalledDatabaseMigrationTests : DbTestBase
         {
             Assert.NotNull(record);
             Assert.Equal("2.3.0", record.Version);
-            Assert.StartsWith(Path.Combine(Paths.BackupDirectory, "update", "AniMeido-before-v7-to-v8-"), record.Backup);
+            Assert.StartsWith(Path.Combine(Paths.BackupDirectory, "update", $"AniMeido-before-v7-to-v{DatabaseSchema.CurrentVersion}-"), record.Backup);
             using var backup = new SqliteConnection(new SqliteConnectionStringBuilder
             {
                 DataSource = record.Backup,
@@ -55,7 +55,7 @@ public sealed class InstalledDatabaseMigrationTests : DbTestBase
         Assert.Equal(DatabaseSchema.CurrentVersion, await DatabaseSchema.GetSchemaVersionAsync(current));
         Assert.Equal(before, File.ReadAllBytes(store.StatePath));
         Assert.Null(store.Read().Migration);
-        Assert.Single(Directory.GetFiles(Path.Combine(Paths.BackupDirectory, "update"), "AniMeido-before-v7-to-v8-*.db"));
+        Assert.Single(Directory.GetFiles(Path.Combine(Paths.BackupDirectory, "update"), $"AniMeido-before-v7-to-v{DatabaseSchema.CurrentVersion}-*.db"));
     }
 
     [Fact]
@@ -73,6 +73,36 @@ public sealed class InstalledDatabaseMigrationTests : DbTestBase
         await Assert.ThrowsAsync<SqliteException>(() => new DatabaseService(DbFactory, Paths, context).InitializeAsync());
         Assert.NotNull(store.Read().Migration);
         Assert.True(File.Exists(store.Read().Migration!.Backup));
+    }
+
+    [Fact]
+    public async Task BlockedAtV8RestartsKeepTheOriginalUpdateBackupAndRecord()
+    {
+        await PrepareVersionSevenAsync();
+        using (var connection = await DbFactory.OpenAsync())
+        using (var command = connection.CreateCommand())
+        {
+            // 有个人记录时空库捷径不适用，库停在 v8 等待联网迁移。
+            command.CommandText = "INSERT INTO saved_tags(TagName) VALUES('漫画改')";
+            await command.ExecuteNonQueryAsync();
+        }
+        var (context, store) = CreateInstall(installed: true);
+        await new DatabaseService(DbFactory, Paths, context).InitializeAsync();
+        var original = store.Read().Migration!.Backup;
+        await new DatabaseService(DbFactory, Paths, context).InitializeAsync();
+        await new DatabaseService(DbFactory, Paths, context).InitializeAsync();
+
+        using (var current = await DbFactory.OpenAsync())
+            Assert.Equal(DatabaseSchema.OfflineVersion, await DatabaseSchema.GetSchemaVersionAsync(current));
+        var backups = Directory.GetFiles(Path.Combine(Paths.BackupDirectory, "update"), "AniMeido-before-*.db");
+        Assert.Equal(original, Assert.Single(backups));
+        Assert.Contains("-before-v7-to-v", original);
+        Assert.Equal(original, store.Read().Migration!.Backup);
+
+        // 备份被删除后，下一次启动重新备份当前的 v8 库。
+        File.Delete(original);
+        await new DatabaseService(DbFactory, Paths, context).InitializeAsync();
+        Assert.Contains("-before-v8-to-v", Assert.Single(Directory.GetFiles(Path.Combine(Paths.BackupDirectory, "update"), "AniMeido-before-*.db")));
     }
 
     [Fact]
@@ -100,10 +130,14 @@ public sealed class InstalledDatabaseMigrationTests : DbTestBase
 
     private async Task PrepareVersionSevenAsync()
     {
-        await new DatabaseService(DbFactory, Paths).InitializeAsync();
-        // InitializeAsync 的普通备份同步使用 SQLite BackupDatabase；这里只修改 schema 版本模拟升级。
         using var connection = await DbFactory.OpenAsync();
+        await DatabaseSchema.CreateInitialBusinessTablesBeforeConfigAsync(connection);
         using var command = connection.CreateCommand();
+        command.CommandText = "CREATE TABLE config(Key TEXT PRIMARY KEY,Value TEXT NOT NULL)";
+        await command.ExecuteNonQueryAsync();
+        await DatabaseSchema.CreateInitialBusinessTablesAfterConfigAsync(connection);
+        await DatabaseSchema.RunMigrationsAsync(connection);
+        // v8 只修复已有数据；无数据时将离线 schema 标回 v7，不混入 v9 的表与列。
         command.CommandText = "PRAGMA user_version = 7;";
         await command.ExecuteNonQueryAsync();
     }

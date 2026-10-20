@@ -32,7 +32,7 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
         int sortOrder,
         CancellationToken cancellationToken = default)
     {
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(animeId);
+        if (animeId == 0) throw new ArgumentOutOfRangeException(nameof(animeId));
         ArgumentException.ThrowIfNullOrWhiteSpace(title);
         using var connection =
             await _dbFactory.OpenAsync(cancellationToken);
@@ -518,6 +518,7 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
     public async Task<IReadOnlyList<SmartListDefinition>> GetSmartListsAsync(
         CancellationToken cancellationToken = default)
     {
+        var tagNames = await MetadataTagAvailability.ReadNamesAsync(_dbFactory, cancellationToken);
         using var connection =
             await _dbFactory.OpenAsync(cancellationToken);
         using var command = connection.CreateCommand();
@@ -551,11 +552,14 @@ public sealed class ActionCenterService : IAnimePlaybackProgressSink
                 rules,
                 sort,
                 ParseTimestamp(reader.GetString(5)),
-                ParseTimestamp(reader.GetString(6))));
+                ParseTimestamp(reader.GetString(6)), MetadataTagAvailability.IsInvalid(rules, tagNames)));
         }
 
         return definitions;
     }
+
+    public async Task<bool> HasInvalidTagsAsync(SmartListRuleGroup rules, CancellationToken ct = default) =>
+        MetadataTagAvailability.IsInvalid(rules, await MetadataTagAvailability.ReadNamesAsync(_dbFactory, ct));
 
     public async Task DeleteSmartListAsync(
         string id,

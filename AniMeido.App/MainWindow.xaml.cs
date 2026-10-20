@@ -15,6 +15,11 @@ namespace AniMeido.App
         private readonly SplashCoordinator _splash;
         private readonly StartupDialogCoordinator _dialogs;
         private readonly MainWindowDragDropAdapter _dragDropAdapter;
+        private readonly StartupMigrationGate? _migrationGate;
+        private readonly CancellationTokenSource _migrationCancellation = new();
+        private readonly string? _migrationBackupDirectory;
+        private bool _initialNavigationStarted;
+        internal TaskCompletionSource DataReady { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         private NavigationViewItem? _lastSelectedPageItem;
         private bool _isClosing;
@@ -80,9 +85,13 @@ namespace AniMeido.App
         internal MainWindow(
             PluginContributionRegistry pluginContributions,
             NavigationService navigationService,
-            MainWindowDragDropAdapter dragDropAdapter)
+            MainWindowDragDropAdapter dragDropAdapter,
+            StartupMigrationGate? migrationGate = null,
+            string? migrationBackupDirectory = null)
         {
             InitializeComponent();
+            _migrationGate = migrationGate;
+            _migrationBackupDirectory = migrationBackupDirectory;
 
             _navigationService = navigationService;
             _dragDropAdapter = dragDropAdapter
@@ -113,7 +122,7 @@ namespace AniMeido.App
             Closed += OnMainWindowClosed;
 
             // 适配器拥有 Loaded 订阅，窗口关闭时由 BeginShutdown/Closed 成对解除。
-            _dragDropAdapter.Attach(RootGrid, MainNaviView, ContentFrame);
+            if (_migrationGate is null) _dragDropAdapter.Attach(RootGrid, MainNaviView, ContentFrame);
         }
 
         private void UpdateTitleBarButtons()
@@ -174,7 +183,44 @@ namespace AniMeido.App
         }
 
         private async void OnMainNaviViewLoaded(object sender, RoutedEventArgs e)
+            => await LoadMainAfterMigrationAsync();
+
+        private async void OnRetryMigrationClick(object sender, RoutedEventArgs e)
+            => await LoadMainAfterMigrationAsync();
+
+        private async void OnOpenMigrationBackupsClick(object sender, RoutedEventArgs e)
         {
+            if (_migrationBackupDirectory is null) return;
+            try { await Windows.System.Launcher.LaunchFolderPathAsync(_migrationBackupDirectory); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
+            { Serilog.Log.Warning(ex, "无法打开迁移备份文件夹"); }
+        }
+
+        private async Task LoadMainAfterMigrationAsync()
+        {
+            if (_initialNavigationStarted || _isClosing) return;
+            _initialNavigationStarted = true;
+            if (_migrationGate is { IsReady: false })
+            {
+                MainNaviView.Visibility = Visibility.Collapsed;
+                MigrationBlock.Visibility = Visibility.Visible;
+                SplashOverlay.Visibility = Visibility.Collapsed;
+                MigrationRetry.IsEnabled = false;
+                MigrationStatus.Text = "正在准备并迁移资料，请稍候…";
+                var ready = await _migrationGate.TryRunAsync(_migrationCancellation.Token);
+                if (_isClosing) return;
+                MigrationRetry.IsEnabled = true;
+                if (!ready)
+                {
+                    MigrationStatus.Text = "个人记录尚未完成迁移。请联网后重试；原有记录保留，完成前不会加载资料页面。";
+                    _initialNavigationStarted = false;
+                    return;
+                }
+                MigrationBlock.Visibility = Visibility.Collapsed;
+                MainNaviView.Visibility = Visibility.Visible;
+                _dragDropAdapter.Attach(RootGrid, MainNaviView, ContentFrame);
+            }
+            DataReady.TrySetResult();
             await _splash.WaitForImageAsync();
             if (_isClosing)
                 return;
@@ -234,6 +280,8 @@ namespace AniMeido.App
         internal void BeginShutdown()
         {
             _isClosing = true;
+            _migrationCancellation.Cancel();
+            DataReady.TrySetCanceled();
             MainNaviView.Loaded -= OnMainNaviViewLoaded;
             MainNaviView.ItemInvoked -= OnNaviItemInvoked;
             _navigationService.Navigated -= OnNavigationServiceNavigated;
@@ -247,10 +295,13 @@ namespace AniMeido.App
         private void OnMainWindowClosing(object sender, WindowEventArgs args)
         {
             _isClosing = true;
+            _migrationCancellation.Cancel();
+            DataReady.TrySetCanceled();
         }
 
         private void OnMainWindowClosed(object sender, WindowEventArgs args)
         {
+            _migrationCancellation.Dispose();
             _dragDropAdapter.Dispose();
             _pluginContributions.Changed -= OnPluginContributionsChanged;
         }
@@ -283,6 +334,7 @@ namespace AniMeido.App
 
         private void OnNaviItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
         {
+            if (_migrationGate is { IsReady: false }) return;
             var container = args.InvokedItemContainer as NavigationViewItem;
 
             if (container?.Tag is string tag && tag == "Settings")

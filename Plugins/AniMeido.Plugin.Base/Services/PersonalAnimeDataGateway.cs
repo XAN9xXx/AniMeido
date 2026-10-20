@@ -180,7 +180,7 @@ public sealed class PersonalAnimeDataGateway : IPersonalAnimeDataGateway
 
         var savedTags = request.Categories.HasFlag(
             PersonalAnimeDataCategory.SavedBangumiTags)
-                ? await _savedTags.GetAllSavedTagsAsync()
+                ? (await _savedTags.GetSavedTagStatesAsync()).Where(t => !t.Invalid).Select(t => t.Name).ToList()
                 : [];
         var preferenceProfile = request.Categories.HasFlag(
             PersonalAnimeDataCategory.RecommendationProfile)
@@ -368,6 +368,7 @@ public sealed class PersonalAnimeDataGateway : IPersonalAnimeDataGateway
     {
         var manual = await _recommendations.GetFeaturePreferencesAsync(
             cancellationToken);
+        manual = manual.Where(item => !item.Invalid).ToList();
         var profile = _recommendations.LastProfile;
         return profile
             .Select(item => new PersonalAnimePreferenceFeature(

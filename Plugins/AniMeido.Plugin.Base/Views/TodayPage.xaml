@@ -85,7 +85,7 @@
                         </Border>
                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="6">
                             <TextBlock Text="{x:Bind Anime.Title}" FontWeight="SemiBold" MaxLines="1" TextTrimming="CharacterEllipsis"/>
-                            <TextBlock Text="{x:Bind Subtitle}" Style="{StaticResource TodayCaptionStyle}" MaxLines="1" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{x:Bind DisplaySubtitle}" Style="{StaticResource TodayCaptionStyle}" MaxLines="1" TextTrimming="CharacterEllipsis"/>
                             <ProgressBar Value="{x:Bind ProgressPercent}" Maximum="100" Visibility="{x:Bind HasProgress}"/>
                         </StackPanel>
                         <TextBlock Grid.Column="2" Text="{x:Bind Trailing}" Visibility="{x:Bind HasTrailing}" Style="{StaticResource TodayCaptionStyle}" VerticalAlignment="Center"/>
@@ -245,7 +245,7 @@
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
                         <TextBlock Text="{x:Bind Anime.Title}" FontWeight="SemiBold" MaxLines="1" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Text="{x:Bind Subtitle}" Style="{StaticResource TodayCaptionStyle}"/>
+                        <TextBlock Text="{x:Bind DisplaySubtitle}" Style="{StaticResource TodayCaptionStyle}"/>
                     </StackPanel>
                 </Grid>
             </Button>

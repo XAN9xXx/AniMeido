@@ -66,7 +66,11 @@ public sealed record SmartListDefinition(
     SmartListRuleGroup Rules,
     SmartListSort? Sort,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    bool Invalid = false)
+{
+    public string DisplayName => Invalid ? Name + "（已失效）" : Name;
+}
 
 public sealed record SmartListCandidate(
     int AnimeId,

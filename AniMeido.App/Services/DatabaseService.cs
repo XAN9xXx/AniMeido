@@ -20,6 +20,7 @@ namespace AniMeido.App.Services
 
         private const int MaxBackups = 10;
         private const int MaxUpdateBackups = 2;
+        private const string PublicIdMigrationBackupKey = "public-id-migration-backup";
 
         private string UpdateBackupDir => Path.Combine(BackupDir, "update");
 
@@ -60,9 +61,12 @@ namespace AniMeido.App.Services
                 await CreateConfigTableAsync(connection);
                 await DatabaseSchema.CreateInitialBusinessTablesAfterConfigAsync(connection);
                 var previousVersion = await DatabaseSchema.GetSchemaVersionAsync(connection);
-                if (previousVersion is > 0 and < DatabaseSchema.CurrentVersion)
+                if (previousVersion is > 0 and < DatabaseSchema.CurrentVersion
+                    && !await HasPublicIdMigrationBackupAsync(connection, previousVersion))
                 {
                     var backupPath = await BackupCoreAsync(throwOnFailure: true, previousVersion);
+                    if (backupPath is not null)
+                        await SetConfigAsync(connection, PublicIdMigrationBackupKey, backupPath);
                     if (_installedApp?.IsInstalled == true && backupPath is not null)
                     {
                         try
@@ -78,6 +82,15 @@ namespace AniMeido.App.Services
                     }
                 }
                 await DatabaseSchema.RunMigrationsAsync(connection);
+                try
+                {
+                    await DatabaseSchema.UpgradeEmptyDatabaseAsync(connection);
+                }
+                catch (SqliteException ex) when (ex.SqliteErrorCode is not (11 or 26))
+                {
+                    // 空库也可能在 v9 事务中失败；留在 v8，由主窗口的迁移阻塞页重试。
+                    Serilog.Log.Warning(ex, "Empty database public ID migration deferred to startup retry");
+                }
             }
             catch (SqliteException ex) when (ex.SqliteErrorCode is 11 or 26)
             {
@@ -267,6 +280,27 @@ namespace AniMeido.App.Services
                 }
             }
             return false;
+        }
+
+        // 停在 v8 等待联网迁移时，库里记着本轮更新前备份且文件仍在，就不再备份，
+        // 否则每次启动都会滚掉真正的更新前备份并改写启动器的恢复路径。备份本身不含此标记，从备份恢复的库会重新备份。
+        private static async Task<bool> HasPublicIdMigrationBackupAsync(SqliteConnection connection, int previousVersion)
+        {
+            if (previousVersion != DatabaseSchema.OfflineVersion)
+                return false;
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT Value FROM config WHERE Key=@key";
+            command.Parameters.AddWithValue("@key", PublicIdMigrationBackupKey);
+            return await command.ExecuteScalarAsync() is string path && File.Exists(path);
+        }
+
+        private static async Task SetConfigAsync(SqliteConnection connection, string key, string value)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO config(Key,Value) VALUES(@key,@value) ON CONFLICT(Key) DO UPDATE SET Value=excluded.Value";
+            command.Parameters.AddWithValue("@key", key);
+            command.Parameters.AddWithValue("@value", value);
+            await command.ExecuteNonQueryAsync();
         }
 
         private IEnumerable<string> GetUpdateBackups()

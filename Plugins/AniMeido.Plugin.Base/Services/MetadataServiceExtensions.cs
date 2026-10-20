@@ -25,10 +25,15 @@ public static class MetadataServiceExtensions
     public static IServiceCollection AddMetadataService(this IServiceCollection services)
     {
         services.AddHttpClient(MetadataServiceSettings.ClientName, MetadataServiceSettings.ConfigureClient);
-        services.AddSingleton<IAnimeDataSource>(sp => new MetadataDataSource(
+        services.AddSingleton<MetadataDataSource>(sp => new MetadataDataSource(
             sp.GetRequiredService<ILogger<MetadataDataSource>>(),
             sp.GetRequiredService<IHttpClientFactory>().CreateClient(MetadataServiceSettings.ClientName),
             sp.GetRequiredService<CacheService>()));
+        services.AddSingleton<IAnimeDataSource, PersonalAnimeDataSource>();
+        services.AddSingleton<PublicIdMigrationService>(sp => new PublicIdMigrationService(
+            sp.GetRequiredService<SqliteConnectionFactory>(),
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient(MetadataServiceSettings.ClientName),
+            sp.GetRequiredService<ILogger<PublicIdMigrationService>>()));
         services.AddSingleton<TrackingService>();
         services.AddSingleton<CacheService>();
         services.AddSingleton<BrowseHistoryService>();

@@ -36,6 +36,7 @@ public static class SmartListEvaluator
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(candidates);
+        if (definition.Invalid) return [];
         if (definition.SchemaVersion != SchemaVersion)
         {
             throw new InvalidDataException(
