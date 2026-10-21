@@ -13,6 +13,7 @@ public sealed partial class MetadataDataSource : IAnimeDataSource
     private readonly ILogger<MetadataDataSource> _logger;
     private readonly CacheService _cacheService;
     private readonly TimeProvider _time;
+    private DateOnly Today => DateOnly.FromDateTime(_time.GetLocalNow().DateTime);
 
     internal MetadataDataSource(ILogger<MetadataDataSource> logger, HttpClient httpClient,
         CacheService cacheService, TimeProvider? time = null)
@@ -92,6 +93,20 @@ public sealed partial class MetadataDataSource : IAnimeDataSource
 
     public async Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct) =>
         await DetailAsync(animeID, ct).ConfigureAwait(false) is { } work ? MapAnime(work, detail: true) : null;
+
+    internal async Task<string> GetRatingTextAsync(int animeId, CancellationToken ct)
+    {
+        try
+        {
+            var work = await DetailAsync(animeId, ct).ConfigureAwait(false);
+            return work is null ? "" : RatingPresentation.Format(work.Ratings, work.FirstDate, Today);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested && IsServiceFailure(ex))
+        {
+            _logger.LogWarning(ex, "Rating details unavailable for work {AnimeId}; leaving rating block hidden", animeId);
+            return "";
+        }
+    }
 
     public async Task<List<Studio>> GetStudioAsync(int animeID, CancellationToken ct) =>
         await DetailAsync(animeID, ct).ConfigureAwait(false) is { } work ? Studios(work) : [];
@@ -187,11 +202,14 @@ public sealed partial class MetadataDataSource : IAnimeDataSource
         // 只有年或年月的首播日期按该年、该月的 1 日比较，否则新番和待播作品会被整体滤掉。
         if (from.HasValue) items = items.Where(i => StartDate(i.FirstDate) >= from.Value);
         if (to.HasValue) items = items.Where(i => StartDate(i.FirstDate) < to.Value);
+        var today = Today;
         items = sort switch
         {
-            "rank" => items.OrderByDescending(i => BangumiRating(i.Ratings)?.Score.HasValue == true)
-                .ThenByDescending(i => BangumiRating(i.Ratings)?.Score)
-                .ThenByDescending(i => BangumiRating(i.Ratings)?.Votes).ThenBy(i => i.Id),
+            "rank" => items.Select(item => (Work: item, Composite: CompositeRating.Calculate(item.Ratings, item.FirstDate, today)))
+                .OrderByDescending(item => item.Composite?.Score)
+                .ThenByDescending(item => BangumiRating(item.Work.Ratings)?.Score)
+                .ThenByDescending(item => BangumiRating(item.Work.Ratings)?.Votes)
+                .ThenBy(item => item.Work.Id).Select(item => item.Work),
             "date" => items.OrderByDescending(i => i.FirstDate, StringComparer.Ordinal).ThenBy(i => i.Id),
             _ => items,
         };
@@ -213,7 +231,7 @@ public sealed partial class MetadataDataSource : IAnimeDataSource
             var staff = group.Select(i => i.Role is null && i.Character is not null ? "配音"
                 : roles.FirstOrDefault(v => v.Code == i.Role)?.NameZh ?? i.Role).Where(s => s is not null).Distinct();
             return new PersonWork(work.Id, EntityName(work.MainNames), string.Join("、", staff),
-                ImageUrl("work", work.Id, "cover", false), BangumiRating(work.Ratings)?.Score, FullDate(work.FirstDate));
+                ImageUrl("work", work.Id, "cover", false), CompositeRating.Calculate(work.Ratings, work.FirstDate, Today)?.Score, FullDate(work.FirstDate));
         }).ToList();
     }
 }

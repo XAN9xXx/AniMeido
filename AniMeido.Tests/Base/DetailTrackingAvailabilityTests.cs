@@ -18,7 +18,7 @@ public sealed class DetailTrackingAvailabilityTests : DbTestBase
         bool expectPlanToWatch)
     {
         // 可见性只在阶段标志变化时重算；这条路径不会触碰数据源。
-        var viewModel = new AnimeDetailViewModel(null!, new TrackingService(DbFactory));
+        var viewModel = new AnimeDetailViewModel(null!, new TrackingService(DbFactory), null!);
 
         viewModel.IsCurrentSeason = phase == nameof(AnimeReleasePhase.CurrentSeason);
         viewModel.IsOldSeason = phase == nameof(AnimeReleasePhase.Past);

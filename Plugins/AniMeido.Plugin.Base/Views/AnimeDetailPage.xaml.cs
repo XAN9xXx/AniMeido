@@ -35,7 +35,8 @@ namespace AniMeido.Plugin.Base.Views
             BrowseHistoryService browseHistory,
             IPluginNavigator pluginNavigator,
             ArchiveService archive,
-            IEnumerable<IAnimePlaybackLauncher> playbackLaunchers)
+            IEnumerable<IAnimePlaybackLauncher> playbackLaunchers,
+            MetadataDataSource ratingSource)
         {
             _dataSource = dataSource;
             _browseHistory = browseHistory;
@@ -43,7 +44,7 @@ namespace AniMeido.Plugin.Base.Views
             _archive = archive;
             _savedTagService = savedTagService;
             _playbackLauncher = playbackLaunchers.FirstOrDefault();
-            ViewModel = new AnimeDetailViewModel(dataSource, trackingService);
+            ViewModel = new AnimeDetailViewModel(dataSource, trackingService, ratingSource);
             DataContext = ViewModel;
             InitializeComponent();
             UpdatePlaybackAvailability();
@@ -64,6 +65,10 @@ namespace AniMeido.Plugin.Base.Views
                             UpdateScore();
                             RecordBrowseHistory();
                         }
+                        break;
+
+                    case nameof(AnimeDetailViewModel.RatingText):
+                        UpdateScore();
                         break;
 
                     case nameof(AnimeDetailViewModel.StudiosText):
@@ -345,16 +350,9 @@ namespace AniMeido.Plugin.Base.Views
 
         private void UpdateScore()
         {
-            var anime = ViewModel.AnimeDetail;
-            if (anime?.Score.HasValue == true && anime.Score.Value > 0)
-            {
-                DetailScore.Text = $"评分：{anime.Score.Value:F1}";
-                DetailScore.Visibility = Visibility.Visible;
-            }
-            else
-            {
-                DetailScore.Visibility = Visibility.Collapsed;
-            }
+            DetailScore.Text = ViewModel.RatingText;
+            DetailScore.Visibility = string.IsNullOrEmpty(ViewModel.RatingText)
+                ? Visibility.Collapsed : Visibility.Visible;
         }
 
         private void UpdateStudios()

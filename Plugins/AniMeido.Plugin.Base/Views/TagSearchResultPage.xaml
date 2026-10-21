@@ -46,7 +46,8 @@
                               SelectedIndex="0"
                               SelectionChanged="OnSortChanged"
                               MinWidth="100">
-                        <ComboBoxItem Tag="rank">评分</ComboBoxItem>
+                        <ComboBoxItem Tag="rank"
+                                      ToolTipService.ToolTip="综合 Bangumi、MyAnimeList、AniList、Kitsu、Anime News Network 的评分：先把各站分数换算到同一尺度，再按评分人数合成；中文和英文社区评价不一致时，偏向给分更高的一方；评分人数少的作品，分数会往平均分靠拢一些。">评分</ComboBoxItem>
                         <ComboBoxItem Tag="date">放映时间</ComboBoxItem>
                         <ComboBoxItem Tag="match">匹配度</ComboBoxItem>
                     </ComboBox>

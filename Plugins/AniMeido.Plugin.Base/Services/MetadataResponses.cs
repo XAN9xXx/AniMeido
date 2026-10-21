@@ -1,4 +1,7 @@
-﻿namespace AniMeido.Plugin.Base.Services;
+﻿using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace AniMeido.Plugin.Base.Services;
 
 internal class MetadataResponse
 {
@@ -36,7 +39,27 @@ internal sealed class MetadataWork
 
 internal sealed record MetadataName(string Kind, string? Lang, string Text);
 internal sealed record MetadataText(string Lang, string Text);
-internal sealed record MetadataRating(string Platform, double? Score, int? Votes);
+internal sealed record MetadataRating(string Platform, double? Score,
+    [property: JsonConverter(typeof(MetadataVotesConverter))] long? Votes, string? FetchedOn = null);
+
+internal sealed class MetadataVotesConverter : JsonConverter<long?>
+{
+    public override long? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        // 单站人数异常不应使整份作品资料失效；保留缺失语义，由评分规则排除该条。
+        if (reader.TokenType == JsonTokenType.Number && reader.TryGetDecimal(out var votes)
+            && votes == decimal.Truncate(votes) && votes >= long.MinValue && votes <= long.MaxValue)
+            return (long)votes;
+        reader.Skip();
+        return null;
+    }
+
+    public override void Write(Utf8JsonWriter writer, long? value, JsonSerializerOptions options)
+    {
+        if (value is long votes) writer.WriteNumberValue(votes);
+        else writer.WriteNullValue();
+    }
+}
 internal sealed record MetadataEntity(int Id, Dictionary<string, string> MainNames);
 internal sealed record MetadataStaff(string Role, List<MetadataEntity> Participants);
 internal sealed record MetadataCharacter(MetadataEntity Character, string Role, List<MetadataEntity> Cv);

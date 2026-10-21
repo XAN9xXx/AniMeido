@@ -12,7 +12,7 @@ using System.Text.Json;
 
 namespace AniMeido.Tests;
 
-public sealed class MetadataDataSourceTests : DbTestBase
+public sealed partial class MetadataDataSourceTests : DbTestBase
 {
     private const string Version1 = "20261019.2";
     private const string Version2 = "20261020.1";
@@ -70,7 +70,7 @@ public sealed class MetadataDataSourceTests : DbTestBase
         Assert.Equal(2026, anime.SeasonYear);
         Assert.Equal(4, anime.SeasonMonth);
         Assert.Equal(6, anime.Weekday);
-        Assert.Equal(7.8, anime.Score);
+        Assert.Equal(CompositeRating.Calculate([new("mal", 9.9, 900), new("bangumi", 7.8, 100)], "2026-05-02", new(2026, 10, 19))?.Score, anime.Score);
         Assert.Equal(AnimeMediaFormat.Television, anime.MediaFormat);
         Assert.Equal(Image("work/42/cover", "large"), anime.CoverURL);
         Assert.Equal("製作方、原作者、Planner、动画公司、发行方", anime.Studio);
@@ -230,7 +230,7 @@ public sealed class MetadataDataSourceTests : DbTestBase
     }
 
     [Fact]
-    public async Task TagRank_UsesBangumiScoreThenVotesWithMissingScoresLast()
+    public async Task TagRank_PutsCompositeBeforeUnrankedBangumiFallback()
     {
         await CreateBaseTablesAsync();
         using var handler = TagHandler(new[]
@@ -241,7 +241,7 @@ public sealed class MetadataDataSourceTests : DbTestBase
         using var client = Client(handler);
         var result = await Source(client).SearchByTagAsync("科幻", 0, "rank", default);
         Assert.Equal(4, result.Total);
-        Assert.Equal(new[] { 4, 3, 2, 1 }, result.Results.Select(a => a.ID));
+        Assert.Equal(new[] { 3, 4, 2, 1 }, result.Results.Select(a => a.ID));
     }
 
     [Fact]
@@ -304,7 +304,8 @@ public sealed class MetadataDataSourceTests : DbTestBase
         var result = await Source(client).GetPersonWorksAsync(7, default);
         Assert.Equal(new[] { 1, 2 }, result.Select(w => w.ID));
         Assert.Equal("配音、导演", result[0].Staff);
-        Assert.Equal(7, result[0].Score);
+        Assert.Equal(6.33 + 100.0 / 150 * (7 - 6.33), result[0].Score);
+        Assert.Null(result[1].Score);
         Assert.Equal(new DateOnly(2026, 4, 1), result[0].AirDate);
         Assert.Equal(Image("work/1/cover", "small"), result[0].CoverURL);
         Assert.Equal(2, handler.GetPaths.Count(p => p.StartsWith("/v1/participants")));
@@ -626,7 +627,7 @@ public sealed class MetadataDataSourceTests : DbTestBase
     }
 
     private MetadataDataSource Source(HttpClient client, CacheService? cache = null, TimeProvider? time = null) =>
-        new(NullLogger<MetadataDataSource>.Instance, client, cache ?? new CacheService(DbFactory), time);
+        new(NullLogger<MetadataDataSource>.Instance, client, cache ?? new CacheService(DbFactory), time ?? new TestTime());
     private static HttpClient Client(HttpMessageHandler handler) => new(handler, disposeHandler: false)
         { BaseAddress = new Uri(MetadataServiceSettings.QueryBaseUrl) };
     private static string Image(string path, string size) => $"{MetadataServiceSettings.ImageBaseUrl}/v1/images/{path}?size={size}";
@@ -638,7 +639,7 @@ public sealed class MetadataDataSourceTests : DbTestBase
     private static object Brief(int id, string? date, double? score, int votes) => new
     {
         id, firstDate = date, mainNames = new { ja = $"作品{id}" },
-        ratings = new[] { new { platform = "bangumi", score, votes }, new { platform = "mal", score = (double?)10, votes = 9999 } },
+        ratings = new[] { new { platform = "bangumi", score, votes } },
     };
     private static HttpResponseMessage Vocab(HttpRequestMessage r) => Vocab(r, Version1);
     private static HttpResponseMessage Vocab(HttpRequestMessage r, string version)

@@ -37,12 +37,15 @@ namespace AniMeido.Plugin.Base.ViewModels
         private string _mediaFormatText = "其他动画";
         [ObservableProperty]
         private string? _studiosText = null;
+        [ObservableProperty]
+        private string _ratingText = "";
 
         public ObservableCollection<CharacterRole> Characters { get; private set; } = new();
 
         private int _lastAnimeID;
         private readonly IAnimeDataSource _animeDataSource;
         private readonly TrackingService _trackingService;
+        private readonly MetadataDataSource _ratingSource;
         private int _loadVersion;
 
         public ObservableCollection<TrackingActionDescriptor> TrackingActions
@@ -68,10 +71,11 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
         }
 
-        public AnimeDetailViewModel(IAnimeDataSource dataSource, TrackingService trackingService)
+        public AnimeDetailViewModel(IAnimeDataSource dataSource, TrackingService trackingService, MetadataDataSource ratingSource)
         {
             _animeDataSource = dataSource;
             _trackingService = trackingService;
+            _ratingSource = ratingSource;
         }
 
 
@@ -86,6 +90,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             HasData = false;
             AnimeDetail = null;
             StudiosText = null;
+            RatingText = "";
             Characters.Clear();
             _lastAnimeID = animeID;
             try
@@ -111,7 +116,8 @@ namespace AniMeido.Plugin.Base.ViewModels
 
                 await Task.WhenAll(
                     LoadStudiosAsync(animeID, loadVersion, ct),
-                    LoadCharactersAsync(animeID, loadVersion, ct)
+                    LoadCharactersAsync(animeID, loadVersion, ct),
+                    LoadRatingsAsync(animeDetail, loadVersion, ct)
                 );
                 if (!IsCurrentLoad(loadVersion, ct))
                 {
@@ -296,6 +302,13 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 // 角色数据源失败不阻塞详情
             }
+        }
+
+        private async Task LoadRatingsAsync(Anime anime, int loadVersion, CancellationToken ct)
+        {
+            if (PersonalAnimeDataSource.IsUnavailable(anime)) return;
+            var text = await _ratingSource.GetRatingTextAsync(anime.ID, ct);
+            if (IsCurrentLoad(loadVersion, ct)) RatingText = text;
         }
 
         private bool IsCurrentLoad(

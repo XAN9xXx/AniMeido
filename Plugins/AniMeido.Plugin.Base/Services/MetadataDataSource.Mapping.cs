@@ -73,7 +73,7 @@ public sealed partial class MetadataDataSource
     private static List<VoiceActor> VoiceActors(MetadataWork work) => Characters(work)
         .SelectMany(c => c.Cv).Where(p => p.Id > 0).DistinctBy(p => p.Id).Select(VoiceActor).ToList();
 
-    private static Anime MapAnime(MetadataWork work, bool detail = false)
+    private Anime MapAnime(MetadataWork work, bool detail = false)
     {
         var title = Title(work.Names);
         var (year, month) = SeasonDate(work.FirstDate);
@@ -86,7 +86,7 @@ public sealed partial class MetadataDataSource
             studios.Count > 0 ? string.Join("、", studios.Select(s => s.Name)) : null,
             detail ? VoiceActors(work) : [],
             FullDate(work.FirstDate), ImageUrl("work", work.Id, "cover", detail), description,
-            year, month, work.BroadcastWeekday, BangumiRating(work.Ratings)?.Score,
+            year, month, work.BroadcastWeekday, CompositeRating.Calculate(work.Ratings, work.FirstDate, Today)?.Score,
             work.Names.Where(n => n.Kind is "main" or "alias" && !string.IsNullOrWhiteSpace(n.Text))
                 .Select(n => n.Text.Trim()).Where(t => !string.Equals(t, title, StringComparison.OrdinalIgnoreCase))
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
