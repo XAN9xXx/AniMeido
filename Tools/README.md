@@ -200,17 +200,17 @@ try {
 单独设置环境变量不能启用映射。普通安装只接受内置生产公钥签名的清单，不接受本地测试签名。
 
 当前条件编译公钥配套私钥经维护者批准新生成，位于仓库外：
-`D:\AniMeido-U3-Acceptance\keys\update-test.pem`；同目录的 `update-test-public.txt` 是单行 SPKI Base64 公钥。
+`D:\AniMeidoDev\u4\keys\update-test.pem`（U4 验收沿用同一把）；同目录的 `update-test-public.txt` 是单行 SPKI Base64 公钥。
 **私钥不进仓库、不放 CI、不复制到更新源目录，不输出其内容。**
 换机器或遗失私钥时，在新的仓库外路径用签名工具生成密钥，再将公钥文件的单行内容填入
 `AniMeido.Updates/UpdateTrustedKeys.cs` 的 `#if UPDATE_TEST_SOURCE` 分支，并重建测试安装：
 
 ```powershell
-$acceptance = 'D:\AniMeido-U3-Acceptance'
+$keys = 'D:\AniMeidoDev\u4\keys'
 $cache = Join-Path $env:USERPROFILE '.nuget\packages'
 # 仅在需要新密钥时执行；已有目标文件会拒绝覆盖。
-New-Item -ItemType Directory -Path "$acceptance\keys" -Force | Out-Null
-dotnet run --project .\Tools\AniMeido.UpdateSigner "-p:RestoreSources=$cache" -p:NuGetAudit=false -- keygen --private "$acceptance\keys\new-update-test.pem" --public "$acceptance\keys\new-update-test-public.txt"
+New-Item -ItemType Directory -Path $keys -Force | Out-Null
+dotnet run --project .\Tools\AniMeido.UpdateSigner "-p:RestoreSources=$cache" -p:NuGetAudit=false -- keygen --private "$keys\new-update-test.pem" --public "$keys\new-update-test-public.txt"
 ```
 
 ### 准备安装、两个通道的包与签名清单
@@ -223,8 +223,8 @@ $acceptance = 'D:\AniMeido-U3-Acceptance'
 $install = Join-Path $acceptance 'install'
 $source = Join-Path $acceptance 'source'
 $cache = Join-Path $env:USERPROFILE '.nuget\packages'
-$private = Join-Path $acceptance 'keys\update-test.pem'
-$public = Join-Path $acceptance 'keys\update-test-public.txt'
+$private = 'D:\AniMeidoDev\u4\keys\update-test.pem'
+$public = 'D:\AniMeidoDev\u4\keys\update-test-public.txt'
 .\Tools\New-DevInstall.ps1 -Root $install -DataRoot (Join-Path $acceptance 'data') -Version 2.2.0 -UpdateTestSource
 
 foreach ($release in @(
