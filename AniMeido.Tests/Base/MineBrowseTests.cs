@@ -56,7 +56,7 @@ public sealed class MineBrowseTests
     public void MetaText_ListsDateFormatAndScore()
     {
         Assert.Equal(
-            "2026/7/11 · TV动画 · Bangumi 7.8",
+            "2026/7/11 · TV动画 · 评分 7.8",
             MineBrowse.MetaText(Anime(1, "甲", 7.8, new DateOnly(2026, 7, 11), AnimeMediaFormat.Television)));
         Assert.Equal(
             "开播日期未定 · 暂无评分",

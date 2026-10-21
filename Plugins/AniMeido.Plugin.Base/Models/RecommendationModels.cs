@@ -125,7 +125,7 @@ public sealed record RecommendationItem(
         Reasons.Select(reason => reason.Text));
 
     public string Metadata => Anime.Score is > 0
-        ? $"Bangumi {Anime.Score:F1} · {(IsRecent ? "近三年" : "经典作品")}"
+        ? $"评分 {Anime.Score:F1} · {(IsRecent ? "近三年" : "经典作品")}"
         : IsRecent ? "近三年" : "经典作品";
 }
 
@@ -137,7 +137,7 @@ public sealed record RecommendationSnapshot(
     IReadOnlyList<RecommendationFeatureProfile>? RoundProfile = null,
     bool HasMore = false)
 {
-    public const int CurrentSchemaVersion = 5;
+    public const int CurrentSchemaVersion = 6;
 }
 
 public sealed record RecommendationGeneration(

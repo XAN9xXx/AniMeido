@@ -175,7 +175,7 @@ namespace AniMeido.Plugin.Base.Services
             return ranked.Count == 0
                 ? null
                 : new TodayThemeContent(
-                    "Bangumi 评分较高 · 你还没标记的剧场版",
+                    "评分较高 · 你还没标记的剧场版",
                     ranked.Select(anime => new TodayThemeCandidate(anime, BuildMeta(anime))).ToList(),
                     TodayThemeRowKind.Mark);
         }

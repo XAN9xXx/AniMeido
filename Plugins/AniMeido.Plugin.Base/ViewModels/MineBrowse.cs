@@ -87,7 +87,7 @@ public static class MineBrowse
         };
     }
 
-    /// <summary>开播日期、形态与 Bangumi 评分，缺失的部分省略或写明。</summary>
+    /// <summary>开播日期、形态与综合评分，缺失的部分省略或写明。</summary>
     public static string MetaText(Anime anime)
     {
         if (PersonalAnimeDataSource.IsUnavailable(anime)) return "资料不可用";
@@ -100,7 +100,7 @@ public static class MineBrowse
         if (anime.MediaFormat != AnimeMediaFormat.Unknown)
             parts.Add(AnimeReleaseClassifier.GetMediaFormatFilterText(anime.MediaFormat));
         parts.Add(anime.Score is double score && score > 0
-            ? $"Bangumi {score.ToString("0.0", CultureInfo.InvariantCulture)}"
+            ? $"评分 {score.ToString("0.0", CultureInfo.InvariantCulture)}"
             : "暂无评分");
         return string.Join(" · ", parts);
     }

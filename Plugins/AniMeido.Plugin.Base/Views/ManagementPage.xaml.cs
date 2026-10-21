@@ -156,7 +156,7 @@ namespace AniMeido.Plugin.Base.Views
             {
                 (MineSortKey.RecentlyMarked, "最近标记"),
                 (MineSortKey.Title, "标题"),
-                (MineSortKey.Score, "Bangumi 评分"),
+                (MineSortKey.Score, "评分"),
             })
             {
                 SortComboBox.Items.Add(new ComboBoxItem { Content = label, Tag = key });

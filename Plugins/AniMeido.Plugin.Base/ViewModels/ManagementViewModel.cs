@@ -434,7 +434,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 }
 
                 TagResultSummary = total > entries.Count
-                    ? $"Bangumi 排名前 {entries.Count} 部，共 {total} 部"
+                    ? $"评分前 {entries.Count} 部，共 {total} 部"
                     : $"共 {entries.Count} 部";
             }
             finally
