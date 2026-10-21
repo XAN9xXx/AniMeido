@@ -180,7 +180,7 @@
                     <Border Height="1"
                             Background="{ThemeResource DividerStrokeColorDefault}"/>
 
-                    <TextBlock Text="Bangumi 标签"
+                    <TextBlock Text="标签"
                                Style="{StaticResource AniMeidoSectionTitleStyle}"/>
                     <StackPanel x:Name="TagContainer"
                                 Orientation="Horizontal"

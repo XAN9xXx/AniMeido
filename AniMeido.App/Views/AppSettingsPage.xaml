@@ -355,7 +355,7 @@
                                    VerticalAlignment="Center"
                                    FontSize="15"/>
                         <TextBlock Grid.Column="1"
-                                   Text="GNU General Public License v3.0"
+                                   Text="GNU Affero General Public License v3.0"
                                    VerticalAlignment="Center"
                                    FontSize="14"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>

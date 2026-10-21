@@ -1,7 +1,7 @@
 ﻿namespace AniMeido.Plugin.Base.Models
 {
     /// <summary>
-    /// 推荐页引导选择的题材标签，也用来从 Bangumi 标签里挑出放送日历今日一抽展示的题材。
+    /// 推荐页引导选择的题材标签，也用来从作品标签里挑出放送日历今日一抽展示的题材。
     /// </summary>
     internal static class RecommendationTagCatalog
     {

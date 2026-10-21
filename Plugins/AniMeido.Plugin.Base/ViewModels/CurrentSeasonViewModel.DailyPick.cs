@@ -251,7 +251,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         }
 
         /// <summary>
-        /// 从 Bangumi 标签里挑出最多三个：按返回顺序，只取题材目录里的，
+        /// 从作品标签里挑出最多三个：按返回顺序，只取题材目录里的，
         /// 去掉制作公司、季度等。一个都没有时返回空，标签行随之隐藏。
         /// </summary>
         internal static IReadOnlyList<string> PickDailyTags(IEnumerable<string?> names)
