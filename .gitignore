@@ -17,7 +17,7 @@ Installer/*.exe
 .claude/
 CLAUDE.md
 .agents/
-AGENTS.md
+AGENTS.override.md
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
