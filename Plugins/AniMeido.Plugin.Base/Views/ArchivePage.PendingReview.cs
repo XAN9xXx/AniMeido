@@ -94,7 +94,8 @@ public sealed partial class ArchivePage
         catch (Exception ex) when (ex is IOException or InvalidOperationException or Microsoft.Data.Sqlite.SqliteException
             or HttpRequestException or Exceptions.MetadataServiceException or ArgumentException)
         {
-            _logger.LogWarning(ex, "Pending personal record action failed");
+            if (ex is not Exceptions.MetadataServiceException { IsRateLimited: true })
+                _logger.LogWarning(ex, "Pending personal record action failed");
             if (ReferenceEquals(_pageLifetime, lifetime)) ShowStatus(ex.Message, InfoBarSeverity.Warning);
         }
         finally
@@ -157,8 +158,10 @@ public sealed partial class ArchivePage
             {
                 if (!token.IsCancellationRequested)
                 {
-                    _logger.LogError(ex, "Pending record target search failed");
-                    message.Text = "搜索失败，请稍后再试。";
+                    if (ex is not Exceptions.MetadataServiceException { IsRateLimited: true })
+                        _logger.LogError(ex, "Pending record target search failed");
+                    message.Text = ex is Exceptions.MetadataServiceException { IsRateLimited: true }
+                        ? Exceptions.MetadataServiceException.RateLimitMessage : "搜索失败，请稍后再试。";
                 }
             }
             finally { searching = false; if (!token.IsCancellationRequested) searchButton.IsEnabled = true; }

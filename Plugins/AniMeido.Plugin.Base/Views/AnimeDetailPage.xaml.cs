@@ -581,7 +581,8 @@ namespace AniMeido.Plugin.Base.Views
             }
             catch (Exception ex) when (ex is HttpRequestException or MetadataServiceException or JsonException)
             {
-                if (!cancellationToken.IsCancellationRequested && IsCurrentNavigation(version, animeId))
+                if (!cancellationToken.IsCancellationRequested && IsCurrentNavigation(version, animeId)
+                    && ex is not MetadataServiceException { IsRateLimited: true })
                     _logger.LogWarning(ex, "Tags unavailable for {AnimeId}; keeping the main detail.", animeId);
                 return;
             }
