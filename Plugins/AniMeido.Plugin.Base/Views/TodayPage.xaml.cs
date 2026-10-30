@@ -33,6 +33,7 @@ public sealed partial class TodayPage : Page, INavigationAware
     private bool _wasLoaded;
     private int _visitGeneration;
     private ContentDialog? _activeDialog;
+    private readonly TodayDialogOperation _dialogOperation = new();
     private readonly HashSet<FrameworkElement> _hoveredThemeRows = [];
     private double _contentWidth = double.PositiveInfinity;
     // 主加载结束后仍需取消后续状态刷新；各次读取另持子源，完成后自行释放。
@@ -242,7 +243,7 @@ public sealed partial class TodayPage : Page, INavigationAware
         if (!IsCurrentVisit(visit) || XamlRoot is null)
             return ContentDialogResult.None;
         if (_activeDialog is not null)
-            throw new InvalidOperationException("已有对话框正在显示。");
+            return ContentDialogResult.None;
 
         dialog.XamlRoot = XamlRoot;
         _activeDialog = dialog;
@@ -453,6 +454,10 @@ public sealed partial class TodayPage : Page, INavigationAware
         if (!IsCurrentVisit(visit))
             return;
 
+        using var operation = _dialogOperation.TryBegin();
+        if (operation is null)
+            return;
+
         var dialog = new ContentDialog
         {
             Title = "清空最近浏览",
@@ -472,6 +477,10 @@ public sealed partial class TodayPage : Page, INavigationAware
     {
         var visit = Volatile.Read(ref _visitGeneration);
         if (!IsCurrentVisit(visit))
+            return;
+
+        using var operation = _dialogOperation.TryBegin();
+        if (operation is null)
             return;
 
         PlanStackPopup.IsOpen = false;
@@ -559,6 +568,10 @@ public sealed partial class TodayPage : Page, INavigationAware
     {
         var visit = Volatile.Read(ref _visitGeneration);
         if (!IsCurrentVisit(visit))
+            return;
+
+        using var operation = _dialogOperation.TryBegin();
+        if (operation is null)
             return;
 
         PlanStackPopup.IsOpen = false;
@@ -666,6 +679,10 @@ public sealed partial class TodayPage : Page, INavigationAware
     {
         var visit = Volatile.Read(ref _visitGeneration);
         if (!IsCurrentVisit(visit))
+            return;
+
+        using var operation = _dialogOperation.TryBegin();
+        if (operation is null)
             return;
 
         PlanStackPopup.IsOpen = false;

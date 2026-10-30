@@ -33,13 +33,28 @@ public sealed class TodayPageDialogLifetimeTests
         var admission = body[..ownership.Index];
         Assert.Contains("IsCurrentVisit(visit)", admission, StringComparison.Ordinal);
         Assert.Matches(@"if\s*\([^;]*XamlRoot[^;]*\)\s*(?:\{\s*)?return\s+ContentDialogResult.None\s*;", admission);
-        Assert.Matches(@"if\s*\(\s*_activeDialog\s*(?:is\s+not\s+null|!=\s*null)\s*\)\s*(?:\{\s*)?throw\s+new\s+InvalidOperationException\s*\(", admission);
+        Assert.DoesNotContain("throw new InvalidOperationException", admission, StringComparison.Ordinal);
         Assert.Contains("IsCurrentVisit(visit)", body[showing..], StringComparison.Ordinal);
         var cleanup = body.IndexOf("finally", showing, StringComparison.Ordinal);
         var ownReference = Regex.Match(body, @"ReferenceEquals\(\s*(?:_activeDialog\s*,\s*dialog|dialog\s*,\s*_activeDialog)\s*\)");
         var clearing = body.LastIndexOf("_activeDialog = null", StringComparison.Ordinal);
         Assert.True(cleanup > showing && ownReference.Success && ownReference.Index > cleanup
             && clearing > ownReference.Index);
+    }
+
+    [Theory]
+    [InlineData("OnClearBrowseHistoryClick")]
+    [InlineData("OnEditPlanClick")]
+    [InlineData("OnAddReminderClick")]
+    [InlineData("OnManageRemindersClick")]
+    public void DialogEntriesShareAdmissionBeforeTheirFirstAwait(string method)
+    {
+        var body = PageMethod(method);
+        var firstAwait = body.IndexOf("await ", StringComparison.Ordinal);
+        Assert.True(firstAwait > 0);
+        var beforeAwait = body[..firstAwait];
+        Assert.Contains("using var operation = _dialogOperation.TryBegin()", beforeAwait, StringComparison.Ordinal);
+        Assert.Matches(@"if\s*\(operation is null\)\s*return;", beforeAwait);
     }
 
     [Theory]
