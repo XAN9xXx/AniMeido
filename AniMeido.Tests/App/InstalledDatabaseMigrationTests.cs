@@ -41,7 +41,7 @@ public sealed class InstalledDatabaseMigrationTests : DbTestBase
     }
 
     [Fact]
-    public async Task RecordMigrationLockFailureDoesNotPreventSchemaMigration()
+    public async Task RecordMigrationLockFailurePreventsChangesAndRetryRegistersBeforeMigration()
     {
         await PrepareVersionSevenAsync();
         var (context, store) = CreateInstall(installed: true, TimeSpan.FromMilliseconds(80));
@@ -49,13 +49,17 @@ public sealed class InstalledDatabaseMigrationTests : DbTestBase
         using (var held = new FileStream(Path.Combine(store.Root, "state.lock"), FileMode.OpenOrCreate,
             FileAccess.ReadWrite, FileShare.None))
         {
-            await new DatabaseService(DbFactory, Paths, context).InitializeAsync();
+            await Assert.ThrowsAsync<InstallException>(
+                () => new DatabaseService(DbFactory, Paths, context).InitializeAsync());
         }
         using var current = await DbFactory.OpenAsync();
-        Assert.Equal(DatabaseSchema.CurrentVersion, await DatabaseSchema.GetSchemaVersionAsync(current));
+        Assert.Equal(7, await DatabaseSchema.GetSchemaVersionAsync(current));
         Assert.Equal(before, File.ReadAllBytes(store.StatePath));
         Assert.Null(store.Read().Migration);
         Assert.Single(Directory.GetFiles(Path.Combine(Paths.BackupDirectory, "update"), $"AniMeido-before-v7-to-v{DatabaseSchema.CurrentVersion}-*.db"));
+        await new DatabaseService(DbFactory, Paths, context).InitializeAsync();
+        Assert.Equal(DatabaseSchema.CurrentVersion, await DatabaseSchema.GetSchemaVersionAsync(current));
+        Assert.NotNull(store.Read().Migration);
     }
 
     [Fact]
@@ -126,6 +130,99 @@ public sealed class InstalledDatabaseMigrationTests : DbTestBase
             .BuildServiceProvider();
         await provider.GetRequiredService<DatabaseService>().InitializeAsync();
         Assert.Equal("2.3.0", store.Read().Migration!.Version);
+    }
+
+    [Fact]
+    public async Task ExistingBackupIsRegisteredAgainAfterPreviouslyMissingRegistration()
+    {
+        await PrepareVersionSevenAsync();
+        using (var connection = await DbFactory.OpenAsync())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "INSERT INTO saved_tags(TagName) VALUES('keep-v8')";
+            await command.ExecuteNonQueryAsync();
+        }
+        var (context, store) = CreateInstall(installed: true, TimeSpan.FromMilliseconds(80));
+        await new DatabaseService(DbFactory, Paths, context).InitializeAsync();
+        var backup = store.Read().Migration!.Backup;
+        store.Write(store.Read() with { Migration = null });
+        using (var held = new FileStream(Path.Combine(store.Root, "state.lock"), FileMode.OpenOrCreate,
+            FileAccess.ReadWrite, FileShare.None))
+        {
+            await Assert.ThrowsAsync<InstallException>(
+                () => new DatabaseService(DbFactory, Paths, context).InitializeAsync());
+        }
+        Assert.Null(store.Read().Migration);
+        await new DatabaseService(DbFactory, Paths, context).InitializeAsync();
+        Assert.Equal(backup, store.Read().Migration!.Backup);
+        Assert.Single(Directory.GetFiles(Path.Combine(Paths.BackupDirectory, "update"), "*.db"));
+    }
+
+    [Fact]
+    public async Task UpdateBackupContainsOriginalTablesBeforeAnySchemaPreparation()
+    {
+        using (var connection = await DbFactory.OpenAsync())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "CREATE TABLE original(Value TEXT); PRAGMA user_version=1;";
+            await command.ExecuteNonQueryAsync();
+        }
+        var (context, store) = CreateInstall(installed: true);
+        await new DatabaseService(DbFactory, Paths, context).InitializeAsync();
+        using var backup = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = store.Read().Migration!.Backup,
+            Mode = SqliteOpenMode.ReadOnly,
+            Pooling = false,
+        }.ToString());
+        await backup.OpenAsync();
+        using var query = backup.CreateCommand();
+        query.CommandText = "SELECT name FROM sqlite_master WHERE type='table'";
+        Assert.Equal("original", await query.ExecuteScalarAsync());
+        using var rows = await query.ExecuteReaderAsync();
+        Assert.True(await rows.ReadAsync());
+        Assert.False(await rows.ReadAsync());
+    }
+
+    [Fact]
+    public async Task InvalidRecordedBackupDoesNotTriggerAutomaticDatabaseReplacement()
+    {
+        await PrepareVersionSevenAsync();
+        var badBackup = Path.Combine(Paths.RootDirectory, "bad-backup.db");
+        await File.WriteAllTextAsync(badBackup, "not SQLite");
+        using (var connection = await DbFactory.OpenAsync())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                PRAGMA user_version=8;
+                INSERT INTO saved_tags(TagName) VALUES('preserved');
+                INSERT INTO config(Key,Value) VALUES('public-id-migration-backup', @path);
+                """;
+            command.Parameters.AddWithValue("@path", badBackup);
+            await command.ExecuteNonQueryAsync();
+        }
+        var (context, store) = CreateInstall(installed: true);
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => new DatabaseService(DbFactory, Paths, context).InitializeAsync());
+        Assert.Null(store.Read().Migration);
+        Assert.Equal("preserved", Assert.Single(await new SavedTagService(DbFactory).GetAllSavedTagsAsync()));
+    }
+
+    [Fact]
+    public async Task DifferentCurrentVersionCannotSilentlySkipMigrationRegistration()
+    {
+        await PrepareVersionSevenAsync();
+        var (context, store) = CreateInstall(installed: true);
+        var directory = InstallLayout.VersionDirectory(store.Root, "2.4.0");
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, InstallLayout.AppFileName), "never executed");
+        store.Write(store.Read() with { Current = "2.4.0" });
+
+        await Assert.ThrowsAsync<InstallException>(
+            () => new DatabaseService(DbFactory, Paths, context).InitializeAsync());
+        using var connection = await DbFactory.OpenAsync();
+        Assert.Equal(7, await DatabaseSchema.GetSchemaVersionAsync(connection));
+        Assert.Null(store.Read().Migration);
     }
 
     private async Task PrepareVersionSevenAsync()

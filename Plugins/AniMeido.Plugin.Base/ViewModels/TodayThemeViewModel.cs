@@ -6,6 +6,7 @@ using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 
 namespace AniMeido.Plugin.Base.ViewModels
 {
@@ -127,13 +128,10 @@ namespace AniMeido.Plugin.Base.ViewModels
     {
         internal const int BatchSize = 6;
 
-        // 只用 Bangumi 数据的主题，候选在一次运行中按“日期 + 主题”缓存：切换页面再回来不重新请求。
-        // 依赖个人数据的主题不缓存：评了分、改了标记，下次加载就按新的记录计算。
-        private static readonly object CacheGate = new();
-        private static readonly Dictionary<(DateOnly Date, TodayThemeKind Kind), TodayThemeContent> ContentCache = [];
-
         private readonly TodayThemeService _service;
         private readonly TrackingService _tracking;
+        private readonly PersonalFeatureStateStore _featureState;
+        private readonly ILogger _logger;
         private CancellationTokenSource? _cts;
         // 本次加载成功得到的全部候选，按轮换顺序排列。
         private IReadOnlyList<TodayThemeItem> _order = [];
@@ -146,12 +144,16 @@ namespace AniMeido.Plugin.Base.ViewModels
         internal TodayThemeViewModel(
             IAnimeDataSource dataSource,
             TrackingService tracking,
+            PersonalFeatureStateStore featureState,
             BrowseHistoryService browseHistory,
             ArchiveService archive,
-            ActionCenterService actionCenter)
+            ActionCenterService actionCenter,
+            ILogger logger)
         {
-            _service = new TodayThemeService(dataSource, tracking, browseHistory, archive, actionCenter);
+            _service = new TodayThemeService(dataSource, tracking, browseHistory, archive, actionCenter, logger);
             _tracking = tracking;
+            _featureState = featureState;
+            _logger = logger;
         }
 
         [ObservableProperty]
@@ -208,15 +210,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         }
 
         /// <summary>测试用：清空本次运行中缓存的候选与题材搜索结果。</summary>
-        internal static void ResetSessionCache()
-        {
-            lock (CacheGate)
-            {
-                ContentCache.Clear();
-            }
-
-            TodayThemeService.ResetSessionCache();
-        }
+        internal static void ResetSessionCache() => TodayThemeService.ResetSessionCache();
 
         /// <summary>加载今天的主题。重复调用会取消上一次。</summary>
         public Task LoadAsync() => PendingLoad = LoadForDateAsync(DateOnly.FromDateTime(DateTime.Today));
@@ -232,7 +226,6 @@ namespace AniMeido.Plugin.Base.ViewModels
 
             _cts = null;
             cts.Cancel();
-            cts.Dispose();
             IsLoading = false;
         }
 
@@ -297,13 +290,13 @@ namespace AniMeido.Plugin.Base.ViewModels
 
                 var shownKind = kind;
                 var isFallback = false;
-                var content = await GetContentAsync(kind, context, cts.Token);
+                var content = await _service.BuildAsync(kind, context, cts.Token);
                 // 轮到的就是替补主题时不再重复查询，直接显示它的空状态。
                 if (content is null && kind != TodayThemeCatalog.Fallback)
                 {
                     shownKind = TodayThemeCatalog.Fallback;
                     isFallback = true;
-                    content = await GetContentAsync(shownKind, context, cts.Token);
+                    content = await _service.BuildAsync(shownKind, context, cts.Token);
                 }
 
                 if (cts.IsCancellationRequested)
@@ -343,10 +336,10 @@ namespace AniMeido.Plugin.Base.ViewModels
 #pragma warning disable CA1031 // 今日主题是补充内容，失败只显示重试，不打断今天页
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[TodayThemeViewModel] LoadForDateAsync failed: {ex.Message}");
                 if (ReferenceEquals(_cts, cts))
                 {
+                    if (!cts.IsCancellationRequested)
+                        _logger.LogError(ex, "今日主题加载失败。");
                     Items = [];
                     IsFailed = true;
                 }
@@ -354,10 +347,10 @@ namespace AniMeido.Plugin.Base.ViewModels
 #pragma warning restore CA1031
             finally
             {
+                cts.Dispose();
                 if (ReferenceEquals(_cts, cts))
                 {
                     _cts = null;
-                    cts.Dispose();
                     IsLoading = false;
                 }
             }
@@ -410,30 +403,6 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 item.IsSavingStatus = false;
             }
-        }
-
-        private async Task<TodayThemeContent?> GetContentAsync(
-            TodayThemeKind kind,
-            TodayThemeContext context,
-            CancellationToken ct)
-        {
-            var cacheable = !TodayThemeCatalog.UsesPersonalData(kind);
-            lock (CacheGate)
-            {
-                if (cacheable && ContentCache.TryGetValue((context.Date, kind), out var cached))
-                    return cached;
-            }
-
-            var content = await _service.BuildAsync(kind, context, ct);
-            if (cacheable && content is not null)
-            {
-                lock (CacheGate)
-                {
-                    ContentCache[(context.Date, kind)] = content;
-                }
-            }
-
-            return content;
         }
 
         /// <summary>
@@ -571,12 +540,11 @@ namespace AniMeido.Plugin.Base.ViewModels
         {
             try
             {
-                return await _tracking.LoadCalendarDailyPickAsync();
+                return await _featureState.LoadCalendarDailyPickAsync();
             }
             catch (Microsoft.Data.Sqlite.SqliteException ex)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[TodayThemeViewModel] LoadCalendarDailyPickAsync failed: {ex.Message}");
+                _logger.LogWarning(ex, "今日一抽记录读取失败，今日主题不排除该作品。");
                 return null;
             }
         }
@@ -585,12 +553,11 @@ namespace AniMeido.Plugin.Base.ViewModels
         {
             try
             {
-                return await _tracking.LoadTodayThemeAsync();
+                return await _featureState.LoadTodayThemeAsync();
             }
             catch (Microsoft.Data.Sqlite.SqliteException ex)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[TodayThemeViewModel] LoadTodayThemeAsync failed: {ex.Message}");
+                _logger.LogWarning(ex, "今日主题记录读取失败，重新选择本次显示的作品。");
                 return null;
             }
         }
@@ -599,7 +566,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         {
             try
             {
-                await _tracking.SaveTodayThemeAsync(new TodayThemeState(
+                await _featureState.SaveTodayThemeAsync(new TodayThemeState(
                     _date,
                     _shownKind,
                     IsFallback,
@@ -608,8 +575,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             catch (Microsoft.Data.Sqlite.SqliteException ex)
             {
                 // 记不下来只影响重启后能否回到这一批，不打断页面。
-                System.Diagnostics.Debug.WriteLine(
-                    $"[TodayThemeViewModel] SaveTodayThemeAsync failed: {ex.Message}");
+                _logger.LogError(ex, "今日主题 {Theme} 的作品选择保存失败，本次显示不变。", _shownKind);
             }
         }
     }

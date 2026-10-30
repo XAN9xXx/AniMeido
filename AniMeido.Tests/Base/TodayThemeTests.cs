@@ -1,4 +1,5 @@
 ﻿using AniMeido.Contracts;
+using Microsoft.Extensions.Logging.Abstractions;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
@@ -7,12 +8,18 @@ using AniMeido.Plugin.Base.ViewModels;
 namespace AniMeido.Tests;
 
 /// <summary>今天页“今日主题”：按日期轮换、换一批、替补与重启后恢复。</summary>
-public sealed class TodayThemeTests : DbTestBase
+public sealed partial class TodayThemeTests : DbTestBase
 {
+    private readonly PersonalFeatureStateStore _featureState;
+
     private static readonly DateOnly Start = new(2026, 9, 19);
 
     // 候选在一次运行中缓存，每个测试从干净状态开始。
-    public TodayThemeTests() => TodayThemeViewModel.ResetSessionCache();
+    public TodayThemeTests()
+    {
+        _featureState = new PersonalFeatureStateStore(DbFactory);
+        TodayThemeViewModel.ResetSessionCache();
+    }
 
     [Fact]
     public void Schedule_IsStableAndCoversEveryThemeEachCycle()
@@ -90,13 +97,12 @@ public sealed class TodayThemeTests : DbTestBase
     public async Task TodayThemeState_RoundTripsThroughConfig()
     {
         await RunProductionMigrationAsync();
-        var tracking = new TrackingService(DbFactory);
-        Assert.Null(await tracking.LoadTodayThemeAsync());
+        Assert.Null(await _featureState.LoadTodayThemeAsync());
 
         var state = new TodayThemeState(Start, TodayThemeKind.Movies, true, [3, 1, 2]);
-        await tracking.SaveTodayThemeAsync(state);
+        await _featureState.SaveTodayThemeAsync(state);
 
-        var loaded = await tracking.LoadTodayThemeAsync();
+        var loaded = await _featureState.LoadTodayThemeAsync();
         Assert.NotNull(loaded);
         Assert.Equal(state.Date, loaded.Date);
         Assert.Equal(state.Theme, loaded.Theme);
@@ -198,17 +204,17 @@ public sealed class TodayThemeTests : DbTestBase
         var date = DateWith(TodayThemeKind.LastSeasonTop);
         var tracking = new TrackingService(DbFactory);
         int[] selection = [101, 106, 102, 105, 103, 104];
-        await tracking.SaveTodayThemeAsync(new TodayThemeState(date, TodayThemeKind.LastSeasonTop, false, selection));
+        await _featureState.SaveTodayThemeAsync(new TodayThemeState(date, TodayThemeKind.LastSeasonTop, false, selection));
         var vm = NewViewModel(new ThemeSource(), tracking);
         await vm.LoadForDateAsync(date);
         Assert.Equal(selection.OrderDescending(), vm.Items.Select(item => item.Anime.ID));
-        Assert.Equal(selection, (await tracking.LoadTodayThemeAsync())!.AnimeIds);
+        Assert.Equal(selection, (await _featureState.LoadTodayThemeAsync())!.AnimeIds);
 
         TodayThemeViewModel.ResetSessionCache();
         var restarted = NewViewModel(new ThemeSource(), tracking);
         await restarted.LoadForDateAsync(date);
 
-        Assert.Equal(selection, (await tracking.LoadTodayThemeAsync())!.AnimeIds);
+        Assert.Equal(selection, (await _featureState.LoadTodayThemeAsync())!.AnimeIds);
         Assert.Equal(vm.Items.Select(item => item.Anime.ID), restarted.Items.Select(item => item.Anime.ID));
     }
 
@@ -557,7 +563,7 @@ public sealed class TodayThemeTests : DbTestBase
         await vm.LoadForDateAsync(date);
 
         Assert.False(vm.IsFallback);
-        Assert.Equal("你的记录 · Bangumi", vm.SourceText);
+        Assert.Equal("你的记录 · 番剧资料", vm.SourceText);
         Assert.Contains("《出发作品》出自 动画工作室", vm.Caption);
         // 带评分的直接用，按评分排列；只有没带评分的 503 去查了一次详情。
         Assert.Equal(new[] { 502, 501, 503 }, vm.Items.Select(item => item.Anime.ID));
@@ -670,13 +676,72 @@ public sealed class TodayThemeTests : DbTestBase
         Assert.NotEmpty(vm.Items);
     }
 
+    [Fact]
+    public async Task PublicThemeCache_IsSharedOnlyByTheSameSourceAndRevision()
+    {
+        await RunProductionMigrationAsync();
+        var date = DateWith(TodayThemeKind.LastSeasonTop);
+        var tracking = new TrackingService(DbFactory);
+        var source = new ThemeSource();
+        await NewViewModel(source, tracking).LoadForDateAsync(date);
+        await NewViewModel(source, tracking).LoadForDateAsync(date);
+        Assert.Equal(1, source.SeasonRequests);
+
+        var replacement = new ThemeSource { IdOffset = 1000 };
+        var other = NewViewModel(replacement, tracking);
+        await other.LoadForDateAsync(date);
+        Assert.Equal(1, replacement.SeasonRequests);
+        Assert.All(other.Items, item => Assert.True(item.Anime.ID > 1000));
+
+        source.CacheStamp = new MetadataCacheStamp("new-version", 0);
+        await NewViewModel(source, tracking).LoadForDateAsync(date);
+        Assert.Equal(2, source.SeasonRequests);
+
+        source.CacheStamp = new MetadataCacheStamp("new-version", 1);
+        await NewViewModel(source, tracking).LoadForDateAsync(date);
+        Assert.Equal(3, source.SeasonRequests);
+    }
+
+    [Fact]
+    public async Task GenreCache_DoesNotCrossSourcesOrSurviveRevisionChanges()
+    {
+        await RunProductionMigrationAsync();
+        var tracking = new TrackingService(DbFactory);
+        await tracking.SetStatusAsync(601, AnimeTrackingStatus.Completed);
+        var date = DateWith(TodayThemeKind.FavoriteGenre);
+        var first = new ThemeSource();
+        var second = new ThemeSource();
+        await NewViewModel(first, tracking).LoadForDateAsync(date);
+        await NewViewModel(second, tracking).LoadForDateAsync(date);
+        Assert.Equal(1, first.SearchCount);
+        Assert.Equal(1, second.SearchCount);
+
+        second.CacheStamp = new MetadataCacheStamp("new-version", 0);
+        await NewViewModel(second, tracking).LoadForDateAsync(date);
+        Assert.Equal(2, second.SearchCount);
+    }
+
+    [Fact]
+    public void ThemeCache_ReplacesPreviousDateAndRejectsLateResults()
+    {
+        var source = new ThemeSource();
+        var old = TodayThemeCache.For(source, Start);
+        var current = TodayThemeCache.For(source, Start.AddDays(1));
+        old.StoreContent(TodayThemeKind.Movies, new TodayThemeContent("old", [], TodayThemeRowKind.Mark));
+
+        Assert.Null(current.FindContent(TodayThemeKind.Movies));
+        Assert.Same(current, TodayThemeCache.For(source, Start.AddDays(1)));
+        Assert.NotSame(old, TodayThemeCache.For(source, Start));
+    }
+
     private TodayThemeViewModel NewViewModel(IAnimeDataSource source, TrackingService tracking)
         => new(
             source,
             tracking,
+            _featureState,
             new BrowseHistoryService(DbFactory),
             new ArchiveService(DbFactory),
-            new ActionCenterService(DbFactory));
+            new ActionCenterService(DbFactory), NullLogger.Instance);
 
     private static DateOnly DateWith(TodayThemeKind kind)
     {
@@ -700,7 +765,7 @@ public sealed class TodayThemeTests : DbTestBase
         Score: score,
         MediaFormat: format);
 
-    private sealed class ThemeSource : IAnimeDataSource
+    private sealed class ThemeSource : IAnimeDataSource, IMetadataCacheScope
     {
         // 601 的标签里“治愈”是题材，“漫画改”是来源。
         private static readonly Dictionary<int, string[]> TagsById = new()
@@ -711,6 +776,13 @@ public sealed class TodayThemeTests : DbTestBase
             [604] = ["奇幻"],
             [605] = ["奇幻"],
         };
+
+        public MetadataCacheStamp CacheStamp { get; set; }
+        public Func<CancellationToken, Task<(List<Anime> Results, int Total)>>? SearchRequest { get; init; }
+        public Func<int, CancellationToken, Task<Anime?>>? DetailRequest { get; init; }
+        public Func<int, CancellationToken, Task<List<Tag>>>? TagsRequest { get; init; }
+
+        public int IdOffset { get; init; }
 
         public bool Fails { get; init; }
 
@@ -733,7 +805,7 @@ public sealed class TodayThemeTests : DbTestBase
                 ? Task.FromException<List<Anime>>(new HttpRequestException("offline"))
                 : Task.FromResult(EmptySeasons
                     ? new List<Anime>()
-                    : Enumerable.Range(101, SeasonSize).Select(id => Item(id, 6.0 + (id - 100) * 0.1)).ToList());
+                    : Enumerable.Range(101 + IdOffset, SeasonSize).Select(id => Item(id, 6.0 + (id - 100) * 0.1)).ToList());
         }
 
         public string? LastTag { get; private set; }
@@ -743,13 +815,16 @@ public sealed class TodayThemeTests : DbTestBase
         {
             LastTag = tag;
             SearchCount++;
+            if (SearchRequest is not null)
+                return SearchRequest(ct);
+
             return Fails
                 ? Task.FromException<(List<Anime>, int)>(new HttpRequestException("offline"))
                 : Task.FromResult((Enumerable.Range(201, 10).Select(id => Item(id, 8.0, AnimeMediaFormat.Movie)).ToList(), 10));
         }
 
         public Task<List<Tag>> GetTagsAsync(int animeID, CancellationToken ct)
-            => Task.FromResult(TagsById.TryGetValue(animeID, out var tags)
+            => TagsRequest?.Invoke(animeID, ct) ?? Task.FromResult(TagsById.TryGetValue(animeID, out var tags)
                 ? tags.Select(name => new Tag(name)).ToList()
                 : new List<Tag>());
 
@@ -781,7 +856,7 @@ public sealed class TodayThemeTests : DbTestBase
         public Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct)
         {
             DetailRequests++;
-            return Task.FromResult<Anime?>(Item(animeID, 7.0));
+            return DetailRequest?.Invoke(animeID, ct) ?? Task.FromResult<Anime?>(Item(animeID, 7.0));
         }
         public Task<List<VoiceActor>> GetCVsAsync(int animeID, CancellationToken ct) => Unexpected<Task<List<VoiceActor>>>();
         public Task<List<CharacterRole>> GetCharacterRolesAsync(int animeID, CancellationToken ct) => Unexpected<Task<List<CharacterRole>>>();

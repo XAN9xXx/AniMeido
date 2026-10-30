@@ -11,6 +11,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace AniMeido.Plugin.Base.Views
 {
@@ -20,12 +21,18 @@ namespace AniMeido.Plugin.Base.Views
         private SavedTagService _savedTagService;
         private readonly BrowseHistoryService _browseHistory;
         private readonly IAnimeDataSource _dataSource;
+        private readonly ILogger<AnimeDetailPage> _logger;
         private readonly IPluginNavigator _pluginNavigator;
         private readonly IAnimePlaybackLauncher? _playbackLauncher;
         private readonly ArchiveService _archive;
         private int _currentAnimeId;
         private readonly HashSet<string> _savedTagNames = new();
+        private readonly SemaphoreSlim _tagStateGate = new(1, 1);
         private CancellationTokenSource? _navigationLoadCancellation;
+        private Task? _navigationTask;
+        private int _navigationVersion;
+        private bool _wasLoaded;
+        private bool _navigationInterrupted;
         private bool _isPlaybackAvailabilitySubscribed;
 
         public AnimeDetailPage(
@@ -36,15 +43,17 @@ namespace AniMeido.Plugin.Base.Views
             IPluginNavigator pluginNavigator,
             ArchiveService archive,
             IEnumerable<IAnimePlaybackLauncher> playbackLaunchers,
-            MetadataDataSource ratingSource)
+            MetadataDataSource ratingSource,
+            ILogger<AnimeDetailPage> logger)
         {
             _dataSource = dataSource;
+            _logger = logger;
             _browseHistory = browseHistory;
             _pluginNavigator = pluginNavigator;
             _archive = archive;
             _savedTagService = savedTagService;
             _playbackLauncher = playbackLaunchers.FirstOrDefault();
-            ViewModel = new AnimeDetailViewModel(dataSource, trackingService, ratingSource);
+            ViewModel = new AnimeDetailViewModel(dataSource, trackingService, ratingSource, logger);
             DataContext = ViewModel;
             InitializeComponent();
             UpdatePlaybackAvailability();
@@ -215,6 +224,12 @@ namespace AniMeido.Plugin.Base.Views
 
         private void OnPageLoaded(object sender, RoutedEventArgs e)
         {
+            if (_wasLoaded)
+            {
+                _ = ResumePageAsync();
+            }
+            _wasLoaded = true;
+
             if (_playbackLauncher is null
                 || _isPlaybackAvailabilitySubscribed)
             {
@@ -229,8 +244,10 @@ namespace AniMeido.Plugin.Base.Views
 
         private void OnPageUnloaded(object sender, RoutedEventArgs e)
         {
+            _navigationVersion++;
+            _navigationInterrupted |= _navigationTask is { IsCompleted: false }
+                || ViewModel.LoadDetailCommand.IsRunning;
             _navigationLoadCancellation?.Cancel();
-            _navigationLoadCancellation?.Dispose();
             _navigationLoadCancellation = null;
             ViewModel.LoadDetailCommand.Cancel();
             if (_playbackLauncher is not null
@@ -250,22 +267,76 @@ namespace AniMeido.Plugin.Base.Views
         {
             if (parameter is int animeID && animeID > 0)
             {
-                _navigationLoadCancellation?.Cancel();
-                _navigationLoadCancellation?.Dispose();
-                _navigationLoadCancellation = new CancellationTokenSource();
-                var cancellationToken = _navigationLoadCancellation.Token;
-
-                ViewModel.LoadDetailCommand.Cancel();
+                var version = ++_navigationVersion;
                 _currentAnimeId = animeID;
                 _browseRecorded = false;
                 _savedTagNames.Clear();
                 TagContainer.Children.Clear();
                 TagContainer.Visibility = Visibility.Collapsed;
 
-                await Task.WhenAll(
-                    ViewModel.LoadDetailCommand.ExecuteAsync(animeID),
-                    LoadBangumiTagsAsync(animeID, cancellationToken));
+                _navigationTask = LoadCurrentAnimeAsync(animeID, version);
+                await _navigationTask;
             }
+        }
+
+        private async Task LoadCurrentAnimeAsync(int animeId, int version)
+        {
+            var previous = _navigationLoadCancellation;
+            var cancellation = new CancellationTokenSource();
+            _navigationLoadCancellation = cancellation;
+            _navigationInterrupted = false;
+            try
+            {
+                previous?.Cancel();
+                ViewModel.LoadDetailCommand.Cancel();
+                await Task.WhenAll(
+                    ViewModel.LoadDetailCommand.ExecuteAsync(animeId),
+                    LoadBangumiTagsAsync(animeId, version, cancellation.Token));
+            }
+            finally
+            {
+                if (ReferenceEquals(_navigationLoadCancellation, cancellation))
+                {
+                    _navigationLoadCancellation = null;
+                }
+                cancellation.Dispose();
+            }
+        }
+
+        private async Task ResumePageAsync()
+        {
+            if (_currentAnimeId <= 0)
+            {
+                return;
+            }
+
+            try
+            {
+                if (_navigationInterrupted)
+                {
+                    var version = ++_navigationVersion;
+                    _navigationTask = LoadCurrentAnimeAsync(_currentAnimeId, version);
+                    await _navigationTask;
+                    return;
+                }
+
+                var animeId = _currentAnimeId;
+                var currentVersion = _navigationVersion;
+                var names = TagContainer.Children.OfType<Border>()
+                    .Select(button => button.Tag)
+                    .OfType<string>()
+                    .ToArray();
+                await RefreshSavedTagsAsync(animeId, currentVersion, names);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+#pragma warning disable CA1031 // 缓存页面恢复由本任务观察，离页后不发布旧结果。
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to restore anime detail page.");
+            }
+#pragma warning restore CA1031
         }
 
         private bool _browseRecorded;
@@ -496,6 +567,7 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task LoadBangumiTagsAsync(
             int animeId,
+            int version,
             CancellationToken cancellationToken)
         {
             if (_dataSource == null || animeId <= 0) return;
@@ -507,16 +579,10 @@ namespace AniMeido.Plugin.Base.Views
                     animeId,
                     cancellationToken);
             }
-            catch (HttpRequestException)
+            catch (Exception ex) when (ex is HttpRequestException or MetadataServiceException or JsonException)
             {
-                return;
-            }
-            catch (MetadataServiceException)
-            {
-                return;
-            }
-            catch (JsonException)
-            {
+                if (!cancellationToken.IsCancellationRequested && IsCurrentNavigation(version, animeId))
+                    _logger.LogWarning(ex, "Tags unavailable for {AnimeId}; keeping the main detail.", animeId);
                 return;
             }
             catch (OperationCanceledException)
@@ -528,48 +594,76 @@ namespace AniMeido.Plugin.Base.Views
             if (bangumiTags == null
                 || bangumiTags.Count == 0
                 || cancellationToken.IsCancellationRequested
-                || animeId != _currentAnimeId)
+                || !IsCurrentNavigation(version, animeId))
             {
                 return;
             }
-
-            List<string> allSavedTags;
-            try
-            {
-                allSavedTags = await _savedTagService!.GetAllSavedTagsAsync();
-            }
-            catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException
-                or IOException
-                or UnauthorizedAccessException
-                or InvalidOperationException)
-            {
-                allSavedTags = [];
-                ErrorInfoBar.Message = $"收藏标签加载失败：{ex.Message}";
-                ErrorInfoBar.IsOpen = true;
-            }
-
-            if (cancellationToken.IsCancellationRequested
-                || animeId != _currentAnimeId)
-            {
-                return;
-            }
-            var savedSet = new HashSet<string>(allSavedTags);
-            _savedTagNames.Clear();
-            foreach (var t in savedSet) _savedTagNames.Add(t);
 
             var distinctTags = bangumiTags
-                .Select(t => t.Name)
+                .Select(tag => tag.Name)
                 .Distinct()
-                .ToList();
+                .ToArray();
+            await RefreshSavedTagsAsync(animeId, version, distinctTags);
+        }
 
-            TagContainer.Children.Clear();
-            foreach (var distinctName in distinctTags)
+        private bool IsCurrentNavigation(int version, int animeId)
+            => version == _navigationVersion && animeId == _currentAnimeId;
+
+        private async Task RefreshSavedTagsAsync(
+            int animeId,
+            int version,
+            IReadOnlyList<string> tagNames)
+        {
+            await _tagStateGate.WaitAsync();
+            try
             {
-                var saved = savedSet.Contains(distinctName);
-                var tagBtn = CreateTagButton(distinctName, saved);
-                TagContainer.Children.Add(tagBtn);
+                if (!IsCurrentNavigation(version, animeId))
+                {
+                    return;
+                }
+
+                List<string> allSavedTags;
+                try
+                {
+                    allSavedTags = await _savedTagService!.GetAllSavedTagsAsync();
+                }
+                catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException
+                    or IOException
+                    or UnauthorizedAccessException
+                    or InvalidOperationException)
+                {
+                    if (!IsCurrentNavigation(version, animeId))
+                    {
+                        return;
+                    }
+                    _logger.LogWarning(ex, "Saved tags unavailable; keeping the anime detail.");
+                    allSavedTags = [];
+                    ErrorInfoBar.Message = $"收藏标签加载失败：{ex.Message}";
+                    ErrorInfoBar.IsOpen = true;
+                }
+
+                if (!IsCurrentNavigation(version, animeId))
+                {
+                    return;
+                }
+                var savedSet = new HashSet<string>(allSavedTags);
+                _savedTagNames.Clear();
+                foreach (var tag in savedSet)
+                {
+                    _savedTagNames.Add(tag);
+                }
+
+                TagContainer.Children.Clear();
+                foreach (var name in tagNames)
+                {
+                    TagContainer.Children.Add(CreateTagButton(name, savedSet.Contains(name)));
+                }
+                TagContainer.Visibility = tagNames.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             }
-            TagContainer.Visibility = Visibility.Visible;
+            finally
+            {
+                _tagStateGate.Release();
+            }
         }
 
         private Border CreateTagButton(string tagName, bool isSaved)
@@ -616,41 +710,65 @@ namespace AniMeido.Plugin.Base.Views
             border.RightTapped += async (s, e) =>
             {
                 e.Handled = true;
-                if (updateInProgress
+                if (!IsLoaded
+                    || updateInProgress
                     || s is not Border b
                     || b.Tag is not string name)
                 {
                     return;
                 }
 
+                var version = _navigationVersion;
+                var animeId = _currentAnimeId;
+                var isCurrentlySaved = _savedTagNames.Contains(name);
                 updateInProgress = true;
                 try
                 {
-                    var isCurrentlySaved = _savedTagNames.Contains(name);
-                    if (isCurrentlySaved)
+                    await _tagStateGate.WaitAsync();
+                    try
                     {
-                        await _savedTagService!.RemoveTagAsync(name);
-                        _savedTagNames.Remove(name);
-                        b.Background = unsavedBg;
-                        if (b.Child is TextBlock tb)
-                            tb.Foreground = unsavedFg;
+                        if (isCurrentlySaved)
+                        {
+                            await _savedTagService!.RemoveTagAsync(name);
+                            if (!IsLoaded || !IsCurrentNavigation(version, animeId))
+                            {
+                                return;
+                            }
+                            _savedTagNames.Remove(name);
+                            b.Background = unsavedBg;
+                            if (b.Child is TextBlock tb)
+                                tb.Foreground = unsavedFg;
+                        }
+                        else
+                        {
+                            await _savedTagService!.SaveTagAsync(name);
+                            if (!IsLoaded || !IsCurrentNavigation(version, animeId))
+                            {
+                                return;
+                            }
+                            _savedTagNames.Add(name);
+                            b.Background = savedBg;
+                            if (b.Child is TextBlock tb)
+                                tb.Foreground = whiteBrush;
+                        }
                     }
-                    else
+                    catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException
+                        or IOException
+                        or UnauthorizedAccessException
+                        or InvalidOperationException)
                     {
-                        await _savedTagService!.SaveTagAsync(name);
-                        _savedTagNames.Add(name);
-                        b.Background = savedBg;
-                        if (b.Child is TextBlock tb)
-                            tb.Foreground = whiteBrush;
+                        _logger.LogError(ex, "Failed to update saved tags from anime detail.");
+                        if (!IsLoaded || !IsCurrentNavigation(version, animeId))
+                        {
+                            return;
+                        }
+                        ErrorInfoBar.Message = $"收藏标签更新失败：{ex.Message}";
+                        ErrorInfoBar.IsOpen = true;
                     }
-                }
-                catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException
-                    or IOException
-                    or UnauthorizedAccessException
-                    or InvalidOperationException)
-                {
-                    ErrorInfoBar.Message = $"收藏标签更新失败：{ex.Message}";
-                    ErrorInfoBar.IsOpen = true;
+                    finally
+                    {
+                        _tagStateGate.Release();
+                    }
                 }
                 finally
                 {

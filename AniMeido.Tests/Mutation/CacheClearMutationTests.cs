@@ -3,21 +3,22 @@ using Microsoft.Data.Sqlite;
 
 namespace AniMeido.Tests;
 
+[Collection(DevDataRootCollection.Name)]
 public sealed class CacheClearMutationTests : DbTestBase
 {
     [Fact]
     public async Task ClearAll_SqlFailureStillInvalidatesValidAndExpiredHotEntries()
     {
+        using var environment = new DevDataRootEnvironment(Paths.RootDirectory);
         await CreateBaseTablesAsync();
-        var cache = new CacheService(DbFactory);
+        var cache = new CacheService(DbFactory, () => { });
         await cache.CleanExpiredAsync();
         await cache.SetCacheAsync("valid-hot", "fresh", TimeSpan.FromDays(1));
         await cache.SetCacheAsync("expired-hot", "offline", TimeSpan.FromDays(-2));
         Assert.Equal("fresh", await cache.GetCacheAsync("valid-hot"));
         Assert.Equal("offline", await cache.GetCacheAllowExpiredAsync("expired-hot"));
 
-        // 成功清空会调用固定指向真实 AppData 的图片缓存门面。以临时库触发器让 SQL 清空失败，
-        // 在进入图片清理前结束；随后仅从 SQL 删除数据，观察服务是否仍错误地返回原内存条目。
+        // 图片路径同样隔离；触发器只注入 SQL 失败，不承担数据隔离责任。
         await ExecuteAsync("""
             CREATE TRIGGER fail_clear BEFORE DELETE ON cache
             BEGIN SELECT RAISE(ABORT, 'fixture clear failure'); END;
@@ -36,16 +37,17 @@ public sealed class CacheClearMutationTests : DbTestBase
     [Fact]
     public async Task ClearAll_RejectsWritebackFromRequestStartedBeforeClear()
     {
+        using var environment = new DevDataRootEnvironment(Paths.RootDirectory);
         await CreateBaseTablesAsync();
-        var cache = new CacheService(DbFactory);
+        var cache = new CacheService(DbFactory, () => { });
         await cache.CleanExpiredAsync();
         // 模拟清空前已发出、清空后才返回的请求：先记下当时的代次。
         var staleGeneration = cache.CaptureGeneration();
-        // 行级触发器只在有行被删除时触发；表为空时清空会成功并删除真实 AppData 图片缓存。
+        // 行级触发器需要至少一行才能触发。
         await cache.SetCacheAsync("existing", "old", TimeSpan.FromDays(1));
         Assert.Equal(1, await RowCountAsync());
 
-        // 同上，用失败的 SQL 清空避开真实 AppData 图片缓存；代次在清 SQL 之前已经递增。
+        // SQL 清理失败后，旧请求仍不能回写；代次在清 SQL 之前已经递增。
         await ExecuteAsync("""
             CREATE TRIGGER fail_clear BEFORE DELETE ON cache
             BEGIN SELECT RAISE(ABORT, 'fixture clear failure'); END;
@@ -61,6 +63,27 @@ public sealed class CacheClearMutationTests : DbTestBase
         await cache.SetCacheAsync("fresh", "new", TimeSpan.FromDays(1), cache.CaptureGeneration());
         Assert.Equal("new", await cache.GetCacheAsync("fresh"));
         Assert.Equal(2, await RowCountAsync());
+    }
+
+    [Fact]
+    public async Task ClearAll_SuccessClearsOwnedImagesAndRejectsOldWriteback()
+    {
+        using var environment = new DevDataRootEnvironment(Paths.RootDirectory);
+        await CreateBaseTablesAsync();
+        var imagePath = Path.Combine(Paths.RootDirectory, "fixture-image.png");
+        await File.WriteAllTextAsync(imagePath, "isolated fixture");
+        var cache = new CacheService(DbFactory, () => File.Delete(imagePath));
+        await cache.CleanExpiredAsync();
+        await cache.SetCacheAsync("before", "old", TimeSpan.FromDays(1));
+        var oldGeneration = cache.CaptureGeneration();
+
+        await cache.ClearAllCacheAsync();
+        await cache.SetCacheAsync("late", "old", TimeSpan.FromDays(1), oldGeneration);
+
+        Assert.False(File.Exists(imagePath));
+        Assert.Equal(0, await RowCountAsync());
+        Assert.Null(await cache.GetCacheAsync("before"));
+        Assert.Null(await cache.GetCacheAsync("late"));
     }
 
     private async Task ExecuteAsync(string sql)

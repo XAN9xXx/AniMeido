@@ -4,6 +4,7 @@ using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
 using AniMeido.Plugin.Base.Views.Controls;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -31,16 +32,25 @@ namespace AniMeido.Plugin.Base.Views
 
         private readonly DragDropService _dragDrop;
         private readonly IPluginNavigator _pluginNavigator;
+        private readonly ILogger<CurrentSeasonPage> _logger;
+        private int _visitVersion;
         private readonly HashSet<FrameworkElement> _hoveredPickRows = [];
         private IDisposable? _dropHostRegistration;
         private double _wheelTarget = double.NaN;
         private bool _applyingLowerLayout;
 
-        public CurrentSeasonPage(IAnimeDataSource dataSource, DragDropService dragDropService, TrackingService trackingService, IPluginNavigator pluginNavigator)
+        public CurrentSeasonPage(
+            IAnimeDataSource dataSource,
+            DragDropService dragDropService,
+            TrackingService trackingService,
+            PersonalFeatureStateStore featureState,
+            IPluginNavigator pluginNavigator,
+            ILogger<CurrentSeasonPage> logger)
         {
-            ViewModel = new CurrentSeasonViewModel(dataSource, trackingService);
+            ViewModel = new CurrentSeasonViewModel(dataSource, trackingService, featureState, logger);
             _dragDrop = dragDropService;
             _pluginNavigator = pluginNavigator;
+            _logger = logger;
             InitializeComponent();
 
             ViewModel.PropertyChanged += (s, e) =>
@@ -110,6 +120,7 @@ namespace AniMeido.Plugin.Base.Views
             if (sender is not Grid rootGrid)
                 return;
 
+            ++_visitVersion;
             _dropHostRegistration?.Dispose();
             _dropHostRegistration = _dragDrop.AttachStandardDragHost(
                 rootGrid,
@@ -122,12 +133,7 @@ namespace AniMeido.Plugin.Base.Views
             // 返回已缓存页面时重新读取拖放配置与本地标记（可能在详情页改过状态或屏蔽）。
             _ = ReloadDragConfigAndStatusesAsync();
 
-            if (!ViewModel.LoadSeasonalAnimeCommand.IsRunning
-                && !ViewModel.HasData
-                && !ViewModel.IsError)
-            {
-                ViewModel.LoadSeasonalAnimeCommand.Execute(null);
-            }
+            ViewModel.ResumeMainLoadCommand.Execute(null);
 
             // 从详情页返回时复用的是同一个页面，离开时取消的补充请求在这里补上。
             ViewModel.ResumeSupplementaryLoads();
@@ -139,6 +145,7 @@ namespace AniMeido.Plugin.Base.Views
 
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
         {
+            ++_visitVersion;
             ViewModel.LoadSeasonalAnimeCommand.Cancel();
             ViewModel.CancelSupplementaryLoads();
             _hoveredPickRows.Clear();
@@ -480,12 +487,17 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task ToggleTimeMachineStatusSafelyAsync(int animeId, AnimeTrackingStatus status)
         {
+            var visit = _visitVersion;
             try
             {
                 await ViewModel.ToggleTimeMachineStatusAsync(animeId, status);
             }
             catch (Microsoft.Data.Sqlite.SqliteException ex)
             {
+                _logger.LogError(ex, "番剧时光机标记保存失败。");
+                if (!IsLoaded || visit != _visitVersion)
+                    return;
+
                 ErrorInfoBar.Message = $"标记失败：{ex.Message}";
                 ErrorInfoBar.IsOpen = true;
             }
@@ -519,12 +531,17 @@ namespace AniMeido.Plugin.Base.Views
 
         private async Task ToggleStatusSafelyAsync(int animeId, AnimeTrackingStatus status)
         {
+            var visit = _visitVersion;
             try
             {
                 await ViewModel.ToggleStatusAsync(animeId, status);
             }
             catch (Microsoft.Data.Sqlite.SqliteException ex)
             {
+                _logger.LogError(ex, "放送日历标记保存失败。");
+                if (!IsLoaded || visit != _visitVersion)
+                    return;
+
                 ErrorInfoBar.Message = $"标记失败：{ex.Message}";
                 ErrorInfoBar.IsOpen = true;
             }

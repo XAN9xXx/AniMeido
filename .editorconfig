@@ -20,7 +20,7 @@ charset = utf-8
 [*.cs]
 indent_style = space
 indent_size = 4
-# 整个项目仅面向 Windows，无需平台兼容性检查
+# 桌面源码默认关闭平台兼容检查，纯 Core 及其链接源码单独启用。
 dotnet_diagnostic.CA1416.severity = none
 # CA1031：不捕获通用异常类型。设为 warning；确需兜底的位置用 #pragma 局部抑制并写明原因
 dotnet_diagnostic.CA1031.severity = warning
@@ -60,6 +60,16 @@ dotnet_naming_symbols.private_fields.applicable_accessibilities = private
 dotnet_naming_style.pascal_case.capitalization = pascal_case
 dotnet_naming_style.underscore_camel_case.required_prefix = _
 dotnet_naming_style.underscore_camel_case.capitalization = camel_case
+
+# 规则按源码物理路径生效，不按项目中的 Link 显示路径生效。
+[Shared/AppDataRoots.cs]
+dotnet_diagnostic.CA1416.severity = warning
+
+[AniMeido.Tests/PausedUiContext.cs]
+dotnet_diagnostic.CA1416.severity = warning
+
+[AniMeido.Tests/MockAppDataPaths.cs]
+dotnet_diagnostic.CA1416.severity = warning
 
 [*.xaml]
 indent_style = space

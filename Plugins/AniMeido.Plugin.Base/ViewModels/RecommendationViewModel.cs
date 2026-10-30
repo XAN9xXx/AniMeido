@@ -3,6 +3,7 @@ using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Microsoft.Extensions.Logging;
 using System.Collections.ObjectModel;
 
 namespace AniMeido.Plugin.Base.ViewModels;
@@ -22,6 +23,7 @@ public partial class RecommendationViewModel : ObservableObject
 
     private readonly RecommendationService _recommendations;
     private readonly RecommendationBrowseState _browse;
+    private readonly ILogger _logger;
     private readonly Dictionary<int, Task<IReadOnlyList<RecommendationFeature>>> _tagRequests = [];
     private int _selectionGeneration;
     private int _tagLoadGeneration;
@@ -49,6 +51,7 @@ public partial class RecommendationViewModel : ObservableObject
     public IReadOnlySet<int> SavingFollowingIds => _savingFollowingIds;
 
     private bool _isSavingPreference;
+    private bool _isActionRunning;
     public bool HasSelection => SelectedItem is not null;
     public RecommendationBrowseState BrowseState => _browse;
     public string TagSummary => $"标签 · 共 {SelectedTags.Count} 个 · 手动设置 {SelectedTags.Count(tag => tag.Adjustment is not null)} 个";
@@ -147,7 +150,11 @@ public partial class RecommendationViewModel : ObservableObject
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (Exception ex) when (IsExpectedFailure(ex))
         {
-            if (IsCurrent()) TagError = $"标签加载失败，保留已知标签。{ex.Message}";
+            if (IsCurrent())
+            {
+                _logger.LogWarning(ex, "Recommendation tag preview failed; retaining known tags.");
+                TagError = $"标签加载失败，保留已知标签。{ex.Message}";
+            }
         }
         finally
         {
@@ -278,10 +285,14 @@ public partial class RecommendationViewModel : ObservableObject
     [ObservableProperty]
     private bool _hasError;
 
-    public RecommendationViewModel(RecommendationService recommendations, RecommendationBrowseState browse)
+    public RecommendationViewModel(
+        RecommendationService recommendations,
+        RecommendationBrowseState browse,
+        ILogger logger)
     {
         _recommendations = recommendations;
         _browse = browse;
+        _logger = logger;
         RefreshSuggestedTags();
     }
 
@@ -303,6 +314,47 @@ public partial class RecommendationViewModel : ObservableObject
     {
         Message = "正在处理上一项操作，请稍后重试。";
         HasError = false;
+    }
+
+    /// <summary>用操作开始时的访问令牌协调串行与错误；确认和保存共用该令牌。</summary>
+    public async Task RunActionAsync(
+        Func<CancellationToken, Task> action,
+        CancellationToken cancellationToken,
+        bool serialize = true)
+    {
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
+        if (serialize && _isActionRunning)
+        {
+            ReportBusyAction();
+            return;
+        }
+
+        if (serialize)
+            _isActionRunning = true;
+        try
+        {
+            await action(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+#pragma warning disable CA1031 // 页面操作的最终错误边界；显示提示，不让事件异常终止应用。
+        catch (Exception ex)
+        {
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogError(ex, "Recommendation action failed.");
+                ReportError(ex.Message);
+            }
+        }
+#pragma warning restore CA1031
+        finally
+        {
+            if (serialize)
+                _isActionRunning = false;
+        }
     }
 
     public void RefreshSuggestedTags()
@@ -343,8 +395,9 @@ public partial class RecommendationViewModel : ObservableObject
                 IsPersonalized = saved.IsPersonalized;
                 HasMoreRecommendations = saved.HasMore;
                 SnapshotText = $"{saved.GeneratedAt.ToLocalTime():M月d日 HH:mm} 更新";
-                await LoadHiddenAsync(cancellationToken);
-                if (!IsCurrentLoad(generation, cancellationToken)) return;
+                await LoadHiddenAsync(generation, cancellationToken);
+                if (!IsCurrentLoad(generation, cancellationToken))
+                    return;
                 OnPropertyChanged(nameof(HasItems));
                 OnPropertyChanged(nameof(IsColdStart));
                 if (_browse.HasPendingPreferences) Message = "偏好已保存，刷新推荐后生效。";
@@ -393,6 +446,8 @@ public partial class RecommendationViewModel : ObservableObject
         {
             if (generation == _loadGeneration)
             {
+                if (!cancellationToken.IsCancellationRequested)
+                    _logger.LogError(ex, "Recommendation load failed.");
                 ShowError($"推荐加载失败：{ex.Message}");
             }
         }
@@ -461,9 +516,12 @@ public partial class RecommendationViewModel : ObservableObject
         catch (Exception ex) when (IsExpectedFailure(ex))
         {
             if (generation == _refreshGeneration && !cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogError(ex, "Recommendation refresh failed.");
                 ShowError(Items.Count > 0
                     ? $"刷新失败，已保留上次结果：{ex.Message}"
                     : $"推荐生成失败：{ex.Message}");
+            }
             return false;
         }
         finally
@@ -499,7 +557,11 @@ public partial class RecommendationViewModel : ObservableObject
         catch (Exception ex) when (IsExpectedFailure(ex))
         {
             if (generation == _loadMoreGeneration)
+            {
+                if (!cancellationToken.IsCancellationRequested)
+                    _logger.LogError(ex, "Loading more recommendations failed.");
                 LoadMoreError = $"加载更多失败：{ex.Message}";
+            }
         }
         finally
         {
@@ -511,14 +573,18 @@ public partial class RecommendationViewModel : ObservableObject
         RecommendationItem item,
         CancellationToken cancellationToken = default)
     {
+        var generation = _loadGeneration;
         await _recommendations.HideAnimeAsync(
             item.Anime.ID,
             item.Anime.Title,
             cancellationToken);
         _browse.RemovedIds.Add(item.Anime.ID);
-        if (cancellationToken.IsCancellationRequested) return;
+        if (!IsCurrentLoad(generation, cancellationToken))
+            return;
         RemoveItem(item);
-        await LoadHiddenAsync(cancellationToken);
+        await LoadHiddenAsync(generation, cancellationToken);
+        if (!IsCurrentLoad(generation, cancellationToken))
+            return;
         OnPropertyChanged(nameof(HasItems));
         Message = "已从推荐中隐藏，可在“已隐藏”中恢复。";
     }
@@ -540,9 +606,13 @@ public partial class RecommendationViewModel : ObservableObject
         RecommendationHiddenAnime item,
         CancellationToken cancellationToken = default)
     {
+        var generation = _loadGeneration;
         await _recommendations.RestoreAnimeAsync(
             item.AnimeId,
             cancellationToken);
+        if (!IsCurrentLoad(generation, cancellationToken))
+            return;
+
         HiddenAnime.Remove(item);
         OnPropertyChanged(nameof(HasHiddenAnime));
         Message = "已恢复。刷新后该作品可能重新出现。";
@@ -551,7 +621,11 @@ public partial class RecommendationViewModel : ObservableObject
     public async Task ClearHiddenAsync(
         CancellationToken cancellationToken = default)
     {
+        var generation = _loadGeneration;
         await _recommendations.ClearHiddenAnimeAsync(cancellationToken);
+        if (!IsCurrentLoad(generation, cancellationToken))
+            return;
+
         HiddenAnime.Clear();
         OnPropertyChanged(nameof(HasHiddenAnime));
         Message = "已恢复全部隐藏作品。";
@@ -641,7 +715,8 @@ public partial class RecommendationViewModel : ObservableObject
         if (_recommendations.LastProfile.Count > 0)
         {
             var profile = await WithInvalidPreferencesAsync(_recommendations.LastProfile, cancellationToken);
-            if (!IsCurrentLoad(generation, cancellationToken)) return;
+            if (!IsCurrentLoad(generation, cancellationToken))
+                return;
             Profile = new(profile);
         }
         else
@@ -683,10 +758,13 @@ public partial class RecommendationViewModel : ObservableObject
         => generation == _loadGeneration
             && !cancellationToken.IsCancellationRequested;
 
-    private async Task LoadHiddenAsync(CancellationToken cancellationToken)
+    private async Task LoadHiddenAsync(int generation, CancellationToken cancellationToken)
     {
-        HiddenAnime = new(await _recommendations.GetHiddenAnimeAsync(
-            cancellationToken));
+        var hidden = await _recommendations.GetHiddenAnimeAsync(cancellationToken);
+        if (!IsCurrentLoad(generation, cancellationToken))
+            return;
+
+        HiddenAnime = new(hidden);
         OnPropertyChanged(nameof(HasHiddenAnime));
     }
 

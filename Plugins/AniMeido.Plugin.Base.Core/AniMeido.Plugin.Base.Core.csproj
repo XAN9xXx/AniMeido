@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Version>$(AniMeidoVersion)</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../AniMeido.Contracts/AniMeido.Contracts.csproj" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <!-- 保留产品固定的原生 SQLite 版本；调用项目负责随输出分发。 -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources/bangumi-meta-tags.json" LogicalName="AniMeido.BangumiMetaTags" />
+    <Compile Include="../../Shared/AppDataRoots.cs" Link="Shared/AppDataRoots.cs" />
+    <InternalsVisibleTo Include="AniMeido.Plugin.Base" />
+    <InternalsVisibleTo Include="AniMeido.Tests" />
+    <InternalsVisibleTo Include="AniMeido.Plugin.Base.Core.Tests" />
+  </ItemGroup>
+</Project>

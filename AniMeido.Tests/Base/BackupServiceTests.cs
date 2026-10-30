@@ -89,6 +89,55 @@ public sealed class BackupServiceTests : DbTestBase
     }
 
     [Fact]
+    public async Task Backup_KeepsItsReturnedFileWhenTenExistingNamesSortBeforeIt()
+    {
+        await CreateBaseTablesAsync();
+        var service = new BackupService(DbFactory, Paths);
+        var existing = Enumerable.Range(1, 10).Select(index => Path.Combine(
+            Paths.BackupDirectory,
+            $"AniMeido-99991231-235959-{index:D8}.db")).ToArray();
+        await using (var source = await DbFactory.OpenAsync())
+        {
+            await using var command = source.CreateCommand();
+            command.CommandText = """
+                INSERT INTO tracking(AnimeID, Status, UpdatedAt)
+                VALUES(17, 1, '2026-10-30T00:00:00Z')
+                """;
+            await command.ExecuteNonQueryAsync();
+            foreach (var path in existing)
+            {
+                await using var destination = new SqliteConnection(new SqliteConnectionStringBuilder
+                {
+                    DataSource = path,
+                    Pooling = false,
+                }.ToString());
+                await destination.OpenAsync();
+                source.BackupDatabase(destination);
+            }
+        }
+
+        var backup = await service.BackupAsync();
+
+        Assert.All(existing, path =>
+            Assert.True(string.Compare(path, backup, StringComparison.CurrentCulture) > 0));
+        Assert.True(File.Exists(backup),
+            "The completed backup returned by this operation must survive its own retention cleanup.");
+        Assert.Equal(10, Directory.GetFiles(Paths.BackupDirectory, "AniMeido-*.db").Length);
+        Assert.False(File.Exists(existing[0]));
+        Assert.All(existing.Skip(1), path => Assert.True(File.Exists(path)));
+        await using var restored = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = backup,
+            Mode = SqliteOpenMode.ReadOnly,
+            Pooling = false,
+        }.ToString());
+        await restored.OpenAsync();
+        await using var verify = restored.CreateCommand();
+        verify.CommandText = "SELECT Status FROM tracking WHERE AnimeID = 17";
+        Assert.Equal(1L, await verify.ExecuteScalarAsync());
+    }
+
+    [Fact]
     public async Task Restore_MissingFileThrowsWithItsPath()
     {
         await RunProductionMigrationAsync();

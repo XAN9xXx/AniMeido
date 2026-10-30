@@ -1,6 +1,7 @@
 ﻿using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AniMeido.Tests;
 
@@ -188,7 +189,7 @@ public sealed partial class MetadataDataSourceTests
         });
         using var client = Client(handler);
         var source = Source(client);
-        var model = new AnimeDetailViewModel(source, new TrackingService(DbFactory), source);
+        var model = new AnimeDetailViewModel(source, new TrackingService(DbFactory), source, NullLogger.Instance);
         var first = model.LoadDetailCommand.ExecuteAsync(1);
         try
         {
@@ -197,7 +198,12 @@ public sealed partial class MetadataDataSourceTests
             Assert.Equal(2, model.AnimeDetail!.ID);
             Assert.Contains("Bangumi　8.0", model.RatingText);
         }
-        finally { release.TrySetResult(); }
+        finally
+        {
+            release.TrySetResult();
+            await Task.WhenAny(first).WaitAsync(TimeSpan.FromSeconds(5));
+            await first.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
+        }
         await first;
         Assert.Equal(2, model.AnimeDetail!.ID);
         Assert.DoesNotContain("Bangumi　5.0", model.RatingText);

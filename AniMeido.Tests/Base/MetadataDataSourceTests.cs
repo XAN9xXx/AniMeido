@@ -9,11 +9,15 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Xunit.Abstractions;
 
 namespace AniMeido.Tests;
 
-public sealed partial class MetadataDataSourceTests : DbTestBase
+public sealed partial class MetadataDataSourceTests(ITestOutputHelper output) : DbTestBase
 {
+    private PersonalFeatureStateStore? _featureState;
+    private PersonalFeatureStateStore FeatureState => _featureState ??= new(DbFactory);
+
     private const string Version1 = "20261019.2";
     private const string Version2 = "20261020.1";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -478,6 +482,7 @@ public sealed partial class MetadataDataSourceTests : DbTestBase
     public async Task CancelledWaiter_DoesNotCancelSharedDetailOrSendAnotherRequest()
     {
         await CreateBaseTablesAsync();
+        var budget = TimeSpan.FromSeconds(5);
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var handler = new StubHandler(async (_, ct) =>
@@ -486,18 +491,37 @@ public sealed partial class MetadataDataSourceTests : DbTestBase
         });
         using var client = Client(handler);
         var source = Source(client);
-        var first = source.GetAnimeDetailAsync(42, default);
+        using var requestCancellation = new CancellationTokenSource();
+        using var waiterCancellation = new CancellationTokenSource();
+        var first = source.GetAnimeDetailAsync(42, requestCancellation.Token);
+        Task? waiter = null;
+        Exception? primaryFailure = null;
         try
         {
-            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            using var cts = new CancellationTokenSource();
-            var waiter = source.GetStudioAsync(42, cts.Token);
-            cts.Cancel();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiter);
+            await started.Task.WaitAsync(budget);
+            waiter = source.GetStudioAsync(42, waiterCancellation.Token);
+            waiterCancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiter.WaitAsync(budget));
+
+            release.TrySetResult();
+            Assert.Equal(42, (await first.WaitAsync(budget))!.ID);
+            Assert.Single(handler.GetPaths);
         }
-        finally { release.TrySetResult(); }
-        Assert.Equal(42, (await first)!.ID);
-        Assert.Single(handler.GetPaths);
+#pragma warning disable CA1031 // 保留主失败；清理也超时时将两者一起报告。
+        catch (Exception ex)
+        {
+            primaryFailure = ex;
+            throw;
+        }
+#pragma warning restore CA1031
+        finally
+        {
+            release.TrySetResult();
+            requestCancellation.Cancel();
+            waiterCancellation.Cancel();
+            var pending = waiter is null ? first : Task.WhenAll(first, waiter);
+            await WaitForObservedCompletionAsync(pending, budget, primaryFailure);
+        }
     }
 
     [Fact]
@@ -538,7 +562,10 @@ public sealed partial class MetadataDataSourceTests : DbTestBase
         using var client = Client(handler);
         var source = new PersonalAnimeDataSource(Source(client), DbFactory);
         var tracking = new TrackingService(DbFactory);
-        var vm = new GlobalSearchViewModel(source, tracking, new LocalSearchService(tracking, source), new SavedTagService(DbFactory));
+        var vm = new GlobalSearchViewModel(source, tracking,
+            FeatureState,
+            new LocalSearchService(tracking, source, NullLogger<LocalSearchService>.Instance),
+            new SavedTagService(DbFactory), NullLogger.Instance);
 
         await vm.SearchAsync("测试");
         Assert.Equal(filterFirstPage ? [] : new[] { 1 }, vm.Results.Select(entry => entry.Anime.ID));
@@ -597,12 +624,96 @@ public sealed partial class MetadataDataSourceTests : DbTestBase
         var briefs = Enumerable.Range(1, 25).Select(id => Brief(id, "2026-04-01", 8, id)).ToList();
         using var handler = TagHandler(briefs);
         using var client = Client(handler);
-        var results = await TagSearchResults.LoadAsync(Source(client), "科幻", 2025, 2026, default);
+        await using var search = new TagSearchResults(Source(client));
+        var results = await search.LoadAsync("科幻", 2025, 2026, default);
         Assert.Equal(Enumerable.Range(1, 25).Reverse(), results.Select(a => a.ID));
         var sorted = TagSearchResults.Sort(results, "rank", descending: true);
         Assert.Equal(results.Select(a => a.ID), sorted.Select(a => a.ID));
         Assert.Single(handler.GetPaths, p => p.StartsWith("/v1/brief"));
-        Assert.Equal(2, handler.GetPaths.Count(p => p.StartsWith("/v1/works?ids=")));
+        Assert.Single(handler.GetPaths, p => p.StartsWith("/v1/works?ids="));
+    }
+
+    [Fact]
+    public async Task TagPage_ContinuesAfterEntireBatchIsUnavailable()
+    {
+        await CreateBaseTablesAsync();
+        var briefs = Enumerable.Range(1, 205).Select(id => Brief(id, "2026-04-01", null, 0)).ToArray();
+        using var handler = TagHandler(briefs, Enumerable.Range(1, 100).ToHashSet());
+        using var client = Client(handler);
+
+        await using var search = new TagSearchResults(Source(client));
+        var results = await search.LoadAsync("科幻", 2025, 2026, default);
+
+        Assert.Equal(Enumerable.Range(101, 105), results.Select(anime => anime.ID));
+        Assert.Equal(3, handler.GetPaths.Count(path => path.StartsWith("/v1/works?ids=", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task TagPage_CancelledBeforeStartDoesNotFetch()
+    {
+        using var handler = TagHandler([]);
+        using var client = Client(handler);
+        await using var search = new TagSearchResults(Source(client));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            search.LoadAsync("科幻", 2025, 2026, new CancellationToken(true)));
+
+        Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
+    public async Task TagPage_ShutdownWaitsForActualRequest()
+    {
+        await CreateBaseTablesAsync();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var handler = new StubHandler(async (request, token) =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/v1/vocab")
+                return Vocab(request);
+
+            using var registration = token.Register(() => cancelled.TrySetResult());
+            started.TrySetResult();
+            await release.Task;
+            token.ThrowIfCancellationRequested();
+            return Reply(new { items = Array.Empty<object>(), total = 0 });
+        });
+        using var client = Client(handler);
+        using var requestCancellation = new CancellationTokenSource();
+        var search = new TagSearchResults(Source(client));
+        var loading = search.LoadAsync("科幻", 2025, 2026, requestCancellation.Token);
+        var budget = TimeSpan.FromSeconds(5);
+        Task? stopping = null;
+        Exception? primaryFailure = null;
+
+        try
+        {
+            await started.Task.WaitAsync(budget);
+            stopping = search.DisposeAsync().AsTask();
+            await cancelled.Task.WaitAsync(budget);
+            Assert.False(stopping.IsCompleted);
+            await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+                search.LoadAsync("科幻", 2025, 2026, default).WaitAsync(budget));
+
+            release.TrySetResult();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => loading.WaitAsync(budget));
+            await stopping.WaitAsync(budget);
+        }
+#pragma warning disable CA1031 // 保留主失败；清理也超时时将两者一起报告。
+        catch (Exception ex)
+        {
+            primaryFailure = ex;
+            throw;
+        }
+#pragma warning restore CA1031
+        finally
+        {
+            release.TrySetResult();
+            requestCancellation.Cancel();
+            stopping ??= search.DisposeAsync().AsTask();
+            await WaitForObservedCompletionAsync(Task.WhenAll(loading, stopping), budget, primaryFailure);
+        }
     }
 
     [Fact]
@@ -624,6 +735,22 @@ public sealed partial class MetadataDataSourceTests : DbTestBase
         Assert.Contains(tags, t => t.Name == "科幻新版");
         Assert.DoesNotContain(tags, t => t.Name == "科幻");
         Assert.Equal(2, handler.GetPaths.Count(p => p == "/v1/vocab?category=tag"));
+    }
+
+    private static async Task WaitForObservedCompletionAsync(Task operation, TimeSpan budget, Exception? primaryFailure)
+    {
+        // 业务断言留在正常路径；只观察真实任务的结果，外层等待超时仍须报告。
+        async Task ObserveAsync() => await operation.ConfigureAwait(
+            ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
+
+        try
+        {
+            await ObserveAsync().WaitAsync(budget);
+        }
+        catch (TimeoutException timeout) when (primaryFailure is not null)
+        {
+            throw new AggregateException("测试失败，且后台任务未在清理时限内结束。", primaryFailure, timeout);
+        }
     }
 
     private MetadataDataSource Source(HttpClient client, CacheService? cache = null, TimeProvider? time = null) =>
@@ -653,7 +780,7 @@ public sealed partial class MetadataDataSourceTests : DbTestBase
         };
         return Reply(new { total = 1, items = new[] { new { category, code, nameZh = name } } }, version);
     }
-    private static StubHandler TagHandler(IEnumerable<object> briefs)
+    private static StubHandler TagHandler(IEnumerable<object> briefs, IReadOnlySet<int>? unavailableIds = null)
     {
         var items = briefs.Select(b => JsonSerializer.Deserialize<MetadataBrief>(JsonSerializer.Serialize(b, JsonOptions), JsonOptions)!).ToList();
         return new StubHandler(r =>
@@ -663,6 +790,8 @@ public sealed partial class MetadataDataSourceTests : DbTestBase
             var ids = Query(r, "ids").Split(',').Select(int.Parse).Reverse();
             return Reply(new { total = ids.Count(), items = ids.Select(id =>
             {
+                if (unavailableIds?.Contains(id) == true)
+                    return new { id, status = "deactivated" };
                 var brief = items.Single(i => i.Id == id);
                 return Work(id, brief.FirstDate, brief.Ratings);
             }) });

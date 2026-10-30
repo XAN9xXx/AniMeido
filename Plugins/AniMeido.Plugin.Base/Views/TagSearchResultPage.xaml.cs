@@ -1,370 +1,189 @@
-using AniMeido.Contracts;
-using AniMeido.Contracts.Models;
-using AniMeido.Plugin.Base.Exceptions;
+﻿using AniMeido.Contracts;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
-using System.Collections.ObjectModel;
-using System.Text.Json;
+using System.ComponentModel;
 
-namespace AniMeido.Plugin.Base.Views
+namespace AniMeido.Plugin.Base.Views;
+
+public sealed partial class TagSearchResultPage : Page, INavigationAware
 {
-    public sealed partial class TagSearchResultPage : Page, INavigationAware
+    private const int YearStart = 1960;
+    private readonly IPluginNavigator _pluginNavigator;
+    private readonly DragDropService _dragDrop;
+    private readonly ILogger<TagSearchResultPage> _logger;
+    private Task? _activationTask;
+    private IDisposable? _dropHostRegistration;
+    private bool _isInitializing = true;
+
+    public TagSearchResultsViewModel ViewModel { get; }
+
+    public TagSearchResultPage(DragDropService dragDropService, TagSearchResults search,
+        TrackingService trackingService, IPluginNavigator pluginNavigator,
+        ILogger<TagSearchResultPage> logger)
     {
-        private IAnimeDataSource? _dataSource;
-        private IPluginNavigator _pluginNavigator;
-        private string? _currentTag;
-        private string _currentSort = "rank";
-        private bool _sortDescending = true;
-        private const int PageSize = 20;
-        private const int YearStart = 1960;
+        _dragDrop = dragDropService;
+        _pluginNavigator = pluginNavigator;
+        _logger = logger;
+        ViewModel = new TagSearchResultsViewModel(search, trackingService, logger);
+        InitializeComponent();
+        _isInitializing = false;
+        ResultGrid.ItemsSource = ViewModel.Items;
+        ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        UpdatePresentation();
+    }
 
-        private int _yearFrom;
-        private int _yearTo;
+    public Task OnNavigatedToAsync(object? parameter)
+    {
+        if (parameter is not string tag || string.IsNullOrEmpty(tag))
+            return Task.CompletedTask;
 
-        // 全量数据（当前年份区间）
-        private List<Anime>? _rawData;
-        private List<Anime>? _allData;
-        private int _currentOffset;
-
-        private readonly ObservableCollection<Anime> _animeSource = new();
-
-        private bool _isInitializing;
-
-        private DragDropService _dragDrop;
-        private TrackingService _tracking;
-        private HashSet<int> _blockedIds = new();
-        private CancellationTokenSource? _searchCts;
-        private int _searchVersion;
-
-        public TagSearchResultPage(DragDropService dragDropService, IAnimeDataSource dataSource, CacheService? cacheService, TrackingService trackingService, IPluginNavigator pluginNavigator)
+        TagTitle.Text = tag;
+        _isInitializing = true;
+        (int From, int To) years;
+        try
         {
-            InitializeComponent();
-            ResultGrid.ItemsSource = _animeSource;
-            _dragDrop = dragDropService;
-            _dataSource = dataSource;
-            _tracking = trackingService;
-            _pluginNavigator = pluginNavigator;
+            SortOrderToggle.IsChecked = true;
+            years = InitializeYearControls();
         }
-
-        private IDisposable? _dropHostRegistration;
-
-        private void OnPageLoaded(object sender, RoutedEventArgs e)
+        finally
         {
-            _dropHostRegistration?.Dispose();
-            _dropHostRegistration = _dragDrop.AttachStandardDragHost(
-                RootGrid,
-                DragOverlay,
-                DragAction.PlanToWatch);
-
-            RootGrid.Unloaded -= OnRootGridUnloaded;
-            RootGrid.Unloaded += OnRootGridUnloaded;
-
-            // 提前加载屏蔽列表，确保后续数据加载能正确过滤
-            _ = LoadBlockedIdsAsync();
+            _isInitializing = false;
         }
+        _activationTask = ObserveAsync(
+            ViewModel.InitializeAsync(tag, years.From, years.To),
+            "加载结果");
+        return _activationTask;
+    }
 
-        private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
+    private (int From, int To) InitializeYearControls()
+    {
+        var currentYear = DateTime.Now.Year;
+        var fromYear = currentYear - 3;
+        YearFromCombo.Items.Clear();
+        YearToCombo.Items.Clear();
+        for (var year = currentYear; year >= YearStart; year--)
         {
-            _dropHostRegistration?.Dispose();
-            _dropHostRegistration = null;
-            _searchCts?.Cancel();
-            _searchCts?.Dispose();
-            _searchCts = null;
-            Interlocked.Increment(ref _searchVersion);
+            YearFromCombo.Items.Add(new ComboBoxItem { Content = year.ToString(), Tag = year });
+            YearToCombo.Items.Add(new ComboBoxItem { Content = year.ToString(), Tag = year });
         }
+        YearFromCombo.SelectedItem = YearFromCombo.Items.OfType<ComboBoxItem>()
+            .First(item => (int)item.Tag == fromYear);
+        YearToCombo.SelectedItem = YearToCombo.Items.OfType<ComboBoxItem>()
+            .First(item => (int)item.Tag == currentYear);
+        return (fromYear, currentYear);
+    }
 
-        private async Task LoadBlockedIdsAsync()
+    private async void OnPageLoaded(object sender, RoutedEventArgs e)
+    {
+        _dropHostRegistration?.Dispose();
+        _dropHostRegistration = _dragDrop.AttachStandardDragHost(
+            RootGrid, DragOverlay, DragAction.PlanToWatch);
+        RootGrid.Unloaded -= OnRootGridUnloaded;
+        RootGrid.Unloaded += OnRootGridUnloaded;
+        if (_activationTask is { IsCompleted: false })
+            return;
+
+        _activationTask = ObserveAsync(ViewModel.ResumeAsync(), "恢复结果");
+        await _activationTask;
+    }
+
+    private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
+    {
+        _dropHostRegistration?.Dispose();
+        _dropHostRegistration = null;
+        ViewModel.Suspend();
+        _activationTask = null;
+    }
+
+    private async void OnYearRangeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isInitializing
+            || YearFromCombo.SelectedItem is not ComboBoxItem { Tag: int from }
+            || YearToCombo.SelectedItem is not ComboBoxItem { Tag: int to })
         {
-            var searchVersion = _searchVersion;
-            try
-            {
-                var blockedIds = await _tracking.GetBlockedAnimeIdsAsync();
-                if (searchVersion != _searchVersion)
-                {
-                    return;
-                }
-                _blockedIds = blockedIds;
-                if (_rawData != null)
-                {
-                    ApplyPresentation();
-                    ShowPage(0);
-                }
-            }
-#pragma warning disable CA1031 // 屏蔽列表加载失败不影响已有数据
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[TagSearchResultPage] LoadBlockedIdsAsync failed: {ex.Message}");
-            }
+            return;
+        }
+        _activationTask = ObserveAsync(ViewModel.ChangeYearRangeAsync(from, to), "更改年份");
+        await _activationTask;
+    }
+
+    private async Task ObserveAsync(Task task, string operation)
+    {
+        try
+        {
+            await task;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+#pragma warning disable CA1031 // 本页最终观察加载任务；返回已处理结果，导航层不再重复记录。
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "标签结果页{Operation}失败。", operation);
+        }
 #pragma warning restore CA1031
-        }
+    }
 
-        public async Task OnNavigatedToAsync(object? parameter)
+    private void OnSortChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_isInitializing && SortSelector.SelectedItem is ComboBoxItem { Tag: string sort })
+            ViewModel.SetSort(sort, SortOrderToggle.IsChecked == true);
+    }
+
+    private void OnSortOrderToggle(object sender, RoutedEventArgs e)
+    {
+        var descending = SortOrderToggle.IsChecked == true;
+        SortOrderToggle.Content = descending ? "↓" : "↑";
+        if (SortSelector.SelectedItem is ComboBoxItem { Tag: string sort })
+            ViewModel.SetSort(sort, descending);
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        switch (e.PropertyName)
         {
-            if (parameter is string tagName && !string.IsNullOrEmpty(tagName))
-            {
-                TagTitle.Text = tagName;
-                _currentTag = tagName;
-                _currentSort = "rank";
-                _sortDescending = true;
-                SortOrderToggle.IsChecked = true;
-                _currentOffset = 0;
-                _rawData = null;
-                _allData = null;
-                _animeSource.Clear();
-
-                _isInitializing = true;
-                try
-                {
-                    InitYearComboBoxes();
-                }
-                finally
-                {
-                    _isInitializing = false;
-                }
-                await LoadYearRangeAsync();
-            }
-        }
-
-        private void InitYearComboBoxes()
-        {
-            var currentYear = DateTime.Now.Year;
-            YearFromCombo.Items.Clear();
-            YearToCombo.Items.Clear();
-
-            for (int y = currentYear; y >= YearStart; y--)
-            {
-                YearFromCombo.Items.Add(new ComboBoxItem { Content = y.ToString(), Tag = y });
-                YearToCombo.Items.Add(new ComboBoxItem { Content = y.ToString(), Tag = y });
-            }
-
-            _yearFrom = currentYear - 3;
-            _yearTo = currentYear;
-
-            foreach (var item in YearFromCombo.Items)
-                if (item is ComboBoxItem ci && ci.Tag is int y && y == _yearFrom)
-                    YearFromCombo.SelectedItem = item;
-            foreach (var item in YearToCombo.Items)
-                if (item is ComboBoxItem ci && ci.Tag is int y && y == _yearTo)
-                    YearToCombo.SelectedItem = item;
-        }
-
-        private async Task LoadYearRangeAsync()
-        {
-            if (_dataSource == null || _currentTag == null) return;
-
-            _searchCts?.Cancel();
-            _searchCts?.Dispose();
-            _searchCts = new CancellationTokenSource();
-            var token = _searchCts.Token;
-            var version = Interlocked.Increment(ref _searchVersion);
-            _rawData = null;
-            _allData = null;
-            _animeSource.Clear();
-            PaginationBar.Visibility = Visibility.Collapsed;
-
-            if (version != _searchVersion) return;
-            LoadingOverlay.Visibility = Visibility.Visible;
-            LoadingRing.IsActive = true;
-            PrevButton.IsEnabled = false;
-            NextButton.IsEnabled = false;
-
-            // 限制最大年份跨度为 10 年，防止大量串行 API 请求
-            const int maxYearSpan = 10;
-            if ((_yearTo - _yearFrom) > maxYearSpan)
-            {
-                if (version == _searchVersion)
-                {
-                    ResultCount.Text = $"年份跨度超过 {maxYearSpan} 年，请缩小搜索范围";
-                    PaginationBar.Visibility = Visibility.Collapsed;
-                    LoadingOverlay.Visibility = Visibility.Collapsed;
-                    LoadingRing.IsActive = false;
-                }
-                return;
-            }
-
-            try
-            {
-                var allResults = await TagSearchResults.LoadAsync(
-                    _dataSource, _currentTag, _yearFrom, _yearTo, token);
-                token.ThrowIfCancellationRequested();
-                if (version != _searchVersion) return;
-                _rawData = allResults;
-                ApplyPresentation();
-                ShowPage(0);
-            }
-            catch (HttpRequestException ex)
-            {
-                if (version == _searchVersion)
-                {
-                    ResultCount.Text = $"搜索失败：{ex.Message}";
-                    ClearResults();
-                }
-            }
-            catch (MetadataServiceException ex)
-            {
-                if (version == _searchVersion)
-                {
-                    ResultCount.Text = $"数据源请求失败：{ex.Message}";
-                    ClearResults();
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // 被新请求取消时静默返回，不更新 UI
-                if (version == _searchVersion)
-                {
-                    PaginationBar.Visibility = Visibility.Collapsed;
-                }
-            }
-            catch (JsonException ex)
-            {
-                if (version == _searchVersion)
-                {
-                    ResultCount.Text = $"搜索结果解析失败：{ex.Message}";
-                    ClearResults();
-                }
-            }
-            finally
-            {
-                if (version == _searchVersion)
-                {
-                    LoadingOverlay.Visibility = Visibility.Collapsed;
-                    LoadingRing.IsActive = false;
-                }
-            }
-        }
-
-        private void ShowPage(int offset)
-        {
-            if (_allData == null || _allData.Count == 0)
-            {
-                _animeSource.Clear();
-                ResultCount.Text = "未找到相关番剧";
-                PaginationBar.Visibility = Visibility.Collapsed;
-                return;
-            }
-
-            _currentOffset = offset;
-
-            _animeSource.Clear();
-            for (int i = offset; i < offset + PageSize && i < _allData.Count; i++)
-                _animeSource.Add(_allData[i]);
-
-            var currentPage = (offset / PageSize) + 1;
-            var totalPages = Math.Max(1, (int)Math.Ceiling((double)_allData.Count / PageSize));
-            ResultCount.Text = $"找到 {_allData.Count} 部番剧 · 第 {currentPage}/{totalPages} 页";
-            PageInfo.Text = $"{currentPage} / {totalPages}";
-
-            PrevButton.IsEnabled = offset > 0;
-            NextButton.IsEnabled = (offset + PageSize) < _allData.Count;
-            PaginationBar.Visibility = Visibility.Visible;
-        }
-
-        private void OnYearRangeChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (_isInitializing) return;
-            if (YearFromCombo.SelectedItem == null || YearToCombo.SelectedItem == null) return;
-
-            var from = (int)((ComboBoxItem)YearFromCombo.SelectedItem).Tag;
-            var to = (int)((ComboBoxItem)YearToCombo.SelectedItem).Tag;
-
-            if (from > to)
-            {
-                ResultCount.Text = "起始年份不能晚于结束年份";
-                ClearResults();
-                return;
-            }
-
-            _yearFrom = from;
-            _yearTo = to;
-
-            _currentOffset = 0;
-            _animeSource.Clear();
-            _ = LoadYearRangeAsync();
-        }
-
-        private void OnSortChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (_allData == null) return;
-
-            if (SortSelector.SelectedItem is ComboBoxItem item && item.Tag is string sort)
-            {
-                _currentSort = sort;
-                ApplyPresentation();
-                ShowPage(0);
-            }
-        }
-
-        private void OnSortOrderToggle(object sender, RoutedEventArgs e)
-        {
-            if (_allData == null) return;
-
-            _sortDescending = SortOrderToggle.IsChecked == true;
-            SortOrderToggle.Content = _sortDescending ? "↓" : "↑";
-            ApplyPresentation();
-            ShowPage(0);
-        }
-
-        private List<Anime> SortLocally(List<Anime> items) =>
-            TagSearchResults.Sort(items, _currentSort, _sortDescending);
-
-        private void ApplyPresentation()
-        {
-            _allData = SortLocally(AnimeListPresentation.Filter(
-                _rawData ?? [],
-                _blockedIds).ToList());
-        }
-
-        private void ClearResults()
-        {
-            _rawData = null;
-            _allData = null;
-            _animeSource.Clear();
-            PaginationBar.Visibility = Visibility.Collapsed;
-        }
-
-        private void OnPrevPage(object sender, RoutedEventArgs e)
-        {
-            var newOffset = _currentOffset - PageSize;
-            if (newOffset >= 0)
-                ShowPage(newOffset);
-        }
-
-        private void OnNextPage(object sender, RoutedEventArgs e)
-        {
-            var newOffset = _currentOffset + PageSize;
-            if (newOffset < _allData?.Count)
-                ShowPage(newOffset);
-        }
-
-        private void OnAnimeCardClicked(object? sender, Views.Controls.AnimeCardClickedEventArgs e)
-        {
-            _pluginNavigator.Navigate(typeof(AnimeDetailPage), e.Anime.ID);
-        }
-
-
-
-        private static List<T> FindAllElements<T>(DependencyObject parent) where T : DependencyObject
-        {
-            var r = new List<T>();
-            FindAllRecursive(parent, r);
-            return r;
-        }
-
-        private static void FindAllRecursive<T>(DependencyObject p, List<T> r) where T : DependencyObject
-        {
-            int c = VisualTreeHelper.GetChildrenCount(p);
-            for (int i = 0; i < c; i++)
-            {
-                var ch = VisualTreeHelper.GetChild(p, i);
-                if (ch is T t) r.Add(t);
-                FindAllRecursive(ch, r);
-            }
+            case nameof(TagSearchResultsViewModel.ResultText):
+                ResultCount.Text = ViewModel.ResultText;
+                break;
+            case nameof(TagSearchResultsViewModel.PageText):
+                PageInfo.Text = ViewModel.PageText;
+                break;
+            case nameof(TagSearchResultsViewModel.HasPages):
+                PaginationBar.Visibility = ViewModel.HasPages ? Visibility.Visible : Visibility.Collapsed;
+                break;
+            case nameof(TagSearchResultsViewModel.IsLoading):
+                LoadingOverlay.Visibility = ViewModel.IsLoading ? Visibility.Visible : Visibility.Collapsed;
+                LoadingRing.IsActive = ViewModel.IsLoading;
+                break;
+            case nameof(TagSearchResultsViewModel.CanGoPrevious):
+                PrevButton.IsEnabled = ViewModel.CanGoPrevious;
+                break;
+            case nameof(TagSearchResultsViewModel.CanGoNext):
+                NextButton.IsEnabled = ViewModel.CanGoNext;
+                break;
         }
     }
+
+    private void UpdatePresentation()
+    {
+        ResultCount.Text = ViewModel.ResultText;
+        PageInfo.Text = ViewModel.PageText;
+        PaginationBar.Visibility = ViewModel.HasPages ? Visibility.Visible : Visibility.Collapsed;
+        LoadingOverlay.Visibility = ViewModel.IsLoading ? Visibility.Visible : Visibility.Collapsed;
+        LoadingRing.IsActive = ViewModel.IsLoading;
+        PrevButton.IsEnabled = ViewModel.CanGoPrevious;
+        NextButton.IsEnabled = ViewModel.CanGoNext;
+    }
+
+    private void OnPrevPage(object sender, RoutedEventArgs e) => ViewModel.PreviousPage();
+
+    private void OnNextPage(object sender, RoutedEventArgs e) => ViewModel.NextPage();
+
+    private void OnAnimeCardClicked(object? sender, Views.Controls.AnimeCardClickedEventArgs e)
+        => _pluginNavigator.Navigate(typeof(AnimeDetailPage), e.Anime.ID);
+
 }

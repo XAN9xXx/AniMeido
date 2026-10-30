@@ -4,6 +4,8 @@ namespace AniMeido.Tests;
 
 public sealed class PanelLoadStateTests
 {
+    private static readonly TimeSpan Budget = TimeSpan.FromSeconds(5);
+
     [Fact]
     public async Task EnsureAsync_SynchronousSuccessPublishesCompletedState()
     {
@@ -109,10 +111,20 @@ public sealed class PanelLoadStateTests
         }
 
         var first = state.EnsureAsync(Loader, lifetime.Token);
-        var second = state.EnsureAsync(Loader, lifetime.Token);
-        Assert.Same(first, second);
-        release.SetResult();
-        await first;
+        Task second = Task.CompletedTask;
+        try
+        {
+            second = state.EnsureAsync(Loader, lifetime.Token);
+            Assert.Same(first, second);
+            release.SetResult();
+            await first.WaitAsync(Budget);
+        }
+        finally
+        {
+            release.TrySetResult();
+            lifetime.Cancel();
+            await ObserveLoadsAsync(first, second);
+        }
 
         Assert.Equal(1, calls);
         Assert.True(state.IsLoaded);
@@ -144,12 +156,22 @@ public sealed class PanelLoadStateTests
         }
 
         var first = state.EnsureAsync(Loader, lifetime.Token);
-        await firstStarted.Task;
-        state.Invalidate();
-        var retry = state.EnsureAsync(Loader, lifetime.Token);
-        await retry;
-        firstRelease.SetResult();
-        await first;
+        Task retry = Task.CompletedTask;
+        try
+        {
+            await firstStarted.Task.WaitAsync(Budget);
+            state.Invalidate();
+            retry = state.EnsureAsync(Loader, lifetime.Token);
+            await retry.WaitAsync(Budget);
+            firstRelease.SetResult();
+            await first.WaitAsync(Budget);
+        }
+        finally
+        {
+            firstRelease.TrySetResult();
+            lifetime.Cancel();
+            await ObserveLoadsAsync(first, retry);
+        }
 
         Assert.Equal(2, calls);
         Assert.True(state.IsLoaded);
@@ -179,12 +201,22 @@ public sealed class PanelLoadStateTests
         }
 
         var first = state.EnsureAsync(Loader, lifetime.Token);
-        await started.Task;
-        state.Invalidate();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+        Task retry = Task.CompletedTask;
+        try
+        {
+            await started.Task.WaitAsync(Budget);
+            state.Invalidate();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first.WaitAsync(Budget));
 
-        var retry = state.EnsureAsync(Loader, lifetime.Token);
-        await retry;
+            retry = state.EnsureAsync(Loader, lifetime.Token);
+            await retry.WaitAsync(Budget);
+        }
+        finally
+        {
+            lifetime.Cancel();
+            await ObserveLoadsAsync(first, retry);
+        }
+
         Assert.Equal(2, calls);
         Assert.True(state.IsLoaded);
     }
@@ -212,14 +244,33 @@ public sealed class PanelLoadStateTests
         }
 
         var first = state.EnsureAsync(Loader, firstLifetime.Token);
-        state.CancelInflight();
-        var retry = state.EnsureAsync(Loader, secondLifetime.Token);
-        await retry;
-        firstRelease.SetResult();
-        await first;
+        Task retry = Task.CompletedTask;
+        try
+        {
+            state.CancelInflight();
+            retry = state.EnsureAsync(Loader, secondLifetime.Token);
+            await retry.WaitAsync(Budget);
+            firstRelease.SetResult();
+            await first.WaitAsync(Budget);
+        }
+        finally
+        {
+            firstRelease.TrySetResult();
+            firstLifetime.Cancel();
+            secondLifetime.Cancel();
+            await ObserveLoadsAsync(first, retry);
+        }
 
         Assert.Equal(2, calls);
         Assert.True(state.IsLoaded);
         Assert.False(state.IsDirty);
+    }
+
+    private static async Task ObserveLoadsAsync(params Task[] loads)
+    {
+        var finished = Task.WhenAll(loads);
+        await Task.WhenAny(finished).WaitAsync(Budget);
+        await finished.ConfigureAwait(
+            ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
     }
 }

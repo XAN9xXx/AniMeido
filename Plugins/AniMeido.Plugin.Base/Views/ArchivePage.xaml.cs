@@ -10,8 +10,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
 using System.Globalization;
-using System.Net;
-using System.Text;
 using System.Text.Json;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
@@ -21,6 +19,7 @@ namespace AniMeido.Plugin.Base.Views;
 public sealed partial class ArchivePage : Page, INavigationAware
 {
     private readonly ArchiveService _archive;
+    private readonly ArchiveReviewExporter _reviewExporter;
     private readonly IAnimePlaybackLauncher _playbackLauncher;
     private readonly IAnimeDataSource _animeDataSource;
     private readonly ScreenshotArchiveService _screenshots;
@@ -30,28 +29,16 @@ public sealed partial class ArchivePage : Page, INavigationAware
     private readonly ViewModels.PendingReviewViewModel _pendingReview;
     private readonly PersonalIdRemapService _idRemap;
     private readonly CollectionViewSource _screenshotGroups;
-    private IReadOnlyList<ArchiveListItem> _allArchives = [];
-    private IReadOnlyList<AnimeScreenshot> _allScreenshots = [];
-    private IReadOnlyList<AnimeScreenshot> _visibleScreenshots = [];
-    private string? _detailScreenshotId;
-    private bool _isScreenshotBatchMode;
+    private readonly ViewModels.ArchiveGalleryViewModel _gallery = new();
     private bool _suppressScreenshotSelectionChanged;
-    private readonly Dictionary<string, IReadOnlyList<string>>
-        _screenshotTags = new(StringComparer.Ordinal);
-    private readonly Dictionary<ArchivePanelKind, PanelLoadState>
-        _panelStates = Enum.GetValues<ArchivePanelKind>()
-            .ToDictionary(kind => kind, _ => new PanelLoadState());
-    private ArchiveListItem? _selectedArchive;
-    private IReadOnlyList<ArchiveTimelineItem> _timelineItems = [];
-    private readonly Dictionary<int, Task<AniMeido.Contracts.Models.Anime?>>
-        _coverRequests = [];
-    private readonly SemaphoreSlim _coverFetchLimit = new(4);
+    private readonly ViewModels.ArchivePanelsViewModel _panels;
+    private readonly ViewModels.ArchiveDetailsViewModel _details;
+    private readonly ViewModels.ArchiveScreenshotSettingsViewModel _screenshotSettings;
+    private ContentDialog? _screenshotSettingsDialog;
+    private readonly ArchiveCoverRequests _coverRequests;
     private string? _requestedScreenshotId;
     private int? _requestedAnimeId;
     private CancellationTokenSource? _pageLifetime;
-    private CancellationTokenSource? _selectionCancellation;
-    private int _selectionVersion;
-    private ArchivePanelKind _activePanel = ArchivePanelKind.Archives;
     private bool _suppressReviewYearChanged = true;
     private bool _navigationInitialized;
     private int _navigationVersion;
@@ -59,6 +46,8 @@ public sealed partial class ArchivePage : Page, INavigationAware
 
     public ArchivePage(
         ArchiveService archive,
+        ArchiveQueryService queries,
+        ArchiveReviewExporter reviewExporter,
         IAnimeDataSource animeDataSource,
         IAnimePlaybackLauncher playbackLauncher,
         ScreenshotArchiveService screenshots,
@@ -69,8 +58,19 @@ public sealed partial class ArchivePage : Page, INavigationAware
         PersonalIdRemapService idRemap)
     {
         _archive = archive;
+        _screenshotSettings = new ViewModels.ArchiveScreenshotSettingsViewModel(archive);
+        _panels = new ViewModels.ArchivePanelsViewModel(queries);
+        _panels.PanelPublished += OnPanelPublished;
+        _panels.PanelLoadCompleted += OnPanelLoadCompleted;
+        _reviewExporter = reviewExporter;
         _animeDataSource = animeDataSource;
+        _coverRequests = new ArchiveCoverRequests(animeDataSource.GetAnimeDetailAsync, logger);
         _playbackLauncher = playbackLauncher;
+        _details = new ViewModels.ArchiveDetailsViewModel(queries, () => playbackLauncher.IsAvailable);
+        _details.SelectionChanged += OnArchiveDetailsSelectionChanged;
+        _details.TimelinePublished += ApplyTimelineFilter;
+        _details.DetailsPublished += OnArchiveDetailsPublished;
+        _details.LoadFailed += OnArchiveDetailsLoadFailed;
         _screenshots = screenshots;
         _shortcut = shortcut;
         _windowHandleProvider = windowHandleProvider;
@@ -113,16 +113,20 @@ public sealed partial class ArchivePage : Page, INavigationAware
         _ = ConfigureArchiveCoverAsync(sender as Image);
     }
 
+    internal static int? GetArchiveCoverAnimeId(object? context)
+        => context switch
+        {
+            ArchiveListItem item => item.Archive.AnimeId,
+            ArchiveReviewCover cover => cover.AnimeId,
+            AnnualReviewMoment moment => moment.AnimeId,
+            _ => null,
+        };
+
     private async Task ConfigureArchiveCoverAsync(
         Image? image,
         int decodeWidth = 56)
     {
-        var animeId = image?.DataContext switch
-        {
-            ArchiveListItem item => item.Archive.AnimeId,
-            AnnualReviewMoment moment => moment.AnimeId,
-            _ => (int?)null,
-        };
+        var animeId = GetArchiveCoverAnimeId(image?.DataContext);
         if (image is null || animeId is null || _pageLifetime is null)
         {
             if (image is not null)
@@ -131,27 +135,22 @@ public sealed partial class ArchivePage : Page, INavigationAware
         }
 
         var cancellationToken = _pageLifetime.Token;
+        Task<AniMeido.Contracts.Models.Anime?>? request = null;
+        bool IsCurrentRequest()
+            => !cancellationToken.IsCancellationRequested
+                && GetArchiveCoverAnimeId(image.DataContext) == animeId
+                && _coverRequests.IsCurrent(animeId.Value, request);
+
         try
         {
-            if (!_coverRequests.TryGetValue(animeId.Value, out var request)
-                || request.IsFaulted || request.IsCanceled)
-            {
-                request = FetchArchiveCoverAsync(animeId.Value, cancellationToken);
-                _coverRequests[animeId.Value] = request;
-            }
+            request = _coverRequests.GetOrStart(animeId.Value, cancellationToken);
 
             // 详情已取到时同步配置：同一封面不会被清空重载。
             // 还要等待时先清掉，复用的容器不留上一部作品的封面。
             if (!request.IsCompletedSuccessfully)
                 ManagedImageLoader.Cancel(image);
             var anime = await request;
-            if (!cancellationToken.IsCancellationRequested
-                && (image.DataContext switch
-                {
-                    ArchiveListItem current => current.Archive.AnimeId == animeId,
-                    AnnualReviewMoment current => current.AnimeId == animeId,
-                    _ => false,
-                }))
+            if (IsCurrentRequest())
             {
                 ManagedImageLoader.ConfigureCover(
                     image,
@@ -168,24 +167,9 @@ public sealed partial class ArchivePage : Page, INavigationAware
             or IOException or InvalidOperationException
             or TaskCanceledException or JsonException)
         {
-            // 失败的请求留在 _coverRequests 里也无妨：下次取用时发现失败会重新请求。
-            ManagedImageLoader.Cancel(image);
-        }
-    }
-
-    private async Task<AniMeido.Contracts.Models.Anime?>
-        FetchArchiveCoverAsync(int animeId, CancellationToken cancellationToken)
-    {
-        await _coverFetchLimit.WaitAsync(cancellationToken);
-        try
-        {
-            return await _animeDataSource.GetAnimeDetailAsync(
-                animeId,
-                cancellationToken);
-        }
-        finally
-        {
-            _coverFetchLimit.Release();
+            // 失败请求下次可重试，但不能清掉复用容器或替代请求的新封面。
+            if (IsCurrentRequest())
+                ManagedImageLoader.Cancel(image);
         }
     }
 
@@ -265,69 +249,53 @@ public sealed partial class ArchivePage : Page, INavigationAware
         UpdatePendingPanelAvailability();
     }
 
-    private async Task EnsureActivePanelAsync()
+    private async Task<bool> EnsureActivePanelAsync()
     {
         if (!_navigationInitialized || _pageLifetime is null)
-        {
-            return;
-        }
+            return false;
 
-        var panel = _activePanel;
-        var lifetime = _pageLifetime;
-        var state = _panelStates[panel];
-        var generation = state.Generation;
-        try
+        var year = double.IsNaN(ReviewYear.Value)
+            ? DateTime.Now.Year
+            : (int)ReviewYear.Value;
+        return await _panels.EnsureActiveAsync(year, _pageLifetime.Token);
+    }
+
+    private void OnPanelPublished(ArchivePanelKind panel)
+    {
+        switch (panel)
         {
-            var load = state.EnsureAsync(
-                (generation, cancellationToken) => LoadPanelAsync(
-                    panel,
-                    generation,
-                    cancellationToken),
-                lifetime.Token);
-            generation = state.Generation;
-            await load;
-            if (IsPanelCurrent(panel, generation, lifetime))
-            {
-                StatusInfoBar.IsOpen = false;
-            }
-        }
-        catch (OperationCanceledException)
-            when (lifetime.IsCancellationRequested
-                || generation != state.Generation
-                || !ReferenceEquals(_pageLifetime, lifetime)
-                || !state.IsCurrent(generation, lifetime.Token))
-        {
-        }
-        catch (Exception ex) when (
-            ex is InvalidOperationException
-                or IOException
-                or Microsoft.Data.Sqlite.SqliteException)
-        {
-            if (IsPanelCurrent(panel, generation, lifetime))
-            {
-                _logger.LogWarning(ex, "Archive panel {Panel} failed to load", panel);
-                ShowStatus(ex.Message, InfoBarSeverity.Error);
-            }
+            case ArchivePanelKind.Archives:
+                ApplyArchiveFilter();
+                break;
+            case ArchivePanelKind.Statistics:
+                RenderStatistics(_panels.Statistics!);
+                break;
+            case ArchivePanelKind.Review:
+                var review = _panels.Review!;
+                RenderReview(
+                    review.Year,
+                    review.Statistics,
+                    review.Covers,
+                    review.Moments,
+                    review.Screenshots);
+                break;
+            case ArchivePanelKind.Screenshots:
+                ApplyScreenshotFilter();
+                break;
         }
     }
 
-    private bool IsPanelCurrent(
-        ArchivePanelKind panel,
-        int generation,
-        CancellationTokenSource lifetime)
-        => _navigationInitialized
-            && ReferenceEquals(_pageLifetime, lifetime)
-            && _activePanel == panel
-            && _panelStates[panel].IsCurrent(generation, lifetime.Token);
+    private void OnPanelLoadCompleted(ArchivePanelKind panel, Exception? error)
+    {
+        if (error is null)
+        {
+            StatusInfoBar.IsOpen = false;
+            return;
+        }
 
-    private bool IsPanelResultCurrent(
-        ArchivePanelKind panel,
-        int generation,
-        CancellationToken cancellationToken)
-        => _navigationInitialized
-            && _activePanel == panel
-            && _pageLifetime is not null
-            && _panelStates[panel].IsCurrent(generation, cancellationToken);
+        _logger.LogWarning(error, "Archive panel {Panel} failed to load", panel);
+        ShowStatus(error.Message, InfoBarSeverity.Error);
+    }
 
     private bool IsNavigationCurrent(
         int navigationVersion,
@@ -337,113 +305,24 @@ public sealed partial class ArchivePage : Page, INavigationAware
             && ReferenceEquals(_pageLifetime, lifetime)
             && !lifetime.IsCancellationRequested;
 
-    private async Task LoadPanelAsync(
-        ArchivePanelKind panel,
-        int generation,
-        CancellationToken cancellationToken)
-    {
-        switch (panel)
-        {
-            case ArchivePanelKind.Archives:
-                var archives = await _archive.GetArchiveListAsync(
-                    cancellationToken);
-                if (IsPanelResultCurrent(
-                        panel,
-                        generation,
-                        cancellationToken))
-                {
-                    _allArchives = archives;
-                    ApplyArchiveFilter();
-                }
-                break;
-            case ArchivePanelKind.Statistics:
-                var statistics = await _archive.GetStatisticsAsync(
-                    cancellationToken: cancellationToken);
-                if (IsPanelResultCurrent(
-                        panel,
-                        generation,
-                        cancellationToken))
-                {
-                    RenderStatistics(statistics);
-                }
-                break;
-            case ArchivePanelKind.Review:
-                var year = double.IsNaN(ReviewYear.Value)
-                    ? DateTime.Now.Year
-                    : (int)ReviewYear.Value;
-                var reviewTask = _archive.GetStatisticsAsync(
-                    year, cancellationToken);
-                var reviewArchivesTask = _archive.GetArchiveListAsync(
-                    cancellationToken);
-                var momentsTask = _archive.GetReviewMomentsAsync(
-                    year, cancellationToken: cancellationToken);
-                var reviewScreenshotsTask = _archive.GetScreenshotsAsync(
-                    cancellationToken: cancellationToken,
-                    year: year);
-                await Task.WhenAll(
-                    reviewTask, reviewArchivesTask, momentsTask,
-                    reviewScreenshotsTask);
-                if (IsPanelResultCurrent(
-                        panel,
-                        generation,
-                        cancellationToken))
-                {
-                    RenderReview(
-                        year,
-                        await reviewTask,
-                        await reviewArchivesTask,
-                        await momentsTask,
-                        await reviewScreenshotsTask);
-                }
-                break;
-            case ArchivePanelKind.Screenshots:
-                var screenshotsTask = _archive.GetScreenshotsAsync(
-                    cancellationToken: cancellationToken);
-                var tagsTask = _archive.GetAllScreenshotTagsAsync(
-                    cancellationToken);
-                await Task.WhenAll(screenshotsTask, tagsTask);
-                if (IsPanelResultCurrent(
-                        panel,
-                        generation,
-                        cancellationToken))
-                {
-                    _allScreenshots = await screenshotsTask;
-                    var tagsByScreenshot = await tagsTask;
-                    _screenshotTags.Clear();
-                    foreach (var screenshot in _allScreenshots)
-                    {
-                        _screenshotTags[screenshot.ScreenshotId] =
-                            tagsByScreenshot.GetValueOrDefault(
-                                screenshot.ScreenshotId) ?? [];
-                    }
-
-                    ApplyScreenshotFilter();
-                }
-                break;
-        }
-    }
-
     private void Invalidate(params ArchivePanelKind[] panels)
-    {
-        foreach (var panel in panels)
-        {
-            _panelStates[panel].Invalidate();
-        }
-    }
+        => _panels.Invalidate(panels);
 
-    private async Task RefreshPanelsAsync(
+    private async Task<bool> RefreshPanelsAsync(
         params ArchivePanelKind[] panels)
     {
         Invalidate(panels);
-        if (panels.Contains(_activePanel))
+        if (panels.Contains(_panels.ActivePanel))
         {
-            await EnsureActivePanelAsync();
+            return await EnsureActivePanelAsync();
         }
+
+        return true;
     }
 
     private async Task LoadAsync()
     {
-        Invalidate(_panelStates.Keys.ToArray());
+        _panels.InvalidateAll();
         await EnsureActivePanelAsync();
     }
 
@@ -456,42 +335,26 @@ public sealed partial class ArchivePage : Page, INavigationAware
             .OfType<AnimeScreenshot>()
             .Select(item => item.ScreenshotId)
             .ToHashSet(StringComparer.Ordinal);
-        var filter = ScreenshotFilter.Text.Trim();
         var year = double.IsNaN(ScreenshotYearFilter.Value)
             ? null
             : (int?)ScreenshotYearFilter.Value;
-        _visibleScreenshots = _allScreenshots.Where(item =>
-            (year is null
-                || item.CapturedAt.ToLocalTime().Year == year)
-            && (filter.Length == 0
-                || (item.AnimeTitle?.Contains(
-                    filter,
-                    StringComparison.CurrentCultureIgnoreCase) ?? false)
-                || item.ContextNote.Contains(
-                    filter,
-                    StringComparison.CurrentCultureIgnoreCase)
-                || item.ProcessName.Contains(
-                    filter,
-                    StringComparison.CurrentCultureIgnoreCase)
-                || (_screenshotTags.TryGetValue(
-                        item.ScreenshotId,
-                        out var tags)
-                    && tags.Any(tag => tag.Contains(
-                        filter,
-                        StringComparison.CurrentCultureIgnoreCase)))))
-            .ToArray();
+        var restoredSelection = _gallery.ApplyFilter(
+            _panels.Screenshots,
+            _panels.ScreenshotTags,
+            ScreenshotFilter.Text,
+            year,
+            selectedIds);
 
         _suppressScreenshotSelectionChanged = true;
         try
         {
-            _screenshotGroups.Source = _visibleScreenshots
+            _screenshotGroups.Source = _gallery.VisibleScreenshots
                 .GroupBy(item => item.CapturedAt.ToLocalTime().Date)
                 .Select(group => new ScreenshotDayGroup(group.Key, group))
                 .ToArray();
-            if (_isScreenshotBatchMode)
+            if (_gallery.IsBatchMode)
             {
-                foreach (var item in _visibleScreenshots.Where(item =>
-                             selectedIds.Contains(item.ScreenshotId)))
+                foreach (var item in restoredSelection)
                 {
                     if (!ScreenshotList.SelectedItems.Contains(item))
                         ScreenshotList.SelectedItems.Add(item);
@@ -499,9 +362,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
             }
             else
             {
-                ScreenshotList.SelectedItem = _visibleScreenshots.FirstOrDefault(
-                    item => selectedIds.Contains(item.ScreenshotId))
-                    ?? _visibleScreenshots.FirstOrDefault();
+                ScreenshotList.SelectedItem = restoredSelection.FirstOrDefault();
             }
         }
         finally
@@ -509,19 +370,10 @@ public sealed partial class ArchivePage : Page, INavigationAware
             _suppressScreenshotSelectionChanged = false;
         }
 
-        if (!_isScreenshotBatchMode)
-        {
-            _detailScreenshotId = (ScreenshotList.SelectedItem as AnimeScreenshot)
-                ?.ScreenshotId;
-        }
-        else if (!_visibleScreenshots.Any(item =>
-                     item.ScreenshotId == _detailScreenshotId))
-        {
-            _detailScreenshotId = (ScreenshotList.SelectedItem as AnimeScreenshot)
-                ?.ScreenshotId ?? _visibleScreenshots.FirstOrDefault()?.ScreenshotId;
-        }
-        ScreenshotCountText.Text = $"截图 · {_visibleScreenshots.Count} 张";
-        ScreenshotEmptyState.Visibility = _visibleScreenshots.Count == 0
+        _gallery.CompleteFilterSelection(
+            (ScreenshotList.SelectedItem as AnimeScreenshot)?.ScreenshotId);
+        ScreenshotCountText.Text = $"截图 · {_gallery.VisibleScreenshots.Count} 张";
+        ScreenshotEmptyState.Visibility = _gallery.VisibleScreenshots.Count == 0
             ? Visibility.Visible : Visibility.Collapsed;
         UpdateScreenshotDetails();
     }
@@ -533,41 +385,38 @@ public sealed partial class ArchivePage : Page, INavigationAware
         if (_screenshotGroups is null || _suppressScreenshotSelectionChanged)
             return;
 
-        if (e.AddedItems.OfType<AnimeScreenshot>().LastOrDefault() is { } item)
-            _detailScreenshotId = item.ScreenshotId;
-        else if (ScreenshotList.SelectedItem is AnimeScreenshot selected)
-            _detailScreenshotId = selected.ScreenshotId;
-        else if (!_isScreenshotBatchMode)
-            _detailScreenshotId = null;
+        _gallery.UpdateSelection(
+            e.AddedItems.OfType<AnimeScreenshot>().LastOrDefault()?.ScreenshotId,
+            (ScreenshotList.SelectedItem as AnimeScreenshot)?.ScreenshotId);
         UpdateScreenshotDetails();
     }
 
     private void OnScreenshotBatchClick(object sender, RoutedEventArgs e)
     {
-        var detailId = _detailScreenshotId;
-        _isScreenshotBatchMode = !_isScreenshotBatchMode;
+        _gallery.ToggleBatchMode();
         _suppressScreenshotSelectionChanged = true;
-        ScreenshotList.SelectionMode = _isScreenshotBatchMode
-            ? ListViewSelectionMode.Multiple : ListViewSelectionMode.Single;
-        ScreenshotBatchButton.Content = _isScreenshotBatchMode
-            ? "完成选择" : "批量选择";
-        ScreenshotBatchActions.Visibility = _isScreenshotBatchMode
-            ? Visibility.Visible : Visibility.Collapsed;
-        ScreenshotDetailMoreButton.Visibility = _isScreenshotBatchMode
-            ? Visibility.Collapsed : Visibility.Visible;
-        if (!_isScreenshotBatchMode)
+        try
         {
-            ScreenshotList.SelectedItem = _visibleScreenshots.FirstOrDefault(
-                item => item.ScreenshotId == detailId);
+            ScreenshotList.SelectionMode = _gallery.IsBatchMode
+                ? ListViewSelectionMode.Multiple : ListViewSelectionMode.Single;
+            ScreenshotBatchButton.Content = _gallery.IsBatchMode
+                ? "完成选择" : "批量选择";
+            ScreenshotBatchActions.Visibility = _gallery.IsBatchMode
+                ? Visibility.Visible : Visibility.Collapsed;
+            ScreenshotDetailMoreButton.Visibility = _gallery.IsBatchMode
+                ? Visibility.Collapsed : Visibility.Visible;
+            if (!_gallery.IsBatchMode)
+                ScreenshotList.SelectedItem = _gallery.DetailScreenshot;
         }
-        _suppressScreenshotSelectionChanged = false;
-        _detailScreenshotId = detailId;
+        finally
+        {
+            _suppressScreenshotSelectionChanged = false;
+        }
         UpdateScreenshotDetails();
     }
 
     private AnimeScreenshot? GetDetailScreenshot()
-        => _visibleScreenshots.FirstOrDefault(item =>
-            item.ScreenshotId == _detailScreenshotId);
+        => _gallery.DetailScreenshot;
 
     private void UpdateScreenshotDetails()
     {
@@ -603,7 +452,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
             ? Visibility.Collapsed : Visibility.Visible;
         ScreenshotOpenButton.IsEnabled = item.FileExists;
         ScreenshotExportButton.IsEnabled = item.FileExists;
-        var tags = _screenshotTags.GetValueOrDefault(item.ScreenshotId) ?? [];
+        var tags = _panels.ScreenshotTags.GetValueOrDefault(item.ScreenshotId) ?? [];
         if (!ReferenceEquals(ScreenshotDetailTags.ItemsSource, tags))
             ScreenshotDetailTags.ItemsSource = tags;
     }
@@ -677,7 +526,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
     private void RenderReview(
         int year,
         ArchiveStatistics statistics,
-        IReadOnlyList<ArchiveListItem> archives,
+        IReadOnlyList<ArchiveReviewCover> covers,
         IReadOnlyList<AnnualReviewMoment> moments,
         IReadOnlyList<AnimeScreenshot> screenshots)
     {
@@ -697,13 +546,8 @@ public sealed partial class ArchivePage : Page, INavigationAware
         var minutes = Math.Max(0, statistics.EstimatedWatchMinutes);
         ReviewWatchDuration.Text = $"{minutes / 60} 小时 {minutes % 60} 分钟";
 
-        var covers = archives
-            .Where(item => item.Archive.CreatedAt.ToLocalTime().Year == year)
-            .OrderByDescending(item => item.Archive.CreatedAt)
-            .Take(3)
-            .ToArray();
         ReviewCovers.ItemsSource = covers;
-        ReviewCoversEmpty.Visibility = covers.Length == 0
+        ReviewCoversEmpty.Visibility = covers.Count == 0
             ? Visibility.Visible : Visibility.Collapsed;
         ReviewMoments.ItemsSource = moments;
         ReviewMomentsEmpty.Visibility = moments.Count == 0
@@ -722,7 +566,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
 
     private void ApplyArchiveFilter()
     {
-        var selectedAnimeId = _selectedArchive?.Archive.AnimeId;
+        var selectedAnimeId = _details.SelectedArchive?.Archive.AnimeId;
         var filter = ArchiveFilter.Text.Trim();
         var status = StatusFilter.SelectedIndex switch
         {
@@ -740,22 +584,8 @@ public sealed partial class ArchivePage : Page, INavigationAware
         var year = double.IsNaN(ArchiveYearFilter.Value)
             ? null
             : (int?)ArchiveYearFilter.Value;
-        var filteredArchives = _allArchives.Where(item =>
-            item.TrackingStatus
-                != AniMeido.Contracts.Models.AnimeTrackingStatus.Blocked
-            && (string.IsNullOrWhiteSpace(filter)
-                || item.Archive.TitleSnapshot.Contains(
-                    filter,
-                    StringComparison.CurrentCultureIgnoreCase)
-                || item.Tags.Any(tag => tag.Contains(
-                    filter,
-                    StringComparison.CurrentCultureIgnoreCase)))
-            && (status is null || item.TrackingStatus == status)
-            && (minimumRating is null
-                || item.Archive.PersonalRating >= minimumRating)
-            && (year is null
-                || item.Archive.CreatedAt.ToLocalTime().Year == year))
-            .ToList();
+        var filteredArchives = ViewModels.ArchiveBrowse.FilterArchives(
+            _panels.Archives, filter, status, minimumRating, year);
         ArchiveList.ItemsSource = filteredArchives;
         ArchiveResultCount.Text = $"{filteredArchives.Count} 部";
         ArchiveListEmptyState.Visibility = filteredArchives.Count == 0
@@ -770,9 +600,9 @@ public sealed partial class ArchivePage : Page, INavigationAware
         {
             ArchiveList.SelectedItem = restoredSelection;
         }
-        else if (_selectedArchive is not null)
+        else if (_details.SelectedArchive is not null)
         {
-            _selectedArchive = null;
+            _details.ClearSelection();
             ArchiveList.SelectedItem = null;
         }
         else if (filteredArchives.Count > 0)
@@ -815,21 +645,19 @@ public sealed partial class ArchivePage : Page, INavigationAware
         SelectionChangedEventArgs e)
         => await ShowArchiveDetailsAsync(ArchiveList.SelectedItem as ArchiveListItem);
 
-    /// <summary>显示选中作品的详情，并读取它的时间线、截图与封面。</summary>
-    private async Task ShowArchiveDetailsAsync(ArchiveListItem? selectedArchive)
+    private Task ShowArchiveDetailsAsync(ArchiveListItem? selectedArchive)
+        => _details.SelectAsync(selectedArchive);
+
+    private void OnArchiveDetailsSelectionChanged(ArchiveListItem? selectedArchive, int selectionVersion)
     {
-        _selectionCancellation?.Cancel();
-        _selectionCancellation?.Dispose();
-        _selectionCancellation = new CancellationTokenSource();
-        var cancellationToken = _selectionCancellation.Token;
-        var selectionVersion = Interlocked.Increment(ref _selectionVersion);
-        _selectedArchive = selectedArchive;
+        EntryList.SelectedItem = null;
+        ApplyTimelineFilter();
+
         if (selectedArchive is null)
         {
             ArchiveSelectionEmptyState.Visibility = Visibility.Visible;
             ArchiveDetailPanel.Visibility = Visibility.Collapsed;
             EntryList.ItemsSource = null;
-            _timelineItems = [];
             ArchiveScreenshotStrip.ItemsSource = null;
             ArchiveScreenshotSection.Visibility = Visibility.Collapsed;
             ManagedImageLoader.Cancel(ArchiveHeroCover);
@@ -846,56 +674,31 @@ public sealed partial class ArchivePage : Page, INavigationAware
         ArchiveTagsText.Text = selectedArchive.Tags.Count == 0
             ? "尚无个人标签"
             : string.Join(" · ", selectedArchive.Tags);
-        ArchiveMarkdownRenderer.Render(
-            ArchiveNotePreview,
-            selectedArchive.Archive.SummaryNote);
+        ArchiveMarkdownRenderer.Render(ArchiveNotePreview, selectedArchive.Archive.SummaryNote);
         ArchiveScreenshotStrip.ItemsSource = null;
         ArchiveScreenshotSection.Visibility = Visibility.Collapsed;
         ArchiveScreenshotCount.Text = string.Empty;
         ManagedImageLoader.Cancel(ArchiveHeroCover);
-        _ = ConfigureHeroCoverAsync(
-            selectedArchive.Archive.AnimeId,
-            selectionVersion,
-            cancellationToken);
-        try
+        if (_pageLifetime is { } lifetime)
         {
-            var animeId = selectedArchive.Archive.AnimeId;
-            var entriesTask = _archive.GetEntriesAsync(animeId, cancellationToken);
-            var historyTask = _playbackLauncher.IsAvailable
-                ? _archive.GetWatchHistoryAsync(animeId, cancellationToken)
-                : Task.FromResult<IReadOnlyList<WatchHistoryItem>>([]);
-            var changesTask = _archive.GetTrackingChangesAsync(animeId, cancellationToken);
-            var screenshotsTask = _archive.GetScreenshotsAsync(animeId, cancellationToken);
-            await Task.WhenAll(entriesTask, historyTask, changesTask, screenshotsTask);
-            if (selectionVersion != _selectionVersion
-                || _selectedArchive?.Archive.AnimeId
-                    != animeId)
-            {
-                return;
-            }
-            SetTimeline(await entriesTask, await historyTask, await changesTask);
-            var screenshots = (await screenshotsTask)
-                .Where(item => item.FileExists)
-                .ToArray();
-            ArchiveScreenshotCount.Text = $"{screenshots.Length} 张";
-            ArchiveScreenshotSection.Visibility = screenshots.Length > 0
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-            ArchiveScreenshotStrip.ItemsSource = screenshots.Take(2).ToArray();
+            _ = ConfigureHeroCoverAsync(selectedArchive.Archive.AnimeId, selectionVersion, lifetime.Token);
         }
-        catch (OperationCanceledException)
-            when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex) when (ex is SqliteException
-            or IOException or InvalidOperationException)
-        {
-            if (selectionVersion == _selectionVersion)
-            {
-                _logger.LogWarning(ex, "Archive details failed to load");
-                ShowStatus($"档案详情加载失败：{ex.Message}", InfoBarSeverity.Error);
-            }
-        }
+    }
+
+    private void OnArchiveDetailsPublished()
+    {
+        var screenshots = _details.DetailScreenshots;
+        ArchiveScreenshotCount.Text = $"{screenshots.Count} 张";
+        ArchiveScreenshotSection.Visibility = screenshots.Count > 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        ArchiveScreenshotStrip.ItemsSource = screenshots.Take(2).ToArray();
+    }
+
+    private void OnArchiveDetailsLoadFailed(Exception error)
+    {
+        _logger.LogWarning(error, "Archive details failed to load");
+        ShowStatus($"档案详情加载失败：{error.Message}", InfoBarSeverity.Error);
     }
 
     private async Task ConfigureHeroCoverAsync(
@@ -905,16 +708,9 @@ public sealed partial class ArchivePage : Page, INavigationAware
     {
         try
         {
-            if (!_coverRequests.TryGetValue(animeId, out var request)
-                || request.IsFaulted || request.IsCanceled)
-            {
-                request = FetchArchiveCoverAsync(
-                    animeId,
-                    _pageLifetime?.Token ?? cancellationToken);
-                _coverRequests[animeId] = request;
-            }
+            var request = _coverRequests.GetOrStart(animeId, cancellationToken);
             var anime = await request;
-            if (selectionVersion == _selectionVersion
+            if (_details.IsCurrentSelection(selectionVersion)
                 && !cancellationToken.IsCancellationRequested)
             {
                 // 作品 ID 是内部标识（迁移后已不是 Bangumi 条目号，负数表示资料里没有），不显示给用户。
@@ -944,49 +740,6 @@ public sealed partial class ArchivePage : Page, INavigationAware
         }
     }
 
-    private void SetTimeline(
-        IReadOnlyList<ArchiveEntry> entries,
-        IReadOnlyList<WatchHistoryItem> history,
-        IReadOnlyList<ArchiveTrackingChange> changes)
-    {
-        _timelineItems = entries.Select(entry => new ArchiveTimelineItem(
-                entry.OccurredAt,
-                "感想",
-                string.IsNullOrWhiteSpace(entry.EpisodeText)
-                    ? "观看感想"
-                    : entry.EpisodeText,
-                entry.Body,
-                entry))
-            .Concat((_playbackLauncher.IsAvailable ? history : [])
-                .Select(item => new ArchiveTimelineItem(
-                item.OccurredAt,
-                "观看记录",
-                $"{item.EpisodeText} · {item.SourceText}",
-                item.Note)))
-            .Concat(changes.Select(change => new ArchiveTimelineItem(
-                change.ChangedAt,
-                "状态变更",
-                $"标记为{FormatTrackingStatus(change.NewStatus)}",
-                string.Empty)))
-            .OrderByDescending(item => item.OccurredAt)
-            .ToArray();
-        ApplyTimelineFilter();
-    }
-
-    private static string FormatTrackingStatus(
-        AniMeido.Contracts.Models.AnimeTrackingStatus status)
-        => status switch
-        {
-            AniMeido.Contracts.Models.AnimeTrackingStatus.Watching => "追番中",
-            AniMeido.Contracts.Models.AnimeTrackingStatus.PlanToWatch => "补番中",
-            AniMeido.Contracts.Models.AnimeTrackingStatus.Following => "关注",
-            AniMeido.Contracts.Models.AnimeTrackingStatus.Completed => "已看完",
-            AniMeido.Contracts.Models.AnimeTrackingStatus.Dropped => "弃坑",
-            AniMeido.Contracts.Models.AnimeTrackingStatus.NotInterested => "不感兴趣",
-            AniMeido.Contracts.Models.AnimeTrackingStatus.Blocked => "屏蔽",
-            _ => "无标记",
-        };
-
     private void OnTimelineFilterChanged(
         object sender,
         SelectionChangedEventArgs e)
@@ -1005,50 +758,25 @@ public sealed partial class ArchivePage : Page, INavigationAware
             _ => null,
         };
         EntryList.ItemsSource = kind is null
-            ? _timelineItems
-            : _timelineItems.Where(item => item.Kind == kind).ToArray();
+            ? _details.TimelineItems
+            : _details.TimelineItems.Where(item => item.Kind == kind).ToArray();
         UpdateEntryActions();
     }
 
-    private async Task RefreshSelectedTimelineAsync(int animeId)
-    {
-        if (_selectedArchive?.Archive.AnimeId != animeId
-            || _selectionCancellation is null)
-            return;
-
-        var selectionVersion = _selectionVersion;
-        var cancellationToken = _selectionCancellation.Token;
-        try
-        {
-            var entriesTask = _archive.GetEntriesAsync(animeId, cancellationToken);
-            var historyTask = _playbackLauncher.IsAvailable
-                ? _archive.GetWatchHistoryAsync(animeId, cancellationToken)
-                : Task.FromResult<IReadOnlyList<WatchHistoryItem>>([]);
-            var changesTask = _archive.GetTrackingChangesAsync(animeId, cancellationToken);
-            await Task.WhenAll(entriesTask, historyTask, changesTask);
-            if (selectionVersion == _selectionVersion
-                && _selectedArchive?.Archive.AnimeId == animeId)
-            {
-                SetTimeline(await entriesTask, await historyTask, await changesTask);
-            }
-        }
-        catch (OperationCanceledException)
-            when (cancellationToken.IsCancellationRequested)
-        {
-        }
-    }
+    private Task RefreshSelectedTimelineAsync(int animeId)
+        => _details.RefreshTimelineAsync(animeId);
 
     private async void OnEditArchiveClick(
         object sender,
         RoutedEventArgs e)
     {
-        if (_selectedArchive is null)
+        if (_details.SelectedArchive is null)
         {
             ShowStatus("请先选择一部番剧。", InfoBarSeverity.Warning);
             return;
         }
 
-        var archive = _selectedArchive;
+        var archive = _details.SelectedArchive;
         var rating = new NumberBox
         {
             Header = "个人评分",
@@ -1069,30 +797,71 @@ public sealed partial class ArchivePage : Page, INavigationAware
         dialog.PrimaryButtonClick += async (_, args) =>
         {
             var deferral = args.GetDeferral();
+            var navigationVersion = _navigationVersion;
+            var lifetime = _pageLifetime;
             try
             {
-                await _archive.UpsertArchiveAsync(
-                    archive.Archive.AnimeId,
-                    archive.Archive.TitleSnapshot,
-                    double.IsNaN(rating.Value) ? null : rating.Value,
-                    archive.Archive.SummaryNote);
-                await _archive.SetAnimeTagsAsync(
-                    archive.Archive.AnimeId,
-                    SplitTags(tags.Text));
-                await RefreshPanelsAsync(
-                    ArchivePanelKind.Archives,
-                    ArchivePanelKind.Statistics,
-                    ArchivePanelKind.Review);
-                ShowStatus("档案已保存。", InfoBarSeverity.Success);
-            }
-            catch (Exception ex) when (ex is SqliteException
-                or IOException or InvalidOperationException
-                or ArgumentException)
-            {
-                args.Cancel = true;
-                ShowStatus(
-                    $"保存未全部完成，请刷新确认：{ex.Message}",
-                    InfoBarSeverity.Warning);
+                try
+                {
+                    await _archive.SaveArchiveWithTagsAsync(
+                        archive.Archive.AnimeId,
+                        archive.Archive.TitleSnapshot,
+                        double.IsNaN(rating.Value) ? null : rating.Value,
+                        archive.Archive.SummaryNote,
+                        SplitTags(tags.Text));
+                }
+                catch (ArgumentException)
+                {
+                    args.Cancel = true;
+                    if (IsNavigationCurrent(navigationVersion, lifetime))
+                        ShowStatus("评分应为0.5到10之间的半分，例如8或8.5，也可以留空。", InfoBarSeverity.Warning);
+                    return;
+                }
+                catch (PersonalDataBusyException ex)
+                {
+                    args.Cancel = true;
+                    if (IsNavigationCurrent(navigationVersion, lifetime))
+                        ShowStatus(ex.Message, InfoBarSeverity.Warning);
+                    return;
+                }
+                catch (Exception ex) when (ex is SqliteException
+                    or IOException or InvalidOperationException)
+                {
+                    args.Cancel = true;
+                    _logger.LogError(ex, "Archive edit failed to save for {AnimeId}", archive.Archive.AnimeId);
+                    if (IsNavigationCurrent(navigationVersion, lifetime))
+                        ShowStatus("档案未保存，请稍后重试。", InfoBarSeverity.Error);
+                    return;
+                }
+
+                if (!IsNavigationCurrent(navigationVersion, lifetime))
+                {
+                    Invalidate(ArchivePanelKind.Archives, ArchivePanelKind.Statistics, ArchivePanelKind.Review);
+                    return;
+                }
+
+                try
+                {
+                    var refreshed = await RefreshPanelsAsync(
+                        ArchivePanelKind.Archives,
+                        ArchivePanelKind.Statistics,
+                        ArchivePanelKind.Review);
+                    if (IsNavigationCurrent(navigationVersion, lifetime))
+                    {
+                        ShowStatus(
+                            refreshed ? "档案已保存。" : "档案已保存，但列表未能刷新。请点刷新查看。",
+                            refreshed ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
+                    }
+                }
+                catch (Exception ex) when (ex is SqliteException
+                    or IOException or InvalidOperationException
+                    or ArgumentException)
+                {
+                    _logger.LogWarning(ex, "Archive was saved but its panels failed to refresh for {AnimeId}",
+                        archive.Archive.AnimeId);
+                    if (IsNavigationCurrent(navigationVersion, lifetime))
+                        ShowStatus("档案已保存，但列表未能刷新。请点刷新查看。", InfoBarSeverity.Warning);
+                }
             }
             finally
             {
@@ -1104,7 +873,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
 
     private async void OnEditNoteClick(object sender, RoutedEventArgs e)
     {
-        if (_selectedArchive is not { } selected)
+        if (_details.SelectedArchive is not { } selected)
             return;
 
         var availableWidth = Math.Max(420, XamlRoot.Size.Width - 96);
@@ -1202,7 +971,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
                     selected.Archive.TitleSnapshot,
                     selected.Archive.PersonalRating,
                     source.Text);
-                if (_selectedArchive?.Archive.AnimeId == selected.Archive.AnimeId)
+                if (_details.SelectedArchive?.Archive.AnimeId == selected.Archive.AnimeId)
                 {
                     ArchiveMarkdownRenderer.Render(ArchiveNotePreview, source.Text);
                 }
@@ -1231,7 +1000,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
 
     private async void OnAddEntryClick(object sender, RoutedEventArgs e)
     {
-        if (_selectedArchive is not { } selected)
+        if (_details.SelectedArchive is not { } selected)
         {
             ShowStatus("请先选择一部番剧。", InfoBarSeverity.Warning);
             return;
@@ -1350,7 +1119,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         if (!_playbackLauncher.IsAvailable)
             return;
 
-        if (_selectedArchive is not { } selected)
+        if (_details.SelectedArchive is not { } selected)
         {
             ShowStatus("请先选择一部番剧。", InfoBarSeverity.Warning);
             return;
@@ -1462,12 +1231,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
             "screenshots" => ArchivePanelKind.Screenshots,
             _ => ArchivePanelKind.Archives,
         };
-        if (_activePanel != nextPanel
-            && _panelStates[_activePanel].IsLoading)
-        {
-            _panelStates[_activePanel].CancelInflight();
-        }
-        _activePanel = nextPanel;
+        _panels.SelectPanel(nextPanel);
         ArchivesPanel.Visibility =
             tag == "archives" ? Visibility.Visible : Visibility.Collapsed;
         StatisticsPanel.Visibility =
@@ -1553,52 +1317,51 @@ public sealed partial class ArchivePage : Page, INavigationAware
         ApplyPlaybackAvailability();
         // 离开时取消了选中作品的时间线、截图与封面请求；返回后重新读取，
         // 之后追加或修改感想时时间线也能照常刷新。
-        if (_selectedArchive is { } selected && _selectionCancellation is null)
+        if (_details.SelectedArchive is { } selected && !_details.HasActiveSelection)
         {
             _ = ShowArchiveDetailsAsync(selected);
         }
         _ = EnsureActivePanelAsync();
     }
 
-    private void OnPageUnloaded(object sender, RoutedEventArgs e)
+    private async void OnPageUnloaded(object sender, RoutedEventArgs e)
     {
         UnsubscribePendingChanges();
-        // Once initialized, this remains true because GoBack can restore the
-        // page instance without calling OnNavigatedToAsync again.
+        // 返回导航会复用本页；先使旧请求和订阅失效，再等待它们完成。
         Interlocked.Increment(ref _navigationVersion);
-        Interlocked.Increment(ref _selectionVersion);
+        var stoppingDetails = _details.CancelInflightAsync();
+        HideScreenshotSettingsDialog();
         _pageLifetime?.Cancel();
         _pageLifetime?.Dispose();
         _pageLifetime = null;
         UpdatePendingPanelAvailability();
-        foreach (var state in _panelStates.Values)
-        {
-            state.CancelInflight();
-        }
-        _selectionCancellation?.Cancel();
-        _selectionCancellation?.Dispose();
-        _selectionCancellation = null;
+        _panels.CancelInflight();
         if (_isPlaybackAvailabilitySubscribed)
         {
             _playbackLauncher.AvailabilityChanged -= OnPlaybackAvailabilityChanged;
             _isPlaybackAvailabilitySubscribed = false;
         }
         // 已取到的详情只是数据，返回页面时继续复用；未完成或失败的请求随页面一起作废。
-        foreach (var animeId in _coverRequests
-                     .Where(pair => !pair.Value.IsCompletedSuccessfully)
-                     .Select(pair => pair.Key)
-                     .ToList())
-        {
-            _coverRequests.Remove(animeId);
-        }
+        _coverRequests.DiscardIncomplete();
         ManagedImageLoader.Cancel(ArchiveHeroCover);
+
+        try
+        {
+            await stoppingDetails;
+        }
+#pragma warning disable CA1031 // 离页事件最终报告请求停止失败，不让旧续体修改重新激活的页面。
+        catch (Exception error)
+        {
+            _logger.LogWarning(error, "Archive detail request shutdown failed");
+        }
+#pragma warning restore CA1031
     }
 
     private void OnPlaybackAvailabilityChanged(object? sender, EventArgs e)
         => DispatcherQueue.TryEnqueue(() =>
         {
             ApplyPlaybackAvailability();
-            if (_selectedArchive is { } selected)
+            if (_details.SelectedArchive is { } selected)
                 _ = RefreshSelectedTimelineAsync(selected.Archive.AnimeId);
         });
 
@@ -1635,10 +1398,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         {
             if (ArchiveTimelineFilter.SelectedIndex == 2)
                 ArchiveTimelineFilter.SelectedIndex = 0;
-            _timelineItems = _timelineItems
-                .Where(item => item.Kind != "观看记录")
-                .ToArray();
-            ApplyTimelineFilter();
+            _details.ApplyPlaybackAvailability(false);
         }
     }
 
@@ -1648,21 +1408,8 @@ public sealed partial class ArchivePage : Page, INavigationAware
     {
         var year = double.IsNaN(ReviewYear.Value)
             ? DateTime.Now.Year : (int)ReviewYear.Value;
-        var statistics = await _archive.GetStatisticsAsync(year);
-        var moments = await _archive.GetReviewMomentsAsync(year, 8);
         var playbackAvailable = _playbackLauncher.IsAvailable;
-        var screenshots = playbackAvailable
-            ? (await _archive.GetScreenshotsAsync(year: year))
-                .Where(item => item.FileExists)
-                .Take(12)
-                .ToArray()
-            : [];
-        var html = await BuildReviewHtmlAsync(
-            year,
-            statistics,
-            moments,
-            screenshots,
-            playbackAvailable);
+        var navigationVersion = _navigationVersion;
         var picker = new FileSavePicker
         {
             SuggestedFileName = $"AniMeido-{year}-年度回顾",
@@ -1673,10 +1420,33 @@ public sealed partial class ArchivePage : Page, INavigationAware
             return;
         }
         var file = await picker.PickSaveFileAsync();
-        if (file is not null)
+        if (file is null)
+            return;
+
+        var button = sender as Button;
+        if (button is not null)
+            button.IsEnabled = false;
+        try
         {
-            await File.WriteAllTextAsync(file.Path, html);
-            ShowStatus("年度回顾已导出。", InfoBarSeverity.Success);
+            await _reviewExporter.ExportAsync(file.Path, year, playbackAvailable);
+            if (navigationVersion == _navigationVersion)
+                ShowStatus("年度回顾已导出。", InfoBarSeverity.Success);
+        }
+        catch (PersonalDataBusyException ex)
+        {
+            if (navigationVersion == _navigationVersion)
+                ShowStatus(ex.Message, InfoBarSeverity.Warning);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SqliteException)
+        {
+            _logger.LogError(ex, "Annual review export failed.");
+            if (navigationVersion == _navigationVersion)
+                ShowStatus("年度回顾未能导出，请重试。", InfoBarSeverity.Error);
+        }
+        finally
+        {
+            if (button is not null)
+                button.IsEnabled = true;
         }
     }
 
@@ -1789,7 +1559,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
                 Invalidate(ArchivePanelKind.Screenshots);
                 return;
             }
-            _screenshotTags[item.ScreenshotId] = tags;
+            _panels.ReplaceScreenshotTags(item.ScreenshotId, tags);
             ApplyScreenshotFilter();
         }
         catch (Exception ex) when (ex is SqliteException or IOException)
@@ -1826,7 +1596,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
                 Invalidate(ArchivePanelKind.Screenshots);
                 return;
             }
-            _screenshotTags[item.ScreenshotId] = tags;
+            _panels.ReplaceScreenshotTags(item.ScreenshotId, tags);
             ApplyScreenshotFilter();
         }
         catch (Exception ex) when (ex is SqliteException or IOException)
@@ -1951,21 +1721,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
             return;
         }
 
-        var deleted = 0;
-        var failed = 0;
-        foreach (var item in selected)
-        {
-            try
-            {
-                await _screenshots.DeleteAsync(item);
-                deleted++;
-            }
-            catch (Exception ex) when (
-                ex is IOException or UnauthorizedAccessException)
-            {
-                failed++;
-            }
-        }
+        var (deleted, failed) = await _screenshots.DeleteManyAsync(selected);
 
         await RefreshPanelsAsync(
             ArchivePanelKind.Screenshots,
@@ -1999,7 +1755,51 @@ public sealed partial class ArchivePage : Page, INavigationAware
         object sender,
         RoutedEventArgs e)
     {
-        var settings = await _archive.GetScreenshotSettingsAsync();
+        if (sender is not Control button || _screenshotSettings.IsEditing
+            || _pageLifetime is not { } lifetime)
+            return;
+
+        var navigationVersion = _navigationVersion;
+        var cancellationToken = lifetime.Token;
+        button.IsEnabled = false;
+        try
+        {
+            var saved = await _screenshotSettings.EditAsync(
+                settings => ShowScreenshotSettingsAsync(settings, navigationVersion, lifetime),
+                cancellationToken);
+            if (saved is not null)
+                _shortcut.SetEnabled(saved.Enabled);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (ArgumentException)
+        {
+            if (IsNavigationCurrent(navigationVersion, lifetime))
+                ShowStatus("截图保存目录无效，请检查后重试。", InfoBarSeverity.Warning);
+        }
+#pragma warning disable CA1031 // 此事件最终报告设置读取或保存失败，并恢复编辑入口。
+        catch (Exception error)
+        {
+            _logger.LogError(error, "Screenshot settings edit failed");
+            if (IsNavigationCurrent(navigationVersion, lifetime))
+                ShowStatus("截图设置未能完成，请重试。", InfoBarSeverity.Error);
+        }
+#pragma warning restore CA1031
+        finally
+        {
+            button.IsEnabled = true;
+        }
+    }
+
+    private async Task<ScreenshotSettings?> ShowScreenshotSettingsAsync(
+        ScreenshotSettings settings,
+        int navigationVersion,
+        CancellationTokenSource lifetime)
+    {
+        if (!IsNavigationCurrent(navigationVersion, lifetime))
+            return null;
+
         var enabled = new CheckBox
         {
             Content = "启用 F12 全局截图（拦截 F12）",
@@ -2026,17 +1826,36 @@ public sealed partial class ArchivePage : Page, INavigationAware
         panel.Children.Add(popup);
         panel.Children.Add(root);
         var dialog = CreateDialog("截图设置", panel, "保存");
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary
-            && !string.IsNullOrWhiteSpace(root.Text))
+        _screenshotSettingsDialog = dialog;
+        try
         {
-            var updated = new ScreenshotSettings(
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary
+                || string.IsNullOrWhiteSpace(root.Text))
+                return null;
+
+            return new ScreenshotSettings(
                 enabled.IsChecked == true,
                 Path.GetFullPath(
                     Environment.ExpandEnvironmentVariables(root.Text.Trim())),
                 sound.IsChecked == true,
                 popup.IsChecked == true);
-            await _archive.SaveScreenshotSettingsAsync(updated);
-            _shortcut.SetEnabled(updated.Enabled);
+        }
+        finally
+        {
+            _screenshotSettingsDialog = null;
+        }
+    }
+
+    private void HideScreenshotSettingsDialog()
+    {
+        try
+        {
+            _screenshotSettingsDialog?.Hide();
+        }
+        catch (Exception error) when (error is System.Runtime.InteropServices.COMException
+            or InvalidOperationException)
+        {
+            _logger.LogWarning(error, "Screenshot settings dialog could not be hidden during navigation");
         }
     }
 
@@ -2066,77 +1885,6 @@ public sealed partial class ArchivePage : Page, INavigationAware
             [',', '，'],
             StringSplitOptions.RemoveEmptyEntries
                 | StringSplitOptions.TrimEntries);
-
-    private static async Task<string> BuildReviewHtmlAsync(
-        int year,
-        ArchiveStatistics statistics,
-        IReadOnlyList<AnnualReviewMoment> moments,
-        IReadOnlyList<AnimeScreenshot> screenshots,
-        bool playbackAvailable)
-    {
-        var title = WebUtility.HtmlEncode($"{year} 年 AniMeido 年度回顾");
-        var tags = WebUtility.HtmlEncode(string.Join(
-            "、",
-            statistics.TagCounts.Take(8).Select(item => item.Key)));
-        var momentCards = new StringBuilder();
-        foreach (var moment in moments)
-        {
-            var date = WebUtility.HtmlEncode(moment.DateText);
-            var anime = WebUtility.HtmlEncode(moment.AnimeTitle);
-            var body = WebUtility.HtmlEncode(moment.Entry.Body);
-            momentCards.Append(
-                $"<article class=\"moment\"><small>{date} · {anime}</small><p>{body}</p></article>");
-        }
-        var images = new StringBuilder();
-        foreach (var screenshot in screenshots)
-        {
-            try
-            {
-                var bytes = await File.ReadAllBytesAsync(screenshot.FilePath);
-                var caption = WebUtility.HtmlEncode(
-                    screenshot.ContextNote.Length > 0
-                        ? screenshot.ContextNote
-                        : screenshot.AnimeTitle ?? "截图");
-                images.Append(
-                    $"<figure><img src=\"data:image/png;base64,{Convert.ToBase64String(bytes)}\" alt=\"截图\"><figcaption>{caption}</figcaption></figure>");
-            }
-            catch (IOException)
-            {
-                // A screenshot can disappear after it was listed.
-            }
-        }
-        var duration = $"{statistics.EstimatedWatchMinutes / 60} 小时 {statistics.EstimatedWatchMinutes % 60} 分钟";
-        var playbackCards = playbackAvailable
-            ? $"<div class=\"card\"><strong>{statistics.ScreenshotCount}</strong><small>截图记录</small></div>"
-                + $"<div class=\"card\"><strong>{duration}</strong><small>估算观看时长</small></div>"
-            : string.Empty;
-        var gallery = playbackAvailable
-            ? $"<h2>这一年的截图</h2><div class=\"gallery\">{images}</div>"
-            : string.Empty;
-        return $$"""
-            <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
-            <title>{{title}}</title><style>
-            body{font-family:"Segoe UI","Microsoft YaHei",sans-serif;
-            max-width:960px;margin:48px auto;padding:0 24px;
-            color:#f2f5f9;background:#202225;line-height:1.6}
-            h1{font-size:2.5rem;color:#91ccf5}h2{margin-top:36px}
-            .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-            .card,.moment,figure{background:#303338;border-radius:12px;padding:20px}
-            .gallery{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-            figure{margin:0}img{width:100%;aspect-ratio:16/9;object-fit:cover;
-            border-radius:8px}figcaption,small{color:#c8d3dc}
-            strong{font-size:2rem;color:#91ccf5;display:block}
-            .moment{margin-bottom:10px}.moment p{white-space:pre-wrap;margin-bottom:0}
-            </style></head><body><h1>{{title}}</h1>
-            <div class="cards">
-            <div class="card"><strong>{{statistics.ArchiveCount}}</strong><small>新增档案</small></div>
-            <div class="card"><strong>{{statistics.EntryCount}}</strong><small>写下感想</small></div>
-            {{playbackCards}}
-            </div><h2>这一年的感想</h2>{{momentCards}}
-            {{gallery}}
-            <h2>年度新增档案的个人标签</h2><p>{{tags}}</p></body></html>
-            """;
-    }
 
     private bool InitializePicker(object picker)
     {

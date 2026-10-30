@@ -105,14 +105,13 @@ internal static class ManagedImageLoader
         private bool _decodeRetryUsed;
         private BitmapImage? _managedBitmap;
         private bool _imageOpened;
+        private bool _resizeQueued;
 
         public ImageState(Image image)
         {
             _image = image;
             _image.Loaded += OnLoaded;
             _image.Unloaded += OnUnloaded;
-            _image.ImageFailed += OnImageFailed;
-            _image.ImageOpened += OnImageOpened;
             _image.SizeChanged += OnSizeChanged;
         }
 
@@ -144,7 +143,7 @@ internal static class ManagedImageLoader
             if (clearSource)
             {
                 _showingManagedImage = false;
-                _managedBitmap = null;
+                SetManagedBitmap(null);
                 _imageOpened = false;
                 _image.Source = null;
             }
@@ -179,7 +178,7 @@ internal static class ManagedImageLoader
             if (_imageOpened && _showingManagedImage && ReferenceEquals(_image.Source, _managedBitmap))
                 return;
             _showingManagedImage = false;
-            _managedBitmap = null;
+            SetManagedBitmap(null);
             _imageOpened = false;
             _image.Source = null;
         }
@@ -187,13 +186,30 @@ internal static class ManagedImageLoader
         private void OnImageOpened(object sender, RoutedEventArgs e)
         {
             // 图片始终先赋给 Image.Source；此事件只记录能否复用，不作为显示的前置条件。
-            if (_showingManagedImage && _managedBitmap is { PixelWidth: > 0, PixelHeight: > 0 }
+            if (_showingManagedImage && ReferenceEquals(sender, _managedBitmap)
+                && _managedBitmap is { PixelWidth: > 0, PixelHeight: > 0 }
                 && ReferenceEquals(_image.Source, _managedBitmap))
                 _imageOpened = true;
         }
 
         private void OnSizeChanged(object sender, SizeChangedEventArgs e)
         {
+            if (_resizeQueued || !_image.IsLoaded || !_showingManagedImage || _request is null)
+                return;
+
+            // 一轮布局可能连续报告多个尺寸，只按最终尺寸重建一次解码源。
+            _resizeQueued = true;
+            if (!_image.DispatcherQueue.TryEnqueue(
+                Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+                ResizeCurrentImage))
+            {
+                _resizeQueued = false;
+            }
+        }
+
+        private void ResizeCurrentImage()
+        {
+            _resizeQueued = false;
             if (!_image.IsLoaded || !_showingManagedImage || _request is null)
                 return;
 
@@ -221,58 +237,78 @@ internal static class ManagedImageLoader
             CancelCurrent();
             _cancellation = new CancellationTokenSource();
             var version = ++_version;
-            _ = LoadAsync(_request, version, _cancellation.Token);
+            _ = LoadAsync(_request, version, _cancellation);
         }
 
         private async Task LoadAsync(
             ImageRequest request,
             int version,
-            CancellationToken cancellationToken)
+            CancellationTokenSource cancellation)
         {
-            if (string.IsNullOrWhiteSpace(request.Source))
+            var cancellationToken = cancellation.Token;
+            try
             {
-                Report(request, ManagedImageLoadState.Failed);
-                return;
-            }
+                if (string.IsNullOrWhiteSpace(request.Source))
+                {
+                    Report(request, ManagedImageLoadState.Failed);
+                    return;
+                }
 
-            Report(request, ManagedImageLoadState.Loading);
-            string? localPath = GetExistingLocalPath(request);
-            if (localPath is null && request.Kind != ImageRequestKind.Local)
+                Report(request, ManagedImageLoadState.Loading);
+                string? localPath = GetExistingLocalPath(request);
+                if (localPath is null && request.Kind != ImageRequestKind.Local)
+                {
+                    var succeeded = request.Kind == ImageRequestKind.Cover
+                        ? await ImageCacheHelper.CacheImageAsync(request.AnimeId, request.Source, cancellationToken)
+                        : await ImageCacheHelper.CacheAvatarAsync(request.Source, cancellationToken);
+                    if (succeeded)
+                        localPath = GetExistingLocalPath(request);
+                }
+
+                if (!IsCurrent(request, version, cancellationToken))
+                    return;
+
+                if (localPath is null || !File.Exists(localPath))
+                {
+                    ShowPlaceholder();
+                    Report(request, ManagedImageLoadState.Failed);
+                    return;
+                }
+
+                ShowLocalImage(localPath, request);
+                Report(request, ManagedImageLoadState.Loaded);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                var succeeded = request.Kind == ImageRequestKind.Cover
-                    ? await ImageCacheHelper.CacheImageAsync(
-                        request.AnimeId,
-                        request.Source,
-                        cancellationToken)
-                    : await ImageCacheHelper.CacheAvatarAsync(
-                        request.Source,
-                        cancellationToken);
-                if (succeeded)
-                    localPath = GetExistingLocalPath(request);
             }
-
-            if (cancellationToken.IsCancellationRequested
-                || version != _version
-                || !_image.IsLoaded
-                || !ReferenceEquals(request, _request))
+#pragma warning disable CA1031 // 控件事件启动的加载任务在此观察异常；图片失败不终止页面。
+            catch (Exception ex)
             {
-                return;
+                System.Diagnostics.Trace.TraceWarning("Image presentation failed: {0}", ex);
+                if (IsCurrent(request, version, cancellationToken))
+                {
+                    ShowPlaceholder();
+                    Report(request, ManagedImageLoadState.Failed);
+                }
             }
-
-            if (localPath is null || !File.Exists(localPath))
+#pragma warning restore CA1031
+            finally
             {
-                ShowPlaceholder();
-                Report(request, ManagedImageLoadState.Failed);
-                return;
+                if (ReferenceEquals(_cancellation, cancellation))
+                    _cancellation = null;
+                cancellation.Dispose();
             }
-
-            ShowLocalImage(localPath, request);
-            Report(request, ManagedImageLoadState.Loaded);
         }
+
+        private bool IsCurrent(ImageRequest request, int version, CancellationToken cancellationToken)
+            => !cancellationToken.IsCancellationRequested
+                && version == _version
+                && _image.IsLoaded
+                && ReferenceEquals(request, _request);
 
         private void OnImageFailed(object sender, ExceptionRoutedEventArgs e)
         {
-            if (!_showingManagedImage || _request is null)
+            if (!_showingManagedImage || _request is null || !ReferenceEquals(sender, _managedBitmap))
                 return;
 
             _showingManagedImage = false;
@@ -297,18 +333,32 @@ internal static class ManagedImageLoader
             _decodePixelWidth = GetDecodePixelWidth(request);
             _showingManagedImage = true;
             _imageOpened = false;
-            _managedBitmap = new BitmapImage
+            var bitmap = new BitmapImage { DecodePixelWidth = _decodePixelWidth };
+            SetManagedBitmap(bitmap);
+            _image.Source = bitmap;
+            bitmap.UriSource = new Uri(path);
+        }
+
+        private void SetManagedBitmap(BitmapImage? bitmap)
+        {
+            if (_managedBitmap is not null)
             {
-                DecodePixelWidth = _decodePixelWidth,
-                UriSource = new Uri(path),
-            };
-            _image.Source = _managedBitmap;
+                _managedBitmap.ImageOpened -= OnImageOpened;
+                _managedBitmap.ImageFailed -= OnImageFailed;
+            }
+
+            _managedBitmap = bitmap;
+            if (bitmap is not null)
+            {
+                bitmap.ImageOpened += OnImageOpened;
+                bitmap.ImageFailed += OnImageFailed;
+            }
         }
 
         private void ShowPlaceholder()
         {
             _showingManagedImage = false;
-            _managedBitmap = null;
+            SetManagedBitmap(null);
             _imageOpened = false;
             _image.Source = new BitmapImage(ImageCacheHelper.PlaceholderUri);
         }
@@ -341,9 +391,9 @@ internal static class ManagedImageLoader
         private void CancelCurrent()
         {
             _version++;
-            _cancellation?.Cancel();
-            _cancellation?.Dispose();
+            var cancellation = _cancellation;
             _cancellation = null;
+            cancellation?.Cancel();
         }
     }
 }

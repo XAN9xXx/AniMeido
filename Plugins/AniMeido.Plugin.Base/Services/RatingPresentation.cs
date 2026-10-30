@@ -4,6 +4,13 @@ namespace AniMeido.Plugin.Base.Services;
 
 internal static class RatingPresentation
 {
+    internal static async Task<string> GetRatingTextAsync(
+        this MetadataDataSource source, int animeId, CancellationToken cancellationToken)
+    {
+        var details = await source.GetRatingDetailsAsync(animeId, cancellationToken);
+        return details is null ? string.Empty : Format(details.Ratings, details.FirstDate, details.AsOf);
+    }
+
     private static readonly (string Platform, string Name, string Format)[] Platforms =
     [
         ("bangumi", "Bangumi", "F1"),

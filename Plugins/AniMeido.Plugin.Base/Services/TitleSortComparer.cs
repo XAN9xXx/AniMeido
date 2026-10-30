@@ -1,5 +1,5 @@
-﻿using System.Collections.Concurrent;
-using System.Globalization;
+﻿using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text;
 using ToolGood.Words.Pinyin;
 
@@ -13,7 +13,8 @@ internal sealed class TitleSortComparer : IComparer<string>
     private static readonly StringComparer CultureFallback =
         StringComparer.Create(CultureInfo.GetCultureInfo("zh-CN"), ignoreCase: true);
 
-    private readonly ConcurrentDictionary<string, Lazy<SortKey>> _keys = new(StringComparer.Ordinal);
+    // 排序键跟随标题对象的生命周期，不由静态 comparer 永久保留历次页面数据。
+    private readonly ConditionalWeakTable<string, Lazy<SortKey>> _keys = new();
 
     private TitleSortComparer()
     {
@@ -57,7 +58,7 @@ internal sealed class TitleSortComparer : IComparer<string>
     }
 
     private SortKey GetKey(string title)
-        => _keys.GetOrAdd(title, static value => new Lazy<SortKey>(
+        => _keys.GetValue(title, static value => new Lazy<SortKey>(
             () => CreateKey(value), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
 
     private static SortKey CreateKey(string title)

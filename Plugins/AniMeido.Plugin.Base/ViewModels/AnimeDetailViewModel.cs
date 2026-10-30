@@ -6,12 +6,14 @@ using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Services;
 using System.Collections.ObjectModel;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace AniMeido.Plugin.Base.ViewModels
 {
     public partial class AnimeDetailViewModel : ObservableObject
     {
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(DescriptionText))]
         private Anime? _animeDetail = null;
         [ObservableProperty]
         private bool _isLoading = false;
@@ -40,12 +42,20 @@ namespace AniMeido.Plugin.Base.ViewModels
         [ObservableProperty]
         private string _ratingText = "";
 
+        public string DescriptionText => AnimeDetail switch
+        {
+            null => string.Empty,
+            { } anime when PersonalAnimeDataSource.IsUnavailable(anime) => "资料不可用",
+            { } anime => anime.Description,
+        };
+
         public ObservableCollection<CharacterRole> Characters { get; private set; } = new();
 
         private int _lastAnimeID;
         private readonly IAnimeDataSource _animeDataSource;
         private readonly TrackingService _trackingService;
         private readonly MetadataDataSource _ratingSource;
+        private readonly ILogger _logger;
         private int _loadVersion;
 
         public ObservableCollection<TrackingActionDescriptor> TrackingActions
@@ -71,11 +81,16 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
         }
 
-        public AnimeDetailViewModel(IAnimeDataSource dataSource, TrackingService trackingService, MetadataDataSource ratingSource)
+        public AnimeDetailViewModel(
+            IAnimeDataSource dataSource,
+            TrackingService trackingService,
+            MetadataDataSource ratingSource,
+            ILogger logger)
         {
             _animeDataSource = dataSource;
             _trackingService = trackingService;
             _ratingSource = ratingSource;
+            _logger = logger;
         }
 
 
@@ -144,30 +159,26 @@ namespace AniMeido.Plugin.Base.ViewModels
 
                 CurrentStatus = status ?? AnimeTrackingStatus.None;
             }
-            catch (HttpRequestException ex)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
-                ErrorMessage = $"网络请求失败：{ex.Message}";
-                IsError = true;
             }
-            catch (MetadataServiceException ex)
+            catch (Exception ex) when (ex is HttpRequestException
+                or MetadataServiceException or TaskCanceledException
+                or InvalidOperationException or JsonException)
             {
-                ErrorMessage = $"数据源请求失败：{ex.Message}";
-                IsError = true;
-            }
-            catch (TaskCanceledException) when (ct.IsCancellationRequested)
-            {
-                // 用户操作引起的取消，静默忽略
-                return;
-            }
-            catch (TaskCanceledException)
-            {
-                // HTTP 超时或其他网络层取消，作为错误处理
-                ErrorMessage = "网络请求超时，请检查网络后重试";
-                IsError = true;
-            }
-            catch (Exception ex) when (ex is InvalidOperationException or JsonException)
-            {
-                ErrorMessage = $"数据解析失败：{ex.Message}";
+                if (!IsCurrentLoad(loadVersion, ct))
+                {
+                    return;
+                }
+
+                _logger.LogError(ex, "Anime detail load failed for {AnimeId}.", animeID);
+                ErrorMessage = ex switch
+                {
+                    HttpRequestException => $"网络请求失败：{ex.Message}",
+                    MetadataServiceException => $"数据源请求失败：{ex.Message}",
+                    TaskCanceledException => "网络请求超时，请检查网络后重试",
+                    _ => $"数据解析失败：{ex.Message}",
+                };
                 IsError = true;
             }
             finally
@@ -257,17 +268,10 @@ namespace AniMeido.Plugin.Base.ViewModels
                     ? $"制作/原作：{string.Join("、", studios.Select(s => s.Name))}"
                     : null;
             }
-            catch (HttpRequestException)
+            catch (Exception ex) when (ex is HttpRequestException or JsonException or MetadataServiceException)
             {
-                // Studio 网络请求失败不阻塞详情
-            }
-            catch (JsonException)
-            {
-                // Studio 解析失败不阻塞详情
-            }
-            catch (MetadataServiceException)
-            {
-                // Studio 数据源失败不阻塞详情
+                if (IsCurrentLoad(loadVersion, cancellationToken))
+                    _logger.LogWarning(ex, "Studio information unavailable for {AnimeId}; keeping the main detail.", animeID);
             }
         }
 
@@ -290,17 +294,10 @@ namespace AniMeido.Plugin.Base.ViewModels
                 foreach (var c in characters)
                     Characters.Add(c);
             }
-            catch (HttpRequestException)
+            catch (Exception ex) when (ex is HttpRequestException or JsonException or MetadataServiceException)
             {
-                // 角色网络请求失败不阻塞详情
-            }
-            catch (JsonException)
-            {
-                // 角色解析失败不阻塞详情
-            }
-            catch (MetadataServiceException)
-            {
-                // 角色数据源失败不阻塞详情
+                if (IsCurrentLoad(loadVersion, cancellationToken))
+                    _logger.LogWarning(ex, "Character information unavailable for {AnimeId}; keeping the main detail.", animeID);
             }
         }
 

@@ -7,9 +7,51 @@ namespace AniMeido.Tests
     {
         private ExportService CreateService()
         {
+            return new ExportService(DbFactory);
+        }
+
+        [Fact]
+        public async Task ExportSnapshot_KeepsRelatedTablesFromTheSameReadVersion()
+        {
+            await RunProductionMigrationAsync();
             var tracking = new TrackingService(DbFactory);
-            var savedTag = new SavedTagService(DbFactory);
-            return new ExportService(tracking, savedTag, DbFactory);
+            await tracking.SetStatusAsync(1, AnimeTrackingStatus.Watching);
+            await new SavedTagService(DbFactory).SaveTagAsync("before");
+            using var connection = await DbFactory.OpenAsync();
+            using var snapshot = connection.BeginTransaction(deferred: true);
+            using (var pin = connection.CreateCommand())
+            {
+                pin.Transaction = snapshot;
+                pin.CommandText = "SELECT COUNT(*) FROM tracking";
+                await pin.ExecuteScalarAsync();
+            }
+            // 模拟另一进程的私有 SQLite 缓存连接；共享缓存会用表锁阻止此交错。
+            using (var writer = new Microsoft.Data.Sqlite.SqliteConnection(
+                new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
+                {
+                    DataSource = DbFactory.DatabasePath,
+                    Cache = Microsoft.Data.Sqlite.SqliteCacheMode.Private,
+                    Pooling = false,
+                }.ToString()))
+            {
+                await writer.OpenAsync();
+                using var change = writer.CreateCommand();
+                change.CommandText = """
+                    UPDATE tracking SET Status=@status WHERE AnimeId=1;
+                    DELETE FROM saved_tags;
+                    INSERT INTO saved_tags(TagName) VALUES('after');
+                    """;
+                change.Parameters.AddWithValue("@status", (int)AnimeTrackingStatus.Completed);
+                await change.ExecuteNonQueryAsync();
+            }
+
+            var json = await ExportService.ExportSnapshotAsync(connection, snapshot);
+            using var data = System.Text.Json.JsonDocument.Parse(json);
+            Assert.Equal((int)AnimeTrackingStatus.Watching,
+                data.RootElement.GetProperty("tracking")[0].GetProperty("status").GetInt32());
+            Assert.Equal("before", data.RootElement.GetProperty("savedTags")[0].GetProperty("tagName").GetString());
+            snapshot.Dispose();
+            Assert.Equal(AnimeTrackingStatus.Completed, await tracking.GetStatusAsync(1));
         }
 
         [Fact]
@@ -37,7 +79,7 @@ namespace AniMeido.Tests
             await tracking.SetStatusAsync(2, AnimeTrackingStatus.Completed);
             await savedTag.SaveTagAsync("原创");
 
-            var svc = new ExportService(tracking, savedTag, DbFactory);
+            var svc = new ExportService(DbFactory);
             var json = await svc.ExportAsync();
 
             // 用新的独立数据库验证导入
@@ -47,10 +89,7 @@ namespace AniMeido.Tests
                 importDbFactory,
                 mockImportPaths).InitializeAsync();
 
-            var importSvc = new ExportService(
-                new TrackingService(importDbFactory),
-                new SavedTagService(importDbFactory),
-                importDbFactory);
+            var importSvc = new ExportService(importDbFactory);
             var (
                 trackingCount,
                 configCount,
@@ -115,10 +154,7 @@ namespace AniMeido.Tests
                 importFactory,
                 importPaths);
             await database.InitializeAsync();
-            var importService = new ExportService(
-                new TrackingService(importFactory),
-                new SavedTagService(importFactory),
-                importFactory);
+            var importService = new ExportService(importFactory);
             await importService.ImportAsync(json);
 
             var imported = new ActionCenterService(importFactory);
@@ -154,10 +190,7 @@ namespace AniMeido.Tests
             await new AniMeido.App.Services.DatabaseService(
                 importFactory,
                 importPaths).InitializeAsync();
-            await new ExportService(
-                new TrackingService(importFactory),
-                new SavedTagService(importFactory),
-                importFactory).ImportAsync(json);
+            await new ExportService(importFactory).ImportAsync(json);
 
             await using var imported = await importFactory.OpenAsync();
             var check = imported.CreateCommand();

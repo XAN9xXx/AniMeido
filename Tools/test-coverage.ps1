@@ -6,11 +6,11 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $settings = Join-Path $root 'coverage.runsettings'
 $run = Join-Path $root ("TestResults/coverage/{0}-{1}" -f (Get-Date -Format 'yyyyMMdd-HHmmss'), [guid]::NewGuid().ToString('N'))
-$modules = @('AniMeido.App', 'AniMeido.Contracts', 'AniMeido.PluginProtocol', 'AniMeido.Plugin.Base', 'AniMeido.Plugin.Player')
+$modules = @('AniMeido.App', 'AniMeido.Contracts', 'AniMeido.PluginProtocol', 'AniMeido.Updates', 'AniMeido.Plugin.Base.Core', 'AniMeido.Plugin.Base', 'AniMeido.Plugin.Player')
 
 try {
     Push-Location $root
-    foreach ($project in @('AniMeido.Tests', 'AniMeido.PluginProtocol.Tests')) {
+    foreach ($project in @('AniMeido.Plugin.Base.Core.Tests', 'AniMeido.PluginProtocol.Tests', 'AniMeido.Updates.Tests', 'AniMeido.Tests')) {
         $results = Join-Path $run $project
         $watch = [Diagnostics.Stopwatch]::StartNew()
         # Existing restored packages only: do not contact NuGet or install a collector/tool.

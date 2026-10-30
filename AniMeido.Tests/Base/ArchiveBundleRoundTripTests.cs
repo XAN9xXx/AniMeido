@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.IO.Compression;
+using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -16,7 +17,7 @@ using System.Threading.Channels;
 
 namespace AniMeido.Tests;
 
-public sealed class ArchiveBundleRoundTripTests : DbTestBase
+public sealed partial class ArchiveBundleRoundTripTests : DbTestBase
 {
     [Fact]
     public async Task LegacyBundle_UsesOneConversionPlanForDataAndScreenshotPublicIds()
@@ -122,13 +123,13 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
         => AssertRollbackAsync(cancel: true, unrelatedWrite: false);
 
     [Fact]
-    public Task Import_FailureAlsoRevertsUnrelatedWriteCommittedDuringImport()
+    public Task Import_RejectsUnrelatedWriteAndRestoresOnlyItsOwnChanges()
         => AssertRollbackAsync(cancel: false, unrelatedWrite: true);
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Import_RollbackUnavailableReportsBothFailuresAndSameBundleCanComplete(bool cancel)
+    public async Task Import_RollbackUnavailableBlocksWritesUntilRestartAndExplicitRecovery(bool cancel)
     {
         var fixture = await PrepareFailureAsync();
         var logger = new BundleLogger();
@@ -149,7 +150,7 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
             var error = await Assert.ThrowsAsync<ArchiveBundleRollbackException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10)));
             Assert.NotNull(backupLock);
             Assert.NotNull(backupPath);
-            Assert.Equal($"导入未完成，且未能撤销已写入的部分。可以重新导入同一个档案包来完成导入；导入前的数据备份在 {backupPath}。", error.Message);
+            Assert.Equal($"导入未完成，且未能撤销已写入的部分。已暂停修改，请先从备份恢复后再导入。导入前的数据备份在 {backupPath}。", error.Message);
             var failures = Assert.IsType<AggregateException>(error.InnerException).InnerExceptions;
             Assert.Equal(2, failures.Count);
             if (cancel) Assert.IsAssignableFrom<OperationCanceledException>(failures[0]);
@@ -162,11 +163,17 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
             var warning = Assert.Single(logger.Warnings);
             Assert.Contains(backupPath, warning.Message);
             Assert.Same(failures[1], warning.Exception);
-            await AssertIntegrityAsync();
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => new TrackingService(DbFactory).SetStatusAsync(99, AnimeTrackingStatus.Completed));
             backupLock.Dispose();
+
+            // 模拟重启后明确恢复备份；同一受损会话不能通过重试导入恢复编辑。
+            var restartedFactory = new SqliteConnectionFactory(Paths);
+            await new BackupService(restartedFactory, Paths).RestoreAsync(backupPath);
+            target = CreateServices(restartedFactory, Paths, logger);
             if (Directory.Exists(fixture.Second)) Directory.Delete(fixture.Second);
             Assert.Equal(2, await target.Bundle.ImportAsync(fixture.Bundle).WaitAsync(TimeSpan.FromSeconds(10)));
-            Assert.Equal(AnimeTrackingStatus.Watching, await new TrackingService(DbFactory).GetStatusAsync(17));
+            Assert.Equal(AnimeTrackingStatus.Watching, await new TrackingService(restartedFactory).GetStatusAsync(17));
             var restored = await target.Archive.GetArchiveAsync(17);
             Assert.NotNull(restored);
             Assert.Equal("完整笔记", restored.SummaryNote);
@@ -179,7 +186,10 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
                 Assert.Equal(await fixture.SourceArchive.GetScreenshotTagsAsync(original.ScreenshotId),
                     await target.Archive.GetScreenshotTagsAsync(copy.ScreenshotId));
             }
-            await AssertIntegrityAsync();
+            using var connection = await restartedFactory.OpenAsync();
+            using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA integrity_check";
+            Assert.Equal("ok", await command.ExecuteScalarAsync());
         }
         finally { backupLock?.Dispose(); }
     }
@@ -331,7 +341,7 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
         var secondPath = ScreenshotDestination(root, "incoming-second", Captured.AddDays(-1));
         using var cancellation = new CancellationTokenSource();
         var intercepted = false;
-        var externalWriteCommitted = false;
+        var externalWriteRejected = false;
 
         // 仅控制此调用的异步续体；第二张 PNG 的合法辅助块保证复制经过多次异步 I/O。
         // 不依赖 sleep 或监视器通知时序，在第一张已移动、第二张尚未完成的续体边界注入故障。
@@ -341,14 +351,11 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
             intercepted = true;
             if (unrelatedWrite)
             {
-                using var connection = DbFactory.CreateConnection();
-                connection.Open();
-                using var command = connection.CreateCommand();
-                command.CommandText = "INSERT INTO config(Key, Value) VALUES('other-window-write', 'committed')";
-                Assert.Equal(1, command.ExecuteNonQuery());
-                command.CommandText = "SELECT Value FROM config WHERE Key = 'other-window-write'";
-                Assert.Equal("committed", command.ExecuteScalar());
-                externalWriteCommitted = true;
+                Assert.Throws<PersonalDataBusyException>(() =>
+                    PersonalDataAccessTests.OutsideOperation(() =>
+                        new TrackingService(DbFactory).SetStatusAsync(99, AnimeTrackingStatus.Completed))
+                    .GetAwaiter().GetResult());
+                externalWriteRejected = true;
             }
             if (cancel) cancellation.Cancel();
             else Directory.CreateDirectory(secondPath); // Windows：File.Move 不能覆盖同名目录。
@@ -359,7 +366,7 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
             await Assert.ThrowsAnyAsync<IOException>(() => import.WaitAsync(TimeSpan.FromSeconds(10)));
 
         Assert.True(intercepted, "故障必须在第一张已经复制后注入，不能只验证导入前校验。");
-        Assert.Equal(unrelatedWrite, externalWriteCommitted);
+        Assert.Equal(unrelatedWrite, externalWriteRejected);
         Assert.Equal(before, await SnapshotAsync());
         Assert.False(File.Exists(firstPath));
         Assert.False(File.Exists(secondPath));
@@ -378,8 +385,7 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
         ILogger<ArchiveBundleService>? logger = null, PublicIdMigrationService? migration = null)
     {
         var archive = new ArchiveService(factory);
-        return (archive, new ArchiveBundleService(new ExportService(new TrackingService(factory),
-            new SavedTagService(factory), factory, migration), archive, new BackupService(factory, paths),
+        return (archive, new ArchiveBundleService(new ExportService(factory, migration), archive, new BackupService(factory, paths),
             logger ?? NullLogger<ArchiveBundleService>.Instance));
     }
 
@@ -490,6 +496,24 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
         }
     }
 
+    [Fact]
+    public async Task ContinuationHookFailureStillCompletesItsQueuedOperation()
+    {
+        var failure = new InvalidOperationException("synthetic continuation hook failure");
+        var completed = false;
+        async Task Operation()
+        {
+            await Task.Yield();
+            completed = true;
+        }
+
+        var actual = await Record.ExceptionAsync(() => RunWithContinuationHookAsync(
+            Operation, () => throw failure).WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.Same(failure, actual);
+        Assert.True(completed, "The dequeued continuation must finish before the hook failure is reported.");
+    }
+
     private static Task RunWithContinuationHookAsync(
         Func<Task> operation, Action beforeContinuation) => Task.Run(async () =>
     {
@@ -505,15 +529,30 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
         {
             SynchronizationContext.SetSynchronizationContext(previous);
         }
-        while (!pending.IsCompleted)
-            await context.RunOneAsync(pending);
-        await pending;
+
+        try
+        {
+            while (!pending.IsCompleted)
+                await context.RunOneAsync(pending);
+            await pending;
+        }
+#pragma warning disable CA1031 // 同时保留注入故障和真实导入或排空故障，不用后者覆盖前者。
+        catch (Exception error) when (context.HookFailure is { } hookFailure)
+        {
+            throw new AggregateException(hookFailure, error);
+        }
+#pragma warning restore CA1031
+
+        if (context.HookFailure is { } failure)
+            ExceptionDispatchInfo.Capture(failure).Throw();
     });
 
     private sealed class HookContext(Action hook) : SynchronizationContext, IDisposable
     {
         private readonly Channel<(SendOrPostCallback Callback, object? State)> _queue =
             Channel.CreateUnbounded<(SendOrPostCallback, object?)>();
+
+        public Exception? HookFailure { get; private set; }
 
         public override void Post(SendOrPostCallback d, object? state)
         {
@@ -532,7 +571,19 @@ public sealed class ArchiveBundleRoundTripTests : DbTestBase
             SetSynchronizationContext(this);
             try
             {
-                hook();
+                if (HookFailure is null)
+                {
+                    try
+                    {
+                        hook();
+                    }
+#pragma warning disable CA1031 // 保留注入故障，先让真实导入续体完成，再交还测试断言。
+                    catch (Exception error)
+                    {
+                        HookFailure = error;
+                    }
+#pragma warning restore CA1031
+                }
                 work.Callback(work.State);
             }
             finally

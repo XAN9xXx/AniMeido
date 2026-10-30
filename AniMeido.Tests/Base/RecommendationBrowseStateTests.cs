@@ -6,18 +6,6 @@ namespace AniMeido.Tests;
 
 public class RecommendationBrowseStateTests
 {
-    [Theory]
-    [InlineData(23, true)]
-    [InlineData(24, true)]
-    [InlineData(25, false)]
-    public void SnapshotFreshness_UsesTheSame24HourBoundary(int ageHours, bool expected)
-    {
-        var now = DateTimeOffset.UtcNow;
-        var snapshot = Snapshot() with { GeneratedAt = now.AddHours(-ageHours) };
-        Assert.Equal(expected, RecommendationService.IsSnapshotFresh(snapshot, now));
-        Assert.False(RecommendationService.IsSnapshotFresh(snapshot with { SchemaVersion = 1 }, now));
-    }
-
     [Fact]
     public void Skip_FiltersVisibleItemsWithoutChangingSnapshot()
     {

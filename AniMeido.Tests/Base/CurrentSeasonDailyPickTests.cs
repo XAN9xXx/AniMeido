@@ -1,4 +1,5 @@
 ﻿using AniMeido.Contracts;
+using Microsoft.Extensions.Logging.Abstractions;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
@@ -7,9 +8,47 @@ namespace AniMeido.Tests;
 
 /// <summary>放送日历“今日一抽”：当天固定的顺序、换一个的跳过规则，以及重启后保留结果。</summary>
 [Collection(CurrentSeasonSessionCollection.Name)]
-public sealed class CurrentSeasonDailyPickTests : DbTestBase
+public sealed class CurrentSeasonDailyPickTests : DbTestBase, IAsyncLifetime
 {
-    public CurrentSeasonDailyPickTests() => CurrentSeasonViewModel.ResetTimeMachineSession();
+    private readonly PersonalFeatureStateStore _featureState;
+    private readonly List<CurrentSeasonViewModel> _viewModels = [];
+    private readonly List<Task> _previousLoads = [];
+
+    private static readonly DateOnly TestDay = new(2026, 9, 18);
+    private static readonly TimeSpan Budget = TimeSpan.FromSeconds(10);
+
+    public CurrentSeasonDailyPickTests()
+    {
+        _featureState = new PersonalFeatureStateStore(DbFactory);
+        CurrentSeasonViewModel.ResetTimeMachineSession();
+    }
+
+    public Task InitializeAsync() => Task.CompletedTask;
+
+    public async Task DisposeAsync()
+    {
+        foreach (var vm in _viewModels)
+        {
+            vm.LoadSeasonalAnimeCommand.Cancel();
+            vm.CancelSupplementaryLoads();
+        }
+        try
+        {
+            await Task.WhenAll(_previousLoads.Concat(_viewModels.SelectMany(vm => new[]
+            {
+                vm.LoadSeasonalAnimeCommand.ExecutionTask ?? Task.CompletedTask,
+                vm.NextDailyPickCommand.ExecutionTask ?? Task.CompletedTask,
+                vm.LoadDailyPickDetailsCommand.ExecutionTask ?? Task.CompletedTask,
+                vm.PendingOthersLoad,
+                vm.PendingTimeMachineLoad,
+            }))).WaitAsync(Budget);
+        }
+        finally
+        {
+            // 加载结束后才会登记最终保存；数据库由随后执行的 DbTestBase.Dispose 清理。
+            await Task.WhenAll(_viewModels.Select(vm => vm.PendingTimeMachineShownSave)).WaitAsync(Budget);
+        }
+    }
 
     [Fact]
     public void BuildDailyOrder_IsStableForTheSameDayAndCoversAllIds()
@@ -54,12 +93,11 @@ public sealed class CurrentSeasonDailyPickTests : DbTestBase
     public async Task CalendarDailyPick_RoundTripsThroughConfig()
     {
         await RunProductionMigrationAsync();
-        var tracking = new TrackingService(DbFactory);
-        Assert.Null(await tracking.LoadCalendarDailyPickAsync());
+        Assert.Null(await _featureState.LoadCalendarDailyPickAsync());
 
-        await tracking.SaveCalendarDailyPickAsync(new DateOnly(2026, 9, 18), 42);
+        await _featureState.SaveCalendarDailyPickAsync(new DateOnly(2026, 9, 18), 42);
 
-        Assert.Equal((new DateOnly(2026, 9, 18), 42), await tracking.LoadCalendarDailyPickAsync());
+        Assert.Equal((new DateOnly(2026, 9, 18), 42), await _featureState.LoadCalendarDailyPickAsync());
     }
 
     [Fact]
@@ -82,33 +120,70 @@ public sealed class CurrentSeasonDailyPickTests : DbTestBase
     public async Task DailyPick_StartsOverWhenStoredDayIsNotToday()
     {
         await RunProductionMigrationAsync();
-        var tracking = new TrackingService(DbFactory);
-        await tracking.SaveCalendarDailyPickAsync(
-            DateOnly.FromDateTime(DateTime.Today).AddDays(-1),
+        await _featureState.SaveCalendarDailyPickAsync(
+            TestDay.AddDays(-1),
             ScheduleSource.Ids[^1]);
 
         var vm = await LoadAsync();
 
         var expected = CurrentSeasonViewModel.BuildDailyOrder(
             ScheduleSource.Ids,
-            DateOnly.FromDateTime(DateTime.Today))[0];
+            TestDay)[0];
         Assert.Equal(expected, vm.DailyPick?.Anime.ID);
+    }
+
+    [Theory]
+    [InlineData(2026, 3, 31)]
+    [InlineData(2026, 12, 31)]
+    public async Task DailyPickUsesTheNewLocalDateAcrossDaySeasonAndYearBoundaries(int year, int month, int day)
+    {
+        await RunProductionMigrationAsync();
+        var clock = new CalendarTestTime(new DateOnly(year, month, day));
+        var source = new ScheduleSource(clock.Today);
+        var tracking = new TrackingService(DbFactory);
+        var vm = CreateViewModel(source, tracking, clock);
+        var weekday = AnimeListPresentation.ToBangumiWeekday(clock.Today.DayOfWeek);
+        Assert.Equal(weekday, vm.SelectedWeekday);
+        Assert.Equal(weekday, Assert.Single(vm.Days, item => item.IsToday).Weekday);
+
+        await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null);
+        Assert.True(vm.HasData);
+        Assert.Equal(clock.Today, (await _featureState.LoadCalendarDailyPickAsync())!.Value.Date);
+        Assert.Contains((year, SeasonHelper.FromMonth(month)), source.SeasonRequests);
+
+        _previousLoads.AddRange([vm.PendingOthersLoad, vm.PendingTimeMachineLoad, vm.PendingTimeMachineShownSave]);
+        clock.Today = clock.Today.AddDays(1);
+        await vm.ReloadStatusesAsync();
+
+        Assert.Equal(clock.Today, (await _featureState.LoadCalendarDailyPickAsync())!.Value.Date);
+        Assert.Equal(CurrentSeasonViewModel.BuildDailyOrder(ScheduleSource.Ids, clock.Today)[0], vm.DailyPick?.Anime.ID);
+        Assert.Equal(clock.Today.Year - vm.TimeMachineYearsAgo, vm.TimeMachineTarget.Year);
+        Assert.Equal(SeasonHelper.FromMonth(clock.Today.Month), vm.TimeMachineTarget.Season);
     }
 
     private async Task<CurrentSeasonViewModel> LoadAsync()
     {
-        var vm = new CurrentSeasonViewModel(new ScheduleSource(), new TrackingService(DbFactory));
+        var clock = new CalendarTestTime(TestDay);
+        var vm = CreateViewModel(new ScheduleSource(TestDay), new TrackingService(DbFactory), clock);
         await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null);
         Assert.True(vm.HasData);
         return vm;
     }
 
-    private sealed class ScheduleSource : IAnimeDataSource
+    private CurrentSeasonViewModel CreateViewModel(
+        ScheduleSource source, TrackingService tracking, CalendarTestTime clock)
+    {
+        var vm = new CurrentSeasonViewModel(source, tracking, _featureState, clock, NullLogger.Instance);
+        _viewModels.Add(vm);
+        return vm;
+    }
+
+    private sealed class ScheduleSource(DateOnly date) : IAnimeDataSource
     {
         public static readonly int[] Ids = [1, 2, 3, 4, 5];
 
-        private static readonly int Today =
-            AnimeListPresentation.ToBangumiWeekday(DateTime.Today.DayOfWeek);
+        private readonly int _weekday = AnimeListPresentation.ToBangumiWeekday(date.DayOfWeek);
+        internal List<(int Year, Season Season)> SeasonRequests { get; } = [];
 
         private static T Unexpected<T>() => throw new NotSupportedException("Unexpected data-source request.");
 
@@ -116,7 +191,10 @@ public sealed class CurrentSeasonDailyPickTests : DbTestBase
             => Task.FromResult(Ids.Select(Item).ToList());
 
         public Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct)
-            => Task.FromResult(new List<Anime>());
+        {
+            SeasonRequests.Add((year, season));
+            return Task.FromResult(new List<Anime>());
+        }
 
         // 简介和标签只是补充信息，返回空即可。
         public Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct)
@@ -134,7 +212,7 @@ public sealed class CurrentSeasonDailyPickTests : DbTestBase
         public Task<(List<Anime> Results, int Total, int NextOffset)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct)
             => Unexpected<Task<(List<Anime>, int, int)>>();
 
-        private static Anime Item(int id) => new(
+        private Anime Item(int id) => new(
             id,
             $"作品{id}",
             null,
@@ -144,7 +222,7 @@ public sealed class CurrentSeasonDailyPickTests : DbTestBase
             string.Empty,
             2026,
             7,
-            Today,
+            _weekday,
             6.0 + id * 0.1,
             MediaFormat: AnimeMediaFormat.Television);
     }

@@ -7,6 +7,7 @@ using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
 
 namespace AniMeido.Plugin.Base.ViewModels
 {
@@ -35,12 +36,15 @@ namespace AniMeido.Plugin.Base.ViewModels
         private readonly SavedTagService _savedTagService;
         private readonly LocalSearchService _searchService;
         private readonly ArchiveService _archiveService;
+        private readonly ILogger _logger;
         // 作品详情跨状态、跨次加载复用：返回页面时内容不变，列表就不会重置滚动位置。
         private readonly ConcurrentDictionary<int, Anime> _animeCache = new();
         private Dictionary<int, (AnimeTrackingStatus Status, DateTimeOffset? MarkedAt)> _tracking = [];
         private IReadOnlyDictionary<int, double> _myRatings = new Dictionary<int, double>();
         private CancellationTokenSource? _viewCancellation;
         private int _viewVersion;
+        // 切换筛选只更换读取；开始新加载或离页才使旧写入的展示回写失效。
+        private int _loadVersion;
 
         public ObservableCollection<TrackingStatusSection> StatusSections { get; }
 
@@ -117,13 +121,15 @@ namespace AniMeido.Plugin.Base.ViewModels
             IAnimeDataSource dataSource,
             SavedTagService savedTagService,
             LocalSearchService searchService,
-            ArchiveService archiveService)
+            ArchiveService archiveService,
+            ILogger logger)
         {
             _trackingService = trackingService;
             _animeDataSource = dataSource;
             _savedTagService = savedTagService;
             _searchService = searchService;
             _archiveService = archiveService;
+            _logger = logger;
             StatusSections = new(TrackingStatusSection.CreateDefaults());
             MainSections = StatusSections.Where(section => !MineBrowse.IsHidden(section.Status)).ToList();
             HiddenSections = StatusSections.Where(section => MineBrowse.IsHidden(section.Status)).ToList();
@@ -138,6 +144,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         /// </summary>
         public async Task LoadAsync(CancellationToken cancellationToken = default)
         {
+            _loadVersion++;
             var version = BeginView(cancellationToken, out var token);
             IsLoading = true;
             ClearError();
@@ -160,7 +167,7 @@ namespace AniMeido.Plugin.Base.ViewModels
 
                 await RefreshViewAsync(version, token);
             }
-            catch (Exception ex) when (HandleLoadException(ex, token))
+            catch (Exception ex) when (HandleLoadException(ex, version, token))
             {
             }
             finally
@@ -235,6 +242,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             IReadOnlyList<MineEntry> entries,
             AnimeTrackingStatus? target)
         {
+            var loadVersion = _loadVersion;
             var succeeded = 0;
             var failed = 0;
             foreach (var entry in entries)
@@ -247,12 +255,14 @@ namespace AniMeido.Plugin.Base.ViewModels
                             continue;
 
                         await _trackingService.SetStatusAsync(entry.Anime.ID, status);
-                        _tracking[entry.Anime.ID] = (status, DateTimeOffset.UtcNow);
+                        if (loadVersion == _loadVersion)
+                            _tracking[entry.Anime.ID] = (status, DateTimeOffset.UtcNow);
                     }
                     else
                     {
                         await _trackingService.RemoveStatusAsync(entry.Anime.ID);
-                        _tracking.Remove(entry.Anime.ID);
+                        if (loadVersion == _loadVersion)
+                            _tracking.Remove(entry.Anime.ID);
                     }
 
                     succeeded++;
@@ -263,8 +273,11 @@ namespace AniMeido.Plugin.Base.ViewModels
                 }
             }
 
-            ApplyCounts();
-            await RunViewAsync();
+            if (loadVersion == _loadVersion)
+            {
+                ApplyCounts();
+                await RunViewAsync();
+            }
             return new StatusChangeResult(succeeded, failed);
         }
 
@@ -286,7 +299,11 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         public async Task RemoveTagAsync(string tagName)
         {
+            var loadVersion = _loadVersion;
             await _savedTagService.RemoveTagAsync(tagName);
+            if (loadVersion != _loadVersion)
+                return;
+
             var index = TagList.ToList().FindIndex(item => item.TagName == tagName);
             if (index >= 0)
                 TagList.RemoveAt(index);
@@ -305,6 +322,7 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         public void CancelPendingLoads()
         {
+            _loadVersion++;
             Interlocked.Increment(ref _viewVersion);
             _viewCancellation?.Cancel();
             _viewCancellation?.Dispose();
@@ -331,7 +349,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 await RefreshViewAsync(version, token);
             }
-            catch (Exception ex) when (HandleLoadException(ex, token))
+            catch (Exception ex) when (HandleLoadException(ex, version, token))
             {
             }
             finally
@@ -493,9 +511,10 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 return await _archiveService.GetPersonalRatingsAsync(token);
             }
-            catch (SqliteException)
+            catch (SqliteException ex)
             {
-                // 个人评分只是附加信息，读取失败时列表照常显示。
+                if (!token.IsCancellationRequested)
+                    _logger.LogWarning(ex, "Personal ratings could not be refreshed; keeping previously loaded ratings");
                 return null;
             }
         }
@@ -531,6 +550,8 @@ namespace AniMeido.Plugin.Base.ViewModels
                         or InvalidOperationException
                         or JsonException)
                     {
+                        if (!token.IsCancellationRequested)
+                            _logger.LogWarning(ex, "Skipping unavailable tracked anime {AnimeId}", id);
                     }
                 });
         }
@@ -549,34 +570,41 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         private bool HandleLoadException(
             Exception exception,
+            int version,
             CancellationToken cancellationToken)
         {
+            string errorMessage;
             switch (exception)
             {
                 case OperationCanceledException
                     when cancellationToken.IsCancellationRequested:
                     return true;
                 case TaskCanceledException:
-                    ErrorMessage = "网络请求超时，请检查网络后重试";
+                    errorMessage = "网络请求超时，请检查网络后重试";
                     break;
                 case HttpRequestException:
-                    ErrorMessage = $"网络请求失败：{exception.Message}";
+                    errorMessage = $"网络请求失败：{exception.Message}";
                     break;
                 case MetadataServiceException:
-                    ErrorMessage = $"数据源请求失败：{exception.Message}";
+                    errorMessage = $"数据源请求失败：{exception.Message}";
                     break;
                 case SqliteException:
-                    ErrorMessage = $"读取本地记录失败：{exception.Message}";
+                    errorMessage = $"读取本地记录失败：{exception.Message}";
                     break;
                 case InvalidOperationException:
                 case JsonException:
-                    ErrorMessage = $"数据解析失败：{exception.Message}";
+                    errorMessage = $"数据解析失败：{exception.Message}";
                     break;
                 default:
                     return false;
             }
 
-            IsError = true;
+            if (IsCurrent(version, cancellationToken))
+            {
+                _logger.LogError(exception, "My anime view could not be loaded");
+                ErrorMessage = errorMessage;
+                IsError = true;
+            }
             return true;
         }
 

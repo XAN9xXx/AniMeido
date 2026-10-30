@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using System.Runtime.CompilerServices;
 using AniMeido.Plugin.Base.Services;
 using ToolGood.Words.Pinyin;
 
@@ -6,6 +7,24 @@ namespace AniMeido.Tests;
 
 public sealed class TitleSortComparerTests
 {
+    [Fact]
+    public void SortKeyCache_DoesNotKeepDiscardedTitlesAlive()
+    {
+        var title = CacheTemporaryTitle();
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        Assert.False(title.TryGetTarget(out _));
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference<string> CacheTemporaryTitle()
+    {
+        var title = "123 " + Guid.NewGuid().ToString("N");
+        _ = TitleSortComparer.Instance.Compare(title, "456 other");
+        return new WeakReference<string>(title);
+    }
+
     internal static readonly string[] MixedTitles =
     [
         "86 不存在的战区",

@@ -1,94 +1,69 @@
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AniMeido.Tests
 {
     /// <summary>
-    /// 保留直接验证 cache 表结构和 SQL 的测试，并覆盖 CacheService 的保留期与离线兜底。
+    /// 验证 CacheService 的保留期、离线兜底与维护合同。
     /// </summary>
     public class CacheServiceTests : DbTestBase
     {
-        [Fact]
-        public async Task CacheTable_InsertAndSelect_ReturnsData()
+        [Theory]
+        [InlineData(-24, true, true)]
+        [InlineData(-24, false, true)]
+        [InlineData(-720, true, false)]
+        [InlineData(-720, false, false)]
+        [InlineData(-744, true, false)]
+        [InlineData(-744, false, false)]
+        public async Task OfflineReadAppliesExistingRetentionWithoutWaitingForStartupCleanup(
+            int expiresInHours, bool warmMemory, bool retained)
         {
             await CreateBaseTablesAsync();
+            var writer = new CacheService(DbFactory);
+            const string key = "offline-retention";
+            const string data = "retained-data";
+            await writer.SetCacheAsync(key, data, TimeSpan.FromHours(expiresInHours));
+            var reader = warmMemory ? writer : new CacheService(DbFactory);
 
-            using var conn = new SqliteConnection(ConnectionString);
-            await conn.OpenAsync();
-            var cmd = conn.CreateCommand();
-            cmd.CommandText = "INSERT INTO cache (CacheKey, Data, ExpiresAt) VALUES (@k, @d, @e)";
-            cmd.Parameters.AddWithValue("@k", "key1");
-            cmd.Parameters.AddWithValue("@d", "hello");
-            cmd.Parameters.AddWithValue("@e", DateTime.UtcNow.AddHours(1).ToString("O"));
-            await cmd.ExecuteNonQueryAsync();
+            var result = await reader.GetCacheAllowExpiredAsync(key);
 
-            cmd.CommandText = "SELECT Data FROM cache WHERE CacheKey = @k AND ExpiresAt > @now";
-            cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("O"));
-            var result = await cmd.ExecuteScalarAsync();
+            Assert.Equal(retained ? data : null, result);
+            // 读取只决定能否使用，不替代独立的数据库清理操作。
+            Assert.Equal(data, await ReadCacheRowAsync(key));
+        }
 
-            Assert.Equal("hello", result);
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        [Trait("Category", "Mechanism")]
+        public async Task OfflineReadDoesNotKeepOverRetentionDataInMemory(bool warmMemory)
+        {
+            await CreateBaseTablesAsync();
+            var writer = new CacheService(DbFactory);
+            await writer.SetCacheAsync("expired", "old", TimeSpan.FromDays(-31));
+            var reader = warmMemory ? writer : new CacheService(DbFactory);
+            await reader.SetCacheAsync("fresh", "new", TimeSpan.FromDays(1));
+
+            await reader.GetCacheAllowExpiredAsync("expired");
+
+            var memory = (System.Collections.IDictionary)typeof(CacheService)
+                .GetField("_memoryCache", System.Reflection.BindingFlags.Instance
+                    | System.Reflection.BindingFlags.NonPublic)!.GetValue(reader)!;
+            Assert.False(memory.Contains("expired"));
+            Assert.True(memory.Contains("fresh"));
         }
 
         [Fact]
-        public async Task CacheTable_ExpiredEntry_NotReturned()
+        public async Task ImageMaintenance_IsProvidedByTheDesktopComposition()
         {
             await CreateBaseTablesAsync();
+            var cleared = false;
+            var cache = new CacheService(DbFactory, () => cleared = true, () => 128);
 
-            using var conn = new SqliteConnection(ConnectionString);
-            await conn.OpenAsync();
-            var cmd = conn.CreateCommand();
-            cmd.CommandText = "INSERT INTO cache (CacheKey, Data, ExpiresAt) VALUES (@k, @d, @e)";
-            cmd.Parameters.AddWithValue("@k", "key1");
-            cmd.Parameters.AddWithValue("@d", "stale");
-            cmd.Parameters.AddWithValue("@e", DateTime.UtcNow.AddDays(-1).ToString("O"));
-            await cmd.ExecuteNonQueryAsync();
-
-            cmd.CommandText = "SELECT Data FROM cache WHERE CacheKey = @k AND ExpiresAt > @now";
-            cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("O"));
-            var result = await cmd.ExecuteScalarAsync();
-
-            Assert.Null(result);
-        }
-
-        [Fact]
-        public async Task CacheTable_AllowExpired_ReturnsStale()
-        {
-            await CreateBaseTablesAsync();
-
-            using var conn = new SqliteConnection(ConnectionString);
-            await conn.OpenAsync();
-            var cmd = conn.CreateCommand();
-            cmd.CommandText = "INSERT INTO cache (CacheKey, Data, ExpiresAt) VALUES (@k, @d, @e)";
-            cmd.Parameters.AddWithValue("@k", "key1");
-            cmd.Parameters.AddWithValue("@d", "stale");
-            cmd.Parameters.AddWithValue("@e", DateTime.UtcNow.AddDays(-1).ToString("O"));
-            await cmd.ExecuteNonQueryAsync();
-
-            cmd.CommandText = "SELECT Data FROM cache WHERE CacheKey = @k ORDER BY ExpiresAt DESC LIMIT 1";
-            var result = await cmd.ExecuteScalarAsync();
-
-            Assert.Equal("stale", result);
-        }
-
-        [Fact]
-        public async Task CacheTable_DeleteAll_ClearsTable()
-        {
-            await CreateBaseTablesAsync();
-
-            using var conn = new SqliteConnection(ConnectionString);
-            await conn.OpenAsync();
-            var cmd = conn.CreateCommand();
-            cmd.CommandText = "INSERT INTO cache (CacheKey, Data, ExpiresAt) VALUES ('k1', 'd1', '3000-01-01')";
-            await cmd.ExecuteNonQueryAsync();
-
-            cmd.CommandText = "DELETE FROM cache";
-            await cmd.ExecuteNonQueryAsync();
-
-            cmd.CommandText = "SELECT COUNT(*) FROM cache";
-            var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            Assert.Equal(0, count);
+            Assert.Equal((0, 128d), await cache.GetCacheStatsAsync());
+            await cache.ClearAllCacheAsync();
+            Assert.True(cleared);
         }
 
         [Theory]

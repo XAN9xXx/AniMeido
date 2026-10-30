@@ -706,7 +706,7 @@ namespace AniMeido.Plugin.Base.Views.Controls
                 AnimeId = anime.ID,
                 Title = anime.Title,
                 CoverImageUrl = anime.CoverURL,
-                Summary = anime.Description,
+                Summary = PersonalAnimeDataSource.IsUnavailable(anime) ? "资料不可用" : anime.Description,
                 SeasonYear = anime.SeasonYear,
                 SeasonMonth = anime.SeasonMonth,
                 Source = "AnimeCardBody",

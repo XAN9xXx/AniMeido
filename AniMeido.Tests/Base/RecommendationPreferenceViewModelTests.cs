@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AniMeido.Tests;
 
-public class RecommendationPreferenceViewModelTests : DbTestBase
+public partial class RecommendationPreferenceViewModelTests : DbTestBase
 {
     [Fact]
     public async Task TagTimeout_RetryStartsANewRequest()
@@ -20,9 +20,9 @@ public class RecommendationPreferenceViewModelTests : DbTestBase
                 ? Task.FromException<List<Tag>>(new TaskCanceledException("Request timed out"))
                 : Task.FromResult(new List<Tag>()),
         };
-        using var candidates = new RecommendationCandidateProvider(source, NullLogger<RecommendationCandidateProvider>.Instance);
-        using var service = CreateService(candidates);
-        var vm = new RecommendationViewModel(service, CreateState());
+        await using var candidates = new RecommendationCandidateProvider(source, NullLogger<RecommendationCandidateProvider>.Instance);
+        await using var service = CreateService(candidates);
+        var vm = new RecommendationViewModel(service, CreateState(), NullLogger.Instance);
         await vm.LoadAsync();
 
         await vm.LoadSelectedTagsAsync();
@@ -74,12 +74,12 @@ public class RecommendationPreferenceViewModelTests : DbTestBase
         NoNetworkSource source, TimeSpan age, Action<RecommendationViewModel>? assert = null)
     {
         await RunProductionMigrationAsync();
-        using var candidates = new RecommendationCandidateProvider(
+        await using var candidates = new RecommendationCandidateProvider(
             source, NullLogger<RecommendationCandidateProvider>.Instance);
-        using var service = CreateService(candidates);
+        await using var service = CreateService(candidates);
         var state = CreateState(age);
         state.SkippedIds.Add(1);
-        var vm = new RecommendationViewModel(service, state);
+        var vm = new RecommendationViewModel(service, state, NullLogger.Instance);
 
         await vm.LoadAsync();
 
@@ -91,9 +91,9 @@ public class RecommendationPreferenceViewModelTests : DbTestBase
     public async Task FollowingClick_TogglesAndKeepsCurrentRecommendation()
     {
         await RunProductionMigrationAsync();
-        using var candidates = new RecommendationCandidateProvider(new NoNetworkSource(), NullLogger<RecommendationCandidateProvider>.Instance);
-        using var service = CreateService(candidates);
-        var vm = new RecommendationViewModel(service, CreateState());
+        await using var candidates = new RecommendationCandidateProvider(new NoNetworkSource(), NullLogger<RecommendationCandidateProvider>.Instance);
+        await using var service = CreateService(candidates);
+        var vm = new RecommendationViewModel(service, CreateState(), NullLogger.Instance);
         await vm.LoadAsync();
         var item = vm.Items[0];
 
@@ -114,10 +114,10 @@ public class RecommendationPreferenceViewModelTests : DbTestBase
     {
         await RunProductionMigrationAsync();
         var source = new NoNetworkSource();
-        using var candidates = new RecommendationCandidateProvider(source, NullLogger<RecommendationCandidateProvider>.Instance);
-        using var service = CreateService(candidates);
+        await using var candidates = new RecommendationCandidateProvider(source, NullLogger<RecommendationCandidateProvider>.Instance);
+        await using var service = CreateService(candidates);
         var state = CreateState();
-        var vm = new RecommendationViewModel(service, state);
+        var vm = new RecommendationViewModel(service, state, NullLogger.Instance);
         await vm.LoadAsync();
         var items = vm.Items;
         var selected = vm.SelectedItem;
@@ -141,9 +141,9 @@ public class RecommendationPreferenceViewModelTests : DbTestBase
     public async Task SaveTag_FailureRetainsOriginalStateAndReenablesEditor()
     {
         await RunProductionMigrationAsync();
-        using var candidates = new RecommendationCandidateProvider(new NoNetworkSource(), NullLogger<RecommendationCandidateProvider>.Instance);
-        using var service = CreateService(candidates);
-        var vm = new RecommendationViewModel(service, CreateState());
+        await using var candidates = new RecommendationCandidateProvider(new NoNetworkSource(), NullLogger<RecommendationCandidateProvider>.Instance);
+        await using var service = CreateService(candidates);
+        var vm = new RecommendationViewModel(service, CreateState(), NullLogger.Instance);
         var tag = new RecommendationTagPreference(
             new RecommendationFeature(RecommendationFeatureKind.Tag, "旅行", "旅行"), null);
         using var cancellation = new CancellationTokenSource();
@@ -162,14 +162,14 @@ public class RecommendationPreferenceViewModelTests : DbTestBase
     {
         await RunProductionMigrationAsync();
         var source = new NoNetworkSource();
-        using var candidates = new RecommendationCandidateProvider(source, NullLogger<RecommendationCandidateProvider>.Instance);
-        using var service = CreateService(candidates);
+        await using var candidates = new RecommendationCandidateProvider(source, NullLogger<RecommendationCandidateProvider>.Instance);
+        await using var service = CreateService(candidates);
         var state = CreateState();
         state.SelectedAnimeId = 2;
         state.SkippedIds.Add(1);
         state.Section = "profile";
         state.VerticalOffset = 120;
-        var vm = new RecommendationViewModel(service, state);
+        var vm = new RecommendationViewModel(service, state, NullLogger.Instance);
 
         await vm.LoadAsync();
 
@@ -184,11 +184,11 @@ public class RecommendationPreferenceViewModelTests : DbTestBase
     public async Task Suspend_ClearsInterruptedLoadStateAndAsksForReloadOnce()
     {
         await RunProductionMigrationAsync();
-        using var candidates = new RecommendationCandidateProvider(new NoNetworkSource(), NullLogger<RecommendationCandidateProvider>.Instance);
-        using var service = CreateService(candidates);
+        await using var candidates = new RecommendationCandidateProvider(new NoNetworkSource(), NullLogger<RecommendationCandidateProvider>.Instance);
+        await using var service = CreateService(candidates);
         var state = CreateState();
         var savedProfile = state.Profile;
-        var vm = new RecommendationViewModel(service, state)
+        var vm = new RecommendationViewModel(service, state, NullLogger.Instance)
         {
             // 模拟离开页面时整页刷新还没结束。
             IsBusy = true,
@@ -218,9 +218,9 @@ public class RecommendationPreferenceViewModelTests : DbTestBase
             await command.ExecuteNonQueryAsync();
         }
         var source = new NoNetworkSource { Popular = () => Task.FromResult(new List<Anime>()) };
-        using var candidates = new RecommendationCandidateProvider(source, NullLogger<RecommendationCandidateProvider>.Instance);
-        using var service = CreateService(candidates);
-        var vm = new RecommendationViewModel(service, new RecommendationBrowseState());
+        await using var candidates = new RecommendationCandidateProvider(source, NullLogger<RecommendationCandidateProvider>.Instance);
+        await using var service = CreateService(candidates);
+        var vm = new RecommendationViewModel(service, new RecommendationBrowseState(), NullLogger.Instance);
         Assert.True(await vm.RefreshAsync());
         Assert.Empty(service.LastProfile);
         var invalid = Assert.Single(vm.Profile);

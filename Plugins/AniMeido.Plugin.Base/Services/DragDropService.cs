@@ -1,6 +1,7 @@
 using AniMeido.Contracts.DragDrop;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -34,6 +35,8 @@ namespace AniMeido.Plugin.Base.Services
         private const bool VerboseDragLog = false;
 
         private readonly TrackingService _tracking;
+        private readonly PersonalFeatureStateStore _featureState;
+        private readonly ILogger<DragDropService> _logger;
 
         private List<DragZoneConfig> _dragZones = DragZoneConfig.GetDefaults();
         private readonly Dictionary<string, ZoneVisual> _overlayZones = new();
@@ -45,14 +48,19 @@ namespace AniMeido.Plugin.Base.Services
 
 
 
-        public DragDropService(TrackingService tracking)
+        public DragDropService(
+            TrackingService tracking,
+            PersonalFeatureStateStore featureState,
+            ILogger<DragDropService> logger)
         {
             _tracking = tracking;
+            _featureState = featureState;
+            _logger = logger;
         }
 
         public async Task ReloadConfigAsync()
         {
-            _dragZones = await _tracking.LoadDragZoneConfigAsync();
+            _dragZones = await _featureState.LoadDragZoneConfigAsync();
         }
 
         public void BuildAndShowZones(UIElement overlay, params DragAction[] excludeActions)
@@ -133,36 +141,7 @@ namespace AniMeido.Plugin.Base.Services
                 };
                 zone.Drop += async (s, args) =>
                 {
-                    System.Diagnostics.Debug.WriteLine("[InternalDropZone] Drop triggered");
-                    if (!args.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text))
-                        return;
-
-                    string? text;
-                    try
-                    {
-                        text = await args.DataView.GetTextAsync();
-                    }
-                    catch
-                    {
-                        System.Diagnostics.Debug.WriteLine("[InternalDropZone] payload parse fail - GetTextAsync failed");
-                        return;
-                    }
-
-                    if (string.IsNullOrEmpty(text))
-                        return;
-
-                    var payload = AnimeCardDragPayloadSerializer.Deserialize(text);
-                    if (payload == null)
-                    {
-                        System.Diagnostics.Debug.WriteLine("[InternalDropZone] payload parse fail - invalid payload");
-                        return;
-                    }
-
-                    // 通过共享路由方法处理，与 HandleStandardDropAsync 复用 Zone 命中逻辑
-                    var dropPoint = args.GetPosition(overlay);
-                    await RoutePayloadToZoneAsync(payload, dropPoint);
-
-                    // 视觉由 CancelStandardDrag 统一清理
+                    await HandleStandardDropAsync(args, overlay);
                 };
 #pragma warning restore CA1031
 
@@ -250,7 +229,10 @@ namespace AniMeido.Plugin.Base.Services
         {
             System.Diagnostics.Debug.WriteLine($"[DragDropService] HandleExternalDrop called: pos=({dropPoint.X:F0},{dropPoint.Y:F0}), payload={payload.AnimeId}");
 
-            var result = await RoutePayloadToZoneAsync(payload, dropPoint);
+            var owner = _standardPageRoot;
+            var result = await HandleDropAsync(
+                () => RoutePayloadToZoneAsync(payload, dropPoint),
+                message => ShowDropFailureAsync(owner, message));
             if (!result)
                 System.Diagnostics.Debug.WriteLine("[DragDropService] HandleExternalDrop no valid target, ignored");
             return result;
@@ -353,7 +335,15 @@ namespace AniMeido.Plugin.Base.Services
             }
         }
 
-        public async Task<bool> HandleStandardDropAsync(DragEventArgs e, UIElement? _)
+        public Task<bool> HandleStandardDropAsync(DragEventArgs e, UIElement? fallbackOwner)
+        {
+            var owner = _standardPageRoot ?? fallbackOwner;
+            return HandleDropAsync(
+                () => HandleStandardDropCoreAsync(e),
+                message => ShowDropFailureAsync(owner, message));
+        }
+
+        private async Task<bool> HandleStandardDropCoreAsync(DragEventArgs e)
         {
             System.Diagnostics.Debug.WriteLine("[DragDropService] StandardDrop called");
 
@@ -800,36 +790,53 @@ namespace AniMeido.Plugin.Base.Services
             await HandleStandardDropAsync(e, _standardOverlay ?? sender as UIElement);
         }
 
-        private static List<T> FindAllElements<T>(DependencyObject parent) where T : DependencyObject
+        internal async Task<bool> HandleDropAsync(
+            Func<Task<bool>> dropAsync,
+            Func<string, Task> showFailureAsync)
         {
-            var r = new List<T>();
-            FindAllRecursive(parent, r);
-            return r;
-        }
-
-        private static void FindAllRecursive<T>(DependencyObject p, List<T> r) where T : DependencyObject
-        {
-            int c = VisualTreeHelper.GetChildrenCount(p);
-            for (int i = 0; i < c; i++)
-            {
-                var ch = VisualTreeHelper.GetChild(p, i);
-                if (ch is T t) r.Add(t);
-                FindAllRecursive(ch, r);
-            }
-        }
-
-        private async Task SetStatusSafelyAsync(int animeId, AnimeTrackingStatus status)
-        {
+            string message;
             try
             {
-                await _tracking.SetStatusAsync(animeId, status);
+                return await dropAsync();
             }
-#pragma warning disable CA1031 // 拖放状态写入失败不阻塞操作
+            catch (PersonalDataBusyException ex)
+            {
+                message = ex.Message;
+            }
+#pragma warning disable CA1031 // 这是拖放事件的最终异常边界，不能向 async void 入口继续传播。
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[DragDrop] Failed to set tracking status. AnimeId={animeId}, Status={status}: {ex.Message}");
+                _logger.LogError(ex, "拖放操作未完成。");
+                message = "拖放未完成，请刷新后确认状态，再重试。";
+            }
+
+            try
+            {
+                await showFailureAsync(message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "无法显示拖放失败提示。");
             }
 #pragma warning restore CA1031
+            return false;
+        }
+
+        private static async Task ShowDropFailureAsync(UIElement? owner, string message)
+        {
+            if (owner is not FrameworkElement { IsLoaded: true, XamlRoot: { } root })
+            {
+                return;
+            }
+
+            var dialog = new ContentDialog
+            {
+                XamlRoot = root,
+                Title = "拖放未完成",
+                Content = message,
+                CloseButtonText = "知道了",
+            };
+            await dialog.ShowAsync();
         }
     }
 

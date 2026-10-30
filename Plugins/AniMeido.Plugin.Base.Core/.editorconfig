@@ -1,0 +1,3 @@
+﻿# 业务核心不能继承桌面项目的平台兼容性豁免。
+[*.cs]
+dotnet_diagnostic.CA1416.severity = warning

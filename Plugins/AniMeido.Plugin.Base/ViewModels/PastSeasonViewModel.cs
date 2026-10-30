@@ -4,6 +4,7 @@ using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using System.Collections.ObjectModel;
 
@@ -50,16 +51,22 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         private readonly IAnimeDataSource _animeDataSource;
         private readonly TrackingService _tracking;
+        private readonly ILogger _logger;
         private IReadOnlyDictionary<int, AnimeTrackingStatus> _statuses =
             new Dictionary<int, AnimeTrackingStatus>();
         private int _loadVersion;
+        private int _statusLoadVersion;
 
 
 
-        public PastSeasonViewModel(IAnimeDataSource dataSource, TrackingService tracking)
+        public PastSeasonViewModel(
+            IAnimeDataSource dataSource,
+            TrackingService tracking,
+            ILogger logger)
         {
             _animeDataSource = dataSource;
             _tracking = tracking;
+            _logger = logger;
         }
 
 
@@ -92,42 +99,24 @@ namespace AniMeido.Plugin.Base.ViewModels
 
                 LoadedAnime = list.ToArray();
             }
-            catch (HttpRequestException ex)
-            {
-                if (!IsCurrentLoad(version, ct))
-                    return;
-
-                ErrorMessage = $"网络请求失败：{ex.Message}";
-                IsError = true;
-            }
-            catch (MetadataServiceException ex)
-            {
-                if (!IsCurrentLoad(version, ct))
-                    return;
-
-                ErrorMessage = $"数据源请求失败：{ex.Message}";
-                IsError = true;
-            }
             catch (TaskCanceledException) when (ct.IsCancellationRequested)
             {
-                // 用户切换年份/季度引起的取消，静默忽略
                 return;
             }
-            catch (TaskCanceledException)
+            catch (Exception ex) when (ex is HttpRequestException or MetadataServiceException
+                or TaskCanceledException or InvalidOperationException or JsonException)
             {
                 if (!IsCurrentLoad(version, ct))
                     return;
 
-                // HTTP 超时或其他网络层取消，作为错误处理
-                ErrorMessage = "网络请求超时，请检查网络后重试";
-                IsError = true;
-            }
-            catch (Exception ex) when (ex is InvalidOperationException or JsonException)
-            {
-                if (!IsCurrentLoad(version, ct))
-                    return;
-
-                ErrorMessage = $"数据解析失败：{ex.Message}";
+                _logger.LogError(ex, "Season load failed for {Year} {Season}.", year, season);
+                ErrorMessage = ex switch
+                {
+                    HttpRequestException => $"网络请求失败：{ex.Message}",
+                    MetadataServiceException => $"数据源请求失败：{ex.Message}",
+                    TaskCanceledException => "网络请求超时，请检查网络后重试",
+                    _ => $"数据解析失败：{ex.Message}",
+                };
                 IsError = true;
             }
             finally
@@ -141,6 +130,18 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
         }
 
+        /// <summary>离页时作废在途结果，立即结束加载展示；保留已加载内容和浏览条件。</summary>
+        public void Suspend()
+        {
+            Interlocked.Increment(ref _loadVersion);
+            Interlocked.Increment(ref _statusLoadVersion);
+            if (!IsLoading)
+                return;
+
+            IsLoading = false;
+            Refresh(keepList: true);
+        }
+
         private bool IsCurrentLoad(int version, CancellationToken ct) =>
             version == Volatile.Read(ref _loadVersion) && !ct.IsCancellationRequested;
 
@@ -150,15 +151,19 @@ namespace AniMeido.Plugin.Base.ViewModels
         /// </summary>
         public async Task<bool> ReloadStatusesAsync()
         {
+            var version = Interlocked.Increment(ref _statusLoadVersion);
             try
             {
-                _statuses = (await _tracking.GetAllTrackingAsync())
-                    .ToDictionary(row => row.AnimeId, row => row.Status);
+                var statuses = await _tracking.GetAllTrackingAsync();
+                if (version != Volatile.Read(ref _statusLoadVersion))
+                    return true;
+
+                _statuses = statuses.ToDictionary(row => row.AnimeId, row => row.Status);
             }
             catch (Microsoft.Data.Sqlite.SqliteException ex)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[PastSeasonViewModel] ReloadStatusesAsync failed: {ex.Message}");
+                if (version == Volatile.Read(ref _statusLoadVersion))
+                    _logger.LogWarning(ex, "Tracking status refresh failed; keeping previous season statuses.");
                 return false;
             }
 

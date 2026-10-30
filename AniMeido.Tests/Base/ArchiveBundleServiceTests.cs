@@ -9,6 +9,41 @@ namespace AniMeido.Tests;
 public sealed class ArchiveBundleServiceTests : DbTestBase
 {
     [Fact]
+    public async Task Export_IncludesScreenshotBytesAndTagsWithMatchingManifest()
+    {
+        await RunProductionMigrationAsync();
+        var path = Path.Combine(Paths.BackupDirectory, "complete.zip");
+        var imagePath = Path.Combine(Paths.BackupDirectory, "image.png");
+        Directory.CreateDirectory(Paths.BackupDirectory);
+        byte[] bytes = [1, 2, 3, 4, 5, 6];
+        await File.WriteAllBytesAsync(imagePath, bytes);
+        var archive = new ArchiveService(DbFactory);
+        var screenshot = new AniMeido.Plugin.Base.Models.AnimeScreenshot(
+            "image", imagePath, Convert.ToHexString(SHA256.HashData(bytes)), DateTimeOffset.UtcNow,
+            "window", "process", 1, 1, null, null, null, null, "note", true);
+        await archive.InsertScreenshotAsync(screenshot);
+        await archive.AddScreenshotTagsAsync(["image"], ["tag"]);
+        var export = new ExportService(DbFactory);
+        var service = new ArchiveBundleService(export, archive, new BackupService(DbFactory, Paths),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<ArchiveBundleService>.Instance);
+
+        await service.ExportAsync(path);
+
+        using var zip = ZipFile.OpenRead(path);
+        await using var image = zip.GetEntry("screenshots/image.png")!.Open();
+        using var copy = new MemoryStream();
+        await image.CopyToAsync(copy);
+        Assert.Equal(bytes, copy.ToArray());
+        using var manifest = new StreamReader(zip.GetEntry("sha256.txt")!.Open());
+        Assert.Contains(screenshot.Sha256 + "  screenshots/image.png", await manifest.ReadToEndAsync());
+        using var metadata = JsonDocument.Parse(zip.GetEntry("screenshots.json")!.Open());
+        Assert.Equal("tag", metadata.RootElement.GetProperty("screenshots")[0].GetProperty("tags")[0].GetString());
+        var snapshot = await export.ExportBundleSnapshotAsync(CancellationToken.None);
+        Assert.Equal("image", Assert.Single(snapshot.Screenshots).ScreenshotId);
+        Assert.Equal(["tag"], snapshot.Tags["image"]);
+    }
+
+    [Fact]
     public async Task Import_RejectsDuplicateManifestPath()
     {
         await RunProductionMigrationAsync();
@@ -31,10 +66,7 @@ public sealed class ArchiveBundleServiceTests : DbTestBase
             }
 
             var service = new ArchiveBundleService(
-                new ExportService(
-                    new TrackingService(DbFactory),
-                    new SavedTagService(DbFactory),
-                    DbFactory),
+                new ExportService(DbFactory),
                 new ArchiveService(DbFactory),
                 new BackupService(DbFactory, Paths), Microsoft.Extensions.Logging.Abstractions.NullLogger<ArchiveBundleService>.Instance);
 
@@ -57,10 +89,7 @@ public sealed class ArchiveBundleServiceTests : DbTestBase
             $"AniMeido-unsafe-screenshot-{Guid.NewGuid():N}.zip");
         try
         {
-            var export = new ExportService(
-                new TrackingService(DbFactory),
-                new SavedTagService(DbFactory),
-                DbFactory);
+            var export = new ExportService(DbFactory);
             var dataJson = await export.ExportAsync();
             var screenshot = new
             {
@@ -135,10 +164,7 @@ public sealed class ArchiveBundleServiceTests : DbTestBase
             }
 
             var service = new ArchiveBundleService(
-                new ExportService(
-                    new TrackingService(DbFactory),
-                    new SavedTagService(DbFactory),
-                    DbFactory),
+                new ExportService(DbFactory),
                 new ArchiveService(DbFactory),
                 new BackupService(DbFactory, Paths), Microsoft.Extensions.Logging.Abstractions.NullLogger<ArchiveBundleService>.Instance);
             var exception = await Assert.ThrowsAsync<InvalidDataException>(

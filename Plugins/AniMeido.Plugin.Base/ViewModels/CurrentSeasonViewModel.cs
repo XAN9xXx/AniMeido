@@ -2,6 +2,7 @@
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Services;
+using Microsoft.Extensions.Logging;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -21,6 +22,13 @@ namespace AniMeido.Plugin.Base.ViewModels
     /// <param name="isOther">不是已确认且有星期排期的 TV，归入“其他”一格的作品。</param>
     public sealed partial class CalendarEntry(Anime anime, bool isOther = false) : ObservableObject
     {
+        private readonly TimeProvider _timeProvider = TimeProvider.System;
+
+        internal CalendarEntry(Anime anime, bool isOther, TimeProvider timeProvider) : this(anime, isOther)
+        {
+            _timeProvider = timeProvider;
+        }
+
         public Anime Anime { get; private set; } = anime;
 
         public bool IsOther { get; private set; } = isOther;
@@ -39,12 +47,12 @@ namespace AniMeido.Plugin.Base.ViewModels
         /// <summary>已经上映或发售，才谈得上追番。没有日期的按未上映处理。</summary>
         public bool IsReleased =>
             Anime.AirDate is { } airDate
-            && airDate <= DateOnly.FromDateTime(DateTime.Today);
+            && airDate <= DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
 
         /// <summary>有明确首播日期且晚于今天时显示“未开播”；缺日期不显示角标。</summary>
         public bool IsNotYetAired =>
             Anime.AirDate is { } airDate
-            && airDate > DateOnly.FromDateTime(DateTime.Today);
+            && airDate > DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
 
         /// <summary>未上映的“其他”作品只能关注，上映后才出现“追番”。</summary>
         public bool ShowWatchAction => !IsOther || IsReleased;
@@ -136,6 +144,9 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         private readonly IAnimeDataSource _animeDataSource;
         private readonly TrackingService _tracking;
+        private readonly PersonalFeatureStateStore _featureState;
+        private readonly ILogger _logger;
+        private readonly TimeProvider _timeProvider;
         private IReadOnlyList<Anime> _schedule = [];
         // 本季不在原始放送表里的作品，来自按季查询；放送表中的非 TV 也显示在“其他”。
         private IReadOnlyList<Anime> _others = [];
@@ -172,8 +183,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         private CalendarSort _sort = CalendarSort.Score;
 
         [ObservableProperty]
-        private int _selectedWeekday =
-            AnimeListPresentation.ToBangumiWeekday(DateTime.Today.DayOfWeek);
+        private int _selectedWeekday;
 
         [ObservableProperty]
         private ObservableCollection<CalendarEntry> _visibleEntries = [];
@@ -198,12 +208,28 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         public CurrentSeasonViewModel(
             IAnimeDataSource dataSource,
-            TrackingService tracking)
+            TrackingService tracking,
+            PersonalFeatureStateStore featureState,
+            ILogger logger)
+            : this(dataSource, tracking, featureState, TimeProvider.System, logger)
+        {
+        }
+
+        internal CurrentSeasonViewModel(
+            IAnimeDataSource dataSource,
+            TrackingService tracking,
+            PersonalFeatureStateStore featureState,
+            TimeProvider timeProvider,
+            ILogger logger)
         {
             _animeDataSource = dataSource;
             _tracking = tracking;
+            _featureState = featureState;
+            _logger = logger;
+            _timeProvider = timeProvider;
             var today = AnimeListPresentation.ToBangumiWeekday(
-                DateTime.Today.DayOfWeek);
+                Today.DayOfWeek);
+            _selectedWeekday = today;
             Days = new ObservableCollection<CalendarDay>(
                 Enumerable.Range(1, 7)
                     .Select(weekday => new CalendarDay(
@@ -214,6 +240,17 @@ namespace AniMeido.Plugin.Base.ViewModels
         }
 
         public ObservableCollection<CalendarDay> Days { get; }
+
+        private DateOnly Today => DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
+
+        private (int Year, Season Season) CurrentSeason
+        {
+            get
+            {
+                var today = Today;
+                return (today.Year, SeasonHelper.FromMonth(today.Month));
+            }
+        }
 
         /// <summary>搜索有内容或只看“我的”时，结果跨越多天，改用网格显示。</summary>
         public bool IsFiltering =>
@@ -408,7 +445,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 }
                 else if (status != AnimeTrackingStatus.Blocked)
                 {
-                    merged.Add(new CalendarEntry(candidate.Anime, candidate.IsOther)
+                    merged.Add(new CalendarEntry(candidate.Anime, candidate.IsOther, _timeProvider)
                     {
                         Status = status,
                     });
@@ -430,6 +467,38 @@ namespace AniMeido.Plugin.Base.ViewModels
         private void RetryLoad()
         {
             LoadSeasonalAnimeCommand.Execute(null);
+        }
+
+        [RelayCommand]
+        private async Task ResumeMainLoadAsync()
+        {
+            var command = LoadSeasonalAnimeCommand;
+            var generation = _supplementaryLoadGeneration;
+            if (command.IsRunning)
+            {
+                if (!command.IsCancellationRequested || command.ExecutionTask is not { } interrupted)
+                    return;
+
+                try
+                {
+                    await interrupted;
+                }
+#pragma warning disable CA1031 // 原命令拥有失败；这里只等它退出，不重复报告或自动重试未知错误。
+                catch (Exception)
+                {
+                    return;
+                }
+#pragma warning restore CA1031
+
+                if (generation != _supplementaryLoadGeneration
+                    || !ReferenceEquals(command.ExecutionTask, interrupted))
+                {
+                    return;
+                }
+            }
+
+            if (!command.IsRunning && !HasData && !IsError)
+                command.Execute(null);
         }
 
         [RelayCommand]
@@ -458,36 +527,31 @@ namespace AniMeido.Plugin.Base.ViewModels
 
                 // 已确认 TV 先显示在星期格，其余暂归“其他”；随后用季度目录补齐形态。
                 _schedule = schedule.DistinctBy(anime => anime.ID).ToList();
-                _entries = BuildEntries(_schedule, statuses);
+                _entries = BuildEntries(_schedule, [], statuses, _timeProvider);
                 HasData = _entries.Count > 0;
                 Refresh(rebuildList: true);
                 PendingOthersLoad = LoadOthersAsync();
                 await EnsureDailyPickAsync(supplementaryGeneration);
             }
-            catch (HttpRequestException ex)
-            {
-                ErrorMessage = $"网络请求失败：{ex.Message}";
-                IsError = true;
-            }
-            catch (MetadataServiceException ex)
-            {
-                ErrorMessage = $"数据源请求失败：{ex.Message}";
-                IsError = true;
-            }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
-                // 用户操作引起的取消，静默忽略
                 return;
             }
-            catch (TaskCanceledException)
+            catch (Exception ex) when (ex is HttpRequestException
+                or MetadataServiceException or TaskCanceledException
+                or InvalidOperationException or JsonException)
             {
-                // HTTP 超时或其他网络层取消，作为错误处理
-                ErrorMessage = "网络请求超时，请检查网络后重试";
-                IsError = true;
-            }
-            catch (Exception ex) when (ex is InvalidOperationException or JsonException)
-            {
-                ErrorMessage = $"数据解析失败：{ex.Message}";
+                if (ct.IsCancellationRequested)
+                    return;
+
+                _logger.LogError(ex, "放送日历加载失败。");
+                ErrorMessage = ex switch
+                {
+                    HttpRequestException => $"网络请求失败：{ex.Message}",
+                    MetadataServiceException => $"数据源请求失败：{ex.Message}",
+                    TaskCanceledException => "网络请求超时，请检查网络后重试",
+                    _ => $"数据解析失败：{ex.Message}",
+                };
                 IsError = true;
             }
             finally
@@ -555,10 +619,10 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
             finally
             {
+                cts.Dispose();
                 if (ReferenceEquals(_othersCts, cts))
                 {
                     _othersCts = null;
-                    cts.Dispose();
                     Refresh(rebuildList: SelectedWeekday == CalendarDay.OtherKey, keepUnchangedList: true);
                 }
             }
@@ -572,7 +636,6 @@ namespace AniMeido.Plugin.Base.ViewModels
 
             _othersCts = null;
             cts.Cancel();
-            cts.Dispose();
         }
 
         /// <summary>“其他”正在加载或等待重新开始（还没有结果，也没有失败）。</summary>
@@ -614,7 +677,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 && !ReferenceEquals(_dailyPickDetailsFor, pick)
                 && _dailyPickDetailCts is null)
             {
-                _ = LoadDailyPickDetailsAsync(pick);
+                LoadDailyPickDetailsCommand.Execute(pick);
             }
         }
 
@@ -625,7 +688,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         {
             try
             {
-                var (year, season) = SeasonHelper.GetCurrentSeason();
+                var (year, season) = CurrentSeason;
                 return await _animeDataSource.GetAnimeBySeasonAsync(year, season, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -638,8 +701,8 @@ namespace AniMeido.Plugin.Base.ViewModels
                 or InvalidOperationException
                 or JsonException)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[CurrentSeasonViewModel] TryLoadSeasonAnimeAsync failed: {ex.Message}");
+                if (!ct.IsCancellationRequested)
+                    _logger.LogWarning(ex, "季度目录加载失败，保留放送列表。");
                 return null;
             }
         }
@@ -654,8 +717,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             catch (Microsoft.Data.Sqlite.SqliteException ex)
             {
                 // 初次加载可继续显示日程；后续刷新由调用方保留既有状态。
-                System.Diagnostics.Debug.WriteLine(
-                    $"[CurrentSeasonViewModel] TryReadStatusesAsync failed: {ex.Message}");
+                _logger.LogWarning(ex, "日历追番标记读取失败，沿用已有标记或空状态。");
                 return null;
             }
         }
@@ -667,7 +729,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             var mineCount = _entries.Count(entry => entry.IsMine);
             TotalCountText = _entries.Count.ToString(CultureInfo.InvariantCulture);
             MineCountText = mineCount.ToString(CultureInfo.InvariantCulture);
-            var (year, season) = SeasonHelper.GetCurrentSeason();
+            var (year, season) = CurrentSeason;
             SeasonSummary =
                 $"{year} 年{GetSeasonName(season)} · 共 {_entries.Count} 部 · 上线时间以平台为准";
 
@@ -760,11 +822,12 @@ namespace AniMeido.Plugin.Base.ViewModels
         internal static IReadOnlyList<CalendarEntry> BuildEntries(
             IEnumerable<Anime> schedule,
             IEnumerable<Anime> others,
-            IReadOnlyDictionary<int, AnimeTrackingStatus> statuses)
+            IReadOnlyDictionary<int, AnimeTrackingStatus> statuses,
+            TimeProvider? timeProvider = null)
             => BuildCandidates(schedule, others)
                 .Where(item => statuses.GetValueOrDefault(item.Anime.ID)
                     != AnimeTrackingStatus.Blocked)
-                .Select(item => new CalendarEntry(item.Anime, item.IsOther)
+                .Select(item => new CalendarEntry(item.Anime, item.IsOther, timeProvider ?? TimeProvider.System)
                 {
                     Status = statuses.GetValueOrDefault(item.Anime.ID),
                 })

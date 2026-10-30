@@ -110,6 +110,27 @@ public sealed class ArchiveServiceTests : DbTestBase
     }
 
     [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public async Task NonFiniteRatingDoesNotOverwriteTheExistingArchive(double rating)
+    {
+        await RunProductionMigrationAsync();
+        var service = new ArchiveService(DbFactory);
+        await service.UpsertArchiveAsync(42, "原作品", 8.5, "保留感想");
+
+        var error = await Record.ExceptionAsync(() =>
+            service.UpsertArchiveAsync(42, "错误标题", rating, "错误感想"));
+
+        var saved = await service.GetArchiveAsync(42);
+        Assert.NotNull(saved);
+        Assert.Equal("原作品", saved.TitleSnapshot);
+        Assert.Equal(8.5, saved.PersonalRating);
+        Assert.Equal("保留感想", saved.SummaryNote);
+        Assert.IsType<ArgumentOutOfRangeException>(error);
+    }
+
+    [Theory]
     [InlineData(0.4)]
     [InlineData(10.5)]
     [InlineData(8.25)]
@@ -183,13 +204,13 @@ public sealed class ArchiveServiceTests : DbTestBase
         Assert.True(gate.TryBegin());
     }
 
-    private static AnimeScreenshot CreateScreenshot(
+    private AnimeScreenshot CreateScreenshot(
         string id,
         string hash,
         DateTimeOffset capturedAt)
         => new(
             id,
-            @"C:\missing.png",
+            Path.Combine(Paths.RootDirectory, "missing.png"),
             hash,
             capturedAt,
             "Window",

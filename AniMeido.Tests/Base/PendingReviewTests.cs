@@ -15,6 +15,57 @@ namespace AniMeido.Tests;
 
 public sealed class PendingReviewTests : DbTestBase
 {
+    [Fact]
+    public async Task BackgroundChecker_DisposeIsIdempotentAndRejectsLateStart()
+    {
+        using var handler = new CheckHandler();
+        using var http = handler.Client();
+        var check = Checker(http);
+        await check.DisposeAsync();
+        await check.DisposeAsync();
+
+        Assert.Throws<ObjectDisposedException>(check.Start);
+        Assert.Empty(handler.Paths);
+    }
+
+    [Fact]
+    public async Task SummaryQueries_PreserveSnapshotTitlesIdsAndRecordCounts()
+    {
+        await RunProductionMigrationAsync();
+        await SeedAsync(-7, "档案标题");
+        await SeedAsync(10, "合并目标");
+        await AddLegacyAsync(7);
+        await ExecuteAsync("""
+            UPDATE legacy_anime_refs SET TitleSnapshot=NULL WHERE LocalId=-7;
+            UPDATE anime_plans SET TitleSnapshot='优先级较低的标题' WHERE AnimeId=-7;
+            INSERT INTO tracking VALUES(99,1,'2026-10-22');
+            INSERT INTO public_id_issues(AnimeId,Kind,MergedInto,TitleSnapshot,DetectedAt)
+                VALUES(10,'merged_conflict',-7,NULL,'2026-10-22');
+            """);
+        using var connection = await DbFactory.OpenAsync();
+        var snapshot = await PersonalRecordReader.ReadSnapshotAsync(connection, null, default);
+        var service = new PendingReviewService(DbFactory, Remap());
+
+        var targets = await service.GetLocalTargetsAsync();
+        Assert.Equal(PersonalRecordReader.GetAnimeIds(snapshot).Order(),
+            targets.Select(target => target.AnimeId).Order());
+        Assert.All(targets, target =>
+            Assert.Equal(PersonalRecordReader.GetTitle(snapshot, target.AnimeId), target.Title));
+        Assert.Equal("未命名作品", targets.Single(target => target.AnimeId == 99).Title);
+
+        var items = await service.GetItemsAsync();
+        Assert.Equal("档案标题", items.Single(item => item.AnimeId == -7).Title);
+        Assert.Equal("档案标题", items.Single(item => item.AnimeId == 10).MergedIntoTitle);
+        foreach (var item in items)
+        {
+            foreach (var table in PublicIdMigrationService.WorkTables)
+            {
+                var expected = snapshot.Rows(table).Count(row => MigrationInput.Id(row["AnimeId"]) == item.AnimeId);
+                Assert.Equal(expected, item.RecordCounts.GetValueOrDefault(table));
+            }
+        }
+    }
+
     private PersonalIdRemapService Remap() => new(DbFactory, NullLogger<PersonalIdRemapService>.Instance);
     private async Task SeedAsync(int id, string title = "来源", string at = "2026-10-20T00:00:00Z", double? rating = 8)
     {
@@ -231,7 +282,7 @@ public sealed class PendingReviewTests : DbTestBase
         Assert.Equal(10L, await ScalarAsync("PRAGMA user_version")); Assert.Empty(handler.Paths);
         Assert.Single(Directory.GetFiles(Path.Combine(Paths.BackupDirectory, "update"), "AniMeido-before-v9-to-v10-*.db"));
         await SeedAsync(-1); await AddLegacyAsync(1, kept: "2026-10-20");
-        var export = new ExportService(new TrackingService(DbFactory), new SavedTagService(DbFactory), DbFactory);
+        var export = new ExportService(DbFactory);
         var json = await export.ExportAsync(); var data = ExportService.Preview(json)!;
         Assert.Equal("2026-10-20", Assert.Single(data.LegacyAnimeRefs!).KeptAt);
         Assert.DoesNotContain("public_id_issues", data.P4Tables!.Keys);
@@ -404,6 +455,47 @@ public sealed class PendingReviewTests : DbTestBase
     }
 
     [Fact]
+    public async Task CommittedChange_NotifiesRemainingSubscribersWhenOneThrows()
+    {
+        await RunProductionMigrationAsync();
+        var remap = Remap();
+        var notified = false;
+        remap.Changed += () => throw new InvalidOperationException("subscriber failed");
+        remap.Changed += () => notified = true;
+
+        await remap.CommitIdentityChangesAsync(async (connection, transaction, _) =>
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "INSERT INTO saved_tags(TagName) VALUES('committed')";
+            await command.ExecuteNonQueryAsync();
+        }, default);
+
+        Assert.True(notified);
+        Assert.Equal(1L, await ScalarAsync("SELECT COUNT(*) FROM saved_tags WHERE TagName='committed'"));
+    }
+
+    [Fact]
+    public async Task CommittedChange_LogQueryFailureDoesNotMisreportTransactionOrSkipNotification()
+    {
+        await RunProductionMigrationAsync();
+        var remap = Remap();
+        var notified = false;
+        remap.Changed += () => notified = true;
+        await remap.CommitIdentityChangesAsync(async (connection, transaction, _) =>
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            // 提交后日志查询确定性失败，不在测试中调用哈希或修改真实数据。
+            command.CommandText = "DROP TABLE config; INSERT INTO saved_tags(TagName) VALUES('committed')";
+            await command.ExecuteNonQueryAsync();
+        }, default);
+
+        Assert.True(notified);
+        Assert.Equal(1L, await ScalarAsync("SELECT COUNT(*) FROM saved_tags WHERE TagName='committed'"));
+    }
+
+    [Fact]
     public async Task Remap_CancelledBeforeCommitRollsBackAndDoesNotNotify()
     {
         await RunProductionMigrationAsync();
@@ -415,10 +507,10 @@ public sealed class PendingReviewTests : DbTestBase
         remap.Changed += () => changed++;
         var before = await SnapshotAsync();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => remap.RunTransactionAsync(async (connection, tx) =>
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => remap.CommitIdentityChangesAsync(async (connection, tx, log) =>
         {
-            var records = await PendingReviewService.ReadRecordsAsync(connection, tx, cancellation.Token);
-            await PersonalIdRemapService.RewriteAsync(connection, tx, -1, 2, records, cancellation.Token);
+            var records = await PersonalRecordReader.ReadSnapshotAsync(connection, tx, cancellation.Token);
+            await PersonalIdRemapService.RewriteAsync(connection, tx, -1, 2, records, log, cancellation.Token);
             cancellation.Cancel();
         }, cancellation.Token));
 

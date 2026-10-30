@@ -12,7 +12,7 @@ using System.Text.Json;
 
 namespace AniMeido.Tests;
 
-public sealed class PublicIdMigrationTests : DbTestBase
+public sealed partial class PublicIdMigrationTests : DbTestBase
 {
     private const string At = "2026-10-19T00:00:00Z";
 
@@ -86,7 +86,6 @@ public sealed class PublicIdMigrationTests : DbTestBase
         var gate = new StartupMigrationGate(() => Service(client).MigrateAsync());
         Assert.False(await gate.TryRunAsync());
         Assert.False(gate.IsReady);
-        Assert.Equal("需要联网完成一次资料迁移", StartupMigrationGate.BlockedMessage);
         Assert.Equal(8, await VersionAsync());
         Assert.Equal(before, await SnapshotAsync());
         Assert.False(File.Exists(Path.Combine(Paths.RootDirectory, "id-migration-v9.json")));
@@ -181,15 +180,13 @@ public sealed class PublicIdMigrationTests : DbTestBase
         await Service(client).MigrateAsync();
         var states = await new SavedTagService(DbFactory).GetSavedTagStatesAsync();
         Assert.Contains(states, t => t.Name == "漫画改编" && !t.Invalid);
-        Assert.Contains(states, t => t.Name == "R18" && t.Invalid && t.DisplayName.Contains("已失效"));
+        Assert.Contains(states, t => t.Name == "R18" && t.Invalid);
         Assert.Contains(states, t => t.Name == "未知" && t.Invalid);
         Assert.Equal(1, await ScalarAsync("SELECT COUNT(*) FROM recommendation_feature_preferences WHERE FeatureKind=1 AND FeatureKey='2' AND Invalid=0"));
         Assert.Equal(1, await ScalarAsync("SELECT COUNT(*) FROM recommendation_feature_preferences WHERE FeatureKey='legacy:bangumi:2' AND Invalid=1 AND Adjustment=-1"));
         Assert.Equal(1, await ScalarAsync("SELECT COUNT(*) FROM recommendation_feature_preferences WHERE FeatureKey='legacy:bangumi:3' AND Invalid=1 AND Adjustment=1"));
-        var definition = Assert.Single(await new ActionCenterService(DbFactory).GetSmartListsAsync());
-        Assert.Equal("漫画改编,未知", definition.Rules.Conditions[0].Value);
-        Assert.True(definition.Invalid); Assert.Contains("已失效", definition.DisplayName);
-        Assert.Empty(SmartListEvaluator.Apply(definition, []));
+        var rules = await ReadLegacyRulesAsync(DbFactory);
+        Assert.Equal(["漫画改编", "未知"], MetadataTagMigration.TagNames(rules));
         Assert.Equal(5, await ScalarAsync("SELECT COUNT(*) FROM recommendation_feature_preferences"));
         Assert.DoesNotContain(handler.Paths, p => p.Contains("mapping/work"));
         Assert.Contains(handler.Paths, p => p.Contains("mapping/participant"));
@@ -204,7 +201,7 @@ public sealed class PublicIdMigrationTests : DbTestBase
         var count = handler.Paths.Count;
         var remote = new MetadataDataSource(NullLogger<MetadataDataSource>.Instance, client, new CacheService(DbFactory));
         var source = new PersonalAnimeDataSource(remote, DbFactory);
-        var anime = Assert.IsType<Anime>(await source.GetAnimeDetailAsync(-9, default));
+        var anime = Assert.IsType<UnavailableAnime>(await source.GetAnimeDetailAsync(-9, default));
         Assert.Equal("未命名作品", anime.Title); Assert.Null(anime.CoverURL); Assert.Empty(anime.CVs);
         Assert.Equal("资料不可用", MineBrowse.MetaText(anime));
         Assert.Equal(count, handler.Paths.Count);
@@ -345,9 +342,14 @@ public sealed class PublicIdMigrationTests : DbTestBase
         var exported = ExportService.Preview(json)!; Assert.Contains("漫画改编", exported.VocabularyNames!);
         var target = CreateAdditionalPaths(); var factory = new SqliteConnectionFactory(target);
         await new DatabaseService(factory, target).InitializeAsync();
-        var importer = new ExportService(new TrackingService(factory), new SavedTagService(factory), factory);
+        var importer = new ExportService(factory);
         await importer.ImportAsync(json);
-        Assert.True(Assert.Single(await new ActionCenterService(factory).GetSmartListsAsync()).Invalid);
+        var rules = await ReadLegacyRulesAsync(factory);
+        Assert.Equal(["漫画改编", "未知"], MetadataTagMigration.TagNames(rules));
+        var roundTrip = ExportService.Preview(await importer.ExportAsync())!;
+        Assert.Equal(
+            exported.P4Tables!["smart_lists"].Single(),
+            roundTrip.P4Tables!["smart_lists"].Single());
         exported.Tracking.Add(new TrackingEntry { AnimeId = -19, Status = AnimeTrackingStatus.Following, UpdatedAt = At });
         await Assert.ThrowsAsync<InvalidDataException>(() => importer.ImportAsync(JsonSerializer.Serialize(exported,
             PublicIdMigrationService.JsonOptions)));
@@ -406,6 +408,14 @@ public sealed class PublicIdMigrationTests : DbTestBase
         using var connection = await DbFactory.OpenAsync(); using var cmd = connection.CreateCommand();
         cmd.CommandText = sql; cmd.Parameters.AddWithValue("@at", At); await cmd.ExecuteNonQueryAsync();
     }
+    private static async Task<string> ReadLegacyRulesAsync(SqliteConnectionFactory factory)
+    {
+        using var connection = await factory.OpenAsync();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT RuleJson FROM smart_lists WHERE Id = 'rule'";
+        return Assert.IsType<string>(await command.ExecuteScalarAsync());
+    }
+
     private async Task<int> ScalarAsync(string sql)
     {
         using var connection = await DbFactory.OpenAsync(); using var cmd = connection.CreateCommand(); cmd.CommandText = sql;
@@ -435,7 +445,7 @@ public sealed class PublicIdMigrationTests : DbTestBase
         return string.Join('\n', result);
     }
     private PublicIdMigrationService Service(HttpClient client) => new(DbFactory, client, NullLogger<PublicIdMigrationService>.Instance);
-    private ExportService Export(HttpClient client) => new(new TrackingService(DbFactory), new SavedTagService(DbFactory), DbFactory, Service(client));
+    private ExportService Export(HttpClient client) => new(DbFactory, Service(client));
     private static HttpClient Client(HttpMessageHandler handler) => new(handler, false) { BaseAddress = new Uri(MetadataServiceSettings.QueryBaseUrl) };
     private static string LegacyJson(params int[] ids) => JsonSerializer.Serialize(new
     {

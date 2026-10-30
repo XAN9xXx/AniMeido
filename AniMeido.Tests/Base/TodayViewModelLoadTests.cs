@@ -1,4 +1,5 @@
 ﻿using AniMeido.Contracts;
+using Microsoft.Extensions.Logging.Abstractions;
 using AniMeido.Contracts.Models;
 using AniMeido.Contracts.Notifications;
 using AniMeido.Plugin.Base.Exceptions;
@@ -9,9 +10,15 @@ using AniMeido.Plugin.Base.ViewModels;
 namespace AniMeido.Tests;
 
 [Collection(CurrentSeasonSessionCollection.Name)]
-public sealed class TodayViewModelLoadTests : DbTestBase
+public sealed partial class TodayViewModelLoadTests : DbTestBase
 {
-    public TodayViewModelLoadTests() => CurrentSeasonViewModel.ResetTimeMachineSession();
+    private readonly PersonalFeatureStateStore _featureState;
+
+    public TodayViewModelLoadTests()
+    {
+        _featureState = new PersonalFeatureStateStore(DbFactory);
+        CurrentSeasonViewModel.ResetTimeMachineSession();
+    }
 
     [Fact]
     public async Task CalendarTvOnlyGrouping_DoesNotFilterTodayBroadcasts()
@@ -31,7 +38,7 @@ public sealed class TodayViewModelLoadTests : DbTestBase
                 Item(6, AnimeMediaFormat.Television, today % 7 + 1)],
         };
         var tracking = new TrackingService(DbFactory);
-        var calendar = new CurrentSeasonViewModel(source, tracking);
+        var calendar = new CurrentSeasonViewModel(source, tracking, _featureState, NullLogger.Instance);
         await calendar.LoadSeasonalAnimeCommand.ExecuteAsync(null);
         await calendar.PendingOthersLoad;
         Assert.Equal(1, Assert.Single(calendar.VisibleEntries).Anime.ID);
@@ -42,9 +49,9 @@ public sealed class TodayViewModelLoadTests : DbTestBase
         using var reminders = new PlanReminderCoordinator(
             actionCenter, new NoopNotificationService(), new NoopNavigator());
         var vm = new TodayViewModel(
-            source, tracking, actionCenter, reminders,
-            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory));
-        await vm.LoadAsync();
+            source, tracking, _featureState, actionCenter, reminders,
+            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory), NullLogger.Instance);
+        await LoadAndDrainThemeAsync(vm);
 
         Assert.Equal(new[] { 1, 2, 3, 4, 5 }, vm.AllBroadcasts.Select(anime => anime.ID));
         Assert.Null(vm.ErrorMessage);
@@ -97,8 +104,8 @@ public sealed class TodayViewModelLoadTests : DbTestBase
         using var reminders = new PlanReminderCoordinator(
             actionCenter, new NoopNotificationService(), new NoopNavigator());
         var vm = new TodayViewModel(
-            source, tracking, actionCenter, reminders,
-            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory));
+            source, tracking, _featureState, actionCenter, reminders,
+            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory), NullLogger.Instance);
 
         await vm.LoadAsync();
         await vm.Theme.PendingLoad;
@@ -131,8 +138,8 @@ public sealed class TodayViewModelLoadTests : DbTestBase
         using var reminders = new PlanReminderCoordinator(
             actionCenter, new NoopNotificationService(), new NoopNavigator());
         var vm = new TodayViewModel(
-            source, tracking, actionCenter, reminders,
-            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory));
+            source, tracking, _featureState, actionCenter, reminders,
+            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory), NullLogger.Instance);
 
         await vm.LoadAsync();
         await vm.Theme.PendingLoad;
@@ -169,12 +176,13 @@ public sealed class TodayViewModelLoadTests : DbTestBase
         var vm = new TodayViewModel(
             new OfflineSource(),
             tracking,
+            _featureState,
             actionCenter,
             reminders,
             new BrowseHistoryService(DbFactory),
-            new ArchiveService(DbFactory));
+            new ArchiveService(DbFactory), NullLogger.Instance);
 
-        await vm.LoadAsync();
+        await LoadAndDrainThemeAsync(vm);
 
         var entry = Assert.Single(vm.Plans);
         Assert.Equal(80, entry.Plan.AnimeId);
@@ -193,15 +201,15 @@ public sealed class TodayViewModelLoadTests : DbTestBase
         using var reminders = new PlanReminderCoordinator(
             actionCenter, new NoopNotificationService(), new NoopNavigator());
         var vm = new TodayViewModel(
-            new OfflineSource(), tracking, actionCenter, reminders,
-            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory));
+            new OfflineSource(), tracking, _featureState, actionCenter, reminders,
+            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory), NullLogger.Instance);
 
-        await vm.LoadAsync();
+        await LoadAndDrainThemeAsync(vm);
         Assert.Single(vm.Plans);
 
         // 关注管理新增补番状态时没有对应计划记录；下一次加载必须补齐。
         await tracking.SetStatusAsync(81, AnimeTrackingStatus.PlanToWatch);
-        await vm.LoadAsync();
+        await LoadAndDrainThemeAsync(vm);
 
         Assert.Equal(2, vm.Plans.Count);
         Assert.Contains(vm.Plans, entry => entry.Plan.AnimeId == 81);
@@ -219,12 +227,12 @@ public sealed class TodayViewModelLoadTests : DbTestBase
         using var reminders = new PlanReminderCoordinator(
             actionCenter, new NoopNotificationService(), new NoopNavigator());
         var vm = new TodayViewModel(
-            new OfflineSource(), tracking, actionCenter, reminders,
-            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory));
+            new OfflineSource(), tracking, _featureState, actionCenter, reminders,
+            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory), NullLogger.Instance);
 
-        await vm.LoadAsync();
+        await LoadAndDrainThemeAsync(vm);
         var plans = vm.Plans;
-        await vm.LoadAsync();
+        await LoadAndDrainThemeAsync(vm);
 
         Assert.Same(plans, vm.Plans);
         Assert.Single(vm.Plans);
@@ -240,9 +248,9 @@ public sealed class TodayViewModelLoadTests : DbTestBase
         using var reminders = new PlanReminderCoordinator(
             actionCenter, new NoopNotificationService(), new NoopNavigator());
         var vm = new TodayViewModel(
-            new OfflineSource(), tracking, actionCenter, reminders,
-            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory));
-        await vm.LoadAsync();
+            new OfflineSource(), tracking, _featureState, actionCenter, reminders,
+            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory), NullLogger.Instance);
+        await LoadAndDrainThemeAsync(vm);
 
         // 今日主题里点“补番”会写入补番状态并建立计划。
         await tracking.SetStatusAsync(81, AnimeTrackingStatus.PlanToWatch);
@@ -262,28 +270,234 @@ public sealed class TodayViewModelLoadTests : DbTestBase
         using var reminders = new PlanReminderCoordinator(
             actionCenter, new NoopNotificationService(), new NoopNavigator());
         var vm = new TodayViewModel(
-            new OfflineSource(), tracking, actionCenter, reminders,
-            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory));
+            new OfflineSource(), tracking, _featureState, actionCenter, reminders,
+            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory), NullLogger.Instance);
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
-        await vm.LoadAsync(cancellation.Token);
+        await LoadAndDrainThemeAsync(vm, cancellation.Token);
         Assert.True(vm.IsLoadInterrupted);
 
-        await vm.LoadAsync();
+        await LoadAndDrainThemeAsync(vm);
         Assert.False(vm.IsLoadInterrupted);
     }
+
+    [Theory]
+    [InlineData("http")]
+    [InlineData("metadata")]
+    [InlineData("json")]
+    [InlineData("invalid")]
+    public async Task LateScheduleFailure_DoesNotChangeReplacementLoadErrorOrBroadcastSummary(string failure)
+    {
+        await RunProductionMigrationAsync();
+        var oldStarted = NewCompletion();
+        var replacementStarted = NewCompletion();
+        var oldSchedule = NewCompletion<List<Anime>>();
+        var replacementSchedule = NewCompletion<List<Anime>>();
+        var calls = 0;
+        var source = new OfflineSource
+        {
+            ScheduleRequest = _ =>
+            {
+                if (++calls == 1)
+                {
+                    oldStarted.TrySetResult();
+                    return oldSchedule.Task;
+                }
+                replacementStarted.TrySetResult();
+                return replacementSchedule.Task;
+            },
+        };
+        var tracking = new TrackingService(DbFactory);
+        await tracking.SetStatusAsync(2, AnimeTrackingStatus.Following);
+        var actionCenter = new ActionCenterService(DbFactory);
+        using var reminders = new PlanReminderCoordinator(
+            actionCenter, new NoopNotificationService(), new NoopNavigator());
+        var vm = new TodayViewModel(
+            source, tracking, _featureState, actionCenter, reminders,
+            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory), NullLogger.Instance);
+        using var cancellation = new CancellationTokenSource();
+        var oldLoad = vm.LoadAsync(cancellation.Token);
+        Task replacement = Task.CompletedTask;
+        try
+        {
+            await oldStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            cancellation.Cancel();
+            replacement = vm.LoadAsync();
+            await replacementStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            // 已发出的旧请求故意不理会取消，并在新加载开始之后失败。
+            oldSchedule.SetException(LoadFailure(failure));
+            await oldLoad;
+
+            Assert.Null(vm.ErrorMessage);
+            Assert.True(vm.IsLoading);
+            Assert.True(vm.IsLoadInterrupted);
+        }
+        finally
+        {
+            oldSchedule.TrySetResult([]);
+            replacementSchedule.TrySetResult([Broadcast(2)]);
+            await Task.WhenAll(oldLoad, replacement);
+            vm.Theme.CancelLoad();
+            await vm.Theme.PendingLoad;
+        }
+
+        Assert.Equal(2, Assert.Single(vm.AllBroadcasts).ID);
+        Assert.Equal(2, Assert.Single(vm.PersonalBroadcasts).Anime.ID);
+        Assert.Equal("今天有 1 部你标记的作品放送。", vm.BroadcastMessage);
+        Assert.Equal(7, vm.BroadcastDays.Count);
+        Assert.Null(vm.ErrorMessage);
+        Assert.False(vm.IsLoading);
+        Assert.False(vm.IsLoadInterrupted);
+    }
+
+    [Fact]
+    public async Task CancelledLoad_LateScheduleFailureKeepsInterruptionWithoutShowingAnError()
+    {
+        await RunProductionMigrationAsync();
+        var started = NewCompletion();
+        var schedule = NewCompletion<List<Anime>>();
+        var source = new OfflineSource
+        {
+            ScheduleRequest = _ =>
+            {
+                started.TrySetResult();
+                return schedule.Task;
+            },
+        };
+        var actionCenter = new ActionCenterService(DbFactory);
+        using var reminders = new PlanReminderCoordinator(
+            actionCenter, new NoopNotificationService(), new NoopNavigator());
+        var vm = new TodayViewModel(
+            source, new TrackingService(DbFactory), _featureState, actionCenter, reminders,
+            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory), NullLogger.Instance);
+        using var cancellation = new CancellationTokenSource();
+        var loading = vm.LoadAsync(cancellation.Token);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            cancellation.Cancel();
+            schedule.SetException(new HttpRequestException("late cancelled schedule"));
+            await loading;
+
+            Assert.Null(vm.ErrorMessage);
+            Assert.True(vm.IsLoadInterrupted);
+            Assert.False(vm.IsLoading);
+        }
+        finally
+        {
+            schedule.TrySetResult([]);
+            await loading;
+            vm.Theme.CancelLoad();
+            await vm.Theme.PendingLoad;
+        }
+    }
+
+    [Theory]
+    [InlineData("http")]
+    [InlineData("metadata")]
+    [InlineData("json")]
+    [InlineData("invalid")]
+    public async Task ReentrantReplacement_OldSynchronousSourceFailureCannotPublishOuterError(string failure)
+    {
+        await RunProductionMigrationAsync();
+        var replacementSchedule = NewCompletion<List<Anime>>();
+        var source = new OfflineSource();
+        var tracking = new TrackingService(DbFactory);
+        await tracking.SetStatusAsync(2, AnimeTrackingStatus.Following);
+        var actionCenter = new ActionCenterService(DbFactory);
+        using var reminders = new PlanReminderCoordinator(
+            actionCenter, new NoopNotificationService(), new NoopNavigator());
+        var vm = new TodayViewModel(
+            source, tracking, _featureState, actionCenter, reminders,
+            new BrowseHistoryService(DbFactory), new ArchiveService(DbFactory), NullLogger.Instance);
+        var calls = 0;
+        Task replacement = Task.CompletedTask;
+        source.ScheduleRequest = _ =>
+        {
+            if (++calls != 1)
+                return replacementSchedule.Task;
+
+            // 数据源可以在返回 Task 前同步失败；替代加载已接管页面时，外层 catch 也要守住所有权。
+            replacement = vm.LoadAsync();
+            throw LoadFailure(failure);
+        };
+        try
+        {
+            await vm.LoadAsync();
+
+            Assert.Equal(2, calls);
+            Assert.True(vm.IsLoading);
+            Assert.True(vm.IsLoadInterrupted);
+            Assert.Null(vm.ErrorMessage);
+        }
+        finally
+        {
+            replacementSchedule.TrySetResult([Broadcast(2)]);
+            await replacement;
+            vm.Theme.CancelLoad();
+            await vm.Theme.PendingLoad;
+        }
+        Assert.Equal(2, Assert.Single(vm.AllBroadcasts).ID);
+        Assert.Null(vm.ErrorMessage);
+        Assert.False(vm.IsLoading);
+        Assert.False(vm.IsLoadInterrupted);
+    }
+
+    private static async Task LoadAndDrainThemeAsync(
+        TodayViewModel viewModel,
+        CancellationToken cancellationToken = default)
+    {
+        var loading = viewModel.LoadAsync(cancellationToken);
+        var theme = viewModel.Theme.PendingLoad;
+        try
+        {
+            await loading.WaitAsync(LoggingBudget);
+        }
+        finally
+        {
+            viewModel.Theme.CancelLoad();
+            await Task.WhenAll(loading, theme).WaitAsync(LoggingBudget);
+        }
+    }
+
+    private static TaskCompletionSource NewCompletion()
+        => new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private static TaskCompletionSource<T> NewCompletion<T>()
+        => new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private static Anime Broadcast(int id) => new(
+        id, $"作品{id}", null, [], DateOnly.FromDateTime(DateTime.Today), null,
+        string.Empty, DateTime.Today.Year, DateTime.Today.Month,
+        AnimeListPresentation.ToBangumiWeekday(DateTime.Today.DayOfWeek));
+
+    private static Exception LoadFailure(string kind) => kind switch
+    {
+        "http" => new HttpRequestException("late schedule failure"),
+        "metadata" => new MetadataServiceException("late schedule failure"),
+        "json" => new System.Text.Json.JsonException("late schedule failure"),
+        "invalid" => new InvalidOperationException("late schedule failure"),
+        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+    };
 
     private sealed class OfflineSource : IAnimeDataSource
     {
         public List<Anime> Schedule { get; init; } = [];
 
+        public Func<CancellationToken, Task<List<Anime>>>? ScheduleRequest { get; set; }
+        public Func<int, Season, CancellationToken, Task<List<Anime>>>? SeasonRequest { get; init; }
+        public Func<int, CancellationToken, Task<Anime?>>? DetailRequest { get; init; }
+
         private static Task<T> Offline<T>()
             => Task.FromException<T>(new MetadataServiceException("offline"));
 
-        public Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct) => Offline<List<Anime>>();
-        public Task<List<Anime>> GetCurrentBroadcastScheduleAsync(CancellationToken ct) => Task.FromResult(Schedule);
-        public Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct) => Offline<Anime?>();
+        public Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct)
+            => SeasonRequest?.Invoke(year, season, ct) ?? Offline<List<Anime>>();
+        public Task<List<Anime>> GetCurrentBroadcastScheduleAsync(CancellationToken ct)
+            => ScheduleRequest?.Invoke(ct) ?? Task.FromResult(Schedule);
+        public Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct)
+            => DetailRequest?.Invoke(animeID, ct) ?? Offline<Anime?>();
         public Task<List<Studio>> GetStudioAsync(int animeID, CancellationToken ct) => Offline<List<Studio>>();
         public Task<List<Tag>> GetTagsAsync(int animeID, CancellationToken ct) => Offline<List<Tag>>();
         public Task<List<VoiceActor>> GetCVsAsync(int animeID, CancellationToken ct) => Offline<List<VoiceActor>>();
@@ -325,9 +539,9 @@ public sealed class TodayViewModelLoadTests : DbTestBase
         }
     }
 
-    private sealed class NoopNavigator : IPluginNavigator
+    private sealed class NoopNavigator : IPlanReminderNavigation
     {
-        public void Navigate(Type pageType, object? parameter = null)
+        public void OpenPlan(int animeId)
         {
         }
     }

@@ -27,6 +27,7 @@ namespace AniMeido.Plugin.Base.Views
             DragDropService dragDropService,
             IAnimeDataSource dataSource,
             TrackingService trackingService,
+            PersonalFeatureStateStore featureState,
             LocalSearchService localSearchService,
             SavedTagService savedTagService,
             IPluginNavigator pluginNavigator,
@@ -38,8 +39,10 @@ namespace AniMeido.Plugin.Base.Views
             ViewModel = new GlobalSearchViewModel(
                 dataSource,
                 trackingService,
+                featureState,
                 localSearchService,
-                savedTagService);
+                savedTagService,
+                logger);
             InitializeComponent();
             InitializeSortControls();
         }
@@ -79,7 +82,7 @@ namespace AniMeido.Plugin.Base.Views
             _dropHostRegistration = null;
         }
 
-        /// <summary>页面操作的统一出口：取消静默，其余错误显示在结果区并记 Warning，页面继续可用。</summary>
+        /// <summary>页面操作的统一出口：取消静默，其余错误显示在结果区并记 Error，页面继续可用。</summary>
         private async Task RunSafelyAsync(Func<Task> action, string operation)
         {
             try
@@ -92,7 +95,7 @@ namespace AniMeido.Plugin.Base.Views
 #pragma warning disable CA1031 // UI 事件边界统一显示错误，避免 async void 终止进程。
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Search page failed to {Operation}", operation);
+                _logger.LogError(ex, "Search page failed to {Operation}", operation);
                 ViewModel.ErrorMessage = $"操作失败：{ex.Message}";
                 ViewModel.IsError = true;
             }
@@ -194,24 +197,31 @@ namespace AniMeido.Plugin.Base.Views
         private void OnAnimeCardClicked(object? sender, AnimeCardClickedEventArgs e)
             => _pluginNavigator.Navigate(typeof(AnimeDetailPage), e.Anime.ID);
 
-        private void OnCoverLoaded(object sender, RoutedEventArgs e)
-            => ConfigureCover(sender as Image);
-
-        private void OnCoverDataContextChanged(FrameworkElement sender, DataContextChangedEventArgs args)
-            => ConfigureCover(sender as Image);
-
-        private static void ConfigureCover(Image? image)
+        private void OnLocalMatchContainerContentChanging(
+            ListViewBase sender,
+            ContainerContentChangingEventArgs args)
         {
-            if (image is null)
+            if (!args.InRecycleQueue && args.Phase == 0)
+            {
+                args.RegisterUpdateCallback(OnLocalMatchContainerContentChanging);
                 return;
+            }
 
-            if (image.DataContext is not PastSeasonEntry { Anime: var anime })
+            if (args.ItemContainer?.ContentTemplateRoot is not FrameworkElement root
+                || root.FindName("LocalMatchCover") is not Image image)
+            {
+                return;
+            }
+
+            // 回收不会保证触发 Unloaded；容器在这里交还旧封面请求的所有权。
+            if (args.InRecycleQueue)
             {
                 ManagedImageLoader.Cancel(image);
                 return;
             }
 
-            ManagedImageLoader.ConfigureCover(image, anime.ID, anime.CoverURL, 40);
+            if (args.Item is PastSeasonEntry { Anime: var anime })
+                ManagedImageLoader.ConfigureCover(image, anime.ID, anime.CoverURL, 40);
         }
     }
 }

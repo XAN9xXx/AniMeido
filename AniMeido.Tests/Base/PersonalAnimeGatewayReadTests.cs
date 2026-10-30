@@ -7,10 +7,11 @@ using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Text.Json;
+using Xunit.Abstractions;
 
 namespace AniMeido.Tests;
 
-public sealed class PersonalAnimeGatewayReadTests : DbTestBase
+public sealed partial class PersonalAnimeGatewayReadTests(ITestOutputHelper output) : DbTestBase
 {
     private static readonly DateTimeOffset At = new(2025, 3, 4, 5, 6, 7, TimeSpan.Zero);
 
@@ -18,7 +19,7 @@ public sealed class PersonalAnimeGatewayReadTests : DbTestBase
     public async Task Query_SearchStatusAndLimitFilterConcreteFieldsAndDeduplicateSources()
     {
         await RunProductionMigrationAsync();
-        using var fixture = new ReadFixture(DbFactory);
+        await using var fixture = new ReadFixture(DbFactory);
         await SeedAsync(fixture);
         await GuardAgainstWritesAsync();
         var before = await SnapshotAsync();
@@ -50,7 +51,7 @@ public sealed class PersonalAnimeGatewayReadTests : DbTestBase
     public async Task Query_ClampsLimitToContractBounds(int requested, int expected)
     {
         await RunProductionMigrationAsync();
-        using var fixture = new ReadFixture(DbFactory);
+        await using var fixture = new ReadFixture(DbFactory);
         await fixture.Cache.CleanExpiredAsync();
         for (var id = 1; id <= 210; id++)
             await fixture.Tracking.SetStatusWithTimestampAsync(id, AnimeTrackingStatus.Watching, At.ToString("O"));
@@ -79,7 +80,7 @@ public sealed class PersonalAnimeGatewayReadTests : DbTestBase
     public async Task Context_OnlyRequestedCategoryIsIncludedAndDuplicateIdsAreRemoved(PersonalAnimeDataCategory category)
     {
         await RunProductionMigrationAsync();
-        using var fixture = new ReadFixture(DbFactory);
+        await using var fixture = new ReadFixture(DbFactory);
         await SeedAsync(fixture);
         await GuardAgainstWritesAsync();
         var before = await SnapshotAsync();
@@ -141,7 +142,7 @@ public sealed class PersonalAnimeGatewayReadTests : DbTestBase
     public async Task Context_ProfileOnlyRequestsExcludeUnrequestedGlobalCategory(PersonalAnimeDataCategory category)
     {
         await RunProductionMigrationAsync();
-        using var fixture = new ReadFixture(DbFactory);
+        await using var fixture = new ReadFixture(DbFactory);
         await SeedAsync(fixture);
         using (var connection = await DbFactory.OpenAsync())
         using (var command = connection.CreateCommand())
@@ -181,7 +182,7 @@ public sealed class PersonalAnimeGatewayReadTests : DbTestBase
     public async Task Context_MissingPublicAndPersonalDataReturnsPlaceholderRatherThanDroppingId()
     {
         await RunProductionMigrationAsync();
-        using var fixture = new ReadFixture(DbFactory);
+        await using var fixture = new ReadFixture(DbFactory);
         await fixture.Cache.CleanExpiredAsync();
         await GuardAgainstWritesAsync();
         var before = await SnapshotAsync();
@@ -263,7 +264,7 @@ public sealed class PersonalAnimeGatewayReadTests : DbTestBase
         return string.Join("\n", result);
     }
 
-    private sealed class ReadFixture : IDisposable
+    private sealed class ReadFixture : IAsyncDisposable
     {
         public MetadataSource Source { get; } = new();
         public TrackingService Tracking { get; }
@@ -286,7 +287,12 @@ public sealed class PersonalAnimeGatewayReadTests : DbTestBase
             _reminders = new PlanReminderCoordinator(Action, notifications, new NoNavigation());
             Gateway = new PersonalAnimeDataGateway(factory, Source, Tracking, Action, Archive, Saved, History, _recommendations, _reminders, notifications);
         }
-        public void Dispose() { _reminders.Dispose(); _recommendations.Dispose(); _candidates.Dispose(); }
+        public async ValueTask DisposeAsync()
+        {
+            _reminders.Dispose();
+            await _recommendations.DisposeAsync();
+            await _candidates.DisposeAsync();
+        }
     }
 
     private sealed class MetadataSource : IAnimeDataSource
@@ -319,8 +325,8 @@ public sealed class PersonalAnimeGatewayReadTests : DbTestBase
         public Task OpenNotificationSettingsAsync() => throw new InvalidOperationException("Read invoked settings");
         public void Dispose() { }
     }
-    private sealed class NoNavigation : IPluginNavigator
+    private sealed class NoNavigation : IPlanReminderNavigation
     {
-        public void Navigate(Type pageType, object? parameter = null) => throw new InvalidOperationException("Read invoked navigation");
+        public void OpenPlan(int animeId) => throw new InvalidOperationException("Read invoked navigation");
     }
 }

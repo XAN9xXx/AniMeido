@@ -142,7 +142,7 @@ public sealed class ExportImportMergeTests : DbTestBase
     }
 
     private static ExportService CreateService(SqliteConnectionFactory factory)
-        => new(new TrackingService(factory), new SavedTagService(factory), factory);
+        => new(factory);
 
     private async Task<SqliteConnectionFactory> CreateSourceAsync()
     {

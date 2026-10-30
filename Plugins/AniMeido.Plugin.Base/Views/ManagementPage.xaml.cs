@@ -22,6 +22,8 @@ namespace AniMeido.Plugin.Base.Views
         private readonly ILogger<ManagementPage> _logger;
         private bool _isBatchMode;
         private bool _isGridLayout;
+        private int _visitVersion;
+        private ContentDialog? _batchRemoveDialog;
 
         public ManagementViewModel ViewModel { get; }
 
@@ -41,7 +43,8 @@ namespace AniMeido.Plugin.Base.Views
                 dataSource,
                 savedTagService,
                 searchService,
-                archiveService);
+                archiveService,
+                logger);
             InitializeComponent();
             InitializeSortControls();
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
@@ -67,17 +70,33 @@ namespace AniMeido.Plugin.Base.Views
             => hasTags ? Visibility.Collapsed : Visibility.Visible;
 
         private async void OnPageLoaded(object sender, RoutedEventArgs e)
-            => await LoadSafelyAsync();
+        {
+            _visitVersion++;
+            await LoadSafelyAsync();
+        }
 
         private void OnPageUnloaded(object sender, RoutedEventArgs e)
-            => ViewModel.CancelPendingLoads();
+        {
+            _visitVersion++;
+            var dialog = _batchRemoveDialog;
+            _batchRemoveDialog = null;
+            try
+            {
+                dialog?.Hide();
+            }
+            finally
+            {
+                ViewModel.CancelPendingLoads();
+            }
+        }
 
         private Task LoadSafelyAsync()
             => RunSafelyAsync(() => ViewModel.LoadAsync(), "load");
 
-        /// <summary>页面操作的统一出口：取消静默，其余错误显示在顶部并记 Warning，页面继续可用。</summary>
+        /// <summary>页面操作的统一出口：取消静默，其余错误显示在顶部并记 Error，页面继续可用。</summary>
         private async Task RunSafelyAsync(Func<Task> action, string operation)
         {
+            var visit = _visitVersion;
             try
             {
                 await action();
@@ -88,9 +107,12 @@ namespace AniMeido.Plugin.Base.Views
 #pragma warning disable CA1031 // UI 事件边界统一显示错误，避免 async void 终止进程。
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "My anime page failed to {Operation}", operation);
-                ViewModel.ErrorMessage = $"操作失败：{ex.Message}";
-                ViewModel.IsError = true;
+                _logger.LogError(ex, "My anime page failed to {Operation}", operation);
+                if (IsLoaded && visit == _visitVersion)
+                {
+                    ViewModel.ErrorMessage = $"操作失败：{ex.Message}";
+                    ViewModel.IsError = true;
+                }
             }
 #pragma warning restore CA1031
         }
@@ -225,21 +247,41 @@ namespace AniMeido.Plugin.Base.Views
 
         private async void OnBatchRemoveClick(object sender, RoutedEventArgs e)
         {
-            var count = MineList.SelectedItems.Count;
-            if (count == 0)
-                return;
-
-            var dialog = new ContentDialog
+            await RunSafelyAsync(async () =>
             {
-                XamlRoot = XamlRoot,
-                Title = "取消标记",
-                Content = $"确定取消这 {count} 部作品的标记吗？它们会从“我的番剧”中移除。",
-                PrimaryButtonText = "取消标记",
-                CloseButtonText = "保留",
-                DefaultButton = ContentDialogButton.Close,
-            };
-            if (await dialog.ShowAsync() == ContentDialogResult.Primary)
-                await ChangeSelectedAsync(null);
+                if (!IsLoaded || _batchRemoveDialog is not null)
+                    return;
+
+                var entries = MineList.SelectedItems.OfType<MineEntry>().ToList();
+                var count = entries.Count;
+                if (count == 0)
+                    return;
+
+                var visit = _visitVersion;
+                var dialog = new ContentDialog
+                {
+                    XamlRoot = XamlRoot,
+                    Title = "取消标记",
+                    Content = $"确定取消这 {count} 部作品的标记吗？它们会从“我的番剧”中移除。",
+                    PrimaryButtonText = "取消标记",
+                    CloseButtonText = "保留",
+                    DefaultButton = ContentDialogButton.Close,
+                };
+                _batchRemoveDialog = dialog;
+                try
+                {
+                    if (await dialog.ShowAsync() == ContentDialogResult.Primary
+                        && IsLoaded && visit == _visitVersion)
+                    {
+                        await ChangeAsync(entries, null);
+                    }
+                }
+                finally
+                {
+                    if (ReferenceEquals(_batchRemoveDialog, dialog))
+                        _batchRemoveDialog = null;
+                }
+            }, "confirm status removal");
         }
 
         private Task ChangeSelectedAsync(AnimeTrackingStatus? target)
@@ -296,6 +338,7 @@ namespace AniMeido.Plugin.Base.Views
             if (entries.Count == 0)
                 return;
 
+            var visit = _visitVersion;
             await RunSafelyAsync(async () =>
             {
                 var result = await ViewModel.ChangeStatusAsync(entries, target);
@@ -305,6 +348,9 @@ namespace AniMeido.Plugin.Base.Views
                         "My anime page failed to change {Failed} of {Total} tracking statuses",
                         result.Failed,
                         entries.Count);
+                    if (!IsLoaded || visit != _visitVersion)
+                        return;
+
                     ViewModel.ErrorMessage = result.Succeeded > 0
                         ? $"已修改 {result.Succeeded} 部，另有 {result.Failed} 部修改失败，请稍后重试。"
                         : "修改失败，请稍后重试。";

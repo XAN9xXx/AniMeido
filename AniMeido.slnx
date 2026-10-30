@@ -20,6 +20,9 @@
     </Project>
   </Folder>
   <Folder Name="/Plugins/">
+    <Project Path="Plugins/AniMeido.Plugin.Base.Core/AniMeido.Plugin.Base.Core.csproj">
+      <Platform Project="x64" />
+    </Project>
     <Project Path="Plugins/AniMeido.Plugin.AI/AniMeido.Plugin.AI.csproj">
       <Platform Project="x64" />
     </Project>
@@ -36,6 +39,9 @@
     </Project>
   </Folder>
   <Folder Name="/Tests/">
+    <Project Path="AniMeido.Plugin.Base.Core.Tests/AniMeido.Plugin.Base.Core.Tests.csproj">
+      <Platform Project="x64" />
+    </Project>
     <Project Path="AniMeido.Updates.Tests/AniMeido.Updates.Tests.csproj">
       <Platform Project="x64" />
     </Project>

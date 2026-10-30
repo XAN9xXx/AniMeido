@@ -16,9 +16,6 @@
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="Markdig" />
-    <PackageReference Include="Microsoft.Data.Sqlite" />
-    <!-- 覆盖 Microsoft.Data.Sqlite 带入的原生 SQLite 版本，见 Directory.Packages.props。 -->
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" />
     <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.Extensions.Logging" />
     <PackageReference Include="Microsoft.WindowsAppSDK" />
@@ -27,10 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\AniMeido.Contracts\AniMeido.Contracts.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <EmbeddedResource Include="Resources\bangumi-meta-tags.json" LogicalName="AniMeido.BangumiMetaTags" />
+    <ProjectReference Include="..\AniMeido.Plugin.Base.Core\AniMeido.Plugin.Base.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -39,7 +33,4 @@
     </AssemblyAttribute>
   </ItemGroup>
 
-  <ItemGroup>
-    <Compile Include="..\..\Shared\AppDataRoots.cs" Link="Shared\AppDataRoots.cs" />
-  </ItemGroup>
 </Project>

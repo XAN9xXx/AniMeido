@@ -209,13 +209,14 @@ public sealed class CurrentSeasonCalendarTests
     public void CalendarEntry_NotYetAiredRequiresKnownFutureDate(
         int? airDateOffset, bool expectedBadge, bool expectedReleased)
     {
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var clock = new CalendarTestTime(new DateOnly(2026, 9, 18));
+        var today = clock.Today;
         var anime = Item(1, 4, 7.0) with
         {
             AirDate = airDateOffset is { } offset ? today.AddDays(offset) : null,
         };
-        var entry = new CalendarEntry(anime);
-        var other = new CalendarEntry(anime with { MediaFormat = AnimeMediaFormat.Movie }, isOther: true);
+        var entry = new CalendarEntry(anime, isOther: false, clock);
+        var other = new CalendarEntry(anime with { MediaFormat = AnimeMediaFormat.Movie }, isOther: true, clock);
 
         Assert.Equal(expectedBadge, entry.IsNotYetAired);
         Assert.Equal(expectedBadge, other.IsNotYetAired);
@@ -227,9 +228,10 @@ public sealed class CurrentSeasonCalendarTests
     [Fact]
     public void UpdateAnime_RefreshesNotYetAiredBadgeAndNotifiesBindings()
     {
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var clock = new CalendarTestTime(new DateOnly(2026, 9, 18));
+        var today = clock.Today;
         var anime = Item(1, 4, 7.0) with { AirDate = today.AddDays(1) };
-        var entry = new CalendarEntry(anime);
+        var entry = new CalendarEntry(anime, isOther: false, clock);
         var changed = new List<string?>();
         entry.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
         Assert.True(entry.IsNotYetAired);
@@ -252,15 +254,47 @@ public sealed class CurrentSeasonCalendarTests
     [Fact]
     public void OtherEntry_OffersWatchOnlyAfterRelease()
     {
-        var released = new CalendarEntry(Movie(10, DateOnly.FromDateTime(DateTime.Today)), isOther: true);
-        var upcoming = new CalendarEntry(Movie(11, DateOnly.FromDateTime(DateTime.Today).AddDays(1)), isOther: true);
-        var weekly = new CalendarEntry(Item(1, 1, 7.0));
+        var clock = new CalendarTestTime(new DateOnly(2026, 9, 18));
+        var released = new CalendarEntry(Movie(10, clock.Today), isOther: true, clock);
+        var upcoming = new CalendarEntry(Movie(11, clock.Today.AddDays(1)), isOther: true, clock);
+        var weekly = new CalendarEntry(Item(1, 1, 7.0), isOther: false, clock);
 
         Assert.True(released.ShowWatchAction);
         Assert.False(upcoming.ShowWatchAction);
         Assert.True(weekly.ShowWatchAction);
         Assert.Equal("剧场版", released.WeekdayText);
         Assert.Equal(CalendarDay.OtherKey, released.DayKey);
+    }
+
+    [Theory]
+    [InlineData(2026, 3, 31)]
+    [InlineData(2026, 12, 31)]
+    public void ReleaseFlagsUseTheLocalDateAcrossMidnight(int year, int month, int day)
+    {
+        var clock = new CalendarTestTime(new DateOnly(year, month, day));
+        var entry = new CalendarEntry(Movie(10, clock.Today.AddDays(1)), isOther: true, clock);
+        Assert.True(entry.IsNotYetAired);
+        Assert.False(entry.ShowWatchAction);
+
+        clock.Today = clock.Today.AddDays(1);
+
+        Assert.False(entry.IsNotYetAired);
+        Assert.True(entry.IsReleased);
+        Assert.True(entry.ShowWatchAction);
+    }
+
+    [Theory]
+    [InlineData(-8)]
+    [InlineData(0)]
+    [InlineData(8)]
+    public void ReleaseFlagsUseTheLocalDateRatherThanTheUtcDate(int offsetHours)
+    {
+        var day = new DateOnly(2027, 1, 1);
+        var clock = new CalendarTestTime(day, TimeSpan.FromHours(offsetHours));
+        var entry = new CalendarEntry(Movie(10, day), isOther: true, clock);
+
+        Assert.True(entry.IsReleased);
+        Assert.False(entry.IsNotYetAired);
     }
 
     [Theory]

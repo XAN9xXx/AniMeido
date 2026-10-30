@@ -37,9 +37,7 @@
                     <Border Width="40" Height="54"
                             CornerRadius="4"
                             Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}">
-                        <Image Stretch="UniformToFill"
-                               Loaded="OnCoverLoaded"
-                               DataContextChanged="OnCoverDataContextChanged"/>
+                        <Image x:Name="LocalMatchCover" Stretch="UniformToFill"/>
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
                         <TextBlock Text="{x:Bind Anime.Title}"
@@ -218,19 +216,41 @@
                                     VerticalAlignment="Center"
                                     Click="OnOpenMineClick"/>
                         </Grid>
-                        <ScrollViewer HorizontalScrollMode="Auto"
-                                      HorizontalScrollBarVisibility="Auto"
-                                      VerticalScrollMode="Disabled"
-                                      VerticalScrollBarVisibility="Disabled"
-                                      Padding="0,0,0,6">
-                            <ItemsControl ItemsSource="{x:Bind ViewModel.LocalMatches}" ItemTemplate="{StaticResource LocalMatchTemplate}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Orientation="Horizontal"/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                            </ItemsControl>
-                        </ScrollViewer>
+                        <ListView x:Name="LocalMatchesList"
+                                  MaxWidth="{Binding ActualWidth, ElementName=ResultGrid}"
+                                  ItemsSource="{x:Bind ViewModel.LocalMatches}"
+                                  ItemTemplate="{StaticResource LocalMatchTemplate}"
+                                  SelectionMode="None"
+                                  IsItemClickEnabled="False"
+                                  Padding="0,0,0,6"
+                                  ScrollViewer.HorizontalScrollMode="Auto"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                  ScrollViewer.VerticalScrollMode="Disabled"
+                                  ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                  ContainerContentChanging="OnLocalMatchContainerContentChanging">
+                            <ListView.ItemContainerTransitions>
+                                <TransitionCollection/>
+                            </ListView.ItemContainerTransitions>
+                            <ListView.Resources>
+                                <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent"/>
+                                <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent"/>
+                            </ListView.Resources>
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem">
+                                    <Setter Property="Margin" Value="0"/>
+                                    <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="MinWidth" Value="0"/>
+                                    <Setter Property="MinHeight" Value="0"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                    <Setter Property="IsFocusEngagementEnabled" Value="True"/>
+                                </Style>
+                            </ListView.ItemContainerStyle>
+                            <ListView.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <ItemsStackPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ListView.ItemsPanel>
+                        </ListView>
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" Spacing="10">

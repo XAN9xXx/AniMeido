@@ -9,6 +9,26 @@
         <EnableExperimentalAiTests Condition="'$(EnableExperimentalAiTests)' == ''">false</EnableExperimentalAiTests>
     </PropertyGroup>
 
+    <PropertyGroup Condition="'$(AniMeidoUpdateTestSource)' == 'true'">
+        <DefineConstants>$(DefineConstants);ANIMEIDO_UPDATE_TEST_SOURCE</DefineConstants>
+    </PropertyGroup>
+
+    <!-- 由本次构建报告路径，测试不扫描可能混有旧发布产物的 bin 目录。 -->
+    <Target Name="RecordTestBuildOutputs" BeforeTargets="GetAssemblyAttributes" DependsOnTargets="ResolveProjectReferences">
+        <ItemGroup>
+            <TestOutputProject Include="..\AniMeido.App\AniMeido.App.csproj;..\Plugins\AniMeido.Plugin.Base\AniMeido.Plugin.Base.csproj;..\Plugins\AniMeido.Plugin.Base.Core\AniMeido.Plugin.Base.Core.csproj;..\AniMeido.Launcher\AniMeido.Launcher.csproj;..\AniMeido.PluginHost\AniMeido.PluginHost.csproj;..\Plugins\AniMeido.Plugin.AI\AniMeido.Plugin.AI.csproj" />
+        </ItemGroup>
+        <MSBuild Projects="@(TestOutputProject)" Targets="GetTargetPath" Properties="Configuration=$(Configuration);Platform=$(Platform)">
+            <Output TaskParameter="TargetOutputs" ItemName="TestBuildOutput" />
+        </MSBuild>
+        <ItemGroup>
+            <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+                <_Parameter1>TestBuildOutput.%(TestBuildOutput.Filename)</_Parameter1>
+                <_Parameter2>%(TestBuildOutput.FullPath)</_Parameter2>
+            </AssemblyAttribute>
+        </ItemGroup>
+    </Target>
+
     <ItemGroup>
         <PackageReference Include="Microsoft.NET.Test.Sdk" />
         <PackageReference Include="xunit" />

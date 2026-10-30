@@ -7,7 +7,7 @@ using Microsoft.Data.Sqlite;
 
 namespace AniMeido.Tests;
 
-public sealed class PersonalAnimeWriteTransactionTests : DbTestBase
+public sealed partial class PersonalAnimeWriteTransactionTests : DbTestBase
 {
     [Fact]
     public async Task TrackingTransactionHelpers_PreserveChangedOnlyAndImportPolicies()
@@ -277,7 +277,7 @@ public sealed class PersonalAnimeWriteTransactionTests : DbTestBase
         Assert.Equal((int)next, reader.GetInt32(1));
     }
 
-    private sealed class NoOpNotificationService : IAppNotificationService
+    private sealed class NoOpNotificationService(Action? cancelGroup = null) : IAppNotificationService
     {
         public bool IsSupported => false;
 
@@ -297,7 +297,10 @@ public sealed class PersonalAnimeWriteTransactionTests : DbTestBase
         public Task CancelGroupAsync(
             string group,
             CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+        {
+            cancelGroup?.Invoke();
+            return Task.CompletedTask;
+        }
 
         public IDisposable RegisterActivationHandler(
             string category,

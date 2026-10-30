@@ -6,6 +6,7 @@ using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
 
 namespace AniMeido.Plugin.Base.ViewModels
 {
@@ -17,14 +18,17 @@ namespace AniMeido.Plugin.Base.ViewModels
     {
         private readonly IAnimeDataSource _dataSource;
         private readonly TrackingService _tracking;
+        private readonly PersonalFeatureStateStore _featureState;
         private readonly LocalSearchService _localSearch;
         private readonly SavedTagService _savedTags;
+        private readonly ILogger _logger;
         private IReadOnlyList<Anime> _loaded = [];
         private IReadOnlyDictionary<int, AnimeTrackingStatus> _statuses = new Dictionary<int, AnimeTrackingStatus>();
         private int _total;
         private int _nextOffset;
         private CancellationTokenSource? _searchCancellation;
         private int _searchVersion;
+        private int _landingVersion;
         private bool _localSearchPending;
         private bool _remoteSearchPending;
 
@@ -94,13 +98,17 @@ namespace AniMeido.Plugin.Base.ViewModels
         public GlobalSearchViewModel(
             IAnimeDataSource dataSource,
             TrackingService tracking,
+            PersonalFeatureStateStore featureState,
             LocalSearchService localSearch,
-            SavedTagService savedTags)
+            SavedTagService savedTags,
+            ILogger logger)
         {
             _dataSource = dataSource;
             _tracking = tracking;
+            _featureState = featureState;
             _localSearch = localSearch;
             _savedTags = savedTags;
+            _logger = logger;
             RecentSearches.CollectionChanged += (_, _) => OnLandingChanged();
             SavedTags.CollectionChanged += (_, _) => OnLandingChanged();
         }
@@ -108,8 +116,24 @@ namespace AniMeido.Plugin.Base.ViewModels
         /// <summary>读取最近搜索与收藏的标签（空白首页用）。</summary>
         public async Task LoadLandingAsync()
         {
-            Replace(RecentSearches, await _tracking.LoadRecentSearchesAsync());
-            Replace(SavedTags, await _savedTags.GetAllSavedTagsAsync());
+            var version = Interlocked.Increment(ref _landingVersion);
+            try
+            {
+                var recent = await _featureState.LoadRecentSearchesAsync();
+                if (version != _landingVersion)
+                    return;
+
+                Replace(RecentSearches, recent);
+                var tags = await _savedTags.GetAllSavedTagsAsync();
+                if (version != _landingVersion)
+                    return;
+
+                Replace(SavedTags, tags);
+            }
+            catch (SqliteException) when (version != _landingVersion)
+            {
+                // 旧读取已失效，失败也不能进入页面错误出口并覆盖当前状态。
+            }
         }
 
         /// <summary>返回页面时重读追番状态，卡片标签与屏蔽随之更新。</summary>
@@ -169,7 +193,13 @@ namespace AniMeido.Plugin.Base.ViewModels
                 return Task.CompletedTask;
 
             var version = BeginSearch(out var token);
-            IsSearching = _localSearchPending || _remoteSearchPending;
+            if (!_localSearchPending && !_remoteSearchPending)
+            {
+                UpdateCanLoadMore();
+                return Task.CompletedTask;
+            }
+
+            IsSearching = true;
             ApplyResults();
             return RunPendingSearchAsync(version, token);
         }
@@ -269,12 +299,15 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         public async Task ClearRecentSearchesAsync()
         {
-            await _tracking.SaveRecentSearchesAsync([]);
-            RecentSearches.Clear();
+            var version = Interlocked.Increment(ref _landingVersion);
+            await _featureState.SaveRecentSearchesAsync([]);
+            if (version == _landingVersion)
+                RecentSearches.Clear();
         }
 
         public void CancelPendingSearch()
         {
+            Interlocked.Increment(ref _landingVersion);
             Interlocked.Increment(ref _searchVersion);
             _searchCancellation?.Cancel();
             _searchCancellation?.Dispose();
@@ -294,11 +327,14 @@ namespace AniMeido.Plugin.Base.ViewModels
 
             SummaryText = HasSearched && !_remoteSearchPending && !IsSearching
                 ? SearchBrowse.Summary(_total, _loaded.Count) : "";
-            CanLoadMore = HasSearched && _searchCancellation is not null
-                && !IsSearching && !_remoteSearchPending && _nextOffset < _total;
+            UpdateCanLoadMore();
             HasNoResults = HasSearched && !_remoteSearchPending && !IsSearching && !IsError && Results.Count == 0;
             EmptyText = _loaded.Count == 0 ? $"没有找到与“{Query}”相关的番剧" : "当前筛选下没有作品";
         }
+
+        private void UpdateCanLoadMore()
+            => CanLoadMore = HasSearched && _searchCancellation is not null
+                && !IsSearching && !_remoteSearchPending && _nextOffset < _total;
 
         private async Task PublishLocalMatchesAsync(string query, int version, CancellationToken token)
         {
@@ -357,7 +393,8 @@ namespace AniMeido.Plugin.Base.ViewModels
                 or InvalidOperationException
                 or JsonException)
             {
-                // 本地匹配只是附加信息，失败或被新搜索取消时返回空，不留下未观察的异常。
+                if (!token.IsCancellationRequested)
+                    _logger.LogWarning(ex, "Local search results are unavailable; showing remote results only");
                 return [];
             }
         }
@@ -368,22 +405,25 @@ namespace AniMeido.Plugin.Base.ViewModels
             Replace(RecentSearches, recent);
             try
             {
-                await _tracking.SaveRecentSearchesAsync(recent);
+                await _featureState.SaveRecentSearchesAsync(recent);
             }
-            catch (SqliteException)
+            catch (SqliteException ex)
             {
-                // 最近搜索只是便利功能，写入失败不影响搜索。
+                _logger.LogWarning(ex, "Recent searches could not be saved; continuing the search");
             }
         }
 
         private async Task<IReadOnlyDictionary<int, AnimeTrackingStatus>?> TryReadStatusesAsync()
         {
+            var version = _searchVersion;
             try
             {
                 return (await _tracking.GetAllTrackingAsync()).ToDictionary(row => row.AnimeId, row => row.Status);
             }
-            catch (SqliteException)
+            catch (SqliteException ex)
             {
+                if (version == _searchVersion)
+                    _logger.LogWarning(ex, "Tracking statuses could not be refreshed; keeping displayed statuses");
                 return null;
             }
         }
@@ -404,6 +444,7 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         private int BeginSearch(out CancellationToken token)
         {
+            Interlocked.Increment(ref _landingVersion);
             var version = Interlocked.Increment(ref _searchVersion);
             _searchCancellation?.Cancel();
             _searchCancellation?.Dispose();
@@ -442,6 +483,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                     return false;
             }
 
+            _logger.LogError(exception, "Anime search failed");
             IsError = true;
             return true;
         }

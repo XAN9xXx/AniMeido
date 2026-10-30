@@ -1,6 +1,7 @@
 ﻿using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -12,7 +13,8 @@ namespace AniMeido.Plugin.Base.Views
 {
     public sealed partial class DragZoneSettingsPage : Page
     {
-        private readonly TrackingService _tracking;
+        private readonly PersonalFeatureStateStore _featureState;
+        private readonly ILogger<DragZoneSettingsPage> _logger;
         private List<DragZoneConfig> _dragZones = DragZoneConfig.GetDefaults();
         private readonly Dictionary<string, ZoneVisual> _zoneVisuals = new();
         private bool _suppressEvents;
@@ -27,9 +29,12 @@ namespace AniMeido.Plugin.Base.Views
 
 
 
-        public DragZoneSettingsPage(TrackingService tracking)
+        public DragZoneSettingsPage(
+            PersonalFeatureStateStore featureState,
+            ILogger<DragZoneSettingsPage> logger)
         {
-            _tracking = tracking;
+            _featureState = featureState;
+            _logger = logger;
             InitializeComponent();
             _ = LoadAsync();
         }
@@ -39,21 +44,26 @@ namespace AniMeido.Plugin.Base.Views
             var changeVersion = _changeVersion;
             try
             {
-                _suppressEvents = true;
-                var dragZones = await _tracking.LoadDragZoneConfigAsync();
+                var dragZones = await _featureState.LoadDragZoneConfigAsync();
                 if (changeVersion != _changeVersion)
                 {
                     return;
                 }
                 _dragZones = dragZones;
-                RebuildAll();
-                _suppressEvents = false;
+                _suppressEvents = true;
+                try
+                {
+                    RebuildAll();
+                }
+                finally
+                {
+                    _suppressEvents = false;
+                }
             }
 #pragma warning disable CA1031 // 拖放配置加载失败不阻止页面显示
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[DragZoneSettings] LoadAsync failed: {ex.Message}");
-                _suppressEvents = false;
+                _logger.LogWarning(ex, "拖放标记设置加载失败，继续显示当前内容。");
             }
 #pragma warning restore CA1031
         }
@@ -519,12 +529,12 @@ namespace AniMeido.Plugin.Base.Views
                 {
                     return;
                 }
-                await _tracking.SaveDragZoneConfigAsync(snapshot);
+                await _featureState.SaveDragZoneConfigAsync(snapshot);
             }
 #pragma warning disable CA1031 // 拖放配置保存失败不阻塞操作
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[DragZoneSettings] SaveAsync failed: {ex.Message}");
+                _logger.LogError(ex, "拖放标记设置保存失败。");
             }
 #pragma warning restore CA1031
             finally

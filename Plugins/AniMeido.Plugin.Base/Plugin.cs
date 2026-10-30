@@ -4,10 +4,11 @@ using AniMeido.Contracts.Playback;
 using AniMeido.Contracts.Desktop;
 using AniMeido.Contracts.PersonalAnime;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace AniMeido.Plugin.Base
 {
-    public class BasePlugin : IPlugin
+    public class BasePlugin : IPlugin, IAsyncDisposable
     {
         public string PluginID => "AniMeido.Plugin.Base";
 
@@ -18,6 +19,8 @@ namespace AniMeido.Plugin.Base
             ?? throw new InvalidOperationException("BasePlugin 程序集缺少版本。");
 
         public bool IsRequired => true;
+
+        public ValueTask DisposeAsync() => ImageCacheHelper.StopAsync();
 
         public IEnumerable<PluginNavigationItem> GetNavigationItems()
         {
@@ -68,13 +71,18 @@ namespace AniMeido.Plugin.Base
         {
             services.AddSingleton<SqliteConnectionFactory>();
             services.AddMetadataService();
+            services.AddSingleton<TagSearchResults>();
             services.AddSingleton<ExportService>();
             services.AddSingleton<SavedTagService>();
             services.AddSingleton<DragDropService>();
             services.AddSingleton<ActionCenterService>();
             services.AddSingleton<ArchiveService>();
+            services.AddSingleton<ArchiveQueryService>();
+            services.AddSingleton<ArchiveReviewExporter>();
+            services.AddSingleton<IScreenshotRecycleBin, WindowsScreenshotRecycleBin>();
             services.AddSingleton<ScreenshotArchiveService>();
             services.AddSingleton<ArchiveBundleService>();
+            services.AddSingleton<PersonalDataTransferService>();
             services.AddSingleton<RecommendationCandidateProvider>();
             services.AddSingleton<RecommendationService>();
             services.AddSingleton<AniMeido.Plugin.Base.Models.RecommendationBrowseState>();
@@ -86,11 +94,13 @@ namespace AniMeido.Plugin.Base
                 provider.GetRequiredService<ScreenshotShortcutAction>());
             services.AddSingleton<IAnimePlaybackProgressSink>(provider =>
                 provider.GetRequiredService<ActionCenterService>());
+            services.AddSingleton<IPlanReminderNavigation, PlanReminderNavigation>();
             services.AddSingleton<PlanReminderCoordinator>();
             services.AddSingleton<LocalSearchService>(sp =>
                 new LocalSearchService(
                     sp.GetRequiredService<TrackingService>(),
-                    sp.GetRequiredService<IAnimeDataSource>()));
+                    sp.GetRequiredService<IAnimeDataSource>(),
+                    sp.GetRequiredService<ILogger<LocalSearchService>>()));
             return Task.CompletedTask;
         }
     }

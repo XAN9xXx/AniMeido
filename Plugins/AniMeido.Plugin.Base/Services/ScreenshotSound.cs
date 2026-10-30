@@ -9,7 +9,7 @@ internal static class ScreenshotSound
     private static readonly byte[] Wave = CreateWave();
 
     public static void Play() => _ = PlaySound(
-        Wave,
+        Marshal.UnsafeAddrOfPinnedArrayElement(Wave, 0),
         0,
         SndMemory | SndAsync);
 
@@ -19,7 +19,9 @@ internal static class ScreenshotSound
         const int durationMilliseconds = 120;
         var sampleCount = sampleRate * durationMilliseconds / 1000;
         var dataSize = sampleCount * sizeof(short);
-        using var stream = new MemoryStream(44 + dataSize);
+        // 原生异步播放会在调用返回后继续读取这段内存。
+        var wave = GC.AllocateArray<byte>(44 + dataSize, pinned: true);
+        using var stream = new MemoryStream(wave);
         using var writer = new BinaryWriter(stream);
         writer.Write("RIFF"u8);
         writer.Write(36 + dataSize);
@@ -42,13 +44,13 @@ internal static class ScreenshotSound
             writer.Write((short)(sample * envelope * short.MaxValue * 0.22));
         }
 
-        return stream.ToArray();
+        return wave;
     }
 
     [DllImport("winmm.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool PlaySound(
-        byte[] sound,
+        nint sound,
         nint module,
         uint flags);
 }

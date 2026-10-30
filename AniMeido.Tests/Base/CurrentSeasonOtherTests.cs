@@ -1,4 +1,5 @@
 ﻿using AniMeido.Contracts;
+using Microsoft.Extensions.Logging.Abstractions;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
@@ -9,7 +10,15 @@ namespace AniMeido.Tests;
 [Collection(CurrentSeasonSessionCollection.Name)]
 public sealed class CurrentSeasonOtherTests : DbTestBase
 {
-    public CurrentSeasonOtherTests() => CurrentSeasonViewModel.ResetTimeMachineSession();
+    private readonly PersonalFeatureStateStore _featureState;
+
+    private static readonly DateOnly TestDay = new(2026, 9, 18);
+
+    public CurrentSeasonOtherTests()
+    {
+        _featureState = new PersonalFeatureStateStore(DbFactory);
+        CurrentSeasonViewModel.ResetTimeMachineSession();
+    }
 
     [Fact]
     public async Task Load_PutsSeasonOnlyAnimeIntoOtherCell()
@@ -102,23 +111,31 @@ public sealed class CurrentSeasonOtherTests : DbTestBase
     {
         // 按季查询慢时，周一到周日先显示，“其他”一格单独显示加载中。
         await RunProductionMigrationAsync();
-        var gate = new TaskCompletionSource();
-        var vm = new CurrentSeasonViewModel(
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var vm = CreateViewModel(
             new ScheduleSource(seasonFails: false) { SeasonGate = gate },
             new TrackingService(DbFactory));
+        try
+        {
+            await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null).WaitAsync(TimeSpan.FromSeconds(10));
 
-        await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null);
+            Assert.True(vm.HasData);
+            Assert.False(vm.IsLoading);
+            Assert.Equal("1", vm.TotalCountText);
+            Assert.Equal("…", vm.Days.Single(day => day.IsOther).CountText);
 
-        Assert.True(vm.HasData);
-        Assert.False(vm.IsLoading);
-        Assert.Equal("1", vm.TotalCountText);
-        Assert.Equal("…", vm.Days.Single(day => day.IsOther).CountText);
+            gate.TrySetResult();
+            await vm.PendingOthersLoad.WaitAsync(TimeSpan.FromSeconds(10));
 
-        gate.SetResult();
-        await vm.PendingOthersLoad;
-
-        Assert.Equal("2", vm.TotalCountText);
-        Assert.Equal("1 部", vm.Days.Single(day => day.IsOther).CountText);
+            Assert.Equal("2", vm.TotalCountText);
+            Assert.Equal("1 部", vm.Days.Single(day => day.IsOther).CountText);
+        }
+        finally
+        {
+            gate.TrySetResult();
+            vm.CancelSupplementaryLoads();
+            await DrainLoadsAsync(vm);
+        }
     }
 
     [Fact]
@@ -126,21 +143,32 @@ public sealed class CurrentSeasonOtherTests : DbTestBase
     {
         // 离开页面时取消；从详情页返回复用同一个页面，还没有结果的查询重新开始。
         await RunProductionMigrationAsync();
-        var gate = new TaskCompletionSource();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var source = new ScheduleSource(seasonFails: false) { SeasonGate = gate };
-        var vm = new CurrentSeasonViewModel(source, new TrackingService(DbFactory));
-        await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null);
-        var requestsBeforeLeaving = source.CurrentSeasonRequests;
+        var vm = CreateViewModel(source, new TrackingService(DbFactory));
+        Task[] previousLoads = [];
+        try
+        {
+            await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null).WaitAsync(TimeSpan.FromSeconds(10));
+            var requestsBeforeLeaving = source.CurrentSeasonRequests;
+            previousLoads = [vm.PendingOthersLoad, vm.PendingTimeMachineLoad];
 
-        vm.CancelSupplementaryLoads();
-        vm.ResumeSupplementaryLoads();
-        // 再次回到页面时查询已在进行，不重复发起。
-        vm.ResumeSupplementaryLoads();
+            vm.CancelSupplementaryLoads();
+            vm.ResumeSupplementaryLoads();
+            // 再次回到页面时查询已在进行，不重复发起。
+            vm.ResumeSupplementaryLoads();
 
-        Assert.Equal(requestsBeforeLeaving + 1, source.CurrentSeasonRequests);
-        gate.SetResult();
-        await vm.PendingOthersLoad;
-        Assert.Equal("1 部", vm.Days.Single(day => day.IsOther).CountText);
+            Assert.Equal(requestsBeforeLeaving + 1, source.CurrentSeasonRequests);
+            gate.TrySetResult();
+            await vm.PendingOthersLoad.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal("1 部", vm.Days.Single(day => day.IsOther).CountText);
+        }
+        finally
+        {
+            gate.TrySetResult();
+            vm.CancelSupplementaryLoads();
+            await DrainLoadsAsync(vm, previousLoads);
+        }
     }
 
     [Fact]
@@ -148,7 +176,7 @@ public sealed class CurrentSeasonOtherTests : DbTestBase
     {
         await RunProductionMigrationAsync();
         var source = new ScheduleSource(seasonFails: false) { IsScheduleEmpty = true };
-        var vm = new CurrentSeasonViewModel(source, new TrackingService(DbFactory));
+        var vm = CreateViewModel(source, new TrackingService(DbFactory));
 
         await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null);
         await vm.PendingOthersLoad;
@@ -174,7 +202,7 @@ public sealed class CurrentSeasonOtherTests : DbTestBase
     {
         await RunProductionMigrationAsync();
         var source = new ScheduleSource(seasonFails: false) { IsScheduleEmpty = true };
-        var vm = new CurrentSeasonViewModel(source, new TrackingService(DbFactory));
+        var vm = CreateViewModel(source, new TrackingService(DbFactory));
         await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null);
         await vm.PendingOthersLoad;
         await vm.PendingTimeMachineLoad;
@@ -199,7 +227,7 @@ public sealed class CurrentSeasonOtherTests : DbTestBase
     public async Task SlowCatalog_UnknownItemsStayInOtherThenMoveWithoutLosingSavingStatus()
     {
         await RunProductionMigrationAsync();
-        var gate = new TaskCompletionSource();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var source = new ScheduleSource(seasonFails: false)
         {
             SeasonGate = gate,
@@ -208,32 +236,41 @@ public sealed class CurrentSeasonOtherTests : DbTestBase
             Catalog = [ScheduleSource.Item(1, null, AnimeMediaFormat.Television),
                 ScheduleSource.Item(2, null, AnimeMediaFormat.Ona)],
         };
-        var vm = new CurrentSeasonViewModel(source, new TrackingService(DbFactory));
-        await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null);
-        Assert.Empty(vm.VisibleEntries);
-        Assert.Equal("正在确认本季 TV 动画的放送排期…", vm.EmptyText);
-        Assert.Null(vm.DailyPick);
-        vm.SelectDay(CalendarDay.OtherKey);
-        Assert.Equal(2, vm.VisibleEntries.Count);
-        var tv = vm.VisibleEntries.Single(entry => entry.Anime.ID == 1);
-        var ona = vm.VisibleEntries.Single(entry => entry.Anime.ID == 2);
-        tv.IsSavingStatus = true;
-        tv.Status = AnimeTrackingStatus.Watching;
+        var vm = CreateViewModel(source, new TrackingService(DbFactory));
+        try
+        {
+            await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Empty(vm.VisibleEntries);
+            Assert.Equal("正在确认本季 TV 动画的放送排期…", vm.EmptyText);
+            Assert.Null(vm.DailyPick);
+            vm.SelectDay(CalendarDay.OtherKey);
+            Assert.Equal(2, vm.VisibleEntries.Count);
+            var tv = vm.VisibleEntries.Single(entry => entry.Anime.ID == 1);
+            var ona = vm.VisibleEntries.Single(entry => entry.Anime.ID == 2);
+            tv.IsSavingStatus = true;
+            tv.Status = AnimeTrackingStatus.Watching;
 
-        gate.SetResult();
-        await vm.PendingOthersLoad;
+            gate.TrySetResult();
+            await vm.PendingOthersLoad.WaitAsync(TimeSpan.FromSeconds(10));
 
-        Assert.Same(ona, Assert.Single(vm.VisibleEntries));
-        Assert.True(ona.IsOther);
-        Assert.Equal("网络", ona.ShelfBadgeText);
-        Assert.Equal("1 部", vm.Days.Single(day => day.IsOther).CountText);
-        vm.SelectDay(ScheduleSource.Today);
-        Assert.Same(tv, Assert.Single(vm.VisibleEntries));
-        Assert.False(tv.IsOther);
-        Assert.True(tv.IsSavingStatus);
-        Assert.Equal(AnimeTrackingStatus.Watching, tv.Status);
-        Assert.Null(tv.ShelfBadgeText);
-        Assert.Equal(AnimeMediaFormat.Unknown, source.Schedule![0].MediaFormat);
+            Assert.Same(ona, Assert.Single(vm.VisibleEntries));
+            Assert.True(ona.IsOther);
+            Assert.Equal("网络", ona.ShelfBadgeText);
+            Assert.Equal("1 部", vm.Days.Single(day => day.IsOther).CountText);
+            vm.SelectDay(ScheduleSource.Today);
+            Assert.Same(tv, Assert.Single(vm.VisibleEntries));
+            Assert.False(tv.IsOther);
+            Assert.True(tv.IsSavingStatus);
+            Assert.Equal(AnimeTrackingStatus.Watching, tv.Status);
+            Assert.Null(tv.ShelfBadgeText);
+            Assert.Equal(AnimeMediaFormat.Unknown, source.Schedule![0].MediaFormat);
+        }
+        finally
+        {
+            gate.TrySetResult();
+            vm.CancelSupplementaryLoads();
+            await DrainLoadsAsync(vm);
+        }
     }
 
     [Fact]
@@ -277,8 +314,8 @@ public sealed class CurrentSeasonOtherTests : DbTestBase
     {
         await RunProductionMigrationAsync();
         var tracking = new TrackingService(DbFactory);
-        await tracking.SaveCalendarDailyPickAsync(DateOnly.FromDateTime(DateTime.Today), 1);
-        var gate = new TaskCompletionSource();
+        await _featureState.SaveCalendarDailyPickAsync(TestDay, 1);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var source = new ScheduleSource(seasonFails: false)
         {
             SeasonGate = gate,
@@ -287,18 +324,27 @@ public sealed class CurrentSeasonOtherTests : DbTestBase
             Catalog = [ScheduleSource.Item(1, null, AnimeMediaFormat.Ona),
                 ScheduleSource.Item(2, null, AnimeMediaFormat.Television)],
         };
-        var vm = new CurrentSeasonViewModel(source, tracking);
-        await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null);
-        Assert.Equal(1, vm.DailyPick?.Anime.ID);
+        var vm = CreateViewModel(source, tracking);
+        try
+        {
+            await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(1, vm.DailyPick?.Anime.ID);
 
-        gate.SetResult();
-        await vm.PendingOthersLoad;
+            gate.TrySetResult();
+            await vm.PendingOthersLoad.WaitAsync(TimeSpan.FromSeconds(10));
 
-        Assert.Equal(2, Assert.Single(vm.VisibleEntries).Anime.ID);
-        Assert.Equal(2, vm.DailyPick?.Anime.ID);
-        Assert.Equal((DateOnly.FromDateTime(DateTime.Today), 2), await tracking.LoadCalendarDailyPickAsync());
-        vm.SelectDay(CalendarDay.OtherKey);
-        Assert.Equal(1, Assert.Single(vm.VisibleEntries).Anime.ID);
+            Assert.Equal(2, Assert.Single(vm.VisibleEntries).Anime.ID);
+            Assert.Equal(2, vm.DailyPick?.Anime.ID);
+            Assert.Equal((TestDay, 2), await _featureState.LoadCalendarDailyPickAsync());
+            vm.SelectDay(CalendarDay.OtherKey);
+            Assert.Equal(1, Assert.Single(vm.VisibleEntries).Anime.ID);
+        }
+        finally
+        {
+            gate.TrySetResult();
+            vm.CancelSupplementaryLoads();
+            await DrainLoadsAsync(vm);
+        }
     }
 
     [Fact]
@@ -329,46 +375,87 @@ public sealed class CurrentSeasonOtherTests : DbTestBase
     public async Task CancelledCatalog_LateResponseDoesNotReclassifyUntilReturn()
     {
         await RunProductionMigrationAsync();
-        var gate = new TaskCompletionSource();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var source = new ScheduleSource(seasonFails: false)
         {
             SeasonGate = gate,
             Schedule = [ScheduleSource.Item(1, ScheduleSource.Today, AnimeMediaFormat.Unknown)],
         };
-        var vm = new CurrentSeasonViewModel(source, new TrackingService(DbFactory));
-        await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null);
-        var cancelledLoad = vm.PendingOthersLoad;
-        vm.SelectDay(CalendarDay.OtherKey);
-        var entry = Assert.Single(vm.VisibleEntries);
-        vm.CancelSupplementaryLoads();
-        // 替身刻意不响应取消，让旧结果在离开页面后才返回。
-        gate.SetResult();
-        await cancelledLoad;
-        Assert.True(entry.IsOther);
-        Assert.Equal(AnimeMediaFormat.Unknown, entry.Anime.MediaFormat);
+        var vm = CreateViewModel(source, new TrackingService(DbFactory));
+        Task cancelledLoad = Task.CompletedTask;
+        try
+        {
+            await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null).WaitAsync(TimeSpan.FromSeconds(10));
+            cancelledLoad = vm.PendingOthersLoad;
+            vm.SelectDay(CalendarDay.OtherKey);
+            var entry = Assert.Single(vm.VisibleEntries);
+            vm.CancelSupplementaryLoads();
+            // 替身刻意不响应取消，让旧结果在离开页面后才返回。
+            gate.TrySetResult();
+            await cancelledLoad.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.True(entry.IsOther);
+            Assert.Equal(AnimeMediaFormat.Unknown, entry.Anime.MediaFormat);
 
-        vm.ResumeSupplementaryLoads();
-        await vm.PendingOthersLoad;
-        vm.SelectDay(ScheduleSource.Today);
+            vm.ResumeSupplementaryLoads();
+            await vm.PendingOthersLoad.WaitAsync(TimeSpan.FromSeconds(10));
+            vm.SelectDay(ScheduleSource.Today);
 
-        Assert.Same(entry, Assert.Single(vm.VisibleEntries));
-        Assert.False(entry.IsOther);
-        Assert.Equal(1, vm.DailyPick?.Anime.ID);
+            Assert.Same(entry, Assert.Single(vm.VisibleEntries));
+            Assert.False(entry.IsOther);
+            Assert.Equal(1, vm.DailyPick?.Anime.ID);
+        }
+        finally
+        {
+            gate.TrySetResult();
+            vm.CancelSupplementaryLoads();
+            await DrainLoadsAsync(vm, cancelledLoad);
+        }
     }
+
+    private CurrentSeasonViewModel CreateViewModel(IAnimeDataSource source, TrackingService tracking)
+        => new(source, tracking, _featureState, new CalendarTestTime(TestDay), NullLogger.Instance);
 
     private async Task<CurrentSeasonViewModel> LoadAsync(ScheduleSource source)
     {
-        var vm = new CurrentSeasonViewModel(source, new TrackingService(DbFactory));
-        await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null);
-        await vm.PendingOthersLoad;
-        Assert.True(vm.HasData);
-        return vm;
+        var vm = CreateViewModel(source, new TrackingService(DbFactory));
+        try
+        {
+            await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null).WaitAsync(TimeSpan.FromSeconds(10));
+            await vm.PendingOthersLoad.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.True(vm.HasData);
+            return vm;
+        }
+        finally
+        {
+            await DrainLoadsAsync(vm);
+        }
+    }
+
+    private static async Task DrainLoadsAsync(CurrentSeasonViewModel vm, params Task[] previousLoads)
+    {
+        try
+        {
+            await Task.WhenAll(previousLoads.Append(
+                vm.LoadSeasonalAnimeCommand.ExecutionTask ?? Task.CompletedTask)).WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            try
+            {
+                await Task.WhenAll(vm.PendingOthersLoad, vm.PendingTimeMachineLoad).WaitAsync(TimeSpan.FromSeconds(10));
+            }
+            finally
+            {
+                // 加载结束才可能登记最后一次保存，不能提前抓取旧的保存任务。
+                await vm.PendingTimeMachineShownSave.WaitAsync(TimeSpan.FromSeconds(10));
+            }
+        }
     }
 
     private sealed class ScheduleSource(bool seasonFails) : IAnimeDataSource
     {
         public static readonly int Today =
-            AnimeListPresentation.ToBangumiWeekday(DateTime.Today.DayOfWeek);
+            AnimeListPresentation.ToBangumiWeekday(TestDay.DayOfWeek);
 
         private static T Unexpected<T>() => throw new NotSupportedException("Unexpected data-source request.");
 
@@ -393,7 +480,7 @@ public sealed class CurrentSeasonOtherTests : DbTestBase
         // 按季查询同时返回周更作品和一部剧场版，只有剧场版应归入“其他”。
         public async Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct)
         {
-            if (year == SeasonHelper.GetCurrentSeason().year)
+            if (year == TestDay.Year)
             {
                 CurrentSeasonRequests++;
                 if (SeasonGate is { } gate)

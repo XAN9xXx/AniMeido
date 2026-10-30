@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Media;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -16,8 +17,8 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     // About one 20-row batch of scrolling room for the next remote request.
     private const double PrefetchDistance = 2400;
     private readonly IPluginNavigator _navigator;
+    private readonly ILogger<RecommendationPage> _logger;
     private CancellationTokenSource? _navigationCancellation;
-    private bool _isActionRunning;
     private ScrollViewer? _listScroll;
     private bool _restoringScroll;
     private bool _scrollRestorePending;
@@ -33,10 +34,12 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     public RecommendationPage(
         RecommendationService recommendations,
         IPluginNavigator navigator,
-        RecommendationBrowseState browse)
+        RecommendationBrowseState browse,
+        ILogger<RecommendationPage> logger)
     {
         _navigator = navigator;
-        ViewModel = new RecommendationViewModel(recommendations, browse);
+        _logger = logger;
+        ViewModel = new RecommendationViewModel(recommendations, browse, _logger);
         InitializeComponent();
         Unloaded += OnUnloaded;
         Loaded += OnLoaded;
@@ -86,9 +89,9 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     private async void OnRefreshClick(object sender, RoutedEventArgs e)
     {
         var applied = false;
-        await RunActionAsync(async () =>
+        await RunActionAsync(async token =>
         {
-            applied = await ViewModel.RefreshAsync(CurrentToken, preferNewBatch: true);
+            applied = await ViewModel.RefreshAsync(token, preferNewBatch: true);
         });
         if (applied && _navigationCancellation is not null)
         {
@@ -126,9 +129,8 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         if (section == "recommendations") TryLoadMoreNearEnd();
     }
 
-    private async Task ConfirmNotInterestedAsync(RecommendationItem item)
+    private async Task ConfirmNotInterestedAsync(RecommendationItem item, CancellationToken token)
     {
-        var token = CurrentToken;
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
@@ -146,12 +148,13 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     {
         if (sender is Button { Tag: RecommendationFeature feature })
         {
-            await RunActionAsync(() => ShowPreferenceDialogAsync(feature));
+            await RunActionAsync(token => ShowPreferenceDialogAsync(feature, token));
         }
     }
 
     private async Task ShowPreferenceDialogAsync(
-        RecommendationFeature feature)
+        RecommendationFeature feature,
+        CancellationToken token)
     {
         var choices = new ComboBox
         {
@@ -178,7 +181,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
             DefaultButton = ContentDialogButton.Primary,
         };
         var result = await dialog.ShowAsync();
-        if (result != ContentDialogResult.Primary)
+        if (result != ContentDialogResult.Primary || token.IsCancellationRequested)
         {
             return;
         }
@@ -192,7 +195,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         await ViewModel.SetPreferenceAsync(
             feature,
             adjustment,
-            CurrentToken);
+            token);
     }
 
     private void OnOnboardingTagToggle(object sender, RoutedEventArgs e)
@@ -237,8 +240,8 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         }
 
         GenerateFromTagsButton.IsEnabled = false;
-        await RunActionAsync(() =>
-            ViewModel.ApplyOnboardingTagsAsync(selected, CurrentToken));
+        await RunActionAsync(token =>
+            ViewModel.ApplyOnboardingTagsAsync(selected, token));
         GenerateFromTagsButton.IsEnabled = ViewModel.IsColdStart
             && ViewModel.SelectedOnboardingTags.Count > 0;
     }
@@ -247,7 +250,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     {
         if (sender is Button { Tag: RecommendationHiddenAnime item })
         {
-            await RunActionAsync(() => ViewModel.RestoreAsync(item, CurrentToken));
+            await RunActionAsync(token => ViewModel.RestoreAsync(item, token));
         }
     }
 
@@ -258,27 +261,28 @@ public sealed partial class RecommendationPage : Page, INavigationAware
             return;
         }
 
-        var dialog = CreateConfirmationDialog(
-            "恢复全部隐藏作品",
-            "刷新推荐后，这些作品可能再次出现。",
-            "全部恢复");
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        await RunActionAsync(async token =>
         {
-            await RunActionAsync(() => ViewModel.ClearHiddenAsync(CurrentToken));
-        }
+            var dialog = CreateConfirmationDialog(
+                "恢复全部隐藏作品",
+                "刷新推荐后，这些作品可能再次出现。",
+                "全部恢复");
+            if (await dialog.ShowAsync() == ContentDialogResult.Primary && !token.IsCancellationRequested)
+                await ViewModel.ClearHiddenAsync(token);
+        });
     }
 
     private async void OnClearPreferencesClick(object sender, RoutedEventArgs e)
     {
-        var dialog = CreateConfirmationDialog(
-            "清除手动设置",
-            "之后只按你的记录自动判断，推荐会重新生成。",
-            "清除并刷新");
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        await RunActionAsync(async token =>
         {
-            await RunActionAsync(() =>
-                ViewModel.ClearPreferencesAsync(CurrentToken));
-        }
+            var dialog = CreateConfirmationDialog(
+                "清除手动设置",
+                "之后只按你的记录自动判断，推荐会重新生成。",
+                "清除并刷新");
+            if (await dialog.ShowAsync() == ContentDialogResult.Primary && !token.IsCancellationRequested)
+                await ViewModel.ClearPreferencesAsync(token);
+        });
     }
 
     private ContentDialog CreateConfirmationDialog(
@@ -380,7 +384,14 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
 #pragma warning disable CA1031 // 返回页面时的恢复失败只提示，不中断页面。
-        catch (Exception ex) { if (!token.IsCancellationRequested) ViewModel.ReportError(ex.Message); }
+        catch (Exception ex)
+        {
+            if (!token.IsCancellationRequested)
+            {
+                _logger.LogError(ex, "Recommendation page resume failed.");
+                ViewModel.ReportError(ex.Message);
+            }
+        }
 #pragma warning restore CA1031
     }
 
@@ -413,7 +424,14 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         try { await ViewModel.LoadSelectedTagsAsync(token); }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
 #pragma warning disable CA1031 // Preview failures are contained at the asynchronous UI boundary.
-        catch (Exception ex) { if (!token.IsCancellationRequested) ViewModel.ReportError(ex.Message); }
+        catch (Exception ex)
+        {
+            if (!token.IsCancellationRequested)
+            {
+                _logger.LogError(ex, "Recommendation tag preview failed.");
+                ViewModel.ReportError(ex.Message);
+            }
+        }
 #pragma warning restore CA1031
     }
 
@@ -462,7 +480,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     {
         if (sender is not Button { Tag: RecommendationItem item } button) return;
 
-        await RunActionAsync(() => ViewModel.ToggleFollowingAsync(item, CurrentToken), serialize: false);
+        await RunActionAsync(token => ViewModel.ToggleFollowingAsync(item, token), serialize: false);
         if (button.Tag is RecommendationItem current) UpdateFollowButton(button, current);
     }
 
@@ -481,7 +499,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     private async void OnSelectedFollowClick(object sender, RoutedEventArgs e)
     {
         if (ViewModel.SelectedItem is not { } item) return;
-        await RunActionAsync(() => ViewModel.ToggleFollowingAsync(item, CurrentToken), serialize: false);
+        await RunActionAsync(token => ViewModel.ToggleFollowingAsync(item, token), serialize: false);
         if (RecommendationList.ContainerFromItem(item) is DependencyObject container)
             RefreshFollowButtons(container);
     }
@@ -519,25 +537,25 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     private async void OnRowHideClick(object sender, RoutedEventArgs e)
     {
         if (sender is Button { Tag: RecommendationItem item })
-            await RunActionAsync(() => ViewModel.HideAsync(item, CurrentToken));
+            await RunActionAsync(token => ViewModel.HideAsync(item, token));
     }
 
     private async void OnRowNotInterestedClick(object sender, RoutedEventArgs e)
     {
         if (sender is Button { Tag: RecommendationItem item })
-            await RunActionAsync(() => ConfirmNotInterestedAsync(item));
+            await RunActionAsync(token => ConfirmNotInterestedAsync(item, token));
     }
 
     private async void OnSelectedHideClick(object sender, RoutedEventArgs e)
     {
         if (ViewModel.SelectedItem is { } item)
-            await RunActionAsync(() => ViewModel.HideAsync(item, CurrentToken));
+            await RunActionAsync(token => ViewModel.HideAsync(item, token));
     }
 
     private async void OnSelectedNotInterestedClick(object sender, RoutedEventArgs e)
     {
         if (ViewModel.SelectedItem is { } item)
-            await RunActionAsync(() => ConfirmNotInterestedAsync(item));
+            await RunActionAsync(token => ConfirmNotInterestedAsync(item, token));
     }
 
     private void OnCoverLoaded(object sender, RoutedEventArgs e)
@@ -690,7 +708,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         {
             // A click must not claim a saved preference before persistence succeeds.
             tag.RefreshSelection();
-            try { await RunActionAsync(() => ViewModel.SaveTagAsync(tag, adjustment, CurrentToken)); }
+            try { await RunActionAsync(token => ViewModel.SaveTagAsync(tag, adjustment, token)); }
             finally { tag.RefreshSelection(); }
         }
     }
@@ -698,32 +716,11 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     private CancellationToken CurrentToken
         => _navigationCancellation?.Token ?? CancellationToken.None;
 
-    private async Task RunActionAsync(Func<Task> action, bool serialize = true)
+    private Task RunActionAsync(Func<CancellationToken, Task> action, bool serialize = true)
     {
-        if (serialize && _isActionRunning)
-        {
-            ViewModel.ReportBusyAction();
-            return;
-        }
+        if (_navigationCancellation is not { } navigation)
+            return Task.CompletedTask;
 
-        if (serialize) _isActionRunning = true;
-        var cancellationToken = CurrentToken;
-        try
-        {
-            await action();
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-#pragma warning disable CA1031 // UI 边界将可恢复错误转为页面提示，避免 async void 终止进程。
-        catch (Exception ex)
-        {
-            if (!cancellationToken.IsCancellationRequested) ViewModel.ReportError(ex.Message);
-        }
-#pragma warning restore CA1031
-        finally
-        {
-            if (serialize) _isActionRunning = false;
-        }
+        return ViewModel.RunActionAsync(action, navigation.Token, serialize);
     }
 }

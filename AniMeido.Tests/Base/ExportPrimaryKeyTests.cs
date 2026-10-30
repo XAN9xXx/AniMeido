@@ -169,7 +169,7 @@ public sealed class ExportPrimaryKeyTests : DbTestBase
     }
 
     private ExportService CreateService()
-        => new(new TrackingService(DbFactory), new SavedTagService(DbFactory), DbFactory);
+        => new(DbFactory);
 
     private static ExportData Package(string table, Dictionary<string, string?> row) => new()
     {

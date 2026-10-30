@@ -1,5 +1,6 @@
 ﻿using System.Runtime.InteropServices;
 using AniMeido.Plugin.Base.ViewModels;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Input;
@@ -61,6 +62,7 @@ public sealed partial class TodayPage
 #pragma warning disable CA1031 // 卡包展开只是呈现方式，任何失败都归位并提示，不打断今天页。
         catch (Exception ex)
         {
+            _ = ViewModel.SetPlanDeckExpandedAsync(false);
             _movingPlanSurface = false;
             if (PlanStackPopup.IsOpen)
             {
@@ -222,6 +224,8 @@ public sealed partial class TodayPage
     {
         _planPanel?.Focus(FocusState.Programmatic);
         _planStackAnimation?.Begin();
+        if (_planStackAnimation is null)
+            _ = ReportPlanDeckExpandedAsync(_planOpenGeneration);
     }
 
     private void AnimatePlanStack(bool closing, bool startImmediately = true)
@@ -238,6 +242,7 @@ public sealed partial class TodayPage
             }
             return;
         }
+        var generation = _planOpenGeneration;
         var animation = new Storyboard();
         var ratio = Math.Clamp(_collapsedStackHeight / _expandedStackHeight, 0.01, 1);
         var scale = new ScaleTransform { ScaleY = closing ? 1 : ratio };
@@ -261,15 +266,18 @@ public sealed partial class TodayPage
             VisiblePlanList.RenderTransform = scrollReturn;
             AddStackMotion(animation, scrollReturn, nameof(TranslateTransform.Y), 0, PlanScroll.VerticalOffset);
         }
-        var thirdTop = _planPanel.Children.Take(2).Sum(child => child.DesiredSize.Height);
+        var thirdTop = _planPanel.Children.Take(TodayPlanDeckPresentation.FrontCardCount - 1).Sum(child => child.DesiredSize.Height);
         var y = thirdTop;
-        for (var index = 2; index < _planPanel.Children.Count; index++)
+        for (var index = TodayPlanDeckPresentation.FrontCardCount - 1; index < _planPanel.Children.Count; index++)
         {
             var row = _planPanel.Children[index];
-            if (index >= 3)
+            if (index >= TodayPlanDeckPresentation.FrontCardCount)
             {
                 var offset = thirdTop - y;
-                var angle = Math.Min(index - 2, 3) * 3d;
+                var fanDepth = Math.Min(
+                    index - TodayPlanDeckPresentation.FrontCardCount + 1,
+                    TodayPlanDeckPresentation.RearCardCount);
+                var angle = fanDepth * _planPanel.FanAngleStep;
                 var transform = new CompositeTransform
                 {
                     TranslateY = closing ? 0 : offset, Rotation = closing ? 0 : angle,
@@ -277,7 +285,7 @@ public sealed partial class TodayPage
                 row.RenderTransform = transform;
                 AddStackMotion(animation, transform, nameof(CompositeTransform.TranslateY), closing ? 0 : offset, closing ? offset : 0);
                 AddStackMotion(animation, transform, nameof(CompositeTransform.Rotation), closing ? 0 : angle, closing ? angle : 0);
-                if (index >= 6)
+                if (index >= TodayPlanDeckPresentation.FoldedCardCount)
                     AddStackMotion(animation, row, nameof(Opacity), closing ? 1 : 0, closing ? 0 : 1);
             }
             y += row.DesiredSize.Height;
@@ -298,10 +306,44 @@ public sealed partial class TodayPage
             _planStackAnimation = null;
             ResetPlanMotion();
             PlanScroll.IsHitTestVisible = true;
-            if (_closingPlanStack) AnimatePlanStack(closing: true);
-            else if (_pendingPlan is { } entry) ScrollToPlan(entry);
+            if (_closingPlanStack)
+            {
+                AnimatePlanStack(closing: true);
+            }
+            else
+            {
+                if (_pendingPlan is { } entry)
+                    ScrollToPlan(entry);
+                _ = ReportPlanDeckExpandedAsync(generation);
+            }
         };
         if (startImmediately) animation.Begin();
+    }
+
+    private async Task ReportPlanDeckExpandedAsync(int generation)
+    {
+        if (!IsLoaded || !PlanStackPopup.IsOpen || _closingPlanStack
+            || generation != _planOpenGeneration
+            || _planPanel is not { Expanded: true } || _planStackAnimation is not null)
+        {
+            return;
+        }
+
+        try
+        {
+            await ViewModel.SetPlanDeckExpandedAsync(true);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+#pragma warning disable CA1031 // 展开后补图是页面拥有的任务，失败在此报告，不留下未观察异常。
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Today plan details failed to load after expansion.");
+            if (IsLoaded && PlanStackPopup.IsOpen && generation == _planOpenGeneration)
+                ShowNotification("补番计划封面没有加载完成，可以收起后重新展开。", InfoBarSeverity.Warning);
+        }
+#pragma warning restore CA1031
     }
 
     private void ResetPlanMotion()
@@ -364,6 +406,7 @@ public sealed partial class TodayPage
 
     private void ClosePlanStack()
     {
+        _ = ViewModel.SetPlanDeckExpandedAsync(false);
         if (_capturingPlan)
         {
             ++_planOpenGeneration;
@@ -434,6 +477,7 @@ public sealed partial class TodayPage
 
     private void OnPlanStackClosed(object sender, object e)
     {
+        _ = ViewModel.SetPlanDeckExpandedAsync(false);
         ++_planOpenGeneration;
         CompositionTarget.Rendering -= OnPlanHandoffRendering;
         // 窗口变化、页面离开等直接关闭路径也必须归位；动画路径不重复迁移。

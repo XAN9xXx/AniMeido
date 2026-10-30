@@ -60,7 +60,7 @@ namespace AniMeido.Plugin.Base.Views
             IPluginNavigator pluginNavigator,
             ILogger<PastSeasonPage> logger)
         {
-            _viewModel = new PastSeasonViewModel(dataSource, trackingService);
+            _viewModel = new PastSeasonViewModel(dataSource, trackingService, logger);
             _cacheService = cacheService;
             _dragDrop = dragDropService;
             _pluginNavigator = pluginNavigator;
@@ -243,55 +243,64 @@ namespace AniMeido.Plugin.Base.Views
         private Task LoadSelectedSeasonSafelyAsync(bool forceRefresh = false)
             => LoadSeasonSafelyAsync(_selected, forceRefresh);
 
-        private async Task LoadSeasonAsync(PastSeasonTarget target, bool forceRefresh)
-        {
-            _seasonLoadTimer.Stop();
-
-            _loadCts?.Cancel();
-            _loadCts?.Dispose();
-            var loadCts = new CancellationTokenSource();
-            _loadCts = loadCts;
-            var version = Interlocked.Increment(ref _loadVersion);
-            ErrorInfoBar.IsOpen = false;
-
-            // 换季度时清空搜索词；形态、排序与“隐藏看过”保留。
-            if (ViewModel.Season != target && !string.IsNullOrEmpty(FilterBox.Text))
-            {
-                _isSyncingControls = true;
-                FilterBox.Text = "";
-                _isSyncingControls = false;
-            }
-
-            if (forceRefresh)
-            {
-                await _cacheService.RemoveCacheAsync(
-                    await MetadataDataSource.GetSeasonCacheKeyAsync(_cacheService, target.Year, target.Season));
-                if (version != _loadVersion)
-                    return;
-            }
-
-            await ViewModel.LoadPastSeasonAnimeAsync(target.Year, target.Season, loadCts.Token);
-        }
-
         private async Task LoadSeasonSafelyAsync(
             PastSeasonTarget target,
             bool forceRefresh = false)
         {
+            _seasonLoadTimer.Stop();
+            _loadCts?.Cancel();
+
+            using var loadCts = new CancellationTokenSource();
+            var token = loadCts.Token;
+            _loadCts = loadCts;
+            var version = Interlocked.Increment(ref _loadVersion);
+            bool IsCurrentLoad() => version == _loadVersion && !token.IsCancellationRequested;
+
             try
             {
-                await LoadSeasonAsync(target, forceRefresh);
+                ErrorInfoBar.IsOpen = false;
+
+                // 换季度时清空搜索词；形态、排序与“隐藏看过”保留。
+                if (ViewModel.Season != target && !string.IsNullOrEmpty(FilterBox.Text))
+                {
+                    _isSyncingControls = true;
+                    FilterBox.Text = "";
+                    _isSyncingControls = false;
+                }
+
+                if (forceRefresh)
+                {
+                    var cacheKey = await MetadataDataSource.GetSeasonCacheKeyAsync(
+                        _cacheService, target.Year, target.Season);
+                    if (!IsCurrentLoad())
+                        return;
+
+                    await _cacheService.RemoveCacheAsync(cacheKey);
+                    if (!IsCurrentLoad())
+                        return;
+                }
+
+                await ViewModel.LoadPastSeasonAnimeAsync(target.Year, target.Season, token);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
             }
 #pragma warning disable CA1031 // UI 事件边界统一显示加载失败，避免 async void 终止进程。
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Library season {Year}/{Season} failed to load", target.Year, target.Season);
+                if (!IsCurrentLoad())
+                    return;
+
+                _logger.LogError(ex, "Library season {Year}/{Season} failed to load", target.Year, target.Season);
                 ErrorInfoBar.Message = $"加载失败：{ex.Message}";
                 ErrorInfoBar.IsOpen = true;
             }
 #pragma warning restore CA1031
+            finally
+            {
+                if (ReferenceEquals(_loadCts, loadCts))
+                    _loadCts = null;
+            }
         }
 
         private void OnRefreshClick(object sender, RoutedEventArgs e)
@@ -515,8 +524,7 @@ namespace AniMeido.Plugin.Base.Views
             try
             {
                 await _dragDrop.ReloadConfigAsync();
-                if (!await ViewModel.ReloadStatusesAsync())
-                    _logger.LogWarning("Library tracking statuses could not be read; keeping the previous marks");
+                await ViewModel.ReloadStatusesAsync();
             }
 #pragma warning disable CA1031 // 拖放配置与状态读取失败不阻塞页面
             catch (Exception ex)
@@ -533,9 +541,9 @@ namespace AniMeido.Plugin.Base.Views
             _seasonLoadTimer.Stop();
             _skeletonTimer.Stop();
             _gridLayoutTimer.Stop();
+            ViewModel.Suspend();
             Interlocked.Increment(ref _loadVersion);
             _loadCts?.Cancel();
-            _loadCts?.Dispose();
             _loadCts = null;
         }
     }

@@ -1,4 +1,5 @@
-﻿using Microsoft.UI.Xaml;
+﻿using AniMeido.Plugin.Base.ViewModels;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
@@ -12,7 +13,7 @@ public sealed class TodayPlanStackPanel : Panel
     internal bool IsAnimating { get; set; }
     public double FanAngleStep { get; set; } = 3;
     public bool HideRearContent { get; set; }
-    private int _visibleCardCount = 3;
+    private int _visibleCardCount = TodayPlanDeckPresentation.FrontCardCount;
     public int VisibleCardCount
     {
         get => _visibleCardCount;
@@ -57,7 +58,8 @@ public sealed class TodayPlanStackPanel : Panel
             CollapsedHeight += child.DesiredSize.Height;
         if (Children.Count > VisibleCardCount)
         {
-            var angle = Math.Min(3, Children.Count - VisibleCardCount) * FanAngleStep * Math.PI / 180;
+            var fanDepth = Math.Min(TodayPlanDeckPresentation.RearCardCount, Children.Count - VisibleCardCount);
+            var angle = fanDepth * FanAngleStep * Math.PI / 180;
             var cardHeight = Math.Max(0, Children[VisibleCardCount - 1].DesiredSize.Height - 8);
             CollapsedHeight += Math.Max(0, Math.Sin(angle) * width + (Math.Cos(angle) - 1) * cardHeight);
         }
@@ -83,8 +85,9 @@ public sealed class TodayPlanStackPanel : Panel
                 if (child.RenderTransform is not CompositeTransform transform)
                     child.RenderTransform = transform = new CompositeTransform();
                 child.RenderTransformOrigin = new Point(0, 0);
-                transform.Rotation = rear ? Math.Min(index - VisibleCardCount + 1, 3) * FanAngleStep * (Expanded ? 0 : 1) : 0;
-                child.Opacity = index >= VisibleCardCount + 3 && !Expanded ? 0 : 1;
+                var fanDepth = Math.Min(index - VisibleCardCount + 1, TodayPlanDeckPresentation.RearCardCount);
+                transform.Rotation = rear ? fanDepth * FanAngleStep * (Expanded ? 0 : 1) : 0;
+                child.Opacity = index >= VisibleCardCount + TodayPlanDeckPresentation.RearCardCount && !Expanded ? 0 : 1;
                 if (HideRearContent && state.Face is { } face)
                     face.Opacity = rear && !Expanded ? 0 : 1;
             }

@@ -1,6 +1,7 @@
 using AniMeido.Contracts;
 using AniMeido.Contracts.Desktop;
 using AniMeido.Plugin.Base.Services;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System.Text.Json;
@@ -10,35 +11,39 @@ namespace AniMeido.Plugin.Base.Views
     public sealed partial class DataManagementSettingsPage : Page
     {
         private readonly CacheService _cacheService;
-        private readonly ExportService? _exportService;
-        private readonly BackupService _backupService;
-        private readonly ArchiveBundleService _archiveBundle;
+        private readonly PersonalDataTransferService _transfer;
         private readonly IAppDataPaths _paths;
         private readonly IWindowHandleProvider _windowHandleProvider;
+        private readonly ILogger<DataManagementSettingsPage> _logger;
+        private int _visitVersion;
+        private ContentDialog? _activeDialog;
 
         public DataManagementSettingsPage(
             CacheService cacheService,
-            ExportService? exportService,
-            BackupService backupService,
-            ArchiveBundleService archiveBundle,
+            PersonalDataTransferService transfer,
             IAppDataPaths paths,
-            IWindowHandleProvider windowHandleProvider)
+            IWindowHandleProvider windowHandleProvider,
+            ILogger<DataManagementSettingsPage> logger)
         {
             _cacheService = cacheService;
-            _exportService = exportService;
-            _backupService = backupService;
-            _archiveBundle = archiveBundle;
+            _transfer = transfer;
             _paths = paths;
             _windowHandleProvider = windowHandleProvider;
+            _logger = logger;
             InitializeComponent();
             InitDataSettings();
-            _ = UpdateCacheInfoAsync();
+            Loaded += OnPageLoaded;
+            Unloaded += OnPageUnloaded;
         }
 
         private async void OnExportBundleClick(
             object sender,
             RoutedEventArgs e)
         {
+            var visit = _visitVersion;
+            if (!IsCurrentVisit(visit))
+                return;
+
             var picker = new Windows.Storage.Pickers.FileSavePicker();
             picker.SuggestedStartLocation =
                 Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
@@ -51,11 +56,12 @@ namespace AniMeido.Plugin.Base.Views
             {
                 await ShowMessageAsync(
                     "无法打开选择器",
-                    "主窗口句柄当前不可用，请稍后重试。");
+                    "主窗口句柄当前不可用，请稍后重试。",
+                    visit);
                 return;
             }
             var file = await picker.PickSaveFileAsync();
-            if (file is null)
+            if (!IsCurrentVisit(visit) || file is null)
             {
                 return;
             }
@@ -63,17 +69,28 @@ namespace AniMeido.Plugin.Base.Views
             ExportBundleButton.IsEnabled = false;
             try
             {
-                await _archiveBundle.ExportAsync(file.Path);
+                await _transfer.ExportBundleAsync(file.Path);
                 await ShowMessageAsync(
                     "导出完成",
-                    "完整档案已导出。");
+                    "完整档案已导出。",
+                    visit);
+            }
+            catch (PersonalDataBusyException ex)
+            {
+                await ShowMessageAsync(
+                    "暂时无法导出",
+                    ex.Message,
+                    visit);
             }
             catch (Exception ex) when (
                 ex is IOException
                     or UnauthorizedAccessException
                     or InvalidDataException)
             {
-                await ShowMessageAsync("导出失败", ex.Message);
+                await ShowMessageAsync(
+                    "导出失败",
+                    ex.Message,
+                    visit);
             }
             finally
             {
@@ -85,6 +102,10 @@ namespace AniMeido.Plugin.Base.Views
             object sender,
             RoutedEventArgs e)
         {
+            var visit = _visitVersion;
+            if (!IsCurrentVisit(visit))
+                return;
+
             var picker = new Windows.Storage.Pickers.FileOpenPicker();
             picker.SuggestedStartLocation =
                 Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
@@ -93,11 +114,12 @@ namespace AniMeido.Plugin.Base.Views
             {
                 await ShowMessageAsync(
                     "无法打开选择器",
-                    "主窗口句柄当前不可用，请稍后重试。");
+                    "主窗口句柄当前不可用，请稍后重试。",
+                    visit);
                 return;
             }
             var file = await picker.PickSingleFileAsync();
-            if (file is null)
+            if (!IsCurrentVisit(visit) || file is null)
             {
                 return;
             }
@@ -109,10 +131,9 @@ namespace AniMeido.Plugin.Base.Views
                 PrimaryButtonText = "开始导入",
                 CloseButtonText = "取消",
                 DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = XamlRoot,
             };
-            if (await confirmation.ShowAsync()
-                != ContentDialogResult.Primary)
+            var result = await ShowDialogAsync(confirmation, visit);
+            if (result != ContentDialogResult.Primary || !IsCurrentVisit(visit))
             {
                 return;
             }
@@ -120,15 +141,26 @@ namespace AniMeido.Plugin.Base.Views
             ImportBundleButton.IsEnabled = false;
             try
             {
-                var screenshotCount = await _archiveBundle.ImportAsync(
+                var screenshotCount = await _transfer.ImportBundleAsync(
                     file.Path);
                 await ShowMessageAsync(
                     "导入完成",
-                    $"基础数据已导入，新增 {screenshotCount} 张截图。");
+                    $"基础数据已导入，新增 {screenshotCount} 张截图。",
+                    visit);
+            }
+            catch (PersonalDataBusyException ex)
+            {
+                await ShowMessageAsync(
+                    "暂时无法导入",
+                    ex.Message,
+                    visit);
             }
             catch (ArchiveBundleRollbackException ex)
             {
-                await ShowMessageAsync("导入失败", ex.Message);
+                await ShowMessageAsync(
+                    "导入失败",
+                    ex.Message,
+                    visit);
             }
             catch (Exception ex) when (
                 ex is IOException
@@ -138,7 +170,8 @@ namespace AniMeido.Plugin.Base.Views
             {
                 await ShowMessageAsync(
                     "导入失败",
-                    $"{ex.Message}\n\n数据库已从导入前备份恢复。");
+                    ex.Message,
+                    visit);
             }
             finally
             {
@@ -157,20 +190,51 @@ namespace AniMeido.Plugin.Base.Views
             return true;
         }
 
-        private async Task ShowMessageAsync(string title, string content)
+        private async void OnPageLoaded(object sender, RoutedEventArgs e)
         {
-            if (!IsLoaded || XamlRoot is null)
+            var visit = ++_visitVersion;
+            await UpdateCacheInfoAsync(visit);
+        }
+
+        private void OnPageUnloaded(object sender, RoutedEventArgs e)
+        {
+            _visitVersion++;
+            _activeDialog?.Hide();
+        }
+
+        private bool IsCurrentVisit(int visit)
+            => IsLoaded && visit == _visitVersion;
+
+        private async Task<ContentDialogResult> ShowDialogAsync(ContentDialog dialog, int visit)
+        {
+            if (!IsCurrentVisit(visit) || XamlRoot is null)
+                return ContentDialogResult.None;
+            if (_activeDialog is not null)
+                throw new InvalidOperationException("已有对话框正在显示。");
+
+            dialog.XamlRoot = XamlRoot;
+            _activeDialog = dialog;
+            try
             {
-                return;
+                var result = await dialog.ShowAsync();
+                return IsCurrentVisit(visit) ? result : ContentDialogResult.None;
             }
+            finally
+            {
+                if (ReferenceEquals(_activeDialog, dialog))
+                    _activeDialog = null;
+            }
+        }
+
+        private async Task ShowMessageAsync(string title, string content, int visit)
+        {
             var dialog = new ContentDialog
             {
                 Title = title,
                 Content = content,
                 CloseButtonText = "确定",
-                XamlRoot = XamlRoot,
             };
-            await dialog.ShowAsync();
+            await ShowDialogAsync(dialog, visit);
         }
 
         private void InitDataSettings()
@@ -180,11 +244,15 @@ namespace AniMeido.Plugin.Base.Views
             LogPathText.Text = _paths.LogDirectory;
         }
 
-        private async Task UpdateCacheInfoAsync()
+        private async Task UpdateCacheInfoAsync(int visit)
         {
             try
             {
+                if (!IsCurrentVisit(visit))
+                    return;
                 var (dbCount, totalSizeKB) = await _cacheService.GetCacheStatsAsync();
+                if (!IsCurrentVisit(visit))
+                    return;
                 var totalSizeMB = totalSizeKB / 1024.0;
                 CacheInfoText.Text = totalSizeMB >= 1.0
                     ? $"占用约 {totalSizeMB:F1} MB"
@@ -200,20 +268,21 @@ namespace AniMeido.Plugin.Base.Views
 
         private async void OnClearCacheClick(object sender, RoutedEventArgs e)
         {
-            if (ClearCacheButton.XamlRoot is { } xamlRoot)
+            var visit = _visitVersion;
+            if (!IsCurrentVisit(visit) || XamlRoot is null)
+                return;
+
+            var dialog = new ContentDialog
             {
-                var dialog = new ContentDialog
-                {
-                    Title = "清理缓存",
-                    Content = "确定要清空所有本地缓存数据吗？下次访问时将重新从网络获取。",
-                    PrimaryButtonText = "确认清理",
-                    CloseButtonText = "取消",
-                    DefaultButton = ContentDialogButton.Close,
-                    XamlRoot = xamlRoot
-                };
-                var result = await dialog.ShowAsync();
-                if (result != ContentDialogResult.Primary) return;
-            }
+                Title = "清理缓存",
+                Content = "确定要清空所有本地缓存数据吗？下次访问时将重新从网络获取。",
+                PrimaryButtonText = "确认清理",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Close,
+            };
+            var result = await ShowDialogAsync(dialog, visit);
+            if (result != ContentDialogResult.Primary || !IsCurrentVisit(visit))
+                return;
 
             ClearCacheButton.IsEnabled = false;
             ClearCacheButton.Content = "清理中…";
@@ -221,7 +290,7 @@ namespace AniMeido.Plugin.Base.Views
             try
             {
                 await _cacheService.ClearAllCacheAsync();
-                await UpdateCacheInfoAsync();
+                await UpdateCacheInfoAsync(visit);
             }
             catch (Exception ex) when (
                 ex is IOException
@@ -229,7 +298,10 @@ namespace AniMeido.Plugin.Base.Views
                     or InvalidOperationException
                     or Microsoft.Data.Sqlite.SqliteException)
             {
-                await ShowMessageAsync("清理失败", ex.Message);
+                await ShowMessageAsync(
+                    "清理失败",
+                    ex.Message,
+                    visit);
             }
             finally
             {
@@ -257,34 +329,50 @@ namespace AniMeido.Plugin.Base.Views
 
         private async void OnBackupNowClick(object sender, RoutedEventArgs e)
         {
+            var visit = _visitVersion;
+            if (!IsCurrentVisit(visit))
+                return;
+
             BackupNowButton.IsEnabled = false;
             BackupNowButton.Content = "备份中…";
             try
             {
-                await _backupService.BackupAsync();
+                try
+                {
+                    await _transfer.BackupAsync();
+                }
+                catch (PersonalDataBusyException ex)
+                {
+                    await ShowMessageAsync(
+                        "暂时无法备份",
+                        ex.Message,
+                        visit);
+                    return;
+                }
+#pragma warning disable CA1031 // 备份与完成提示分别处理各自的最终结果。
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "数据库备份失败。");
+                    await ShowMessageAsync(
+                        "备份失败",
+                        $"备份过程中发生错误：{ex.Message}",
+                        visit);
+                    return;
+                }
 
-                var dialog = new ContentDialog
+                try
                 {
-                    Title = "备份完成",
-                    Content = $"数据库已备份到：\n{_paths.BackupDirectory}",
-                    CloseButtonText = "确定",
-                    XamlRoot = this.XamlRoot
-                };
-                await dialog.ShowAsync();
-            }
-#pragma warning disable CA1031 // 备份失败应显示错误提示而非崩溃
-            catch (Exception ex)
-            {
-                var dialog = new ContentDialog
+                    await ShowMessageAsync(
+                        "备份完成",
+                        $"数据库已备份到：\n{_paths.BackupDirectory}",
+                        visit);
+                }
+                catch (Exception ex)
                 {
-                    Title = "备份失败",
-                    Content = $"备份过程中发生错误：{ex.Message}",
-                    CloseButtonText = "确定",
-                    XamlRoot = this.XamlRoot
-                };
-                await dialog.ShowAsync();
-            }
+                    _logger.LogWarning(ex, "数据库备份已完成，但完成提示显示失败。");
+                }
 #pragma warning restore CA1031
+            }
             finally
             {
                 BackupNowButton.IsEnabled = true;
@@ -294,13 +382,17 @@ namespace AniMeido.Plugin.Base.Views
 
         private async void OnExportClick(object sender, RoutedEventArgs e)
         {
-            if (_exportService == null) return;
+            var visit = _visitVersion;
+            if (!IsCurrentVisit(visit))
+                return;
 
             ExportButton.IsEnabled = false;
             ExportButton.Content = "导出中…";
             try
             {
-                var json = await _exportService.ExportAsync();
+                var json = await _transfer.ExportJsonAsync();
+                if (!IsCurrentVisit(visit))
+                    return;
 
                 var picker = new Windows.Storage.Pickers.FileSavePicker();
                 picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
@@ -311,46 +403,43 @@ namespace AniMeido.Plugin.Base.Views
                 {
                     await ShowMessageAsync(
                         "无法打开选择器",
-                        "主窗口句柄当前不可用，请稍后重试。");
+                        "主窗口句柄当前不可用，请稍后重试。",
+                        visit);
                     return;
                 }
 
                 var file = await picker.PickSaveFileAsync();
-                if (file != null)
-                    await Windows.Storage.FileIO.WriteTextAsync(file, json);
+                if (!IsCurrentVisit(visit) || file is null)
+                    return;
+                await Windows.Storage.FileIO.WriteTextAsync(file, json);
+            }
+            catch (PersonalDataBusyException ex)
+            {
+                await ShowMessageAsync(
+                    "暂时无法导出",
+                    ex.Message,
+                    visit);
             }
             catch (HttpRequestException ex)
             {
-                var dialog = new ContentDialog
-                {
-                    Title = "导出失败",
-                    Content = $"导出过程中发生网络错误：{ex.Message}",
-                    CloseButtonText = "确定",
-                    XamlRoot = this.XamlRoot
-                };
-                await dialog.ShowAsync();
+                await ShowMessageAsync(
+                    "导出失败",
+                    $"导出过程中发生网络错误：{ex.Message}",
+                    visit);
             }
             catch (JsonException ex)
             {
-                var dialog = new ContentDialog
-                {
-                    Title = "导出失败",
-                    Content = $"数据序列化失败：{ex.Message}",
-                    CloseButtonText = "确定",
-                    XamlRoot = this.XamlRoot
-                };
-                await dialog.ShowAsync();
+                await ShowMessageAsync(
+                    "导出失败",
+                    $"数据序列化失败：{ex.Message}",
+                    visit);
             }
             catch (IOException ex)
             {
-                var dialog = new ContentDialog
-                {
-                    Title = "导出失败",
-                    Content = $"文件写入失败：{ex.Message}",
-                    CloseButtonText = "确定",
-                    XamlRoot = this.XamlRoot
-                };
-                await dialog.ShowAsync();
+                await ShowMessageAsync(
+                    "导出失败",
+                    $"文件写入失败：{ex.Message}",
+                    visit);
             }
             finally
             {
@@ -361,7 +450,9 @@ namespace AniMeido.Plugin.Base.Views
 
         private async void OnImportClick(object sender, RoutedEventArgs e)
         {
-            if (_exportService == null) return;
+            var visit = _visitVersion;
+            if (!IsCurrentVisit(visit))
+                return;
 
             var picker = new Windows.Storage.Pickers.FileOpenPicker();
             picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
@@ -371,12 +462,14 @@ namespace AniMeido.Plugin.Base.Views
             {
                 await ShowMessageAsync(
                     "无法打开选择器",
-                    "主窗口句柄当前不可用，请稍后重试。");
+                    "主窗口句柄当前不可用，请稍后重试。",
+                    visit);
                 return;
             }
 
             var file = await picker.PickSingleFileAsync();
-            if (file == null) return;
+            if (!IsCurrentVisit(visit) || file is null)
+                return;
 
             ImportButton.IsEnabled = false;
             ImportButton.Content = "导入中…";
@@ -384,32 +477,30 @@ namespace AniMeido.Plugin.Base.Views
             try
             {
                 var fileProps = await file.GetBasicPropertiesAsync();
+                if (!IsCurrentVisit(visit))
+                    return;
                 if (fileProps.Size > 10 * 1024 * 1024)
                 {
-                    var sizeDialog = new ContentDialog
-                    {
-                        Title = "文件过大",
-                        Content = "导入文件超过 10 MB 上限，请确认文件是否正确。",
-                        CloseButtonText = "确定",
-                        XamlRoot = this.XamlRoot
-                    };
-                    await sizeDialog.ShowAsync();
+                    await ShowMessageAsync(
+                        "文件过大",
+                        "导入文件超过 10 MB 上限，请确认文件是否正确。",
+                        visit);
                     return;
                 }
 
                 var json = await Windows.Storage.FileIO.ReadTextAsync(file);
+                if (!IsCurrentVisit(visit))
+                    return;
 
-                var preview = ExportService.Preview(json);
+                var preview = await _transfer.PreviewJsonAsync(json);
+                if (!IsCurrentVisit(visit))
+                    return;
                 if (preview == null)
                 {
-                    var errDialog = new ContentDialog
-                    {
-                        Title = "导入失败",
-                        Content = "文件格式无效，请选择有效的 AniMeido 导出文件。",
-                        CloseButtonText = "确定",
-                        XamlRoot = this.XamlRoot
-                    };
-                    await errDialog.ShowAsync();
+                    await ShowMessageAsync(
+                        "导入失败",
+                        "文件格式无效，请选择有效的 AniMeido 导出文件。",
+                        visit);
                     return;
                 }
 
@@ -422,90 +513,70 @@ namespace AniMeido.Plugin.Base.Views
                     PrimaryButtonText = "开始导入",
                     CloseButtonText = "取消",
                     DefaultButton = ContentDialogButton.Primary,
-                    XamlRoot = this.XamlRoot
                 };
 
-                if (await confirmDialog.ShowAsync() != ContentDialogResult.Primary)
+                var result = await ShowDialogAsync(confirmDialog, visit);
+                if (result != ContentDialogResult.Primary || !IsCurrentVisit(visit))
                     return;
-
-                // 导入前使用 SQLite 在线备份确保一致性
-                await _backupService.BackupAsync();
 
                 var (
                     trackingCount,
                     configCount,
                     tagCount,
                     actionCenterCount) =
-                    await _exportService.ImportAsync(json);
+                    await _transfer.ImportJsonAsync(json);
 
-                var doneDialog = new ContentDialog
-                {
-                    Title = "导入完成",
-                    Content = $"成功导入 {trackingCount} 条追番记录"
-                             + (configCount > 0 ? $"、{configCount} 项拖放配置" : "")
-                             + (tagCount > 0 ? $"、{tagCount} 个标签绑定" : "")
-                             + (actionCenterCount > 0
-                                ? $"、{actionCenterCount} 条行动中心数据"
-                                : ""),
-                    CloseButtonText = "确定",
-                    XamlRoot = this.XamlRoot
-                };
-                await doneDialog.ShowAsync();
+                await ShowMessageAsync(
+                    "导入完成",
+                    $"成功导入 {trackingCount} 条追番记录"
+                        + (configCount > 0 ? $"、{configCount} 项拖放配置" : "")
+                        + (tagCount > 0 ? $"、{tagCount} 个标签绑定" : "")
+                        + (actionCenterCount > 0
+                            ? $"、{actionCenterCount} 条行动中心数据"
+                            : ""),
+                    visit);
+            }
+            catch (PersonalDataBusyException ex)
+            {
+                await ShowMessageAsync(
+                    "暂时无法导入",
+                    ex.Message,
+                    visit);
             }
             catch (HttpRequestException ex)
             {
-                var errDialog = new ContentDialog
-                {
-                    Title = "导入失败",
-                    Content = $"导入过程中发生网络错误：{ex.Message}\n\n建议检查文件格式是否正确。",
-                    CloseButtonText = "确定",
-                    XamlRoot = this.XamlRoot
-                };
-                await errDialog.ShowAsync();
+                await ShowMessageAsync(
+                    "导入失败",
+                    $"导入过程中发生网络错误：{ex.Message}\n\n建议检查文件格式是否正确。",
+                    visit);
             }
             catch (InvalidDataException ex)
             {
-                var errDialog = new ContentDialog
-                {
-                    Title = "导入失败",
-                    Content = ex.Message,
-                    CloseButtonText = "确定",
-                    XamlRoot = this.XamlRoot
-                };
-                await errDialog.ShowAsync();
+                await ShowMessageAsync(
+                    "导入失败",
+                    ex.Message,
+                    visit);
             }
             catch (JsonException ex)
             {
-                var errDialog = new ContentDialog
-                {
-                    Title = "导入失败",
-                    Content = $"文件格式错误：{ex.Message}",
-                    CloseButtonText = "确定",
-                    XamlRoot = this.XamlRoot
-                };
-                await errDialog.ShowAsync();
+                await ShowMessageAsync(
+                    "导入失败",
+                    $"文件格式错误：{ex.Message}",
+                    visit);
             }
             catch (IOException ex)
             {
-                var errDialog = new ContentDialog
-                {
-                    Title = "导入失败",
-                    Content = $"文件读写错误：{ex.Message}",
-                    CloseButtonText = "确定",
-                    XamlRoot = this.XamlRoot
-                };
-                await errDialog.ShowAsync();
+                await ShowMessageAsync(
+                    "导入失败",
+                    $"文件读写错误：{ex.Message}",
+                    visit);
             }
             catch (UnauthorizedAccessException ex)
             {
-                var errDialog = new ContentDialog
-                {
-                    Title = "导入失败",
-                    Content = $"无权限访问文件：{ex.Message}",
-                    CloseButtonText = "确定",
-                    XamlRoot = this.XamlRoot
-                };
-                await errDialog.ShowAsync();
+                await ShowMessageAsync(
+                    "导入失败",
+                    $"无权限访问文件：{ex.Message}",
+                    visit);
             }
             finally
             {

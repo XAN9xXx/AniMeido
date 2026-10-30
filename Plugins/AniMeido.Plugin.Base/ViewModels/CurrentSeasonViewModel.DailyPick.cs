@@ -4,6 +4,7 @@ using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Models;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 
 namespace AniMeido.Plugin.Base.ViewModels
 {
@@ -100,7 +101,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         [RelayCommand]
         private async Task NextDailyPickAsync()
         {
-            var today = DateOnly.FromDateTime(DateTime.Today);
+            var today = Today;
             var weekly = WeeklyEntriesById();
             var next = FindNextDailyPick(
                 BuildDailyOrder(weekly.Keys, today),
@@ -124,7 +125,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             if (!IsCurrent())
                 return;
 
-            var today = DateOnly.FromDateTime(DateTime.Today);
+            var today = Today;
             var weekly = WeeklyEntriesById();
             if (DailyPick is { } current
                 && _dailyPickDate == today
@@ -178,10 +179,11 @@ namespace AniMeido.Plugin.Base.ViewModels
 
             DailyPick = entry;
             if (!_supplementaryLoadsSuspended)
-                _ = LoadDailyPickDetailsAsync(entry);
+                LoadDailyPickDetailsCommand.Execute(entry);
         }
 
         /// <summary>日历接口没有简介和标签，抽中后单独请求（有 7 天缓存）；失败时这两项留空。</summary>
+        [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task LoadDailyPickDetailsAsync(CalendarEntry? entry)
         {
             if (_supplementaryLoadsSuspended)
@@ -222,8 +224,13 @@ namespace AniMeido.Plugin.Base.ViewModels
 #pragma warning disable CA1031 // 简介和标签只是补充信息，任何失败都只留空，不打断页面
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[CurrentSeasonViewModel] LoadDailyPickDetailsAsync failed: {ex.Message}");
+                if (!cts.IsCancellationRequested
+                    && !_supplementaryLoadsSuspended
+                    && ReferenceEquals(_dailyPickDetailCts, cts)
+                    && ReferenceEquals(DailyPick, entry))
+                {
+                    _logger.LogWarning(ex, "今日一抽作品 {AnimeId} 的补充资料加载失败，简介和标签留空。", entry.Anime.ID);
+                }
                 // 失败也算请求过：回到页面时不自动重试。
                 if (ReferenceEquals(_dailyPickDetailCts, cts))
                     _dailyPickDetailsFor = entry;
@@ -232,10 +239,8 @@ namespace AniMeido.Plugin.Base.ViewModels
             finally
             {
                 if (ReferenceEquals(_dailyPickDetailCts, cts))
-                {
                     _dailyPickDetailCts = null;
-                    cts.Dispose();
-                }
+                cts.Dispose();
             }
         }
 
@@ -247,7 +252,6 @@ namespace AniMeido.Plugin.Base.ViewModels
 
             _dailyPickDetailCts = null;
             cts.Cancel();
-            cts.Dispose();
         }
 
         /// <summary>
@@ -267,12 +271,11 @@ namespace AniMeido.Plugin.Base.ViewModels
         {
             try
             {
-                return await _tracking.LoadCalendarDailyPickAsync();
+                return await _featureState.LoadCalendarDailyPickAsync();
             }
             catch (Microsoft.Data.Sqlite.SqliteException ex)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[CurrentSeasonViewModel] LoadCalendarDailyPickAsync failed: {ex.Message}");
+                _logger.LogWarning(ex, "今日一抽记录读取失败，重新选择本次显示的作品。");
                 return null;
             }
         }
@@ -281,13 +284,12 @@ namespace AniMeido.Plugin.Base.ViewModels
         {
             try
             {
-                await _tracking.SaveCalendarDailyPickAsync(date, animeId);
+                await _featureState.SaveCalendarDailyPickAsync(date, animeId);
             }
             catch (Microsoft.Data.Sqlite.SqliteException ex)
             {
                 // 保存失败只影响重启后的结果，本次运行照常显示。
-                System.Diagnostics.Debug.WriteLine(
-                    $"[CurrentSeasonViewModel] SaveCalendarDailyPickAsync failed: {ex.Message}");
+                _logger.LogError(ex, "今日一抽作品 {AnimeId} 的选择保存失败，本次显示不变。", animeId);
             }
         }
 

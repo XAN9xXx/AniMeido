@@ -47,3 +47,32 @@ jobs:
           name: test-results-windows
           path: TestResults/**/*.trx
           if-no-files-found: ignore
+
+
+  core-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Test platform-neutral business core
+        run: dotnet test AniMeido.Plugin.Base.Core.Tests/AniMeido.Plugin.Base.Core.Tests.csproj -c Release --logger trx --results-directory TestResults
+
+      - name: Check core platform compatibility
+        run: dotnet format analyzers Plugins/AniMeido.Plugin.Base.Core/AniMeido.Plugin.Base.Core.csproj --no-restore --verify-no-changes --diagnostics CA1416
+
+      - name: Upload failed test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-core-linux
+          path: TestResults/**/*.trx
+          if-no-files-found: ignore

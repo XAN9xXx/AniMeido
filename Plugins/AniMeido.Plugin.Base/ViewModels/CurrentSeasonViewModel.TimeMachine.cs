@@ -5,6 +5,7 @@ using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 
 namespace AniMeido.Plugin.Base.ViewModels
 {
@@ -84,8 +85,8 @@ namespace AniMeido.Plugin.Base.ViewModels
         private IReadOnlyList<TimeMachineEntry> _timeMachineEntries = [];
         private PastSeasonTarget? _timeMachineLoadedTarget;
         private CancellationTokenSource? _timeMachineCts;
-        // 这个页面已经记下的“显示过的作品”，避免调整窗口大小时反复写入。
-        private readonly HashSet<(PastSeasonTarget Target, int AnimeId)> _recordedShown = [];
+        // 本页面已尝试登记的作品；保存失败也不因窗口调整而反复尝试。
+        private readonly HashSet<(PastSeasonTarget Target, int AnimeId)> _shownRecordAttempts = [];
 
         public IReadOnlyList<int> TimeMachineYearOptions { get; } = [5, 10, 20];
 
@@ -106,7 +107,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         {
             get
             {
-                var (year, season) = SeasonHelper.GetCurrentSeason();
+                var (year, season) = CurrentSeason;
                 return new PastSeasonTarget(year - TimeMachineYearsAgo, season);
             }
         }
@@ -238,7 +239,13 @@ namespace AniMeido.Plugin.Base.ViewModels
 
                     _timeMachineEntries = OrderForDisplay(pool, shown, Random.Shared, out var startOver);
                     if (startOver)
-                        await RecordTimeMachineShownAsync(target, [], replace: true);
+                    {
+                        var resetSave = RecordTimeMachineShownAsync(target, [], replace: true);
+                        PendingTimeMachineShownSave = resetSave;
+                        await resetSave;
+                        if (cts.IsCancellationRequested || !ReferenceEquals(_timeMachineCts, cts))
+                            return;
+                    }
                 }
 
                 lock (TimeMachineSessionGate)
@@ -258,18 +265,20 @@ namespace AniMeido.Plugin.Base.ViewModels
 #pragma warning disable CA1031 // 时光机是补充内容，失败只显示重试，不打断页面
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[CurrentSeasonViewModel] LoadTimeMachineAsync failed: {ex.Message}");
                 if (ReferenceEquals(_timeMachineCts, cts))
+                {
+                    if (!cts.IsCancellationRequested)
+                        _logger.LogWarning(ex, "番剧时光机加载失败，放送日历仍可使用。");
                     IsTimeMachineFailed = true;
+                }
             }
 #pragma warning restore CA1031
             finally
             {
+                cts.Dispose();
                 if (ReferenceEquals(_timeMachineCts, cts))
                 {
                     _timeMachineCts = null;
-                    cts.Dispose();
                     IsTimeMachineLoading = false;
                 }
             }
@@ -283,7 +292,6 @@ namespace AniMeido.Plugin.Base.ViewModels
 
             _timeMachineCts = null;
             cts.Cancel();
-            cts.Dispose();
             IsTimeMachineLoading = false;
         }
 
@@ -366,7 +374,7 @@ namespace AniMeido.Plugin.Base.ViewModels
 
             var fresh = TimeMachinePicks
                 .Select(entry => entry.Anime.ID)
-                .Where(id => _recordedShown.Add((target, id)))
+                .Where(id => _shownRecordAttempts.Add((target, id)))
                 .ToList();
             if (fresh.Count > 0)
                 PendingTimeMachineShownSave = RecordTimeMachineShownAsync(target, fresh, replace: false);
@@ -376,13 +384,13 @@ namespace AniMeido.Plugin.Base.ViewModels
         {
             try
             {
-                var shown = await _tracking.LoadTimeMachineShownAsync();
-                return shown.TryGetValue(target, out var ids) ? ids.ToHashSet() : [];
+                var shown = await _featureState.LoadTimeMachineShownAsync();
+                return shown.TryGetValue((target.Year, target.Season), out var ids) ? ids.ToHashSet() : [];
             }
             catch (Microsoft.Data.Sqlite.SqliteException ex)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[CurrentSeasonViewModel] LoadTimeMachineShownAsync failed: {ex.Message}");
+                _logger.LogWarning(ex, "番剧时光机 {Year}/{Season} 的已展示记录读取失败，按未展示处理。",
+                    target.Year, target.Season);
                 return new HashSet<int>();
             }
         }
@@ -399,15 +407,15 @@ namespace AniMeido.Plugin.Base.ViewModels
             await TimeMachineShownGate.WaitAsync();
             try
             {
-                var (year, season) = SeasonHelper.GetCurrentSeason();
+                var (year, season) = CurrentSeason;
                 var current = TimeMachineYearOptions
-                    .Select(yearsAgo => new PastSeasonTarget(year - yearsAgo, season))
+                    .Select(yearsAgo => (Year: year - yearsAgo, Season: season))
                     .ToHashSet();
-                var stored = await _tracking.LoadTimeMachineShownAsync();
+                var stored = await _featureState.LoadTimeMachineShownAsync();
                 var updated = stored
                     .Where(pair => current.Contains(pair.Key))
                     .ToDictionary(pair => pair.Key, pair => pair.Value);
-                var existing = updated.GetValueOrDefault(target, []);
+                var existing = updated.GetValueOrDefault((target.Year, target.Season), []);
                 var ids = replace
                     ? animeIds.Distinct().ToList()
                     : existing.Concat(animeIds).Distinct().ToList();
@@ -415,13 +423,13 @@ namespace AniMeido.Plugin.Base.ViewModels
                 if (!replace && ids.Count == existing.Count && updated.Count == stored.Count)
                     return;
 
-                updated[target] = ids;
-                await _tracking.SaveTimeMachineShownAsync(updated);
+                updated[(target.Year, target.Season)] = ids;
+                await _featureState.SaveTimeMachineShownAsync(updated);
             }
             catch (Microsoft.Data.Sqlite.SqliteException ex)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[CurrentSeasonViewModel] RecordTimeMachineShownAsync failed: {ex.Message}");
+                _logger.LogError(ex, "番剧时光机 {Year}/{Season} 的已展示记录保存失败，本次显示不变。",
+                    target.Year, target.Season);
             }
             finally
             {

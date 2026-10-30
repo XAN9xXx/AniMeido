@@ -1,4 +1,5 @@
 ﻿using AniMeido.Contracts;
+using Microsoft.Extensions.Logging.Abstractions;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
@@ -10,7 +11,15 @@ namespace AniMeido.Tests;
 [Collection(CurrentSeasonSessionCollection.Name)]
 public sealed class CurrentSeasonStatusReloadTests : DbTestBase
 {
-    public CurrentSeasonStatusReloadTests() => CurrentSeasonViewModel.ResetTimeMachineSession();
+    private readonly PersonalFeatureStateStore _featureState;
+
+    private static readonly DateOnly TestDay = new(2026, 9, 18);
+
+    public CurrentSeasonStatusReloadTests()
+    {
+        _featureState = new PersonalFeatureStateStore(DbFactory);
+        CurrentSeasonViewModel.ResetTimeMachineSession();
+    }
 
     [Fact]
     public async Task ReloadStatuses_RestoresAnimeAfterUnblocking()
@@ -108,10 +117,16 @@ public sealed class CurrentSeasonStatusReloadTests : DbTestBase
         Assert.Equal(AnimeTrackingStatus.Watching, entry.Status);
     }
 
-    private static async Task<CurrentSeasonViewModel> LoadAsync(TrackingService tracking)
+    private CurrentSeasonViewModel CreateViewModel(IAnimeDataSource source, TrackingService tracking)
+        => new(source, tracking, _featureState, new CalendarTestTime(TestDay), NullLogger.Instance);
+
+    private async Task<CurrentSeasonViewModel> LoadAsync(TrackingService tracking)
     {
-        var vm = new CurrentSeasonViewModel(new ScheduleSource(), tracking);
+        var vm = CreateViewModel(new ScheduleSource(), tracking);
         await vm.LoadSeasonalAnimeCommand.ExecuteAsync(null);
+        await Task.WhenAll(vm.PendingOthersLoad, vm.PendingTimeMachineLoad)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+        await vm.PendingTimeMachineShownSave.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.True(vm.HasData);
         return vm;
     }
@@ -120,7 +135,7 @@ public sealed class CurrentSeasonStatusReloadTests : DbTestBase
     {
         // 两部作品都排在今天，按天视图的列表里就能看到它们。
         private static readonly int Today =
-            AnimeListPresentation.ToBangumiWeekday(DateTime.Today.DayOfWeek);
+            AnimeListPresentation.ToBangumiWeekday(TestDay.DayOfWeek);
 
         private static T Unexpected<T>() => throw new NotSupportedException("Unexpected data-source request.");
 

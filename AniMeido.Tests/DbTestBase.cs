@@ -36,25 +36,8 @@ namespace AniMeido.Tests
         {
             using var conn = new SqliteConnection(ConnectionString);
             await conn.OpenAsync();
-            var cmd = conn.CreateCommand();
-
-            cmd.CommandText = """
-                CREATE TABLE IF NOT EXISTS tracking(
-                    AnimeID   INTEGER PRIMARY KEY,
-                    Status    INTEGER NOT NULL,
-                    UpdatedAt TEXT NOT NULL
-                )
-            """;
-            await cmd.ExecuteNonQueryAsync();
-
-            cmd.CommandText = """
-                CREATE TABLE IF NOT EXISTS cache(
-                    CacheKey  TEXT PRIMARY KEY,
-                    Data      TEXT NOT NULL,
-                    ExpiresAt TEXT NOT NULL
-                )
-            """;
-            await cmd.ExecuteNonQueryAsync();
+            await PersonalDatabaseSchema.CreateInitialBusinessTablesBeforeConfigAsync(conn);
+            using var cmd = conn.CreateCommand();
 
             cmd.CommandText = """
                 CREATE TABLE IF NOT EXISTS config(
@@ -69,16 +52,6 @@ namespace AniMeido.Tests
         {
             var db = new AniMeido.App.Services.DatabaseService(DbFactory, Paths);
             await db.InitializeAsync();
-        }
-
-        /// <summary>
-        /// 兼容旧测试的调用名称，仍执行生产 DatabaseService 的完整迁移。
-        /// 注意：新测试应优先使用 RunProductionMigrationAsync。
-        /// </summary>
-        [Obsolete("请优先使用 RunProductionMigrationAsync 调用生产 DatabaseService")]
-        protected async Task RunFullMigrationAsync()
-        {
-            await RunProductionMigrationAsync();
         }
 
         protected void CorruptDatabase()

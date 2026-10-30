@@ -8,7 +8,7 @@
                     <CodeCoverage>
                         <ModulePaths>
                             <Include>
-                                <ModulePath>.*[\\/]AniMeido\.(App|Contracts|PluginProtocol|Plugin\.Base|Plugin\.Player)\.dll$</ModulePath>
+                                <ModulePath>.*[\\/]AniMeido\.(App|Contracts|PluginProtocol|Updates|Plugin\.Base\.Core|Plugin\.Base|Plugin\.Player)\.dll$</ModulePath>
                             </Include>
                             <Exclude>
                                 <ModulePath>.*[\\/]AniMeido\..*Tests\.dll$</ModulePath>

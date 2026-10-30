@@ -31,7 +31,7 @@ public sealed partial class ArchivePage
     private void OnPendingRecordsChanged() => DispatcherQueue.TryEnqueue(() =>
     {
         if (_pageLifetime is null) return;
-        foreach (var state in _panelStates.Values) state.Invalidate();
+        _panels.InvalidateAll();
         _coverRequests.Clear();
         _ = RefreshPendingAsync();
         _ = EnsureActivePanelAsync();
@@ -155,8 +155,11 @@ public sealed partial class ArchivePage
             catch (OperationCanceledException) when (token.IsCancellationRequested) { }
             catch (Exception ex) when (ex is HttpRequestException or Exceptions.MetadataServiceException or IOException or OperationCanceledException)
             {
-                _logger.LogWarning(ex, "Pending record target search failed");
-                if (!token.IsCancellationRequested) message.Text = "搜索失败，请稍后再试。";
+                if (!token.IsCancellationRequested)
+                {
+                    _logger.LogError(ex, "Pending record target search failed");
+                    message.Text = "搜索失败，请稍后再试。";
+                }
             }
             finally { searching = false; if (!token.IsCancellationRequested) searchButton.IsEnabled = true; }
         }

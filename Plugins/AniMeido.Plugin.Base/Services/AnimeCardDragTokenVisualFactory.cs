@@ -207,7 +207,7 @@ namespace AniMeido.Plugin.Base.Services
         /// <summary>将 BGRA8 像素数据编码为 PNG → SoftwareBitmap → 设置到 DragUI。</summary>
         private static async Task ApplySoftwareBitmapAsync(Microsoft.UI.Xaml.DragStartingEventArgs args, byte[] bgraPixels)
         {
-            var memStream = new InMemoryRandomAccessStream();
+            using var memStream = new InMemoryRandomAccessStream();
 
             var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, memStream);
             encoder.SetPixelData(

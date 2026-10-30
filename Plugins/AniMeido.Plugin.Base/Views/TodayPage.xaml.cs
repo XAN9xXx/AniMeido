@@ -4,6 +4,7 @@ using AniMeido.Contracts.Playback;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -27,34 +28,44 @@ public sealed partial class TodayPage : Page, INavigationAware
     private readonly PlanReminderCoordinator _reminders;
     private readonly IPluginNavigator _navigator;
     private readonly IAnimePlaybackLauncher _playbackLauncher;
+    private readonly ILogger<TodayPage> _logger;
     private bool _isPlaybackAvailabilitySubscribed;
     private bool _wasLoaded;
+    private int _visitGeneration;
+    private ContentDialog? _activeDialog;
     private readonly HashSet<FrameworkElement> _hoveredThemeRows = [];
     private double _contentWidth = double.PositiveInfinity;
+    // 主加载结束后仍需取消后续状态刷新；各次读取另持子源，完成后自行释放。
     private CancellationTokenSource? _loadCancellation;
+    private CancellationTokenSource? _visibilityCancellation;
 
     public TodayPage(
         IAnimeDataSource dataSource,
         TrackingService tracking,
+        PersonalFeatureStateStore featureState,
         ActionCenterService actionCenter,
         PlanReminderCoordinator reminders,
         BrowseHistoryService browseHistory,
         ArchiveService archive,
         IPluginNavigator navigator,
-        IAnimePlaybackLauncher playbackLauncher)
+        IAnimePlaybackLauncher playbackLauncher,
+        ILogger<TodayPage> logger)
     {
         _actionCenter = actionCenter;
         _archive = archive;
         _reminders = reminders;
         _navigator = navigator;
         _playbackLauncher = playbackLauncher;
+        _logger = logger;
         ViewModel = new TodayViewModel(
             dataSource,
             tracking,
+            featureState,
             actionCenter,
             reminders,
             browseHistory,
-            archive);
+            archive,
+            logger);
         InitializeComponent();
         ViewModel.IsPlaybackAvailable = playbackLauncher.IsAvailable;
         ApplyLayout();
@@ -87,67 +98,119 @@ public sealed partial class TodayPage : Page, INavigationAware
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // 从详情页或档案馆返回时复用的是同一个页面，不会再触发导航加载。
-        // 离开时主加载被取消的，整页重新加载（会一并加载今日主题）；
-        // 否则刷新主题的个人状态（公共候选复用缓存）。第一次显示由导航触发加载，这里不重复。
-        if (_wasLoaded)
-        {
-            if (ViewModel.IsLoadInterrupted)
-                _ = ReloadSafelyAsync();
-            else
-                ViewModel.Theme.ResumeIfNeeded();
-        }
-        _wasLoaded = true;
+        var visit = Interlocked.Increment(ref _visitGeneration);
+        using var visibilityCancellation = new CancellationTokenSource();
+        var token = visibilityCancellation.Token;
+        var previousVisibility = _visibilityCancellation;
+        _visibilityCancellation = visibilityCancellation;
         try
         {
-            await ViewModel.RemoveBlockedEntriesAsync();
-        }
-#pragma warning disable CA1031 // 可见性刷新失败不应阻止页面加载
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine(
-                $"[TodayPage] RemoveBlockedEntriesAsync failed: {ex.Message}");
-        }
+            previousVisibility?.Cancel();
+            if (!_isPlaybackAvailabilitySubscribed)
+            {
+                _playbackLauncher.AvailabilityChanged += OnPlaybackAvailabilityChanged;
+                Volatile.Write(ref _isPlaybackAvailabilitySubscribed, true);
+            }
+
+            var playbackAvailable = _playbackLauncher.IsAvailable;
+            var availabilityChanged = ViewModel.IsPlaybackAvailable != playbackAvailable;
+            ViewModel.IsPlaybackAvailable = playbackAvailable;
+
+            // 返回缓存页时，补上离页期间的能力变化；首次加载仍由导航入口负责。
+            if (_wasLoaded)
+            {
+                if (ViewModel.IsLoadInterrupted || availabilityChanged)
+                    _ = ReloadSafelyAsync();
+                else
+                    ViewModel.Theme.ResumeIfNeeded();
+            }
+            _wasLoaded = true;
+
+            try
+            {
+                await ViewModel.RemoveBlockedEntriesAsync(token);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+            }
+#pragma warning disable CA1031 // 去屏蔽读取失败时保留已有内容，由当前页面访问记录降级。
+            catch (Exception ex)
+            {
+                if (IsLoaded
+                    && visit == Volatile.Read(ref _visitGeneration)
+                    && !token.IsCancellationRequested)
+                    _logger.LogWarning(ex, "今天页屏蔽记录刷新失败，继续显示已有内容。");
+            }
 #pragma warning restore CA1031
-
-        if (_isPlaybackAvailabilitySubscribed)
-        {
-            return;
         }
-
-        _playbackLauncher.AvailabilityChanged +=
-            OnPlaybackAvailabilityChanged;
-        _isPlaybackAvailabilitySubscribed = true;
+        finally
+        {
+            if (ReferenceEquals(_visibilityCancellation, visibilityCancellation))
+                _visibilityCancellation = null;
+        }
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        Interlocked.Increment(ref _visitGeneration);
+        try
+        {
+            _activeDialog?.Hide();
+        }
+#pragma warning disable CA1031 // 对话框关闭失败后仍须完成本页取消与退订。
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "今天页对话框关闭失败，继续完成离页清理。");
+        }
+#pragma warning restore CA1031
+        _visibilityCancellation?.Cancel();
+        _visibilityCancellation = null;
         ++_planOpenGeneration;
         PlanStackPopup.IsOpen = false;
-        _loadCancellation?.Cancel();
-        _loadCancellation?.Dispose();
+        var previousCancellation = _loadCancellation;
         _loadCancellation = null;
+        try
+        {
+            previousCancellation?.Cancel();
+        }
+        catch (AggregateException ex)
+        {
+            _logger.LogWarning(ex, "今天页加载取消回调失败，继续完成离页清理。");
+        }
+        finally
+        {
+            previousCancellation?.Dispose();
+        }
+
         ViewModel.Theme.CancelLoad();
+        ViewModel.SuspendPlanDetails();
         _hoveredThemeRows.Clear();
         if (!_isPlaybackAvailabilitySubscribed)
         {
             return;
         }
 
-        _playbackLauncher.AvailabilityChanged -=
-            OnPlaybackAvailabilityChanged;
-        _isPlaybackAvailabilitySubscribed = false;
+        Volatile.Write(ref _isPlaybackAvailabilitySubscribed, false);
+        _playbackLauncher.AvailabilityChanged -= OnPlaybackAvailabilityChanged;
     }
 
     private void OnPlaybackAvailabilityChanged(
         object? sender,
         EventArgs e)
-        => DispatcherQueue.TryEnqueue(() =>
+    {
+        var visit = Volatile.Read(ref _visitGeneration);
+        if (!Volatile.Read(ref _isPlaybackAvailabilitySubscribed))
+            return;
+
+        DispatcherQueue.TryEnqueue(() =>
         {
-            ViewModel.IsPlaybackAvailable =
-                _playbackLauncher.IsAvailable;
+            if (!IsLoaded || visit != Volatile.Read(ref _visitGeneration))
+                return;
+
+            ViewModel.IsPlaybackAvailable = _playbackLauncher.IsAvailable;
             _ = ReloadSafelyAsync();
         });
+    }
 
     public async Task OnNavigatedToAsync(object? parameter)
     {
@@ -171,8 +234,35 @@ public sealed partial class TodayPage : Page, INavigationAware
     private async void OnRefreshClick(object sender, RoutedEventArgs e)
         => await ReloadSafelyAsync();
 
-    private async Task ReloadSafelyAsync()
+    private bool IsCurrentVisit(int visit)
+        => IsLoaded && visit == Volatile.Read(ref _visitGeneration);
+
+    private async Task<ContentDialogResult> ShowDialogAsync(ContentDialog dialog, int visit)
     {
+        if (!IsCurrentVisit(visit) || XamlRoot is null)
+            return ContentDialogResult.None;
+        if (_activeDialog is not null)
+            throw new InvalidOperationException("已有对话框正在显示。");
+
+        dialog.XamlRoot = XamlRoot;
+        _activeDialog = dialog;
+        try
+        {
+            var result = await dialog.ShowAsync();
+            return IsCurrentVisit(visit) ? result : ContentDialogResult.None;
+        }
+        finally
+        {
+            if (ReferenceEquals(_activeDialog, dialog))
+                _activeDialog = null;
+        }
+    }
+
+    private async Task ReloadSafelyAsync(int? visit = null)
+    {
+        if (visit is { } originalVisit && !IsCurrentVisit(originalVisit))
+            return;
+
         try
         {
             await ReloadAsync();
@@ -183,19 +273,32 @@ public sealed partial class TodayPage : Page, INavigationAware
 #pragma warning disable CA1031 // UI 事件边界将恢复性错误转换为页面提示。
         catch (Exception ex)
         {
-            ShowNotification(
-                $"今天页刷新失败：{ex.Message}",
-                InfoBarSeverity.Error);
+            if (visit is null || IsCurrentVisit(visit.Value))
+                ShowNotification(
+                    $"今天页刷新失败：{ex.Message}",
+                    InfoBarSeverity.Error);
         }
 #pragma warning restore CA1031
     }
 
     private async Task ReloadAsync()
     {
-        _loadCancellation?.Cancel();
-        _loadCancellation?.Dispose();
-        _loadCancellation = new CancellationTokenSource();
-        await ViewModel.LoadAsync(_loadCancellation.Token);
+        var previousCancellation = _loadCancellation;
+        var currentCancellation = new CancellationTokenSource();
+        _loadCancellation = currentCancellation;
+        using var loadCancellation = CancellationTokenSource.CreateLinkedTokenSource(currentCancellation.Token);
+        var token = loadCancellation.Token;
+        try
+        {
+            previousCancellation?.Cancel();
+        }
+        finally
+        {
+            previousCancellation?.Dispose();
+        }
+
+        token.ThrowIfCancellationRequested();
+        await ViewModel.LoadAsync(token);
     }
 
     private void OnContentSizeChanged(object sender, SizeChangedEventArgs e)
@@ -346,23 +449,31 @@ public sealed partial class TodayPage : Page, INavigationAware
         object sender,
         RoutedEventArgs e)
     {
+        var visit = Volatile.Read(ref _visitGeneration);
+        if (!IsCurrentVisit(visit))
+            return;
+
         var dialog = new ContentDialog
         {
-            XamlRoot = XamlRoot,
             Title = "清空最近浏览",
             Content = "确定要清空所有浏览记录吗？",
             PrimaryButtonText = "确认清空",
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close,
         };
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
-        {
-            await ViewModel.ClearBrowseHistoryCommand.ExecuteAsync(null);
-        }
+        var result = await ShowDialogAsync(dialog, visit);
+        if (result != ContentDialogResult.Primary || !IsCurrentVisit(visit))
+            return;
+
+        await ViewModel.ClearBrowseHistoryCommand.ExecuteAsync(null);
     }
 
     private async void OnEditPlanClick(object sender, RoutedEventArgs e)
     {
+        var visit = Volatile.Read(ref _visitGeneration);
+        if (!IsCurrentVisit(visit))
+            return;
+
         PlanStackPopup.IsOpen = false;
         if (!TryGetPlan(sender, out var entry))
         {
@@ -407,14 +518,14 @@ public sealed partial class TodayPage : Page, INavigationAware
         panel.Children.Add(sortOrder);
         var dialog = new ContentDialog
         {
-            XamlRoot = XamlRoot,
             Title = $"调整《{entry.Title}》的计划",
             Content = panel,
             PrimaryButtonText = "保存",
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Primary,
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        var result = await ShowDialogAsync(dialog, visit);
+        if (result != ContentDialogResult.Primary || !IsCurrentVisit(visit))
         {
             return;
         }
@@ -439,13 +550,17 @@ public sealed partial class TodayPage : Page, INavigationAware
         {
             await _reminders.RescheduleAnimeAsync(updated);
         }
-        await ReloadSafelyAsync();
+        await ReloadSafelyAsync(visit);
     }
 
     private async void OnAddReminderClick(
         object sender,
         RoutedEventArgs e)
     {
+        var visit = Volatile.Read(ref _visitGeneration);
+        if (!IsCurrentVisit(visit))
+            return;
+
         PlanStackPopup.IsOpen = false;
         if (!TryGetPlan(sender, out var entry))
         {
@@ -506,14 +621,14 @@ public sealed partial class TodayPage : Page, INavigationAware
         panel.Children.Add(time);
         var dialog = new ContentDialog
         {
-            XamlRoot = XamlRoot,
             Title = $"添加《{entry.Title}》提醒",
             Content = panel,
             PrimaryButtonText = "添加",
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Primary,
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        var result = await ShowDialogAsync(dialog, visit);
+        if (result != ContentDialogResult.Primary || !IsCurrentVisit(visit))
         {
             return;
         }
@@ -537,17 +652,22 @@ public sealed partial class TodayPage : Page, INavigationAware
         }
         catch (InvalidOperationException ex)
         {
-            ShowNotification(ex.Message, InfoBarSeverity.Warning);
+            if (IsCurrentVisit(visit))
+                ShowNotification(ex.Message, InfoBarSeverity.Warning);
             return;
         }
 
-        await ReloadSafelyAsync();
+        await ReloadSafelyAsync(visit);
     }
 
     private async void OnManageRemindersClick(
         object sender,
         RoutedEventArgs e)
     {
+        var visit = Volatile.Read(ref _visitGeneration);
+        if (!IsCurrentVisit(visit))
+            return;
+
         PlanStackPopup.IsOpen = false;
         if (!TryGetPlan(sender, out var entry))
         {
@@ -557,6 +677,9 @@ public sealed partial class TodayPage : Page, INavigationAware
         var reminders = await _actionCenter.GetRemindersAsync(
             entry.Plan.AnimeId,
             PlanReminderState.Pending);
+        if (!IsCurrentVisit(visit))
+            return;
+
         if (reminders.Count == 0)
         {
             ShowNotification("这条计划当前没有待处理提醒。");
@@ -577,17 +700,19 @@ public sealed partial class TodayPage : Page, INavigationAware
         };
         var dialog = new ContentDialog
         {
-            XamlRoot = XamlRoot,
             Title = $"管理《{entry.Title}》提醒",
             Content = list,
             PrimaryButtonText = "删除所选",
             CloseButtonText = "关闭",
         };
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary
-            && list.SelectedItem is ReminderChoice choice)
+        var result = await ShowDialogAsync(dialog, visit);
+        if (result != ContentDialogResult.Primary || !IsCurrentVisit(visit))
+            return;
+
+        if (list.SelectedItem is ReminderChoice choice)
         {
             await _reminders.RemoveReminderAsync(choice.Reminder);
-            await ReloadSafelyAsync();
+            await ReloadSafelyAsync(visit);
         }
     }
 
@@ -651,8 +776,10 @@ public sealed partial class TodayPage : Page, INavigationAware
         // 补番会加进补番计划，关注会影响今日放送：只刷新受影响的部分。
         try
         {
-            await ViewModel.RefreshAfterStatusChangeAsync(
+            using var refreshCancellation = CancellationTokenSource.CreateLinkedTokenSource(
                 _loadCancellation?.Token ?? CancellationToken.None);
+            var token = refreshCancellation.Token;
+            await ViewModel.RefreshAfterStatusChangeAsync(token);
         }
         catch (OperationCanceledException)
         {

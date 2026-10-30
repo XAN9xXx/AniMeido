@@ -57,30 +57,14 @@ namespace AniMeido.App.Services
                     pragmaCmd.CommandText = "PRAGMA journal_mode=WAL";
                     await pragmaCmd.ExecuteNonQueryAsync();
                 }
+                var previousVersion = await DatabaseSchema.GetSchemaVersionAsync(connection);
+                var backupPath = await PrepareMigrationAsync(connection, previousVersion);
+
                 await DatabaseSchema.CreateInitialBusinessTablesBeforeConfigAsync(connection);
                 await CreateConfigTableAsync(connection);
                 await DatabaseSchema.CreateInitialBusinessTablesAfterConfigAsync(connection);
-                var previousVersion = await DatabaseSchema.GetSchemaVersionAsync(connection);
-                if (previousVersion is > 0 and < DatabaseSchema.CurrentVersion
-                    && !await HasPublicIdMigrationBackupAsync(connection, previousVersion))
-                {
-                    var backupPath = await BackupCoreAsync(throwOnFailure: true, previousVersion);
-                    if (backupPath is not null)
-                        await SetConfigAsync(connection, PublicIdMigrationBackupKey, backupPath);
-                    if (_installedApp?.IsInstalled == true && backupPath is not null)
-                    {
-                        try
-                        {
-                            _installedApp.RecordMigration(backupPath);
-                        }
-#pragma warning disable CA1031 // 备份已完成；安装状态记录失败不能阻止数据库迁移。
-                        catch (Exception ex)
-                        {
-                            Serilog.Log.Warning(ex, "无法记录数据库迁移备份，仍继续迁移；启动器可能无法自动恢复数据。");
-                        }
-#pragma warning restore CA1031
-                    }
-                }
+                if (backupPath is not null)
+                    await SetConfigAsync(connection, PublicIdMigrationBackupKey, backupPath);
                 await DatabaseSchema.RunMigrationsAsync(connection);
                 try
                 {
@@ -111,7 +95,7 @@ namespace AniMeido.App.Services
             catch (IOException) when (!File.Exists(DbPath))
             {
             }
-            _ = BackupAsync();
+            await BackupAsync();
         }
 
         public Task BackupAsync(bool throwOnFailure = false)
@@ -164,11 +148,10 @@ namespace AniMeido.App.Services
 #pragma warning disable CA1031 // 备份失败不影响主流程
             catch (Exception ex)
             {
-                Serilog.Log.Warning(ex, "Database backup failed.");
                 if (throwOnFailure)
-                {
                     throw;
-                }
+
+                Serilog.Log.Warning(ex, "Database backup failed; initialization can continue.");
                 return null;
             }
 #pragma warning restore CA1031
@@ -282,17 +265,51 @@ namespace AniMeido.App.Services
             return false;
         }
 
-        // 停在 v8 等待联网迁移时，库里记着本轮更新前备份且文件仍在，就不再备份，
-        // 否则每次启动都会滚掉真正的更新前备份并改写启动器的恢复路径。备份本身不含此标记，从备份恢复的库会重新备份。
-        private static async Task<bool> HasPublicIdMigrationBackupAsync(SqliteConnection connection, int previousVersion)
+        private async Task<string?> PrepareMigrationAsync(SqliteConnection connection, int previousVersion)
         {
-            // 只复用停在 v8 的 C2a 备份。v9 -> v10 必须另做离线更新前备份。
+            if (previousVersion is <= 0 or >= DatabaseSchema.CurrentVersion)
+                return null;
+
+            var backupPath = await FindMigrationBackupAsync(connection, previousVersion)
+                ?? await BackupCoreAsync(throwOnFailure: true, previousVersion)
+                ?? throw new IOException("未能创建升级前备份，数据库尚未升级。");
+
+            // 复用旧备份也要重新登记；配置标记不能证明启动器已保存恢复路径。
+            _installedApp?.RecordMigration(backupPath);
+            return backupPath;
+        }
+
+        private static async Task<string?> FindMigrationBackupAsync(SqliteConnection connection, int previousVersion)
+        {
+            // 停在 v8 等待联网迁移时保留最初的升级前快照，避免重启滚掉它。
             if (previousVersion != DatabaseSchema.OfflineVersion)
-                return false;
+                return null;
+
             using var command = connection.CreateCommand();
             command.CommandText = "SELECT Value FROM config WHERE Key=@key";
             command.Parameters.AddWithValue("@key", PublicIdMigrationBackupKey);
-            return await command.ExecuteScalarAsync() is string path && File.Exists(path);
+            if (await command.ExecuteScalarAsync() is not string path || !File.Exists(path))
+                return null;
+
+            using var backup = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = path,
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false,
+            }.ToString());
+            try
+            {
+                await backup.OpenAsync();
+                if (!await CheckIntegrityAsync(backup)
+                    || await DatabaseSchema.GetSchemaVersionAsync(backup) > previousVersion)
+                    throw new InvalidDataException("升级前备份不可用，数据库尚未升级。请先检查备份。");
+                return path;
+            }
+            catch (SqliteException ex) when (ex.SqliteErrorCode is 11 or 26)
+            {
+                // 损坏的是备份，不能让启动入口误判当前数据库已损坏并自动替换它。
+                throw new InvalidDataException("升级前备份已损坏，数据库尚未升级。请先检查备份。", ex);
+            }
         }
 
         private static async Task SetConfigAsync(SqliteConnection connection, string key, string value)
