@@ -20,7 +20,7 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
 
     internal MetadataDataSource(ILogger<MetadataDataSource> logger, HttpClient httpClient,
         CacheService cacheService, TimeProvider? time = null)
-        : this(logger, new PublicServiceRequests(httpClient, time: time, logger: logger), cacheService, time)
+        : this(logger, new PublicServiceRequests(httpClient ?? throw new ArgumentNullException(nameof(httpClient)), time: time, logger: logger), cacheService, time)
     {
     }
 

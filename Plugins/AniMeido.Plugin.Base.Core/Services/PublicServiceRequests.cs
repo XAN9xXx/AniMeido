@@ -77,14 +77,16 @@ public sealed class PublicServiceRequests
         var now = _time.GetUtcNow();
         var retry = response.Headers.RetryAfter;
         var delay = retry?.Delta ?? (retry?.Date is { } date ? date - now : TimeSpan.FromSeconds(2));
-        if (delay < TimeSpan.Zero) delay = TimeSpan.Zero;
+        if (delay < TimeSpan.Zero)
+            delay = TimeSpan.Zero;
         // 极大的合法秒数也保留为冷却，避免日期加法溢出。
         var until = delay > DateTimeOffset.MaxValue - now ? DateTimeOffset.MaxValue : now + delay;
         bool report;
         lock (_cooldownSync)
         {
             report = now >= _notBefore;
-            if (until > _notBefore) _notBefore = until;
+            if (until > _notBefore)
+                _notBefore = until;
         }
         if (report)
             _logger.LogWarning("Public service {Service} rate limited requests; cooling down until {Until}.",
@@ -108,15 +110,23 @@ public sealed class PublicServiceRequests
             var delay = CooldownRemaining();
             if (delay > TimeSpan.Zero)
             {
-                if (delay > budget.Remaining) throw MetadataServiceException.RateLimited();
+                if (delay > budget.Remaining)
+                    throw MetadataServiceException.RateLimited();
                 var started = _time.GetTimestamp();
-                try { await Task.Delay(delay, _time, ct).ConfigureAwait(false); }
-                finally { budget.Spend(_time.GetElapsedTime(started)); }
+                try
+                {
+                    await Task.Delay(delay, _time, ct).ConfigureAwait(false);
+                }
+                finally
+                {
+                    budget.Spend(_time.GetElapsedTime(started));
+                }
                 continue;
             }
 
             await _sending.WaitAsync(ct).ConfigureAwait(false);
-            if (CooldownRemaining() == TimeSpan.Zero) return;
+            if (CooldownRemaining() == TimeSpan.Zero)
+                return;
             _sending.Release();
         }
     }
