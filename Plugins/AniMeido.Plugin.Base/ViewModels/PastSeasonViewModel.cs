@@ -109,10 +109,12 @@ namespace AniMeido.Plugin.Base.ViewModels
                 if (!IsCurrentLoad(version, ct))
                     return;
 
-                _logger.LogError(ex, "Season load failed for {Year} {Season}.", year, season);
+                if (ex is not MetadataServiceException { IsRateLimited: true })
+                    _logger.LogError(ex, "Season load failed for {Year} {Season}.", year, season);
                 ErrorMessage = ex switch
                 {
                     HttpRequestException => $"网络请求失败：{ex.Message}",
+                    MetadataServiceException { IsRateLimited: true } => MetadataServiceException.RateLimitMessage,
                     MetadataServiceException => $"数据源请求失败：{ex.Message}",
                     TaskCanceledException => "网络请求超时，请检查网络后重试",
                     _ => $"数据解析失败：{ex.Message}",

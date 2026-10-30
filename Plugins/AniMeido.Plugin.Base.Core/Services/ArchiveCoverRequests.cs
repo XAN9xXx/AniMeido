@@ -52,7 +52,7 @@ internal sealed class ArchiveCoverRequests(
         catch (Exception ex) when (ex is HttpRequestException or MetadataServiceException
             or IOException or InvalidOperationException or TaskCanceledException or JsonException)
         {
-            if (!cancellationToken.IsCancellationRequested)
+            if (!cancellationToken.IsCancellationRequested && ex is not MetadataServiceException { IsRateLimited: true })
                 _logger.LogWarning(ex, "Archive cover details unavailable for {AnimeId}; keeping the cover empty", animeId);
             throw;
         }

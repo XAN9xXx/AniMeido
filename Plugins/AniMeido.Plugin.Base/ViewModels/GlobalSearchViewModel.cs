@@ -393,7 +393,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 or InvalidOperationException
                 or JsonException)
             {
-                if (!token.IsCancellationRequested)
+                if (!token.IsCancellationRequested && ex is not MetadataServiceException { IsRateLimited: true })
                     _logger.LogWarning(ex, "Local search results are unavailable; showing remote results only");
                 return [];
             }
@@ -473,6 +473,9 @@ namespace AniMeido.Plugin.Base.ViewModels
                 case HttpRequestException:
                     ErrorMessage = $"搜索失败：{exception.Message}";
                     break;
+                case MetadataServiceException { IsRateLimited: true }:
+                    ErrorMessage = MetadataServiceException.RateLimitMessage;
+                    break;
                 case MetadataServiceException:
                     ErrorMessage = $"数据源请求失败：{exception.Message}";
                     break;
@@ -483,7 +486,8 @@ namespace AniMeido.Plugin.Base.ViewModels
                     return false;
             }
 
-            _logger.LogError(exception, "Anime search failed");
+            if (exception is not MetadataServiceException { IsRateLimited: true })
+                _logger.LogError(exception, "Anime search failed");
             IsError = true;
             return true;
         }

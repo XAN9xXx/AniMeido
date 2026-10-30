@@ -1,5 +1,6 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
@@ -211,11 +212,9 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    if (!token.IsCancellationRequested)
-                    {
+                    if (!token.IsCancellationRequested && ex is not MetadataServiceException { IsRateLimited: true })
                         _logger.LogWarning(ex, "Recommendation source {Kind}:{Key} failed.",
                             cursor.Source.Feature.Kind, cursor.Source.Feature.Key);
-                    }
                 }
             });
         return succeeded > 0;
@@ -411,7 +410,7 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
 #pragma warning disable CA1031 // Missing one feature category is an expected partial remote failure.
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            if (!cancellationToken.IsCancellationRequested)
+            if (!cancellationToken.IsCancellationRequested && ex is not MetadataServiceException { IsRateLimited: true })
                 _logger.LogWarning(ex, "Recommendation feature enrichment failed; continuing with available features.");
             return [];
         }
@@ -431,7 +430,7 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
 #pragma warning disable CA1031 // A placeholder candidate can survive a failed detail enrichment.
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            if (!cancellationToken.IsCancellationRequested)
+            if (!cancellationToken.IsCancellationRequested && ex is not MetadataServiceException { IsRateLimited: true })
                 _logger.LogWarning(ex,
                     "Recommendation detail enrichment failed for {AnimeId}; retaining the candidate.", animeId);
             return null;

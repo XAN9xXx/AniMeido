@@ -82,7 +82,7 @@ public sealed partial class PersonSearchResultsViewModel(
         catch (MetadataServiceException ex)
         {
             if (generation == _load.Generation)
-                ResultText = $"数据源请求失败：{ex.Message}";
+                ResultText = ex.IsRateLimited ? MetadataServiceException.RateLimitMessage : $"数据源请求失败：{ex.Message}";
         }
         catch (JsonException ex)
         {
@@ -149,7 +149,7 @@ public sealed partial class PersonSearchResultsViewModel(
         catch (Exception ex) when (ex is HttpRequestException or MetadataServiceException or JsonException)
         {
             // 同一次加载可能有多个等待者；由实际查询任务报告，外层只保留原来的错误展示。
-            if (_load.IsCurrent(generation, token))
+            if (_load.IsCurrent(generation, token) && ex is not MetadataServiceException { IsRateLimited: true })
                 _logger.LogError(ex, "Person works load failed for {PersonId}.", personId);
             throw;
         }
@@ -200,7 +200,7 @@ public sealed partial class PersonSearchResultsViewModel(
         }
         catch (Exception ex) when (ex is HttpRequestException or MetadataServiceException or JsonException)
         {
-            if (_load.IsCurrent(generation, token))
+            if (_load.IsCurrent(generation, token) && ex is not MetadataServiceException { IsRateLimited: true })
                 _logger.LogWarning(ex, "Details unavailable for work {AnimeId}; using its person-list snapshot.", work.ID);
             return new Anime(
                 work.ID,

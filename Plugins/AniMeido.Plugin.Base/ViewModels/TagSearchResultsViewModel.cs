@@ -195,7 +195,7 @@ public sealed partial class TagSearchResultsViewModel : ObservableObject
         }
         catch (MetadataServiceException ex)
         {
-            PublishFailure(version, $"数据源请求失败：{ex.Message}", ex);
+            PublishFailure(version, ex.IsRateLimited ? MetadataServiceException.RateLimitMessage : $"数据源请求失败：{ex.Message}", ex);
         }
         catch (JsonException ex)
         {
@@ -284,7 +284,8 @@ public sealed partial class TagSearchResultsViewModel : ObservableObject
         if (version != _searchVersion)
             return;
 
-        _logger.LogError(exception, "Tag result query failed for years {FromYear} to {ToYear}.", _fromYear, _toYear);
+        if (exception is not MetadataServiceException { IsRateLimited: true })
+            _logger.LogError(exception, "Tag result query failed for years {FromYear} to {ToYear}.", _fromYear, _toYear);
         _resumeNeedsReload = true;
         ClearResults();
         ResultText = message;

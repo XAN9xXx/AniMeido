@@ -171,10 +171,12 @@ namespace AniMeido.Plugin.Base.ViewModels
                     return;
                 }
 
-                _logger.LogError(ex, "Anime detail load failed for {AnimeId}.", animeID);
+                if (ex is not MetadataServiceException { IsRateLimited: true })
+                    _logger.LogError(ex, "Anime detail load failed for {AnimeId}.", animeID);
                 ErrorMessage = ex switch
                 {
                     HttpRequestException => $"网络请求失败：{ex.Message}",
+                    MetadataServiceException { IsRateLimited: true } => MetadataServiceException.RateLimitMessage,
                     MetadataServiceException => $"数据源请求失败：{ex.Message}",
                     TaskCanceledException => "网络请求超时，请检查网络后重试",
                     _ => $"数据解析失败：{ex.Message}",
@@ -270,7 +272,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
             catch (Exception ex) when (ex is HttpRequestException or JsonException or MetadataServiceException)
             {
-                if (IsCurrentLoad(loadVersion, cancellationToken))
+                if (IsCurrentLoad(loadVersion, cancellationToken) && ex is not MetadataServiceException { IsRateLimited: true })
                     _logger.LogWarning(ex, "Studio information unavailable for {AnimeId}; keeping the main detail.", animeID);
             }
         }
@@ -296,7 +298,7 @@ namespace AniMeido.Plugin.Base.ViewModels
             }
             catch (Exception ex) when (ex is HttpRequestException or JsonException or MetadataServiceException)
             {
-                if (IsCurrentLoad(loadVersion, cancellationToken))
+                if (IsCurrentLoad(loadVersion, cancellationToken) && ex is not MetadataServiceException { IsRateLimited: true })
                     _logger.LogWarning(ex, "Character information unavailable for {AnimeId}; keeping the main detail.", animeID);
             }
         }

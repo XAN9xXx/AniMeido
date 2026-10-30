@@ -544,10 +544,12 @@ namespace AniMeido.Plugin.Base.ViewModels
                 if (ct.IsCancellationRequested)
                     return;
 
-                _logger.LogError(ex, "放送日历加载失败。");
+                if (ex is not MetadataServiceException { IsRateLimited: true })
+                    _logger.LogError(ex, "放送日历加载失败。");
                 ErrorMessage = ex switch
                 {
                     HttpRequestException => $"网络请求失败：{ex.Message}",
+                    MetadataServiceException { IsRateLimited: true } => MetadataServiceException.RateLimitMessage,
                     MetadataServiceException => $"数据源请求失败：{ex.Message}",
                     TaskCanceledException => "网络请求超时，请检查网络后重试",
                     _ => $"数据解析失败：{ex.Message}",
@@ -701,7 +703,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 or InvalidOperationException
                 or JsonException)
             {
-                if (!ct.IsCancellationRequested)
+                if (!ct.IsCancellationRequested && ex is not MetadataServiceException { IsRateLimited: true })
                     _logger.LogWarning(ex, "季度目录加载失败，保留放送列表。");
                 return null;
             }

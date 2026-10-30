@@ -446,9 +446,10 @@ public partial class RecommendationViewModel : ObservableObject
         {
             if (generation == _loadGeneration)
             {
-                if (!cancellationToken.IsCancellationRequested)
+                if (!cancellationToken.IsCancellationRequested && ex is not MetadataServiceException { IsRateLimited: true })
                     _logger.LogError(ex, "Recommendation load failed.");
-                ShowError($"推荐加载失败：{ex.Message}");
+                ShowError(ex is MetadataServiceException { IsRateLimited: true }
+                    ? MetadataServiceException.RateLimitMessage : $"推荐加载失败：{ex.Message}");
             }
         }
         finally
@@ -517,10 +518,13 @@ public partial class RecommendationViewModel : ObservableObject
         {
             if (generation == _refreshGeneration && !cancellationToken.IsCancellationRequested)
             {
-                _logger.LogError(ex, "Recommendation refresh failed.");
-                ShowError(Items.Count > 0
+                if (ex is not MetadataServiceException { IsRateLimited: true })
+                    _logger.LogError(ex, "Recommendation refresh failed.");
+                var failureMessage = Items.Count > 0
                     ? $"刷新失败，已保留上次结果：{ex.Message}"
-                    : $"推荐生成失败：{ex.Message}");
+                    : $"推荐生成失败：{ex.Message}";
+                ShowError(ex is MetadataServiceException { IsRateLimited: true }
+                    ? MetadataServiceException.RateLimitMessage : failureMessage);
             }
             return false;
         }
@@ -558,9 +562,10 @@ public partial class RecommendationViewModel : ObservableObject
         {
             if (generation == _loadMoreGeneration)
             {
-                if (!cancellationToken.IsCancellationRequested)
+                if (!cancellationToken.IsCancellationRequested && ex is not MetadataServiceException { IsRateLimited: true })
                     _logger.LogError(ex, "Loading more recommendations failed.");
-                LoadMoreError = $"加载更多失败：{ex.Message}";
+                LoadMoreError = ex is MetadataServiceException { IsRateLimited: true }
+                    ? MetadataServiceException.RateLimitMessage : $"加载更多失败：{ex.Message}";
             }
         }
         finally

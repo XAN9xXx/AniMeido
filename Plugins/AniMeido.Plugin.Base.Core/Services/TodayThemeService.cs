@@ -415,7 +415,7 @@ namespace AniMeido.Plugin.Base.Services
                         if (ex is OperationCanceledException && token.IsCancellationRequested)
                             throw;
 
-                        if (!token.IsCancellationRequested)
+                        if (!token.IsCancellationRequested && ex is not MetadataServiceException { IsRateLimited: true })
                             _logger.LogWarning(ex, "今日主题作品 {AnimeId} 的标签读取失败，跳过该样本。", animeId);
                     }
                 });
@@ -610,7 +610,7 @@ namespace AniMeido.Plugin.Base.Services
                         if (ex is OperationCanceledException && token.IsCancellationRequested)
                             throw;
 
-                        if (!token.IsCancellationRequested)
+                        if (!token.IsCancellationRequested && ex is not MetadataServiceException { IsRateLimited: true })
                             _logger.LogWarning(ex, "今日主题作品 {AnimeId} 的详情加载失败，使用本地标题占位。", item.AnimeId);
                     }
 

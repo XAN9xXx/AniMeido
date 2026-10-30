@@ -2,10 +2,12 @@
 
 public sealed class MetadataServiceException : Exception
 {
+    public const string RateLimitMessage = "请求较多，请稍后重试。";
+
     public bool IsRateLimited { get; private init; }
 
     internal static MetadataServiceException RateLimited()
-        => new("请求较多，请稍后重试。") { IsRateLimited = true };
+        => new(RateLimitMessage) { IsRateLimited = true };
 
     public MetadataServiceException() { }
     public MetadataServiceException(string message) : base(message) { }

@@ -585,6 +585,9 @@ namespace AniMeido.Plugin.Base.ViewModels
                 case HttpRequestException:
                     errorMessage = $"网络请求失败：{exception.Message}";
                     break;
+                case MetadataServiceException { IsRateLimited: true }:
+                    errorMessage = MetadataServiceException.RateLimitMessage;
+                    break;
                 case MetadataServiceException:
                     errorMessage = $"数据源请求失败：{exception.Message}";
                     break;
@@ -601,7 +604,8 @@ namespace AniMeido.Plugin.Base.ViewModels
 
             if (IsCurrent(version, cancellationToken))
             {
-                _logger.LogError(exception, "My anime view could not be loaded");
+                if (exception is not MetadataServiceException { IsRateLimited: true })
+                    _logger.LogError(exception, "My anime view could not be loaded");
                 ErrorMessage = errorMessage;
                 IsError = true;
             }

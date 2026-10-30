@@ -297,10 +297,12 @@ public partial class TodayViewModel : ObservableObject
                 if (!IsCurrentLoad(loadVersion, cancellationToken))
                     return;
 
-                _logger.LogWarning(ex, "放送数据加载失败，继续显示本地计划。");
+                if (ex is not MetadataServiceException { IsRateLimited: true })
+                    _logger.LogWarning(ex, "放送数据加载失败，继续显示本地计划。");
                 seasonal = [];
                 _scheduleFailed = true;
-                ErrorMessage = $"放送数据加载失败：{ex.Message}";
+                ErrorMessage = ex is MetadataServiceException { IsRateLimited: true }
+                    ? MetadataServiceException.RateLimitMessage : $"放送数据加载失败：{ex.Message}";
             }
 
             if (!IsCurrentLoad(loadVersion, cancellationToken))
@@ -380,8 +382,10 @@ public partial class TodayViewModel : ObservableObject
             if (!IsCurrentLoad(loadVersion, cancellationToken))
                 return;
 
-            _logger.LogError(ex, "今天页加载失败。");
-            ErrorMessage = $"今天页加载失败：{ex.Message}";
+            if (ex is not MetadataServiceException { IsRateLimited: true })
+                _logger.LogError(ex, "今天页加载失败。");
+            ErrorMessage = ex is MetadataServiceException { IsRateLimited: true }
+                ? MetadataServiceException.RateLimitMessage : $"今天页加载失败：{ex.Message}";
             // 失败已经提示，由用户点刷新重试，返回页面时不自动重来。
             MarkLoadFinished(loadVersion);
         }
@@ -706,7 +710,7 @@ public partial class TodayViewModel : ObservableObject
                     throw;
                 }
 
-                if (IsCurrentLoad(loadVersion, token))
+                if (IsCurrentLoad(loadVersion, token) && ex is not MetadataServiceException { IsRateLimited: true })
                     _logger.LogWarning(ex, "今天页作品 {AnimeId} 的详情加载失败，沿用已有资料或占位。", animeId);
             }
         });

@@ -103,7 +103,7 @@ namespace AniMeido.Plugin.Base.Services
             catch (Exception ex) when (ex is HttpRequestException
                 or MetadataServiceException or TaskCanceledException)
             {
-                if (!ct.IsCancellationRequested)
+                if (!ct.IsCancellationRequested && ex is not MetadataServiceException { IsRateLimited: true })
                     _logger.LogWarning(ex, "Local search skipped unavailable anime {AnimeId}.", animeId);
                 return null;
             }

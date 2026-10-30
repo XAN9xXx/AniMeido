@@ -2,6 +2,7 @@
 using System.Globalization;
 using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -140,6 +141,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         private DateOnly _date;
         private TodayThemeKind _shownKind;
         private bool _loaded;
+        private string _failureMessage = "没有加载出来，点“重试”再试一次";
 
         internal TodayThemeViewModel(
             IAnimeDataSource dataSource,
@@ -189,7 +191,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         public string StatusText => IsLoading
             ? "正在准备今天的主题…"
             : IsFailed
-                ? "没有加载出来，点“重试”再试一次"
+                ? _failureMessage
                 : _loaded && Items.Count == 0 ? "这个主题今天没有可显示的作品" : "";
 
         public bool HasStatusText => StatusText.Length > 0;
@@ -338,9 +340,11 @@ namespace AniMeido.Plugin.Base.ViewModels
             {
                 if (ReferenceEquals(_cts, cts))
                 {
-                    if (!cts.IsCancellationRequested)
+                    if (!cts.IsCancellationRequested && ex is not MetadataServiceException { IsRateLimited: true })
                         _logger.LogError(ex, "今日主题加载失败。");
                     Items = [];
+                    _failureMessage = ex is MetadataServiceException { IsRateLimited: true }
+                        ? MetadataServiceException.RateLimitMessage : "没有加载出来，点“重试”再试一次";
                     IsFailed = true;
                 }
             }
