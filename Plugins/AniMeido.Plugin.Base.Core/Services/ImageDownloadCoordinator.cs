@@ -1,4 +1,6 @@
-﻿using System.Collections.Concurrent;
+﻿using AniMeido.Plugin.Base.Exceptions;
+using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -27,6 +29,7 @@ internal enum ImageDownloadStatus
     Success,
     Failed,
     Cancelled,
+    RateLimited,
 }
 
 internal readonly record struct ImageDownloadResult(
@@ -43,8 +46,7 @@ internal sealed class ImageDownloadCoordinator : IAsyncDisposable
 {
     private const long MaxImageBytes = 5 * 1024 * 1024;
     private readonly string _cacheRoot;
-    private readonly HttpClient _httpClient;
-    private readonly SemaphoreSlim _downloadThrottle;
+    private readonly PublicServiceRequests _requests;
     private readonly TimeSpan _retryDelay;
     private readonly TimeSpan _failureCooldown;
     private readonly Func<Uri, bool> _uriValidator;
@@ -63,12 +65,11 @@ internal sealed class ImageDownloadCoordinator : IAsyncDisposable
         int maxConcurrency = 4,
         TimeSpan? retryDelay = null,
         TimeSpan? failureCooldown = null,
-        Func<Uri, bool>? uriValidator = null)
+        Func<Uri, bool>? uriValidator = null, TimeProvider? time = null, ILogger? logger = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxConcurrency, 1);
         _cacheRoot = cacheRoot;
-        _httpClient = httpClient;
-        _downloadThrottle = new SemaphoreSlim(maxConcurrency, maxConcurrency);
+        _requests = new PublicServiceRequests(httpClient, TimeSpan.FromSeconds(15), time, logger, maxConcurrency);
         _retryDelay = retryDelay ?? TimeSpan.FromSeconds(1);
         _failureCooldown = failureCooldown ?? TimeSpan.FromSeconds(30);
         _uriValidator = uriValidator ?? (_ => true);
@@ -263,7 +264,6 @@ internal sealed class ImageDownloadCoordinator : IAsyncDisposable
         // 下载结果仍交给各订阅者；此处只等待取消后的实际 I/O 与令牌收尾。
         Task completed = Task.WhenAll(active.Select(operation => operation.GetTask()));
         await completed.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-        _downloadThrottle.Dispose();
         lock (_lifetimeGate)
         {
             _activeDownloads.Clear();
@@ -326,21 +326,22 @@ internal sealed class ImageDownloadCoordinator : IAsyncDisposable
         int generation,
         CancellationToken cancellationToken)
     {
-        var first = await DownloadOnceAsync(key, url, generation, cancellationToken)
-            .ConfigureAwait(false);
-        if (first != DownloadAttemptResult.TransientFailure)
-            return ToResult(first, key);
-
-        await Task.Delay(_retryDelay, cancellationToken).ConfigureAwait(false);
-        var second = await DownloadOnceAsync(key, url, generation, cancellationToken)
-            .ConfigureAwait(false);
-        return ToResult(second, key);
+        var budget = new ServiceReadBudget();
+        for (var attempt = 0; ; attempt++)
+        {
+            var result = await DownloadOnceAsync(key, url, generation, budget, cancellationToken).ConfigureAwait(false);
+            if (attempt == 1 || result is not (DownloadAttemptResult.TransientFailure or DownloadAttemptResult.RateLimited))
+                return ToResult(result, key);
+            if (result == DownloadAttemptResult.TransientFailure)
+                await Task.Delay(_retryDelay, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task<DownloadAttemptResult> DownloadOnceAsync(
         ImageCacheKey key,
         string url,
         int generation,
+        ServiceReadBudget budget,
         CancellationToken cancellationToken)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
@@ -350,93 +351,94 @@ internal sealed class ImageDownloadCoordinator : IAsyncDisposable
             return DownloadAttemptResult.TerminalFailure;
         }
 
-        await _downloadThrottle.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (HasLocalCache(key))
+            return DownloadAttemptResult.Success;
+
         try
         {
-            if (HasLocalCache(key))
-                return DownloadAttemptResult.Success;
-
-            using var response = await _httpClient.GetAsync(
-                uri,
-                HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
+            return await _requests.ReadOnceAsync(uri.AbsoluteUri, async (response, attemptToken) =>
             {
-                return response.StatusCode == HttpStatusCode.RequestTimeout
-                    || response.StatusCode == HttpStatusCode.TooManyRequests
-                    || (int)response.StatusCode >= 500
-                    ? DownloadAttemptResult.TransientFailure
-                    : DownloadAttemptResult.TerminalFailure;
-            }
-
-            var contentType = response.Content.Headers.ContentType?.MediaType;
-            if (string.Equals(
-                    contentType,
-                    "image/svg+xml",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return DownloadAttemptResult.TransientFailure;
-            }
-
-            if (contentType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) != true
-                || response.Content.Headers.ContentLength > MaxImageBytes)
-            {
-                return DownloadAttemptResult.TerminalFailure;
-            }
-
-            var localPath = GetLocalPath(key);
-            Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
-            var tempPath = $"{localPath}.tmp.{Guid.NewGuid():N}";
-            try
-            {
-                long totalRead = 0;
+                if (!response.IsSuccessStatusCode)
                 {
-                    await using var source = await response.Content
-                        .ReadAsStreamAsync(cancellationToken)
-                        .ConfigureAwait(false);
-                    await using var destination = new FileStream(
-                        tempPath,
-                        FileMode.CreateNew,
-                        FileAccess.Write,
-                        FileShare.None,
-                        81920,
-                        FileOptions.Asynchronous | FileOptions.SequentialScan);
-                    var buffer = new byte[81920];
-                    int read;
-                    while ((read = await source.ReadAsync(buffer, cancellationToken)
-                        .ConfigureAwait(false)) > 0)
+                    return response.StatusCode == HttpStatusCode.RequestTimeout
+                        || (int)response.StatusCode >= 500
+                        ? DownloadAttemptResult.TransientFailure
+                        : DownloadAttemptResult.TerminalFailure;
+                }
+
+                var contentType = response.Content.Headers.ContentType?.MediaType;
+                if (string.Equals(
+                        contentType,
+                        "image/svg+xml",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return DownloadAttemptResult.TransientFailure;
+                }
+
+                if (contentType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) != true
+                    || response.Content.Headers.ContentLength > MaxImageBytes)
+                {
+                    return DownloadAttemptResult.TerminalFailure;
+                }
+
+                var localPath = GetLocalPath(key);
+                Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
+                var tempPath = $"{localPath}.tmp.{Guid.NewGuid():N}";
+                try
+                {
+                    long totalRead = 0;
                     {
-                        totalRead += read;
-                        if (totalRead > MaxImageBytes)
-                            return DownloadAttemptResult.TerminalFailure;
-                        await destination.WriteAsync(
-                            buffer.AsMemory(0, read),
-                            cancellationToken).ConfigureAwait(false);
+                        await using var source = await response.Content
+                            .ReadAsStreamAsync(attemptToken)
+                            .ConfigureAwait(false);
+                        await using var destination = new FileStream(
+                            tempPath,
+                            FileMode.CreateNew,
+                            FileAccess.Write,
+                            FileShare.None,
+                            81920,
+                            FileOptions.Asynchronous | FileOptions.SequentialScan);
+                        var buffer = new byte[81920];
+                        int read;
+                        while ((read = await source.ReadAsync(buffer, attemptToken)
+                            .ConfigureAwait(false)) > 0)
+                        {
+                            totalRead += read;
+                            if (totalRead > MaxImageBytes)
+                                return DownloadAttemptResult.TerminalFailure;
+                            await destination.WriteAsync(
+                                buffer.AsMemory(0, read),
+                                attemptToken).ConfigureAwait(false);
+                        }
+
+                        await destination.FlushAsync(attemptToken).ConfigureAwait(false);
                     }
 
-                    await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
+                    if (totalRead == 0)
+                        return DownloadAttemptResult.TerminalFailure;
+                    lock (_lifetimeGate)
+                    {
+                        if (generation != CacheGeneration)
+                            return DownloadAttemptResult.Cancelled;
+                        File.Move(tempPath, localPath, overwrite: true);
+                    }
+                    return DownloadAttemptResult.Success;
                 }
-
-                if (totalRead == 0)
-                    return DownloadAttemptResult.TerminalFailure;
-                lock (_lifetimeGate)
+                finally
                 {
-                    if (generation != CacheGeneration)
-                        return DownloadAttemptResult.Cancelled;
-                    File.Move(tempPath, localPath, overwrite: true);
+                    TryDelete(tempPath);
                 }
-                return DownloadAttemptResult.Success;
-            }
-            finally
-            {
-                TryDelete(tempPath);
-            }
+            }, cancellationToken, budget).ConfigureAwait(false);
+        }
+        catch (MetadataServiceException ex) when (ex.IsRateLimited)
+        {
+            return DownloadAttemptResult.RateLimited;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             return DownloadAttemptResult.Cancelled;
         }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException)
         {
             return DownloadAttemptResult.TransientFailure;
         }
@@ -447,10 +449,6 @@ internal sealed class ImageDownloadCoordinator : IAsyncDisposable
         catch (IOException)
         {
             return DownloadAttemptResult.TransientFailure;
-        }
-        finally
-        {
-            _downloadThrottle.Release();
         }
     }
 
@@ -464,6 +462,7 @@ internal sealed class ImageDownloadCoordinator : IAsyncDisposable
                 ImageDownloadStatus.Success,
                 GetLocalPath(key)),
             DownloadAttemptResult.Cancelled => new(ImageDownloadStatus.Cancelled, null),
+            DownloadAttemptResult.RateLimited => new(ImageDownloadStatus.RateLimited, null),
             _ => new(ImageDownloadStatus.Failed, null),
         };
     }
@@ -492,6 +491,7 @@ internal sealed class ImageDownloadCoordinator : IAsyncDisposable
     {
         Success,
         TransientFailure,
+        RateLimited,
         TerminalFailure,
         Cancelled,
     }

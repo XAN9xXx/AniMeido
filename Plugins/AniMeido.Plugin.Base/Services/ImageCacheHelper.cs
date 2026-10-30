@@ -1,4 +1,6 @@
-﻿namespace AniMeido.Plugin.Base.Services;
+﻿using Microsoft.Extensions.Logging;
+
+namespace AniMeido.Plugin.Base.Services;
 
 /// <summary>XAML 创建的控件共用此图片缓存，生命周期由 Base 插件持有。</summary>
 internal static class ImageCacheHelper
@@ -9,6 +11,11 @@ internal static class ImageCacheHelper
     {
         "img.animeido.com",
     };
+    private static ILogger? _logger;
+
+    // 缓存服务的组合入口在首次图片请求前提供应用日志。
+    internal static void ConfigureLogger(ILogger logger) => _logger = logger;
+
     private static readonly HttpClient SharedHttpClient = new()
     {
         Timeout = TimeSpan.FromSeconds(15),
@@ -17,7 +24,7 @@ internal static class ImageCacheHelper
     private static readonly Lazy<ImageDownloadCoordinator> DownloadCoordinator = new(() => new(
         CacheDirectory,
         SharedHttpClient,
-        uriValidator: uri => AllowedImageHosts.Contains(uri.Host)));
+        uriValidator: uri => AllowedImageHosts.Contains(uri.Host), logger: _logger));
     private static ImageDownloadCoordinator Coordinator
     {
         get

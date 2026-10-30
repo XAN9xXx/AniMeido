@@ -30,11 +30,15 @@ public static class MetadataServiceExtensions
             sp.GetRequiredService<ILogger<PublicIdMigrationService>>()));
         services.AddSingleton<TrackingService>();
         services.AddSingleton<PersonalFeatureStateStore>();
-        services.AddSingleton<CacheService>(sp => new CacheService(
-            sp.GetRequiredService<SqliteConnectionFactory>(),
-            ImageCacheHelper.ClearAll,
-            () => ImageCacheHelper.GetCacheStats().sizeMB * 1024,
-            sp.GetRequiredService<ILogger<CacheService>>()));
+        services.AddSingleton<CacheService>(sp =>
+        {
+            ImageCacheHelper.ConfigureLogger(sp.GetRequiredService<ILoggerFactory>().CreateLogger("AniMeido.Images"));
+            return new CacheService(
+                sp.GetRequiredService<SqliteConnectionFactory>(),
+                ImageCacheHelper.ClearAll,
+                () => ImageCacheHelper.GetCacheStats().sizeMB * 1024,
+                sp.GetRequiredService<ILogger<CacheService>>());
+        });
         services.AddSingleton<BrowseHistoryService>();
         services.AddSingleton<BackupService>();
         return services;
