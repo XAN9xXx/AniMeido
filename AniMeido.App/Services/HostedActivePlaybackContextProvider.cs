@@ -32,7 +32,7 @@ public sealed class HostedActivePlaybackContextProvider :
                 or TimeoutException
                 or InvalidOperationException)
         {
-            _logger.LogDebug(
+            _logger.LogWarning(
                 ex,
                 "Optional playback context is unavailable.");
             return null;

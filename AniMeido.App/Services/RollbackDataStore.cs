@@ -2,7 +2,6 @@
 using AniMeido.Contracts;
 using AniMeido.Updates;
 using AniMeido.Updates.Install;
-using Serilog;
 
 namespace AniMeido.App.Services;
 
@@ -13,51 +12,63 @@ internal sealed record RollbackDataEntry(string Path, string Version, DateTime T
 }
 
 /// <summary>只管理回滚/恢复时另存的数据；不直接修改当前数据库。</summary>
-internal sealed class RollbackDataStore(IAppDataPaths paths)
+public sealed class RollbackDataStore : IAsyncDisposable
 {
     private const string Prefix = RollbackDataDirectory.RollbackPrefix;
-    private readonly string _root = Path.GetFullPath(Path.Combine(paths.BackupDirectory, "update"));
+    private readonly string _root;
+    private readonly Action? _beforeDelete;
+    private readonly object _lifetimeGate = new();
+    private readonly HashSet<Task> _pending = [];
+    private bool _stopping;
+    private Task? _stopTask;
 
-    public IReadOnlyList<RollbackDataEntry> List()
+    internal string DataDirectory { get; }
+
+    public RollbackDataStore(IAppDataPaths paths)
     {
-        try
-        {
-            if (!Directory.Exists(_root))
-                return [];
-            RollbackDataDirectory.CheckAncestors(_root);
-            return Directory.EnumerateDirectories(_root, "*", SearchOption.TopDirectoryOnly)
-                .Where(directory => RollbackDataDirectory.IsArchiveName(Path.GetFileName(directory)))
-                .Select(ReadEntry)
-                .OrderByDescending(entry => entry.Time).ToArray();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Log.Warning(ex, "无法列出回滚前数据：{Root}", _root);
-            throw;
-        }
+        _root = Path.GetFullPath(Path.Combine(paths.BackupDirectory, "update"));
+        DataDirectory = Path.GetDirectoryName(paths.DatabasePath)!;
     }
 
-    public string ValidateDirectory(string directory)
+    internal RollbackDataStore(IAppDataPaths paths, Action beforeDelete) : this(paths)
+        => _beforeDelete = beforeDelete;
+
+    internal Task<IReadOnlyList<RollbackDataEntry>> ListAsync() => RunAsync(ListCore);
+
+    internal Task<string> ValidateDirectoryAsync(string directory)
+        => RunAsync(() => ValidateDirectoryCore(directory));
+
+    internal Task DeleteAsync(string directory) => RunAsync(() =>
+    {
+        DeleteCore(directory);
+        return true;
+    });
+
+    private IReadOnlyList<RollbackDataEntry> ListCore()
+    {
+        if (!Directory.Exists(_root))
+            return [];
+        RollbackDataDirectory.CheckAncestors(_root);
+        return Directory.EnumerateDirectories(_root, "*", SearchOption.TopDirectoryOnly)
+            .Where(directory => RollbackDataDirectory.IsArchiveName(Path.GetFileName(directory)))
+            .Select(ReadEntry)
+            .OrderByDescending(entry => entry.Time).ToArray();
+    }
+
+    private string ValidateDirectoryCore(string directory)
         => RollbackDataDirectory.Validate(_root, directory);
 
-    public void Delete(string directory)
+    private void DeleteCore(string directory)
     {
-        try
-        {
-            var full = ValidateDirectory(directory);
-            CheckTree(full);
-            Directory.Delete(full, recursive: true);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            Log.Warning(ex, "删除回滚前数据失败：{Path}", directory);
-            throw;
-        }
+        var full = ValidateDirectoryCore(directory);
+        CheckTree(full);
+        _beforeDelete?.Invoke();
+        Directory.Delete(full, recursive: true);
     }
 
     private RollbackDataEntry ReadEntry(string directory)
     {
-        var full = ValidateDirectory(directory);
+        var full = ValidateDirectoryCore(directory);
         var fileName = Path.GetFileName(full);
         if (fileName.StartsWith(RollbackDataDirectory.RestorePrefix, StringComparison.Ordinal))
         {
@@ -78,6 +89,42 @@ internal sealed class RollbackDataStore(IAppDataPaths paths)
                 return new(full, name[..i], time);
         }
         return new(full, name, Directory.GetCreationTime(full));
+    }
+
+    private async Task<T> RunAsync<T>(Func<T> action)
+    {
+        Task<T> operation;
+        lock (_lifetimeGate)
+        {
+            ObjectDisposedException.ThrowIf(_stopping, this);
+            operation = Task.Run(action);
+            _pending.Add(operation);
+        }
+        try
+        {
+            return await operation.ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_lifetimeGate)
+                _pending.Remove(operation);
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        lock (_lifetimeGate)
+        {
+            _stopping = true;
+            _stopTask ??= WaitForOperationsAsync(_pending.ToArray());
+            return new ValueTask(_stopTask);
+        }
+    }
+
+    private static async Task WaitForOperationsAsync(Task[] pending)
+    {
+        // 操作失败由原调用者处理，退出只等待实际文件工作收尾。
+        await Task.WhenAll(pending).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
     }
 
     private static void CheckTree(string directory)

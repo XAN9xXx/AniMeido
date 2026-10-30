@@ -37,8 +37,13 @@ public sealed class PluginPackageManager
             new PluginPackageVerifier(appVersion));
     }
 
-    public async Task<IReadOnlyList<string>> PrepareForStartupAsync(
+    // 完整操作从后台开始；内部锁只负责同一插件库的提交顺序。
+    public Task<IReadOnlyList<HostedPluginDescriptor>> PrepareForStartupAsync(
         CancellationToken cancellationToken = default)
+        => Task.Run(() => PrepareForStartupCoreAsync(cancellationToken), cancellationToken);
+
+    private async Task<IReadOnlyList<HostedPluginDescriptor>> PrepareForStartupCoreAsync(
+        CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -46,6 +51,7 @@ public sealed class PluginPackageManager
             _paths.EnsureDirectories();
             CleanStagingDirectory();
             var registry = await LoadRegistryAsync(cancellationToken);
+            var prepared = new List<HostedPluginDescriptor>();
             var changed = false;
 
             foreach (var plugin in registry.Plugins.ToList())
@@ -85,9 +91,10 @@ public sealed class PluginPackageManager
                     var versionDirectory = _paths.GetVersionDirectory(
                         plugin.PluginId,
                         plugin.CurrentVersion);
-                    await _verifier.VerifyInstalledDirectoryAsync(
+                    var manifest = await _verifier.VerifyInstalledDirectoryAsync(
                         versionDirectory,
                         cancellationToken);
+                    prepared.Add(new HostedPluginDescriptor(versionDirectory, manifest));
                     if (plugin.LastError is not null)
                     {
                         plugin.LastError = null;
@@ -107,12 +114,8 @@ public sealed class PluginPackageManager
                 await SaveRegistryAsync(registry, cancellationToken);
             }
 
-            return registry.Plugins
-                .Where(plugin => plugin.Enabled && !plugin.PendingUninstall)
-                .Select(plugin => _paths.GetVersionDirectory(
-                    plugin.PluginId,
-                    plugin.CurrentVersion))
-                .Where(Directory.Exists)
+            return prepared
+                .Where(plugin => Directory.Exists(plugin.Directory))
                 .ToList();
         }
         finally
@@ -121,8 +124,12 @@ public sealed class PluginPackageManager
         }
     }
 
-    public async Task<IReadOnlyList<InstalledPluginInfo>> GetInstalledPluginsAsync(
+    public Task<IReadOnlyList<InstalledPluginInfo>> GetInstalledPluginsAsync(
         CancellationToken cancellationToken = default)
+        => Task.Run(() => GetInstalledPluginsCoreAsync(cancellationToken), cancellationToken);
+
+    private async Task<IReadOnlyList<InstalledPluginInfo>> GetInstalledPluginsCoreAsync(
+        CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -140,9 +147,14 @@ public sealed class PluginPackageManager
         }
     }
 
-    public async Task<PluginInstallResult> InstallPackageAsync(
+    public Task<PluginInstallResult> InstallPackageAsync(
         string packagePath,
         CancellationToken cancellationToken = default)
+        => Task.Run(() => InstallPackageCoreAsync(packagePath, cancellationToken), cancellationToken);
+
+    private async Task<PluginInstallResult> InstallPackageCoreAsync(
+        string packagePath,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packagePath);
 
@@ -335,9 +347,14 @@ public sealed class PluginPackageManager
             },
             cancellationToken);
 
-    public async Task RecordLoadFailuresAsync(
+    public Task RecordLoadFailuresAsync(
         IReadOnlyDictionary<string, string> failures,
         CancellationToken cancellationToken = default)
+        => Task.Run(() => RecordLoadFailuresCoreAsync(failures, cancellationToken), cancellationToken);
+
+    private async Task RecordLoadFailuresCoreAsync(
+        IReadOnlyDictionary<string, string> failures,
+        CancellationToken cancellationToken)
     {
         if (failures.Count == 0)
         {
@@ -377,7 +394,13 @@ public sealed class PluginPackageManager
         }
     }
 
-    private async Task UpdatePluginAsync(
+    private Task UpdatePluginAsync(
+        string pluginId,
+        Func<InstalledPluginState, CancellationToken, Task> update,
+        CancellationToken cancellationToken)
+        => Task.Run(() => UpdatePluginCoreAsync(pluginId, update, cancellationToken), cancellationToken);
+
+    private async Task UpdatePluginCoreAsync(
         string pluginId,
         Func<InstalledPluginState, CancellationToken, Task> update,
         CancellationToken cancellationToken)
@@ -662,10 +685,14 @@ public sealed class PluginPackageManager
             File.Move(temporaryFile, _paths.StateFile, overwrite: true);
             if (!File.Exists(_paths.StateBackupFile))
             {
-                File.Copy(
-                    _paths.StateFile,
-                    _paths.StateBackupFile,
-                    overwrite: false);
+                try
+                {
+                    File.Copy(_paths.StateFile, _paths.StateBackupFile, overwrite: false);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    Serilog.Log.Warning(ex, "Plugin registry committed; initial registry backup could not be saved");
+                }
             }
         }
         finally

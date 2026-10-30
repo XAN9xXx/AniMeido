@@ -34,6 +34,7 @@ public sealed partial class SettingPage : Page
 
         _isLoaded = true;
         _contributions.Changed += OnContributionsChanged;
+        RebuildNavigation();
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs args)

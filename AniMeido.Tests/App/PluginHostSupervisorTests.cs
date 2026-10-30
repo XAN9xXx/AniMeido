@@ -18,11 +18,12 @@ public sealed class PluginHostSupervisorTests : IDisposable
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(5);
 
     [Fact]
+    [Trait("Requires", "InteractiveDesktop")]
     public async Task Session_ChildInheritsDataRoot_AndHostWritesIsolatedLogs()
     {
         using var environment = new DevDataRootEnvironment(_root);
-        var executable = Assert.Single(Directory.GetFiles(AppDataRootsTests.BuildOutput("AniMeido.PluginHost"),
-            "AniMeido.PluginHost.exe", SearchOption.AllDirectories));
+        var executable = Path.ChangeExtension(AppDataRootsTests.BuildOutput("AniMeido.PluginHost"), ".exe");
+        Assert.True(File.Exists(executable));
         await using var session = new PluginHostSession(
             new HostedPluginDescriptor(Path.Combine(_root, "empty-plugin"), new PluginManifest
             {

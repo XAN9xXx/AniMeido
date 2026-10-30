@@ -7,15 +7,15 @@ namespace AniMeido.Tests;
 
 public sealed class UpdateTestSourceHandlerTests
 {
+#if ANIMEIDO_UPDATE_TEST_SOURCE
     [Fact]
+#else
+    [Fact(Skip = "仅 AniMeidoUpdateTestSource=true 构建运行本地映射行为。")]
+#endif
     public async Task ConditionalMappingSupportsLocalBytesRangeAndPassThrough()
     {
         var type = typeof(InstalledUpdateService).Assembly.GetType("AniMeido.App.Services.UpdateTestSourceHandler");
-        if (type is null)
-        {
-            Assert.Single(UpdateTrustedKeys.PublicKeys); // 生产公钥始终编入。
-            return; // 普通构建只验证类型缺席；开启属性的测试构建才运行映射行为。
-        }
+        Assert.NotNull(type);
         Assert.Equal(2, UpdateTrustedKeys.PublicKeys.Count); // 生产公钥 + 本地验收公钥。
         using var paths = new MockAppDataPaths();
         var previous = Environment.GetEnvironmentVariable("ANIMEIDO_UPDATE_TEST_ROOT");

@@ -17,9 +17,9 @@ internal sealed class PlaybackProgressEventQueue :
     {
         ArgumentNullException.ThrowIfNull(progress);
         cancellationToken.ThrowIfCancellationRequested();
-        var sequence = Interlocked.Increment(ref _nextSequence);
         lock (_syncRoot)
         {
+            var sequence = checked(++_nextSequence);
             _events.Enqueue(new HostedPlaybackProgressEvent(
                 sequence,
                 progress.EventId,

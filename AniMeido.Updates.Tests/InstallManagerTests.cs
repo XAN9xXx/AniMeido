@@ -177,7 +177,8 @@ public sealed class InstallManagerTests
     {
         using var temp = new InstallTestRoot();
         temp.Save(healthy: false);
-        temp.Manager.RecordMigration("2.1.9", temp.PathFor("before.db"));
+        Assert.Throws<InstallException>(() =>
+            temp.Manager.RecordMigration("2.1.9", temp.PathFor("before.db")));
         Assert.Null(temp.Store.Read().Migration);
         temp.Manager.RecordMigration("2.2.0", temp.PathFor("before.db"));
         Assert.Equal(new MigrationRecord { Version = "2.2.0", Backup = temp.PathFor("before.db") }, temp.Store.Read().Migration);
@@ -360,29 +361,56 @@ public sealed class InstallManagerTests
                 break;
             case "keep":
                 execute = () => interrupted.PrepareLaunch(_ => RollbackChoice.Keep, temp.PathFor("data"));
-                after = LaunchDecisions.Evaluate(before, _ => true, RollbackChoice.Keep).State;
+                after = before with { FailedStarts = 1 };
+                break;
+            case "count":
+                execute = () => interrupted.PrepareLaunch();
+                after = before with { FailedStarts = 1 };
+                break;
+            case "rollback":
+                execute = () => interrupted.PrepareLaunch();
+                after = before with
+                {
+                    Current = "2.1.9",
+                    Previous = null,
+                    CurrentHealthy = true,
+                    FailedStarts = 0,
+                    Migration = null,
+                    FailedVersions = ["2.2.0"],
+                    RolledBackFrom = new RolledBackNotice
+                    {
+                        Version = "2.2.0",
+                        Reason = RolledBackNotice.StartFailed,
+                    },
+                };
                 break;
             default:
-                execute = () => interrupted.PrepareLaunch();
-                after = LaunchDecisions.Evaluate(before, _ => true).State;
-                break;
+                throw new ArgumentOutOfRangeException(nameof(operation));
         }
         Assert.Throws<IOException>(execute);
         var read = temp.Store.Read();
         var expected = failureStage == 3 ? after : before;
-        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(expected, InstallJsonContext.Default.InstallState),
-            System.Text.Json.JsonSerializer.Serialize(read, InstallJsonContext.Default.InstallState));
+        Assert.Equal(expected.Schema, read.Schema);
+        Assert.Equal(expected.Current, read.Current);
+        Assert.Equal(expected.Previous, read.Previous);
+        Assert.Equal(expected.Pending, read.Pending);
+        Assert.Equal(expected.CurrentHealthy, read.CurrentHealthy);
+        Assert.Equal(expected.FailedStarts, read.FailedStarts);
+        Assert.Equal(expected.Migration, read.Migration);
+        Assert.Equal(expected.RolledBackFrom, read.RolledBackFrom);
+        Assert.Equal(expected.PendingRestore, read.PendingRestore);
+        Assert.Equal(expected.LastRestore, read.LastRestore);
+        Assert.Equal(expected.FailedVersions, read.FailedVersions);
         Assert.True(InstallLayout.IsValidVersion(temp.Root, read.Current));
     }
 
     [Fact]
-    public void CleanupProtectsCurrentPreviousAndPendingAndCollectsIndividualFailures()
+    public void CleanupProtectsCurrentPreviousAndPending()
     {
         using var temp = new InstallTestRoot();
         var previous = temp.AddVersion("2.1.9");
         var pending = temp.AddVersion("2.3.0");
         var obsolete = temp.AddVersion("2.1.8");
-        var locked = temp.AddVersion("2.1.7");
         var staging = temp.AddVersion("2.4.0.staging");
         var other = temp.PathFor("unrelated");
         Directory.CreateDirectory(other);
@@ -393,16 +421,10 @@ public sealed class InstallManagerTests
         File.WriteAllText(keepPackage, "keep");
         File.WriteAllText(keepPackage + ".partial", "keep");
         var deletePackage = Path.Combine(packages, "old.zip");
-        var lockedPackage = Path.Combine(packages, "locked.zip");
         File.WriteAllText(deletePackage, "delete");
-        File.WriteAllText(lockedPackage, "locked");
         temp.Save(previous: "2.1.9", pending: "2.3.0");
-        using var heldExe = new FileStream(Path.Combine(locked, InstallLayout.AppFileName), FileMode.Open, FileAccess.Read, FileShare.None);
-        using var heldPackage = new FileStream(lockedPackage, FileMode.Open, FileAccess.Read, FileShare.None);
         var errors = temp.Manager.CleanupObsolete();
-        Assert.Equal(2, errors.Count);
-        Assert.Contains(errors, error => error.Path == locked);
-        Assert.Contains(errors, error => error.Path == lockedPackage);
+        Assert.Empty(errors);
         Assert.True(Directory.Exists(InstallLayout.VersionDirectory(temp.Root, "2.2.0")));
         Assert.True(Directory.Exists(previous));
         Assert.True(Directory.Exists(pending));
@@ -413,6 +435,27 @@ public sealed class InstallManagerTests
         Assert.False(File.Exists(keepPackage));
         Assert.True(File.Exists(keepPackage + ".partial"));
         Assert.False(File.Exists(deletePackage));
+    }
+
+    [WindowsFileSharingFact]
+    public void CleanupCollectsEachWindowsFileSharingFailure()
+    {
+        using var temp = new InstallTestRoot();
+        var locked = temp.AddVersion("2.1.7");
+        Directory.CreateDirectory(temp.PathFor("packages"));
+        var lockedPackage = Path.Combine(temp.PathFor("packages"), "locked.zip");
+        File.WriteAllText(lockedPackage, "locked");
+        temp.Save();
+        using var heldExe = new FileStream(Path.Combine(locked, InstallLayout.AppFileName),
+            FileMode.Open, FileAccess.Read, FileShare.None);
+        using var heldPackage = new FileStream(lockedPackage, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        var errors = temp.Manager.CleanupObsolete();
+
+        Assert.Equal(2, errors.Count);
+        Assert.Contains(errors, error => error.Path == locked);
+        Assert.Contains(errors, error => error.Path == lockedPackage);
+        Assert.True(File.Exists(lockedPackage));
     }
 
     [Fact]
@@ -457,6 +500,66 @@ public sealed class InstallManagerTests
         Assert.Equal("2.3.0", second.ReadState().Pending);
         Assert.False(File.Exists(zip));
         Assert.False(Directory.Exists(staging));
+    }
+
+    [Fact]
+    public void CleanupReleasesStateLockBeforeDeletingStagedTree()
+    {
+        using var temp = new InstallTestRoot();
+        temp.Save();
+        var obsolete = temp.AddVersion("2.3.0");
+        var observer = new InstallManager(new InstallStateStore(temp.Root, TimeSpan.Zero));
+        var observedDeletion = false;
+
+        var errors = temp.Manager.CleanupObsolete(staged =>
+        {
+            observedDeletion = true;
+            Assert.False(Directory.Exists(obsolete));
+            Assert.True(Directory.Exists(staged));
+            Assert.Equal("2.2.0", observer.ReadState().Current);
+            observer.MarkHealthy("2.2.0");
+            Assert.Throws<InstallException>(() => observer.SetPending("2.3.0"));
+            Assert.Throws<InstallException>(() => observer.AcquireUpdateLock());
+        });
+
+        Assert.True(observedDeletion);
+        Assert.Empty(errors);
+        Assert.Empty(Directory.GetDirectories(temp.Root, ".cleanup-*.staging"));
+    }
+
+    [Fact]
+    public void InterruptedCleanupIsRetriedWithoutPromotingStagedVersion()
+    {
+        using var temp = new InstallTestRoot();
+        temp.Save();
+        var obsolete = temp.AddVersion("2.3.0");
+
+        var errors = temp.Manager.CleanupObsolete(_ => throw new IOException("Synthetic deletion failure"));
+
+        Assert.Equal(obsolete, Assert.Single(errors).Path);
+        Assert.False(Directory.Exists(obsolete));
+        Assert.Single(Directory.GetDirectories(temp.Root, ".cleanup-*.staging"));
+        File.WriteAllText(temp.Store.StatePath, "{broken state");
+        Assert.Equal("2.2.0", temp.Manager.ReadState().Current);
+        Assert.Empty(temp.Manager.CleanupObsolete());
+        Assert.Empty(Directory.GetDirectories(temp.Root, ".cleanup-*.staging"));
+    }
+
+    [Fact]
+    public void CleanupStillRejectsLinksInsideStagedTree()
+    {
+        using var temp = new InstallTestRoot();
+        temp.Save();
+        var outside = temp.PathFor("unrelated");
+        Directory.CreateDirectory(outside);
+        File.WriteAllText(Path.Combine(outside, "keep.txt"), "keep");
+        var obsolete = temp.AddVersion("2.1.0");
+        Directory.CreateSymbolicLink(Path.Combine(obsolete, "link"), outside);
+
+        var errors = temp.Manager.CleanupObsolete();
+
+        Assert.Equal(obsolete, Assert.Single(errors).Path);
+        Assert.Equal("keep", File.ReadAllText(Path.Combine(outside, "keep.txt")));
     }
 
     [Fact]

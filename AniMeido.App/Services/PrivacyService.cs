@@ -1,18 +1,10 @@
-﻿namespace AniMeido.App.Services
+﻿namespace AniMeido.App.Services;
+
+public sealed class PrivacyService(DesktopSettingsStore settings)
 {
-    public class PrivacyService
-    {
-        private const string RegistryKey = @"HKEY_CURRENT_USER\Software\AniMeido";
+    public async Task<bool> IsAcceptedAsync(CancellationToken cancellationToken = default)
+        => (await settings.LoadAsync(cancellationToken)).PrivacyAccepted == true;
 
-        public bool IsAccepted()
-        {
-            var val = Microsoft.Win32.Registry.GetValue(RegistryKey, "PrivacyAccepted", null);
-            return val is int i && i == 1;
-        }
-
-        public void Accept()
-        {
-            Microsoft.Win32.Registry.SetValue(RegistryKey, "PrivacyAccepted", 1);
-        }
-    }
+    public async Task AcceptAsync(CancellationToken cancellationToken = default)
+        => await settings.UpdateAsync(value => value with { PrivacyAccepted = true }, cancellationToken);
 }

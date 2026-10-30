@@ -7,7 +7,7 @@ namespace AniMeido.UpdateSigner;
 
 internal static class SignerCommands
 {
-    internal static int Run(string[] args, TextWriter output, TextWriter error)
+    internal static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
     {
         try
         {
@@ -27,7 +27,7 @@ internal static class SignerCommands
                     output.WriteLine("更新清单签名已生成。");
                     break;
                 case "verify":
-                    var manifest = Verify(options);
+                    var manifest = await VerifyAsync(options).ConfigureAwait(false);
                     output.WriteLine($"版本：{manifest.Version}；通道：{manifest.Channel}");
                     break;
             }
@@ -253,7 +253,7 @@ internal static class SignerCommands
         output.Write(signature);
     }
 
-    private static UpdateManifest Verify(Dictionary<string, List<string>> options)
+    private static async Task<UpdateManifest> VerifyAsync(Dictionary<string, List<string>> options)
     {
         var publicValue = Value(options, "--public");
         var publicKey = File.Exists(publicValue) ? File.ReadAllText(publicValue).Trim() : publicValue;
@@ -261,7 +261,7 @@ internal static class SignerCommands
         using var file = File.OpenRead(path);
         using var signature = File.OpenRead(path + ".sig");
         var channel = options.TryGetValue("--channel", out var channels) ? channels[0] : "stable";
-        return UpdateManifestReader.ReadAsync(file, signature, [publicKey], channel).GetAwaiter().GetResult();
+        return await UpdateManifestReader.ReadAsync(file, signature, [publicKey], channel).ConfigureAwait(false);
     }
 
     private static void RefuseExisting(string path)

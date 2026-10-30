@@ -6,5 +6,5 @@ namespace AniMeido.UpdateSigner;
 
 internal static class Program
 {
-    private static int Main(string[] args) => SignerCommands.Run(args, Console.Out, Console.Error);
+    private static Task<int> Main(string[] args) => SignerCommands.RunAsync(args, Console.Out, Console.Error);
 }

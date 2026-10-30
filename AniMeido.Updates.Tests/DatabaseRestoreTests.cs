@@ -1,9 +1,4 @@
-﻿using System.Buffers.Binary;
-using System.Reflection;
-using System.Reflection.Metadata;
-using System.Reflection.Metadata.Ecma335;
-using System.Reflection.PortableExecutable;
-using System.Text;
+﻿using static AniMeido.Updates.Tests.RestoreDatabaseFixture;
 using AniMeido.Updates.Install;
 using Xunit;
 
@@ -11,6 +6,83 @@ namespace AniMeido.Updates.Tests;
 
 public sealed class DatabaseRestoreTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void WalVersionIsReadWithoutChangingSourceOrRequiringSharedMemory(bool includeSharedMemory)
+    {
+        using var temp = new InstallTestRoot();
+        temp.Save();
+        var source = MakeWalSource(temp, 7, 9, includeSharedMemory);
+        var before = Snapshot(temp.Root);
+
+        Assert.Equal(9, DatabaseRollback.ReadUserVersion(Path.Combine(source, "AniMeido.db")));
+        Assert.Throws<InstallException>(() => temp.Manager.ValidateRestore(temp.PathFor("data"), source, 8));
+        Assert.Equal(before, Snapshot(temp.Root));
+    }
+
+    [Fact]
+    public void WalVersionIsRecheckedAtLaunchBeforeAnyCurrentDataIsArchived()
+    {
+        using var temp = new InstallTestRoot();
+        temp.Save();
+        MakeDatabase(temp, "data/AniMeido.db", 7);
+        var source = MakeSource(temp, 8);
+        temp.Manager.RequestRestore(temp.PathFor("data"), source, 8);
+        MakeWalSource(temp, 7, 9, includeSharedMemory: false);
+        var before = Snapshot(temp.PathFor("data"));
+
+        temp.Manager.Launch(() => false, _ => { }, _ => RollbackChoice.Keep, temp.PathFor("data"), _ => 8);
+
+        var notice = temp.Manager.ReadRestoreNotice()!;
+        Assert.False(notice.Success);
+        Assert.Contains("请先升级", notice.Error);
+        Assert.Null(notice.Archive);
+        Assert.Equal(before, Snapshot(temp.PathFor("data")));
+    }
+
+    [Fact]
+    public void RestoredWalSuppliesBothEffectiveVersionAndCommittedRecords()
+    {
+        using var temp = new InstallTestRoot();
+        var database = MakeDatabase(temp, "data/AniMeido.db", 6);
+        // 主文件版本更高也不能误拒绝；以 SQLite 看到的已提交版本为准。
+        var source = MakeWalSource(temp, 9, 7, includeSharedMemory: false);
+        var before = Snapshot(source);
+
+        var result = DatabaseRollback.RestoreArchived(temp.PathFor("data"), source,
+            DatabaseRollback.GetRestoreArchiveDirectory(temp.PathFor("data")), 8);
+
+        Assert.True(result.Success, result.Error);
+        Assert.Equal(7, DatabaseRollback.ReadUserVersion(database));
+        using var connection = OpenDatabase(database);
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT Value FROM wal_evidence";
+        Assert.Equal("committed in WAL", command.ExecuteScalar());
+        Assert.Equal(before, Snapshot(source));
+    }
+
+    [WindowsFileSharingTheory]
+    [InlineData("-wal")]
+    [InlineData("-shm")]
+    public void LockedSourceSidecarIsNotSilentlyOmitted(string suffix)
+    {
+        using var temp = new InstallTestRoot();
+        var database = MakeDatabase(temp, "data/AniMeido.db", 6);
+        var source = MakeWalSource(temp, 7, 9, includeSharedMemory: true);
+        var before = File.ReadAllBytes(database);
+        using var held = new FileStream(Path.Combine(source, "AniMeido.db" + suffix),
+            FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+        Assert.ThrowsAny<IOException>(() => DatabaseRollback.ReadUserVersion(Path.Combine(source, "AniMeido.db")));
+        var result = DatabaseRollback.RestoreArchived(temp.PathFor("data"), source,
+            DatabaseRollback.GetRestoreArchiveDirectory(temp.PathFor("data")), 8);
+
+        Assert.False(result.Success);
+        Assert.Null(result.ArchiveDirectory);
+        Assert.Equal(before, File.ReadAllBytes(database));
+    }
+
     [Fact]
     public void OldSchemaOneWithoutOptionalFieldsStillReadsNormally()
     {
@@ -86,16 +158,13 @@ public sealed class DatabaseRestoreTests
     }
 
     [Fact]
-    public void ReadsBigEndianHeaderWithoutOpeningSqliteOrCreatingSidecars()
+    public void ReadsDatabaseVersionWithoutChangingSourceFilesOrCreatingSidecars()
     {
         using var temp = new InstallTestRoot();
-        var file = MakeDatabase(temp, "header-only.db", 0x01020304);
-        // 只有 100 字节文件头，不是可打开的完整 SQLite 数据库。
+        var file = MakeDatabase(temp, "version.db", 0x01020304);
         var before = Snapshot(temp.Root);
         Assert.Equal(0x01020304, DatabaseRollback.ReadUserVersion(file));
         Assert.Equal(before, Snapshot(temp.Root));
-        Assert.DoesNotContain(AppDomain.CurrentDomain.GetAssemblies(),
-            assembly => assembly.GetName().Name == "Microsoft.Data.Sqlite");
     }
 
     [Theory]
@@ -160,7 +229,7 @@ public sealed class DatabaseRestoreTests
         Assert.True(File.Exists(Path.Combine(archive, "AniMeido.db" + missingSuffix)));
     }
 
-    [Fact]
+    [WindowsFileSharingFact]
     public void LockedCurrentWalPreventsArchiveAndChangesNothing()
     {
         using var temp = new InstallTestRoot();
@@ -221,7 +290,7 @@ public sealed class DatabaseRestoreTests
         Assert.Equal(original, File.ReadAllBytes(Path.Combine(archive, "AniMeido.db.detached")));
     }
 
-    [Fact]
+    [WindowsFileSharingFact]
     public void FailureIsRecordedAndAppStillStartsAfterOriginalFilesArePutBack()
     {
         using var temp = new InstallTestRoot();
@@ -367,13 +436,6 @@ public sealed class DatabaseRestoreTests
         Assert.Throws<BadImageFormatException>(() => InstalledDatabaseVersion.Read(executable));
     }
 
-    private static string MakeSource(InstallTestRoot temp, int version, bool beforeRestore = false)
-    {
-        var name = beforeRestore ? "AniMeido-before-restore-20261019-120000" : "AniMeido-rollback-from-2.2.0-20261019-120000";
-        var database = MakeDatabase(temp, "data/Backups/update/" + name + "/AniMeido.db", version);
-        return Path.GetDirectoryName(database)!;
-    }
-
     [Fact]
     public void LaunchUsesTargetMetadataAndRejectsSourceChangedAfterRequest()
     {
@@ -429,35 +491,8 @@ public sealed class DatabaseRestoreTests
         Assert.Null(temp.Store.Read().PendingRestore);
     }
 
-    private static string MakeDatabase(InstallTestRoot temp, string relative, int version)
-    {
-        var bytes = new byte[100];
-        Encoding.ASCII.GetBytes("SQLite format 3\0").CopyTo(bytes, 0);
-        BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(60, 4), version);
-        var path = temp.PathFor(relative);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllBytes(path, bytes);
-        return path;
-    }
-
     private static string[] Snapshot(string root) => Directory.GetFiles(root, "*", SearchOption.AllDirectories)
         .OrderBy(path => path, StringComparer.Ordinal)
         .Select(path => path + ":" + Convert.ToBase64String(File.ReadAllBytes(path))).ToArray();
 
-    private static void WriteSchemaAssembly(string path, int version)
-    {
-        var metadata = new MetadataBuilder();
-        metadata.AddModule(0, metadata.GetOrAddString("SyntheticSchema"), metadata.GetOrAddGuid(Guid.NewGuid()), default, default);
-        metadata.AddTypeDefinition(TypeAttributes.NotPublic, default, metadata.GetOrAddString("<Module>"), default,
-            MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
-        var field = metadata.AddFieldDefinition(FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault,
-            metadata.GetOrAddString("CurrentVersion"), metadata.GetOrAddBlob(new byte[] { 0x06, 0x08 }));
-        metadata.AddConstant(field, version);
-        metadata.AddTypeDefinition(TypeAttributes.Public, metadata.GetOrAddString("AniMeido.Plugin.Base.Services"),
-            metadata.GetOrAddString("DatabaseSchema"), default, MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
-        var image = new ManagedPEBuilder(PEHeaderBuilder.CreateLibraryHeader(), new MetadataRootBuilder(metadata), new BlobBuilder());
-        var blob = new BlobBuilder();
-        image.Serialize(blob);
-        File.WriteAllBytes(path, blob.ToArray());
-    }
 }

@@ -1,43 +1,81 @@
 ﻿using Microsoft.UI.Xaml;
 
-namespace AniMeido.App.Services
+namespace AniMeido.App.Services;
+
+public sealed class ThemeService(DesktopSettingsStore settings) : IAsyncDisposable
 {
-    public class ThemeService
+    private readonly SemaphoreSlim _changes = new(1, 1);
+    private FrameworkElement? _rootElement;
+    private Task? _disposeTask;
+    private ElementTheme _theme = ElementTheme.Default;
+
+    /// <summary>主题应用完成后通知标题栏等非绑定控件。</summary>
+    public event EventHandler<ElementTheme>? ThemeChanged;
+
+    public async Task InitializeThemeAsync(FrameworkElement rootElement)
     {
-        private FrameworkElement? _rootElement;
-        private const string RegistryKey = @"HKEY_CURRENT_USER\Software\AniMeido";
-
-        /// <summary>主题切换后触发，供标题栏等非 XAML 绑定控件同步。</summary>
-        public event EventHandler<ElementTheme>? ThemeChanged;
-
-        public void InitializeTheme(FrameworkElement rootElement)
+        ObjectDisposedException.ThrowIf(_disposeTask is not null, this);
+        await _changes.WaitAsync();
+        try
         {
+            var saved = await settings.LoadAsync();
             _rootElement = rootElement;
-            var themeSetting = Microsoft.Win32.Registry.GetValue(
-                RegistryKey, "ThemeSetting", null) as string;
-
-            if (Enum.TryParse<ElementTheme>(themeSetting, out var theme))
-                _rootElement.RequestedTheme = theme;
+            Apply(ParseTheme(saved.ThemeSetting));
         }
-
-        public void SetTheme(ElementTheme theme)
+        finally
         {
-            if (_rootElement is null) return;
-            if (_rootElement.RequestedTheme == theme) return;
-            _rootElement.RequestedTheme = theme;
-            Microsoft.Win32.Registry.SetValue(
-                RegistryKey, "ThemeSetting", theme.ToString());
-            ThemeChanged?.Invoke(this, theme);
-        }
-
-        public ElementTheme GetCurrentTheme()
-        {
-            return _rootElement?.RequestedTheme ?? Application.Current.RequestedTheme switch
-            {
-                ApplicationTheme.Light => ElementTheme.Light,
-                ApplicationTheme.Dark => ElementTheme.Dark,
-                _ => ElementTheme.Default,
-            };
+            _changes.Release();
         }
     }
+
+    public async Task SetThemeAsync(ElementTheme theme)
+    {
+        ObjectDisposedException.ThrowIf(_disposeTask is not null, this);
+        await _changes.WaitAsync();
+        try
+        {
+            await settings.UpdateAsync(value => value with { ThemeSetting = theme.ToString() });
+            Apply(theme);
+        }
+        finally
+        {
+            _changes.Release();
+        }
+    }
+
+    public ElementTheme GetCurrentTheme() => _theme;
+
+    public ValueTask DisposeAsync() => new(_disposeTask ??= DetachAsync());
+
+    private async Task DetachAsync()
+    {
+        await _changes.WaitAsync();
+        try
+        {
+            _rootElement = null;
+            ThemeChanged = null;
+        }
+        finally
+        {
+            _changes.Release();
+        }
+    }
+
+    private void Apply(ElementTheme theme)
+    {
+        _theme = theme;
+        if (_rootElement is not null)
+        {
+            _rootElement.RequestedTheme = theme;
+        }
+        ThemeChanged?.Invoke(this, theme);
+    }
+
+    private static ElementTheme ParseTheme(string? value)
+        => value switch
+        {
+            "Light" => ElementTheme.Light,
+            "Dark" => ElementTheme.Dark,
+            _ => ElementTheme.Default,
+        };
 }

@@ -59,6 +59,11 @@ public sealed class ForegroundWindowCaptureService :
             object args)
         {
             var frame = sender.TryGetNextFrame();
+            if (frame is null)
+            {
+                return;
+            }
+
             if (!completion.TrySetResult(frame))
             {
                 frame.Dispose();

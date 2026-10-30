@@ -56,7 +56,7 @@ public sealed class DatabaseRollbackTests
         Assert.False(Directory.Exists(temp.PathFor("data/Backups")));
     }
 
-    [Fact]
+    [WindowsFileSharingFact]
     public void LockedCurrentSidecarMakesArchiveFailWithoutReplacingDatabase()
     {
         using var temp = new InstallTestRoot();
@@ -94,7 +94,7 @@ public sealed class DatabaseRollbackTests
         Assert.Equal(original, File.ReadAllBytes(Path.Combine(archive, "AniMeido.db")));
     }
 
-    [Fact]
+    [WindowsFileSharingFact]
     public void SidecarDeletionFailureKeepsCompletedArchiveAndDoesNotReplaceDatabase()
     {
         using var temp = new InstallTestRoot();
@@ -126,7 +126,7 @@ public sealed class DatabaseRollbackTests
             temp.PathFor("data/Backups/update/AniMeido-before-unsafe")));
     }
 
-    [Theory]
+    [WindowsFileSharingTheory]
     [InlineData("-shm")]
     [InlineData("")]
     public void FailureAfterDetachingWalRestoresAllOriginalFiles(string lockedSuffix)

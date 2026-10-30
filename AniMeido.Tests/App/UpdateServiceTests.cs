@@ -9,6 +9,41 @@ public sealed class UpdateServiceTests
     private const string DownloadUrl = "https://example.invalid/update.exe";
 
     [Fact]
+    public async Task CheckForUpdate_CallerCancellationDoesNotBecomeNetworkFailure()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var handler = new CancellationHandler();
+        using var client = new HttpClient(handler);
+        var service = CreateService(client, new Version(2, 1, 2));
+        var checking = service.CheckForUpdateAsync(cancellation.Token);
+        try
+        {
+            await handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            cancellation.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => checking.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await Task.WhenAny(checking).WaitAsync(TimeSpan.FromSeconds(5));
+            await ((Task)checking).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
+        }
+    }
+
+    private sealed class CancellationHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Entered.SetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("Unreachable");
+        }
+    }
+
+    [Fact]
     public async Task CheckForUpdate_BelowMinimumVersion_PreservesUpdateDetails()
     {
         using var client = new HttpClient(new ManifestHandler("""

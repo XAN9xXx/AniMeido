@@ -1,5 +1,4 @@
-﻿using System.ComponentModel;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using AniMeido.Updates;
 using AniMeido.Updates.Install;
 using Serilog;
@@ -22,7 +21,8 @@ internal sealed record InstalledUpdateResult(
     InstalledUpdateStatus Status,
     UpdateManifest? Manifest = null,
     string? PendingVersion = null,
-    string? FailureReason = null)
+    string? FailureReason = null,
+    Exception? Failure = null)
 {
     public string? LatestVersion => PendingVersion ?? Manifest?.Version.ToString();
 }
@@ -60,8 +60,12 @@ public sealed class InstalledUpdateService
             log: message => Log.Warning("安装状态：{Message}", message)));
     }
 
-    internal async Task<InstalledUpdateResult> CheckAsync(string channel,
+    internal Task<InstalledUpdateResult> CheckAsync(string channel,
         CancellationToken cancellationToken = default)
+        => Task.Run(() => CheckCoreAsync(channel, cancellationToken), cancellationToken);
+
+    private async Task<InstalledUpdateResult> CheckCoreAsync(string channel,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -94,32 +98,36 @@ public sealed class InstalledUpdateService
         }
         catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
-            Log.Warning(ex, "安装模式更新检查超时");
-            return new(InstalledUpdateStatus.NetworkError, FailureReason: "获取更新清单超时，请重试。");
+            return new(InstalledUpdateStatus.NetworkError,
+                FailureReason: "获取更新清单超时，请重试。", Failure: ex);
         }
         catch (HttpRequestException ex)
         {
-            Log.Warning(ex, "无法获取安装模式更新清单");
-            return new(InstalledUpdateStatus.NetworkError, FailureReason: "无法获取更新清单，请检查网络后重试。");
+            return new(InstalledUpdateStatus.NetworkError,
+                FailureReason: "无法获取更新清单，请检查网络后重试。", Failure: ex);
         }
         catch (UpdateException ex)
         {
-            Log.Warning(ex, "安装模式更新清单被拒绝：{Kind}", ex.Kind);
             // 即使解析器将来带有字段详情，失败结果仍不暴露未受信任的清单内容。
             return new(ex.Kind == UpdateErrorKind.InvalidSignature
                 ? InstalledUpdateStatus.SignatureInvalid : InstalledUpdateStatus.InvalidManifest,
                 FailureReason: ex.Kind == UpdateErrorKind.InvalidSignature
-                    ? "更新清单签名无效，不能信任其内容。" : "更新清单无效或与通道不一致。");
+                    ? "更新清单签名无效，不能信任其内容。" : "更新清单无效或与通道不一致。",
+                Failure: ex);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
-            Log.Warning(ex, "无法读取安装更新状态");
-            return new(InstalledUpdateStatus.InvalidManifest, FailureReason: $"无法读取安装状态：{ex.Message}");
+            return new(InstalledUpdateStatus.InvalidManifest,
+                FailureReason: $"无法读取安装状态：{ex.Message}", Failure: ex);
         }
     }
 
-    internal async Task<string> PrepareAsync(UpdateManifest manifest, IProgress<long>? progress = null,
+    internal Task<string> PrepareAsync(UpdateManifest manifest, IProgress<long>? progress = null,
         CancellationToken cancellationToken = default)
+        => Task.Run(() => PrepareCoreAsync(manifest, progress, cancellationToken), cancellationToken);
+
+    private async Task<string> PrepareCoreAsync(UpdateManifest manifest, IProgress<long>? progress,
+        CancellationToken cancellationToken)
     {
         await _downloadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -138,8 +146,7 @@ public sealed class InstalledUpdateService
                 if (state.Pending == version && InstallLayout.IsValidVersion(_context.InstallRoot!, version))
                 {
                     var completed = Path.Combine(_context.InstallRoot!, "packages", manifest.Package.Sha256 + ".zip");
-                    if (File.Exists(completed))
-                        File.Delete(completed);
+                    DeletePreparedPackage(completed);
                     return version;
                 }
                 throw new InstallException($"更新目标已存在，未删除或覆盖：{target}");
@@ -152,17 +159,10 @@ public sealed class InstalledUpdateService
                 progress, cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             // 解压与 SetPending 是不可取消的收尾阶段；不会覆盖 current 或删除已有目标。
-            await Task.Run(() => UpdatePackageExtractor.Extract(zip, target, [InstallLayout.AppFileName]))
-                .ConfigureAwait(false);
+            UpdatePackageExtractor.Extract(zip, target, [InstallLayout.AppFileName]);
             manager.SetPending(version);
-            File.Delete(zip);
+            DeletePreparedPackage(zip);
             return version;
-        }
-        catch (Exception ex) when (ex is UpdateException or IOException or UnauthorizedAccessException
-            or OperationCanceledException or InvalidOperationException)
-        {
-            Log.Warning(ex, "准备应用更新失败，安装根：{Root}", _context.InstallRoot);
-            throw;
         }
         finally
         {
@@ -170,35 +170,43 @@ public sealed class InstalledUpdateService
         }
     }
 
-    internal void Restart(Action requestExit)
+    private static void DeletePreparedPackage(string path)
     {
         try
         {
-            var manager = CreateManager();
-            var state = manager.ReadState();
-            if (state.PendingRestore is null
-                && (state.Pending is not { } pending || !InstallLayout.IsValidVersion(_context.InstallRoot!, pending)))
-                throw new InstallException("没有有效的待更新版本或待恢复数据。");
-            var launcher = Path.Combine(_context.InstallRoot!, "AniMeido.exe");
-            if (!File.Exists(launcher))
-                throw new FileNotFoundException($"找不到启动器：{launcher}", launcher);
-            var start = new ProcessStartInfo(launcher)
-            {
-                UseShellExecute = false,
-                WorkingDirectory = _context.InstallRoot!,
-            };
-            start.ArgumentList.Add("--wait-pid");
-            start.ArgumentList.Add(Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            if (!_startLauncher(start))
-                throw new InstallException("无法创建启动器进程，应用未退出，待更新版本或待恢复请求已保留。");
-            requestExit();
+            File.Delete(path);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Win32Exception
-            or InvalidOperationException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Log.Warning(ex, "启动更新重启失败，主程序将继续运行");
-            throw;
+            Log.Warning(ex, "更新已准备完成；暂时无法清理下载包 {Path}", path);
         }
+    }
+
+    internal async Task RestartAsync(Action requestExit)
+    {
+        await Task.Run(StartRestartLauncher);
+        requestExit();
+    }
+
+    private void StartRestartLauncher()
+    {
+        var manager = CreateManager();
+        var state = manager.ReadState();
+        if (state.PendingRestore is null
+            && (state.Pending is not { } pending || !InstallLayout.IsValidVersion(_context.InstallRoot!, pending)))
+            throw new InstallException("没有有效的待更新版本或待恢复数据。");
+        var launcher = Path.Combine(_context.InstallRoot!, "AniMeido.exe");
+        if (!File.Exists(launcher))
+            throw new FileNotFoundException($"找不到启动器：{launcher}", launcher);
+        var start = new ProcessStartInfo(launcher)
+        {
+            UseShellExecute = false,
+            WorkingDirectory = _context.InstallRoot!,
+        };
+        start.ArgumentList.Add("--wait-pid");
+        start.ArgumentList.Add(Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        if (!_startLauncher(start))
+            throw new InstallException("无法创建启动器进程，应用未退出，待更新版本或待恢复请求已保留。");
     }
 
     private static bool StartLauncher(ProcessStartInfo start)

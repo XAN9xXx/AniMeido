@@ -5,7 +5,11 @@ namespace AniMeido.Tests;
 
 public sealed class UpdateBuildIsolationTests
 {
+#if ANIMEIDO_UPDATE_TEST_SOURCE
+    [Fact(Skip = "本地验收构建；生产隔离由 AniMeidoUpdateTestSource=false 构建验证。")]
+#else
     [Fact]
+#endif
     public void DefaultBuildHasNoTestTrustOrLocalMappingType()
     {
         Assert.Single(UpdateTrustedKeys.PublicKeys);

@@ -1,5 +1,4 @@
-﻿using System.Buffers.Binary;
-using System.Text;
+﻿using Microsoft.Data.Sqlite;
 using AniMeido.App.Services;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Updates.Install;
@@ -9,36 +8,70 @@ namespace AniMeido.Tests;
 public sealed class InstalledRestoreTests
 {
     [Fact]
-    public void AppChecksActualSchemaBeforeWritingRequestAndDoesNotReplaceDatabase()
+    public async Task ShutdownWaitsForAcceptedRestorePreparationAndRejectsNewWork()
+    {
+        using var fixture = new Fixture();
+        var source = fixture.MakeSource(DatabaseSchema.CurrentVersion);
+        Task<string>? preparation = null;
+        Task? shutdown = null;
+        try
+        {
+            using (var held = new FileStream(Path.Combine(fixture.Root, "state.lock"),
+                FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                preparation = fixture.Context.ValidateRestoreAsync(fixture.Data, source);
+                shutdown = fixture.Context.StopRestorePreparationAsync();
+                Assert.False(preparation.IsCompleted);
+                Assert.False(shutdown.IsCompleted);
+                await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    fixture.Context.RequestRestoreAsync(fixture.Data, source));
+            }
+
+            Assert.Equal(source, await preparation.WaitAsync(TimeSpan.FromSeconds(5)));
+            await shutdown.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Null(fixture.Store.Read().PendingRestore);
+        }
+        finally
+        {
+            var operations = Task.WhenAll(new Task?[] { preparation, shutdown }.OfType<Task>());
+            await Task.WhenAny(operations).WaitAsync(TimeSpan.FromSeconds(5));
+            await operations.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
+        }
+    }
+
+    [Fact]
+    public async Task AppChecksActualSchemaBeforeWritingRequestAndDoesNotReplaceDatabase()
     {
         using var fixture = new Fixture();
         var source = fixture.MakeSource(DatabaseSchema.CurrentVersion + 1);
         File.WriteAllText(fixture.Paths.DatabasePath, "current synthetic database");
-        Assert.Contains("请先升级", Assert.Throws<InstallException>(() => fixture.Context.ValidateRestore(fixture.Data, source)).Message);
-        Assert.Throws<InstallException>(() => fixture.Context.RequestRestore(fixture.Data, source));
+        var rejected = await Assert.ThrowsAsync<InstallException>(() =>
+            fixture.Context.ValidateRestoreAsync(fixture.Data, source));
+        Assert.Contains("请先升级", rejected.Message);
+        await Assert.ThrowsAsync<InstallException>(() => fixture.Context.RequestRestoreAsync(fixture.Data, source));
         Assert.Null(fixture.Store.Read().PendingRestore);
         fixture.MakeSource(DatabaseSchema.CurrentVersion);
-        Assert.Equal(source, fixture.Context.ValidateRestore(fixture.Data, source));
-        fixture.Context.RequestRestore(fixture.Data, source);
+        Assert.Equal(source, await fixture.Context.ValidateRestoreAsync(fixture.Data, source));
+        await fixture.Context.RequestRestoreAsync(fixture.Data, source);
         Assert.Equal(source, fixture.Store.Read().PendingRestore!.Directory);
         Assert.Equal("current synthetic database", File.ReadAllText(fixture.Paths.DatabasePath));
     }
 
     [Fact]
-    public void ConfirmationDelayCannotBypassRevalidationOrUpdateMutualExclusion()
+    public async Task ConfirmationDelayCannotBypassRevalidationOrUpdateMutualExclusion()
     {
         using var fixture = new Fixture();
         var source = fixture.MakeSource(DatabaseSchema.CurrentVersion);
-        fixture.Context.ValidateRestore(fixture.Data, source);
+        await fixture.Context.ValidateRestoreAsync(fixture.Data, source);
         fixture.MakeSource(DatabaseSchema.CurrentVersion + 1);
-        Assert.Throws<InstallException>(() => fixture.Context.RequestRestore(fixture.Data, source));
+        await Assert.ThrowsAsync<InstallException>(() => fixture.Context.RequestRestoreAsync(fixture.Data, source));
         fixture.MakeSource(DatabaseSchema.CurrentVersion);
         var next = InstallLayout.VersionDirectory(fixture.Root, "2.3.0");
         Directory.CreateDirectory(next);
         File.WriteAllText(Path.Combine(next, InstallLayout.AppFileName), "never executed");
         fixture.Store.Write(fixture.Store.Read() with { Pending = "2.3.0" });
-        Assert.Throws<InstallException>(() => fixture.Context.ValidateRestore(fixture.Data, source));
-        Assert.Throws<InstallException>(() => fixture.Context.RequestRestore(fixture.Data, source));
+        await Assert.ThrowsAsync<InstallException>(() => fixture.Context.ValidateRestoreAsync(fixture.Data, source));
+        await Assert.ThrowsAsync<InstallException>(() => fixture.Context.RequestRestoreAsync(fixture.Data, source));
         Assert.Null(fixture.Store.Read().PendingRestore);
     }
 
@@ -69,12 +102,12 @@ public sealed class InstalledRestoreTests
     }
 
     [Fact]
-    public void PortableModeCannotRequestRestoreAndHasNoRestoreNotice()
+    public async Task PortableModeCannotRequestRestoreAndHasNoRestoreNotice()
     {
         using var paths = new MockAppDataPaths();
         var context = new InstalledAppContext(Path.Combine(paths.RootDirectory, "debug", InstallLayout.AppFileName));
-        Assert.Throws<InvalidOperationException>(() => context.ValidateRestore(paths.RootDirectory, paths.RootDirectory));
-        Assert.Throws<InvalidOperationException>(() => context.RequestRestore(paths.RootDirectory, paths.RootDirectory));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => context.ValidateRestoreAsync(paths.RootDirectory, paths.RootDirectory));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => context.RequestRestoreAsync(paths.RootDirectory, paths.RootDirectory));
         context.ShowRestoreNotice(_ => throw new InvalidOperationException("must not show"));
         Assert.Empty(Directory.GetFileSystemEntries(paths.RootDirectory));
     }
@@ -103,10 +136,15 @@ public sealed class InstalledRestoreTests
         {
             var directory = Path.Combine(Paths.BackupDirectory, "update", "AniMeido-rollback-from-2.2.0-20261019-120000");
             Directory.CreateDirectory(directory);
-            var bytes = new byte[100];
-            Encoding.ASCII.GetBytes("SQLite format 3\0").CopyTo(bytes, 0);
-            BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(60, 4), version);
-            File.WriteAllBytes(Path.Combine(directory, "AniMeido.db"), bytes);
+            using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = Path.Combine(directory, "AniMeido.db"),
+                Pooling = false,
+            }.ToString());
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"PRAGMA user_version = {version}";
+            command.ExecuteNonQuery();
             return directory;
         }
 

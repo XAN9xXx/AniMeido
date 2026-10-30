@@ -63,7 +63,7 @@ internal sealed partial class PluginPackageVerifier
 
         if (string.IsNullOrWhiteSpace(manifest.EntryAssembly)
             || !IsSafePackagePath(manifest.EntryAssembly)
-            || manifest.EntryAssembly.Contains('/'))
+            || PluginManifest.NormalizePackagePath(manifest.EntryAssembly).Contains('/'))
         {
             throw new PluginOperationException("插件入口程序集必须是包根目录中的安全文件名。");
         }
@@ -245,7 +245,7 @@ internal sealed partial class PluginPackageVerifier
         }
     }
 
-    public async Task VerifyInstalledDirectoryAsync(
+    public async Task<PluginManifest> VerifyInstalledDirectoryAsync(
         string pluginDirectory,
         CancellationToken cancellationToken = default)
     {
@@ -292,6 +292,8 @@ internal sealed partial class PluginPackageVerifier
                 throw new PluginOperationException($"插件文件校验失败：{file.Path}");
             }
         }
+
+        return manifest;
     }
 
     public static async Task<string> ComputeFileHashAsync(

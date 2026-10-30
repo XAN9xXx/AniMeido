@@ -1,13 +1,23 @@
 using AniMeido.Contracts;
+using AniMeido.Plugin.Base.Services;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AniMeido.App.Services;
 
 /// <summary>
-/// 初始化进程内 Base 插件的服务并收集导航项；可选插件由 PluginHostSupervisor 管理。
+/// 装配进程内 Base 插件，并在数据操作排空后释放其资源；可选插件由 PluginHostSupervisor 管理。
 /// </summary>
 internal static class PluginStartup
 {
+    internal static async Task StopAfterDataDrainAsync(
+        IReadOnlyList<IPlugin> plugins,
+        SqliteConnectionFactory factory)
+    {
+        await factory.StopAsync();
+        await Task.WhenAll(plugins.OfType<IAsyncDisposable>()
+            .Select(plugin => plugin.DisposeAsync().AsTask()));
+    }
+
     public static async Task<(List<PluginNavigationItem> NavItems, IReadOnlyList<IPlugin> Plugins)> LoadPluginsAsync(
         IServiceCollection services)
     {

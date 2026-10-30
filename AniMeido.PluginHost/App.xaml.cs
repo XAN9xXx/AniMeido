@@ -8,10 +8,14 @@ namespace AniMeido.PluginHost;
 public partial class App : Application
 {
     private DispatcherQueue? _dispatcherQueue;
+    private readonly HostUiDispatcher _uiDispatcher;
     private PluginRuntimeCatalog? _catalog;
 
     public App()
     {
+        _uiDispatcher = new HostUiDispatcher(
+            () => _dispatcherQueue?.HasThreadAccess == true,
+            action => _dispatcherQueue?.TryEnqueue(() => action()) == true);
         try
         {
             _ = AppDataRoots.Roaming;
@@ -60,7 +64,7 @@ public partial class App : Application
                 pipeName,
                 PipeDirection.InOut,
                 PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-            var callbackPipe = new NamedPipeClientStream(
+            using var callbackPipe = new NamedPipeClientStream(
                 ".",
                 callbackPipeName,
                 PipeDirection.InOut,
@@ -82,7 +86,12 @@ public partial class App : Application
             var server = new JsonPipeRpcServer(
                 pipe,
                 target.DispatchAsync,
-                () => target.ShutdownRequested);
+                () => target.ShutdownRequested,
+                (method, error) =>
+                {
+                    if (error is not (OperationCanceledException or ArgumentException or InvalidDataException))
+                        HostLog.Error($"Plugin RPC {method} failed", error);
+                });
             await server.RunAsync();
         }
         catch (Exception ex) when (
@@ -104,7 +113,7 @@ public partial class App : Application
             {
                 try
                 {
-                    await RunOnUiAsync(async () =>
+                    await _uiDispatcher.RunAsync(async () =>
                     {
                         try
                         {
@@ -113,7 +122,7 @@ public partial class App : Application
 #pragma warning disable CA1031 // The host must exit even if a plugin cleanup path fails.
                         catch (Exception ex)
                         {
-                            HostLog.Warning("Plugin cleanup failed", ex);
+                            HostLog.Error("Plugin cleanup failed", ex);
                         }
 #pragma warning restore CA1031
                         finally
@@ -125,7 +134,7 @@ public partial class App : Application
 #pragma warning disable CA1031 // 退出路径必须观察调度器异常。
                 catch (Exception ex)
                 {
-                    HostLog.Warning("Plugin cleanup dispatch failed", ex);
+                    HostLog.Error("Plugin cleanup dispatch failed", ex);
                     Exit();
                 }
 #pragma warning restore CA1031
@@ -135,36 +144,6 @@ public partial class App : Application
                 Exit();
             }
         }
-    }
-
-    private Task RunOnUiAsync(Func<Task> action)
-    {
-        if (_dispatcherQueue?.HasThreadAccess == true)
-        {
-            return action();
-        }
-
-        var completion = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        if (_dispatcherQueue?.TryEnqueue(async () =>
-        {
-            try
-            {
-                await action();
-                completion.SetResult();
-            }
-#pragma warning disable CA1031 // Host shutdown must propagate any plugin cleanup failure.
-            catch (Exception ex)
-            {
-                completion.SetException(ex);
-            }
-#pragma warning restore CA1031
-        }) != true)
-        {
-            completion.SetResult();
-        }
-
-        return completion.Task;
     }
 
     private static void OnUnhandledException(

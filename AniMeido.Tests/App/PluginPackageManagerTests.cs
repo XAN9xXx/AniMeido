@@ -2,6 +2,7 @@ using AniMeido.App.Models;
 using AniMeido.App.Services;
 using AniMeido.PluginProtocol;
 using System.IO.Compression;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -24,6 +25,87 @@ public sealed class PluginPackageManagerTests : IDisposable
         _manager = new PluginPackageManager(
             new PluginInstallationPaths(_rootDirectory),
             verifier);
+    }
+
+    [Theory]
+    [InlineData("startup")]
+    [InlineData("list")]
+    [InlineData("install")]
+    [InlineData("enable")]
+    [InlineData("rollback")]
+    [InlineData("uninstall")]
+    [InlineData("load-failure")]
+    [Trait("Category", "Mechanism")]
+    public async Task CompleteOperationDoesNotRequireTheCallingUiContext(string action)
+    {
+        await _manager.InstallPackageAsync(await CreatePackageAsync("1.0.0"));
+        await _manager.InstallPackageAsync(await CreatePackageAsync("1.1.0"));
+        var package = await CreatePackageAsync("1.2.0");
+        var gate = (SemaphoreSlim)typeof(PluginPackageManager)
+            .GetField("_gate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_manager)!;
+        var ui = new PausedUiContext();
+        var previousContext = SynchronizationContext.Current;
+        Task operation;
+        await gate.WaitAsync();
+        try
+        {
+            // 确定操作会等待锁，随后 UI 不处理消息，避免依赖文件 I/O 的完成时机。
+            SynchronizationContext.SetSynchronizationContext(ui);
+            operation = action switch
+            {
+                "startup" => _manager.PrepareForStartupAsync(),
+                "list" => _manager.GetInstalledPluginsAsync(),
+                "install" => _manager.InstallPackageAsync(package),
+                "enable" => _manager.SetEnabledAsync(PluginId, true),
+                "rollback" => _manager.RollbackAsync(PluginId),
+                "uninstall" => _manager.RequestUninstallAsync(PluginId),
+                "load-failure" => _manager.RecordLoadFailuresAsync(
+                    new Dictionary<string, string> { [PluginId] = "synthetic failure" }),
+                _ => throw new ArgumentOutOfRangeException(nameof(action)),
+            };
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previousContext);
+            gate.Release();
+        }
+
+        try
+        {
+            await operation.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(0, ui.PostCount);
+        }
+        finally
+        {
+            ui.Resume();
+            await Task.WhenAny(operation).WaitAsync(TimeSpan.FromSeconds(5));
+            await operation.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
+        }
+
+        var installed = Assert.Single(await _manager.GetInstalledPluginsAsync());
+        Assert.Equal(PluginId, installed.PluginId);
+        var expectedVersion = action switch
+        {
+            "install" => "1.2.0",
+            "rollback" => "1.0.0",
+            _ => "1.1.0",
+        };
+        Assert.Equal(expectedVersion, installed.CurrentVersion);
+        Assert.Equal(action == "uninstall", installed.PendingUninstall);
+    }
+
+    [Fact]
+    public async Task InstallPackage_BackupFailureAfterRegistryCommitKeepsInstalledVersion()
+    {
+        var package = await CreatePackageAsync("1.0.0");
+        Directory.CreateDirectory(Path.Combine(_rootDirectory, "state.backup.json"));
+
+        var result = await _manager.InstallPackageAsync(package);
+
+        Assert.Equal(PluginId, result.PluginId);
+        Assert.Equal("1.0.0", Assert.Single(await _manager.GetInstalledPluginsAsync()).CurrentVersion);
+        Assert.True(Directory.Exists(new PluginInstallationPaths(_rootDirectory).GetVersionDirectory(PluginId, "1.0.0")));
+        Assert.Empty(Directory.GetFileSystemEntries(Path.Combine(_rootDirectory, "quarantine")));
     }
 
     [Fact]
@@ -100,6 +182,25 @@ public sealed class PluginPackageManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task StartupReturnsTheVerifiedManifestWithoutCachingItAcrossRuns()
+    {
+        await _manager.InstallPackageAsync(await CreatePackageAsync("1.0.0"));
+
+        var prepared = Assert.Single(await _manager.PrepareForStartupAsync());
+
+        Assert.Equal(Path.Combine(_rootDirectory, "installed", PluginId, "versions", "1.0.0"), prepared.Directory);
+        Assert.Equal(PluginId, prepared.Manifest.PluginId);
+        Assert.Equal("1.0.0", prepared.Manifest.Version);
+        Assert.Equal($"{PluginId}.dll", prepared.Manifest.EntryAssembly);
+        Assert.Equal(3, prepared.Manifest.Files.Count);
+        prepared.Manifest.DisplayName = "not persisted";
+
+        var nextRun = Assert.Single(await _manager.PrepareForStartupAsync());
+        Assert.NotSame(prepared.Manifest, nextRun.Manifest);
+        Assert.Equal("Test Plugin", nextRun.Manifest.DisplayName);
+    }
+
+    [Fact]
     public async Task PrepareForStartup_ModifiedInstalledFile_DisablesPlugin()
     {
         var package = await CreatePackageAsync("1.0.0");
@@ -119,6 +220,45 @@ public sealed class PluginPackageManagerTests : IDisposable
         Assert.Empty(loadDirectories);
         Assert.False(state.Enabled);
         Assert.NotNull(state.LastError);
+    }
+
+    [Theory]
+    [InlineData("Entry.dll", "Entry.dll", true)]
+    [InlineData("sub/Entry.dll", "sub/Entry.dll", false)]
+    [InlineData(@"sub\Entry.dll", "sub/Entry.dll", false)]
+    public void ValidateManifest_EntryAssemblyMustBeARootFile(
+        string entryAssembly,
+        string manifestFilePath,
+        bool isRootFile)
+    {
+        var verifier = new PluginPackageVerifier(new Version(1, 1, 0));
+        var manifest = new PluginManifest
+        {
+            PluginId = PluginId,
+            DisplayName = "Test Plugin",
+            Version = "1.0.0",
+            MinAppVersion = "1.1.0",
+            EntryAssembly = entryAssembly,
+            Files =
+            [
+                new PluginPackageFile
+                {
+                    Path = manifestFilePath,
+                    Sha256 = new string('0', 64),
+                },
+            ],
+        };
+
+        if (isRootFile)
+        {
+            verifier.ValidateManifest(manifest);
+            return;
+        }
+
+        var exception = Assert.Throws<PluginOperationException>(
+            () => verifier.ValidateManifest(manifest));
+
+        Assert.Contains("包根目录", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

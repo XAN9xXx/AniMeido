@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
@@ -13,6 +14,89 @@ namespace AniMeido.Tests;
 
 public sealed class InstalledUpdateServiceTests
 {
+    [Fact]
+    public async Task CheckCreatesItsHttpClientOffTheCallingUiContext()
+    {
+        using var fixture = new Fixture();
+        var ui = new PausedUiContext();
+        Task<InstalledUpdateResult>? checking = null;
+        try
+        {
+            var previous = SynchronizationContext.Current;
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                checking = fixture.Service.CheckAsync("stable");
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previous);
+            }
+
+            var result = await checking.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(InstalledUpdateStatus.UpdateAvailable, result.Status);
+            Assert.Equal("2.3.0", result.LatestVersion);
+            Assert.Null(Assert.Single(fixture.ClientContexts));
+            Assert.Equal(2, fixture.RequestContexts.Count);
+            Assert.All(fixture.RequestContexts, context => Assert.Null(context));
+        }
+        finally
+        {
+            ui.Resume();
+            if (checking is not null)
+                await ObserveSchedulingOperationAsync(checking);
+        }
+    }
+
+    [Fact]
+    public async Task PrepareCreatesItsDownloadClientOffTheCallingUiContext()
+    {
+        using var fixture = new Fixture();
+        var manifest = (await fixture.Service.CheckAsync("stable")).Manifest!;
+        fixture.ClientContexts.Clear();
+        fixture.RequestContexts.Clear();
+        var ui = new PausedUiContext();
+        Task<string>? preparing = null;
+        try
+        {
+            var previous = SynchronizationContext.Current;
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                preparing = fixture.Service.PrepareAsync(manifest);
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previous);
+            }
+
+            Assert.Equal("2.3.0", await preparing.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Null(Assert.Single(fixture.ClientContexts));
+            Assert.Null(Assert.Single(fixture.RequestContexts));
+            Assert.Equal("2.2.0", fixture.Store.Read().Current);
+            Assert.Equal("2.3.0", fixture.Store.Read().Pending);
+        }
+        finally
+        {
+            ui.Resume();
+            if (preparing is not null)
+                await ObserveSchedulingOperationAsync(preparing);
+        }
+    }
+
+    private static async Task ObserveSchedulingOperationAsync(Task operation)
+    {
+        try
+        {
+            await operation.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+#pragma warning disable CA1031 // The test owns its result; cleanup still observes the actual operation.
+        catch (Exception) when (operation.IsCompleted)
+        {
+        }
+#pragma warning restore CA1031
+    }
+
     [Theory]
     [InlineData("stable", "2.3.0")]
     [InlineData("preview", "2.4.0-preview.1")]
@@ -48,6 +132,22 @@ public sealed class InstalledUpdateServiceTests
     }
 
     [Fact]
+    public async Task PreparedUpdate_RemainsSuccessfulWhenDownloadedPackageCannotBeDeleted()
+    {
+        using var fixture = new Fixture();
+        var manifest = (await fixture.Service.CheckAsync("stable")).Manifest!;
+        Assert.Equal("2.3.0", await fixture.Service.PrepareAsync(manifest));
+        var package = Path.Combine(fixture.Root, "packages", manifest.Package.Sha256 + ".zip");
+        await File.WriteAllBytesAsync(package, fixture.PackageBytes);
+        using var held = new FileStream(package, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+        Assert.Equal("2.3.0", await fixture.Service.PrepareAsync(manifest));
+
+        Assert.Equal("2.3.0", fixture.Store.Read().Pending);
+        Assert.True(File.Exists(package));
+    }
+
+    [Fact]
     public async Task PendingTakesPrecedenceOverChannelAndHttp()
     {
         using var fixture = new Fixture();
@@ -66,10 +166,19 @@ public sealed class InstalledUpdateServiceTests
         var cleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         fixture.SetStartupCleanup(cleanup.Task);
         var check = fixture.Service.CheckAsync("stable");
-        Assert.False(check.IsCompleted);
-        Assert.Empty(fixture.Requests);
-        cleanup.SetResult();
-        Assert.Equal(InstalledUpdateStatus.UpdateAvailable, (await check).Status);
+        try
+        {
+            Assert.False(check.IsCompleted);
+            Assert.Empty(fixture.Requests);
+            cleanup.SetResult();
+            Assert.Equal(InstalledUpdateStatus.UpdateAvailable, (await check.WaitAsync(TimeSpan.FromSeconds(5))).Status);
+        }
+        finally
+        {
+            cleanup.TrySetResult();
+            await Task.WhenAny(check).WaitAsync(TimeSpan.FromSeconds(5));
+            await ((Task)check).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
+        }
     }
 
     [Fact]
@@ -256,7 +365,7 @@ public sealed class InstalledUpdateServiceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void MissingOrUncreatableLauncherNeverRequestsExit(bool exists)
+    public async Task MissingOrUncreatableLauncherNeverRequestsExit(bool exists)
     {
         using var fixture = new Fixture();
         fixture.AddVersion("2.3.0");
@@ -264,13 +373,13 @@ public sealed class InstalledUpdateServiceTests
         if (exists)
             File.WriteAllText(Path.Combine(fixture.Root, "AniMeido.exe"), "never executed");
         var exit = false;
-        Assert.ThrowsAny<IOException>(() => fixture.Service.Restart(() => exit = true));
+        await Assert.ThrowsAnyAsync<IOException>(() => fixture.Service.RestartAsync(() => exit = true));
         Assert.False(exit);
         Assert.Equal("2.3.0", fixture.Store.Read().Pending);
     }
 
     [Fact]
-    public void RestartCreatesLauncherWithWaitPidBeforeExit()
+    public async Task RestartCreatesLauncherWithWaitPidBeforeExit()
     {
         using var fixture = new Fixture();
         fixture.AddVersion("2.3.0");
@@ -287,12 +396,82 @@ public sealed class InstalledUpdateServiceTests
             return true;
         });
         var exited = false;
-        service.Restart(() => { Assert.True(started); exited = true; });
+        await service.RestartAsync(() => { Assert.True(started); exited = true; });
         Assert.True(exited);
     }
 
     [Fact]
-    public void LauncherProcessCreationExceptionPreservesPendingAndDoesNotExit()
+    public async Task RestartStartsLauncherOnWorkerThenRequestsExitOnTheCallingUiContext()
+    {
+        using var fixture = new Fixture();
+        fixture.AddVersion("2.3.0");
+        fixture.Store.Write(fixture.Store.Read() with { Pending = "2.3.0" });
+        File.WriteAllText(Path.Combine(fixture.Root, "AniMeido.exe"), "never executed");
+        using var ui = new QueuedRestartContext();
+        using var releaseLauncher = new ManualResetEventSlim(false);
+        var launcherEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        SynchronizationContext? launcherContext = ui;
+        var launcherSucceeded = false;
+        var exitRequested = false;
+        var service = fixture.CreateService(_ =>
+        {
+            launcherContext = SynchronizationContext.Current;
+            launcherEntered.TrySetResult();
+            if (!releaseLauncher.Wait(TimeSpan.FromSeconds(5)))
+                throw new TimeoutException("The test did not release the launcher.");
+            launcherSucceeded = true;
+            return true;
+        });
+        Task? restarting = null;
+        try
+        {
+            var previous = SynchronizationContext.Current;
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                restarting = service.RestartAsync(() =>
+                {
+                    Assert.True(launcherSucceeded);
+                    Assert.Same(ui, SynchronizationContext.Current);
+                    exitRequested = true;
+                });
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previous);
+            }
+
+            await launcherEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Null(launcherContext);
+            Assert.False(exitRequested);
+            releaseLauncher.Set();
+            await ui.Posted.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(exitRequested);
+
+            ui.RunPending();
+            await restarting.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(exitRequested);
+            Assert.Equal("2.3.0", fixture.Store.Read().Pending);
+        }
+        finally
+        {
+            releaseLauncher.Set();
+            if (restarting is not null)
+            {
+                try
+                {
+                    await ui.DrainAsync(restarting);
+                }
+                finally
+                {
+                    await ObserveSchedulingOperationAsync(restarting);
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public async Task LauncherProcessCreationExceptionPreservesPendingAndDoesNotExit()
     {
         using var fixture = new Fixture();
         fixture.AddVersion("2.3.0");
@@ -300,7 +479,7 @@ public sealed class InstalledUpdateServiceTests
         File.WriteAllText(Path.Combine(fixture.Root, "AniMeido.exe"), "never executed");
         var service = fixture.CreateService(_ => throw new System.ComponentModel.Win32Exception("fake process failure"));
         var exit = false;
-        Assert.Throws<System.ComponentModel.Win32Exception>(() => service.Restart(() => exit = true));
+        await Assert.ThrowsAsync<System.ComponentModel.Win32Exception>(() => service.RestartAsync(() => exit = true));
         Assert.False(exit);
         Assert.Equal("2.3.0", fixture.Store.Read().Pending);
     }
@@ -311,7 +490,7 @@ public sealed class InstalledUpdateServiceTests
     }
 
     [Fact]
-    public void RestoreRequestUsesExistingWaitPidRestartAndLauncherFailureNeverExits()
+    public async Task RestoreRequestUsesExistingWaitPidRestartAndLauncherFailureNeverExits()
     {
         using var fixture = new Fixture();
         var request = new PendingRestoreRequest
@@ -321,17 +500,17 @@ public sealed class InstalledUpdateServiceTests
         fixture.Store.Write(fixture.Store.Read() with { PendingRestore = request });
         File.WriteAllText(Path.Combine(fixture.Root, "AniMeido.exe"), "never executed");
         var exit = false;
-        Assert.Throws<InstallException>(() => fixture.Service.Restart(() => exit = true));
+        await Assert.ThrowsAsync<InstallException>(() => fixture.Service.RestartAsync(() => exit = true));
         Assert.False(exit);
         Assert.Equal(request, fixture.Store.Read().PendingRestore);
         var startCalled = false;
-        fixture.CreateService(start =>
+        await fixture.CreateService(start =>
         {
             Assert.Equal(new[] { "--wait-pid", Environment.ProcessId.ToString() }, start.ArgumentList);
             Assert.False(start.UseShellExecute);
             startCalled = true;
             return true;
-        }).Restart(() => { Assert.True(startCalled); exit = true; });
+        }).RestartAsync(() => { Assert.True(startCalled); exit = true; });
         Assert.True(exit);
         Assert.Equal(request, fixture.Store.Read().PendingRestore);
         Assert.Null(fixture.Store.Read().Pending);
@@ -356,7 +535,50 @@ public sealed class InstalledUpdateServiceTests
         Assert.NotNull(fixture.Store.Read().PendingRestore);
     }
 
-    private sealed class Fixture : IDisposable
+    private sealed class QueuedRestartContext : SynchronizationContext, IDisposable
+    {
+        private readonly ConcurrentQueue<(SendOrPostCallback Callback, object? State)> _callbacks = new();
+        private readonly TaskCompletionSource _posted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly SemaphoreSlim _pending = new(0);
+
+        public Task Posted => _posted.Task;
+
+        public override void Post(SendOrPostCallback callback, object? state)
+        {
+            _callbacks.Enqueue((callback, state));
+            _pending.Release();
+            _posted.TrySetResult();
+        }
+
+        public void RunPending()
+        {
+            var previous = Current;
+            try
+            {
+                SetSynchronizationContext(this);
+                while (_callbacks.TryDequeue(out var work))
+                    work.Callback(work.State);
+            }
+            finally
+            {
+                SetSynchronizationContext(previous);
+            }
+        }
+
+        public async Task DrainAsync(Task operation)
+        {
+            while (!operation.IsCompleted)
+            {
+                if (!await _pending.WaitAsync(TimeSpan.FromSeconds(5)))
+                    throw new TimeoutException("The restart continuation did not arrive.");
+                RunPending();
+            }
+        }
+
+        public void Dispose() => _pending.Dispose();
+    }
+
+    internal sealed class Fixture : IDisposable
     {
         private readonly MockAppDataPaths _paths = new();
         private readonly ECDsa _key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -364,10 +586,13 @@ public sealed class InstalledUpdateServiceTests
         public string Root { get; }
         public InstallStateStore Store { get; }
         public InstalledUpdateService Service { get; }
+        internal InstalledAppContext Context => _context;
         public byte[] ManifestBytes { get; }
         public byte[] Signature { get; set; }
         public byte[] PackageBytes { get; }
         public List<(string Uri, long? From)> Requests { get; } = [];
+        public List<SynchronizationContext?> ClientContexts { get; } = [];
+        public List<SynchronizationContext?> RequestContexts { get; } = [];
         public Func<HttpRequestMessage, HttpResponseMessage>? Response { get; set; }
 
         public Fixture(string channel = "stable", string version = "2.3.0",
@@ -414,6 +639,7 @@ public sealed class InstalledUpdateServiceTests
 
         private HttpResponseMessage Respond(HttpRequestMessage request)
         {
+            RequestContexts.Add(SynchronizationContext.Current);
             var uri = request.RequestUri!.AbsoluteUri;
             var offset = request.Headers.Range?.Ranges.First().From;
             Requests.Add((uri, offset));
@@ -433,6 +659,7 @@ public sealed class InstalledUpdateServiceTests
             public HttpClient CreateClient(string name)
             {
                 Assert.Equal(InstalledUpdateService.HttpClientName, name);
+                fixture.ClientContexts.Add(SynchronizationContext.Current);
                 return new HttpClient(new Handler(fixture));
             }
         }

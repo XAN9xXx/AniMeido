@@ -4,6 +4,7 @@ using AniMeido.Contracts.Plugins;
 using AniMeido.Contracts.PersonalAnime;
 using AniMeido.PluginProtocol;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -13,7 +14,7 @@ namespace AniMeido.PluginHost;
 
 internal sealed class PluginRuntimeCatalog : IAsyncDisposable
 {
-    private readonly DispatcherQueue _dispatcherQueue;
+    private readonly HostUiDispatcher _uiDispatcher;
     private readonly PlaybackProgressEventQueue _playbackProgress;
     private readonly IPersonalAnimeDataGateway _personalAnimeData;
     private readonly Dictionary<string, HostedPluginDescriptor> _descriptors =
@@ -29,7 +30,9 @@ internal sealed class PluginRuntimeCatalog : IAsyncDisposable
         PlaybackProgressEventQueue playbackProgress,
         IPersonalAnimeDataGateway personalAnimeData)
     {
-        _dispatcherQueue = dispatcherQueue;
+        _uiDispatcher = new HostUiDispatcher(
+            () => dispatcherQueue.HasThreadAccess,
+            action => dispatcherQueue.TryEnqueue(() => action()));
         _playbackProgress = playbackProgress;
         _personalAnimeData = personalAnimeData;
     }
@@ -174,7 +177,7 @@ internal sealed class PluginRuntimeCatalog : IAsyncDisposable
                 .GetService<IPluginSettingsLauncher>()
                 ?? throw new InvalidOperationException(
                     "插件未注册 IPluginSettingsLauncher。");
-            await RunOnUiAsync(
+            await _uiDispatcher.RunAsync(
                 () => launcher.OpenSettingsAsync(settingsId));
         }
         finally
@@ -194,7 +197,7 @@ internal sealed class PluginRuntimeCatalog : IAsyncDisposable
             var launcher = active.Services.GetService<IPluginCommandLauncher>();
             if (launcher is not null)
             {
-                await RunOnUiAsync(() => launcher.InvokeCommandAsync(commandId));
+                await _uiDispatcher.RunAsync(() => launcher.InvokeCommandAsync(commandId));
                 return;
             }
 
@@ -208,7 +211,7 @@ internal sealed class PluginRuntimeCatalog : IAsyncDisposable
                         StringComparison.Ordinal))
                 ?? throw new InvalidOperationException(
                     $"插件未注册命令：{commandId}");
-            await RunOnUiAsync(() =>
+            await _uiDispatcher.RunAsync(() =>
             {
                 if (navigationItem.Command?.CanExecute(null) == true)
                 {
@@ -238,7 +241,7 @@ internal sealed class PluginRuntimeCatalog : IAsyncDisposable
             var launcher = active.Services.GetService<IAnimePlaybackLauncher>()
                 ?? throw new InvalidOperationException(
                     "播放插件未注册 IAnimePlaybackLauncher。");
-            await RunOnUiAsync(() => launcher.LaunchAsync(
+            await _uiDispatcher.RunAsync(() => launcher.LaunchAsync(
                 new AnimePlaybackContext(
                     request.AnimeId,
                     request.Title,
@@ -292,6 +295,7 @@ internal sealed class PluginRuntimeCatalog : IAsyncDisposable
 
             ValidateIdentity(descriptor.Manifest, plugin);
             var services = new ServiceCollection();
+            services.AddSingleton(typeof(ILogger<>), typeof(HostLogger<>));
             services.AddSingleton<IAnimePlaybackProgressReporter>(
                 _playbackProgress);
             if (descriptor.Manifest.Contributions.Capabilities.Contains(
@@ -300,7 +304,7 @@ internal sealed class PluginRuntimeCatalog : IAsyncDisposable
             {
                 services.AddSingleton(_personalAnimeData);
             }
-            await RunOnUiAsync(() => plugin.InitializeAsync(services));
+            await _uiDispatcher.RunAsync(() => plugin.InitializeAsync(services));
             var provider = services.BuildServiceProvider();
             var active = new ActivePlugin(plugin, provider, loadContext);
             _activePlugins.Add(pluginId, active);
@@ -310,37 +314,6 @@ internal sealed class PluginRuntimeCatalog : IAsyncDisposable
         {
             _gate.Release();
         }
-    }
-
-    private Task RunOnUiAsync(Func<Task> action)
-    {
-        if (_dispatcherQueue.HasThreadAccess)
-        {
-            return action();
-        }
-
-        var completion = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        if (!_dispatcherQueue.TryEnqueue(async () =>
-        {
-            try
-            {
-                await action();
-                completion.SetResult();
-            }
-#pragma warning disable CA1031 // Preserve arbitrary plugin exceptions across the UI dispatch boundary.
-            catch (Exception ex)
-            {
-                completion.SetException(ex);
-            }
-#pragma warning restore CA1031
-        }))
-        {
-            completion.SetException(
-                new InvalidOperationException("PluginHost UI 线程不可用。"));
-        }
-
-        return completion.Task;
     }
 
     private static void ValidateIdentity(

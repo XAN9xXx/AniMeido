@@ -14,6 +14,8 @@ namespace AniMeido.App
         private readonly NavigationService _navigationService;
         private readonly SplashCoordinator _splash;
         private readonly StartupDialogCoordinator _dialogs;
+        private readonly ThemeService _themeService;
+        private Task _startupTask = Task.CompletedTask;
         private readonly MainWindowDragDropAdapter _dragDropAdapter;
         private readonly StartupMigrationGate? _migrationGate;
         private readonly CancellationTokenSource _migrationCancellation = new();
@@ -85,6 +87,8 @@ namespace AniMeido.App
         internal MainWindow(
             PluginContributionRegistry pluginContributions,
             NavigationService navigationService,
+            ThemeService themeService,
+            StartupDialogCoordinator dialogs,
             MainWindowDragDropAdapter dragDropAdapter,
             StartupMigrationGate? migrationGate = null,
             string? migrationBackupDirectory = null)
@@ -107,7 +111,8 @@ namespace AniMeido.App
 
             _splash = new SplashCoordinator(SplashImage, SplashOverlay);
             _splash.LoadSplashImage();
-            _dialogs = new StartupDialogCoordinator(MainNaviView);
+            _dialogs = dialogs;
+            _themeService = themeService;
 
             TitleBarHelper.SetWindowIcon(this);
 
@@ -121,7 +126,7 @@ namespace AniMeido.App
             SetTitleBar(AppTitleBar);
             UpdateBackButton();
 
-            App.ThemeService.ThemeChanged += (_, _) => UpdateTitleBarButtons();
+            _themeService.ThemeChanged += OnThemeChanged;
 
             // 主窗口关闭时停止排队中的导航状态恢复
             Closed += OnMainWindowClosing;
@@ -131,11 +136,19 @@ namespace AniMeido.App
             if (_migrationGate is null) _dragDropAdapter.Attach(RootGrid, MainNaviView, ContentFrame);
         }
 
+        private void OnThemeChanged(object? sender, ElementTheme theme)
+        {
+            if (!_isClosing)
+            {
+                UpdateTitleBarButtons();
+            }
+        }
+
         private void UpdateTitleBarButtons()
         {
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
             var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hWnd);
-            TitleBarHelper.UpdateButtonColors(Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId));
+            TitleBarHelper.UpdateButtonColors(Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId), _themeService.GetCurrentTheme());
         }
 
         private void OnNavigationServiceNavigated(Type? pageType)
@@ -185,6 +198,9 @@ namespace AniMeido.App
 
         private void OnBackButtonClick(object sender, RoutedEventArgs e)
         {
+            if (_isClosing)
+                return;
+
             _navigationService.GoBack();
         }
 
@@ -203,6 +219,51 @@ namespace AniMeido.App
         }
 
         private async Task LoadMainAfterMigrationAsync()
+        {
+            if (!_startupTask.IsCompleted || _initialNavigationStarted || _isClosing)
+            {
+                return;
+            }
+            try
+            {
+                _startupTask = LoadMainAfterMigrationCoreAsync();
+                await _startupTask;
+            }
+            catch (OperationCanceledException) when (_isClosing)
+            {
+            }
+#pragma warning disable CA1031 // 窗口初始化的最终边界；保留错误诊断，关闭仍可等待任务结束。
+            catch (Exception ex)
+            {
+                Serilog.Log.Error(ex, "主窗口初始化失败");
+                if (!_isClosing)
+                {
+                    _initialNavigationStarted = false;
+                    MigrationBlock.Visibility = Visibility.Visible;
+                    MigrationStatus.Text = "窗口加载未完成，请重试。";
+                    MigrationRetry.IsEnabled = true;
+                }
+            }
+#pragma warning restore CA1031
+        }
+
+        internal async Task WaitForStartupAsync()
+        {
+            try
+            {
+                await _startupTask;
+            }
+            catch (OperationCanceledException) when (_isClosing)
+            {
+            }
+#pragma warning disable CA1031 // 初始化入口已记录异常，退出只等待完成，不重复报告。
+            catch (Exception) when (_startupTask.IsFaulted)
+            {
+            }
+#pragma warning restore CA1031
+        }
+
+        private async Task LoadMainAfterMigrationCoreAsync()
         {
             if (_initialNavigationStarted || _isClosing) return;
             _initialNavigationStarted = true;
@@ -274,10 +335,7 @@ namespace AniMeido.App
             if (_isClosing)
                 return;
 
-            await _dialogs.ShowPrivacyDialogAsync();
-            if (_isClosing)
-                return;
-            await _dialogs.ShowAnnouncementDialogAsync();
+            await _dialogs.ShowStartupDialogsAsync(MainNaviView, _migrationCancellation.Token);
             if (_isClosing)
                 return;
             UpdateTitleBarButtons();
@@ -286,8 +344,11 @@ namespace AniMeido.App
         internal void BeginShutdown()
         {
             _isClosing = true;
+            _navigationService.Stop();
+            _pluginContributions.Changed -= OnPluginContributionsChanged;
             _migrationCancellation.Cancel();
             DataReady.TrySetCanceled();
+            BackButton.IsEnabled = false;
             MainNaviView.Loaded -= OnMainNaviViewLoaded;
             MainNaviView.ItemInvoked -= OnNaviItemInvoked;
             _navigationService.Navigated -= OnNavigationServiceNavigated;
@@ -301,12 +362,14 @@ namespace AniMeido.App
         private void OnMainWindowClosing(object sender, WindowEventArgs args)
         {
             _isClosing = true;
+            _navigationService.Stop();
             _migrationCancellation.Cancel();
             DataReady.TrySetCanceled();
         }
 
         private void OnMainWindowClosed(object sender, WindowEventArgs args)
         {
+            _themeService.ThemeChanged -= OnThemeChanged;
             _migrationCancellation.Dispose();
             _dragDropAdapter.Dispose();
             _pluginContributions.Changed -= OnPluginContributionsChanged;
@@ -323,8 +386,15 @@ namespace AniMeido.App
         private void OnPluginContributionsChanged(
             object? sender,
             EventArgs e)
-            => DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_isClosing)
+                return;
+
+            _ = DispatcherQueue.TryEnqueue(() =>
             {
+                if (_isClosing)
+                    return;
+
                 var selectedPage = _lastSelectedPageItem?.Tag;
                 NavigationMenuBuilder.Build(
                     MainNaviView,
@@ -337,10 +407,13 @@ namespace AniMeido.App
                     MainNaviView.SelectedItem = _lastSelectedPageItem;
                 }
             });
+        }
 
         private void OnNaviItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
         {
-            if (_migrationGate is { IsReady: false }) return;
+            if (_isClosing || _migrationGate is { IsReady: false })
+                return;
+
             var container = args.InvokedItemContainer as NavigationViewItem;
 
             if (container?.Tag is string tag && tag == "Settings")
@@ -351,9 +424,6 @@ namespace AniMeido.App
                 return;
             }
             if (container == null)
-                return;
-
-            if (_isClosing)
                 return;
 
             if (container.Tag is PluginNavigationItem navItem)

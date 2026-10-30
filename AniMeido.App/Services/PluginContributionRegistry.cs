@@ -82,7 +82,7 @@ public sealed class PluginContributionRegistry
             {
                 await _execute();
             }
-#pragma warning disable CA1031 // Command failures are surfaced by PluginHost status.
+#pragma warning disable CA1031 // 调用链记录失败；命令边界观察异常以保持应用可用。
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine(

@@ -1,11 +1,11 @@
-using Microsoft.UI.Dispatching;
+﻿using Microsoft.UI.Dispatching;
 using Microsoft.Extensions.Logging;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 
 namespace AniMeido.App.Services;
 
-public sealed class TrayIconService : IDisposable
+public sealed class TrayIconService : IAsyncDisposable
 {
     private const uint WmApp = 0x8000;
     private const uint WmTrayCallback = WmApp + 1;
@@ -23,18 +23,17 @@ public sealed class TrayIconService : IDisposable
     private const uint TpmRightButton = 2;
     private const int OpenCommand = 1;
     private const int ExitCommand = 2;
+    private const uint MsgfltAllow = 1;
     private readonly DispatcherQueue _dispatcher;
     private readonly ILogger<TrayIconService> _logger;
     private readonly WindowProcedure _windowProcedure;
     private readonly object _sync = new();
-    private readonly ManualResetEventSlim _ready = new();
+    private TrayIconSession? _session;
     private Thread? _thread;
     private nint _window;
     private uint _threadId;
-    private Action? _open;
-    private Action? _exit;
-    private Exception? _startupException;
-    private bool _started;
+    private uint _taskbarCreatedMessage;
+    private NotifyIconData _iconData;
     private bool _disposed;
 
     public TrayIconService(ILogger<TrayIconService> logger)
@@ -44,67 +43,77 @@ public sealed class TrayIconService : IDisposable
         _windowProcedure = WindowProc;
     }
 
-    public void Start(Action open, Action exit)
+    public bool IsRunning
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        lock (_sync)
+        get
         {
-            _open = open;
-            _exit = exit;
-            if (_thread is not null)
-            {
-                return;
-            }
-
-            _thread = new Thread(Run)
-            {
-                IsBackground = true,
-                Name = "AniMeido tray icon",
-            };
-            _startupException = null;
-            _started = false;
-            _ready.Reset();
-            _thread.Start();
-        }
-
-        if (!_ready.Wait(TimeSpan.FromSeconds(2)))
-        {
-            Stop();
-            throw new TimeoutException("创建托盘图标超时。");
-        }
-
-        if (_startupException is not null)
-        {
-            var exception = _startupException;
-            Stop();
-            throw new InvalidOperationException(
-                "无法创建 AniMeido 托盘图标。",
-                exception);
-        }
-
-        if (!_started)
-        {
-            Stop();
-            throw new InvalidOperationException(
-                "AniMeido 托盘图标未能启动。");
+            lock (_sync)
+                return _thread is not null && _session?.IsRunning == true;
         }
     }
 
-    private void Run()
+    public Task StartAsync(Action open, Action exit)
+        => StartAsync(open, exit, static () => { });
+
+    internal async Task StartAsync(Action open, Action exit, Action unavailable)
+    {
+        TrayIconSession session;
+        lock (_sync)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_thread is not null && _session is { } running)
+            {
+                if (running.StopRequested)
+                {
+                    throw new InvalidOperationException("托盘图标仍在关闭，请稍后重试。");
+                }
+                session = running;
+            }
+            else
+            {
+                session = new TrayIconSession(open, exit, unavailable);
+                _session = session;
+                _thread = new Thread(() => Run(session))
+                {
+                    IsBackground = true,
+                    Name = "AniMeido tray icon",
+                };
+                _thread.Start();
+            }
+        }
+
+        try
+        {
+            await session.Ready.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        catch (TimeoutException)
+        {
+            lock (_sync)
+            {
+                if (ReferenceEquals(_session, session))
+                {
+                    RequestStop();
+                }
+            }
+            throw new TimeoutException("创建托盘图标超时。");
+        }
+    }
+
+    private void Run(TrayIconSession session)
     {
         try
         {
-            RunCore();
+            RunCore(session);
         }
-#pragma warning disable CA1031 // Exceptions must not escape the dedicated native message thread.
+#pragma warning disable CA1031 // 原生线程故障交给本轮所有者，清理后再区分启动失败和运行失效。
         catch (Exception ex)
         {
-            _startupException = ex;
-            _logger.LogWarning(ex, "Tray icon thread stopped unexpectedly.");
+            session.RecordFailure(ex);
         }
 #pragma warning restore CA1031
         finally
         {
+            bool unavailable;
             lock (_sync)
             {
                 if (ReferenceEquals(_thread, Thread.CurrentThread))
@@ -113,15 +122,24 @@ public sealed class TrayIconService : IDisposable
                     _threadId = 0;
                     _window = 0;
                 }
+                unavailable = session.Complete();
             }
-
-            _ready.Set();
+            if (unavailable)
+            {
+                _logger.LogWarning(session.Failure, "Tray icon thread stopped unexpectedly.");
+                Enqueue(session, session.NotifyUnavailable);
+            }
         }
     }
 
-    private void RunCore()
+    private void RunCore(TrayIconSession session)
     {
         _threadId = GetCurrentThreadId();
+        _taskbarCreatedMessage = RegisterWindowMessage("TaskbarCreated");
+        if (_taskbarCreatedMessage == 0)
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "无法注册任务栏恢复消息。");
+        }
         var className = $"AniMeido.Tray.{Environment.ProcessId}";
         var windowClass = new WindowClass
         {
@@ -162,6 +180,12 @@ public sealed class TrayIconService : IDisposable
                     "无法创建托盘消息窗口。");
             }
 
+            // 只放行本窗口的任务栏恢复消息，管理员运行也能接收普通 Explorer 的广播。
+            if (!ChangeWindowMessageFilterEx(_window, _taskbarCreatedMessage, MsgfltAllow, 0))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "无法接收任务栏恢复消息。");
+            }
+
             icon = LoadIcon(0, new nint(32512));
             if (icon == 0)
             {
@@ -171,6 +195,7 @@ public sealed class TrayIconService : IDisposable
             }
 
             var data = CreateIconData(_window, icon);
+            _iconData = data;
             if (!ShellNotifyIcon(NimAdd, ref data))
             {
                 throw new Win32Exception(
@@ -179,9 +204,8 @@ public sealed class TrayIconService : IDisposable
             }
 
             iconAdded = true;
-            _started = true;
-            _ready.Set();
-            while (true)
+            session.MarkReady();
+            while (session.IsRunning)
             {
                 var result = GetMessage(out var message, 0, 0, 0);
                 if (result == 0)
@@ -202,10 +226,9 @@ public sealed class TrayIconService : IDisposable
         }
         finally
         {
-            _started = false;
             if (iconAdded)
             {
-                var data = CreateIconData(_window, icon);
+                var data = _iconData;
                 _ = ShellNotifyIcon(NimDelete, ref data);
             }
 
@@ -214,6 +237,8 @@ public sealed class TrayIconService : IDisposable
                 DestroyWindow(_window);
                 _window = 0;
             }
+
+            _iconData = default;
 
             _ = UnregisterClass(className, windowClass.Instance);
         }
@@ -225,12 +250,24 @@ public sealed class TrayIconService : IDisposable
         nuint wParam,
         nint lParam)
     {
+        var session = _session;
+        if (_taskbarCreatedMessage != 0 && message == _taskbarCreatedMessage)
+        {
+            if (window == _window && session is not null && session.IsRunning)
+                HandleTaskbarCreated(session);
+
+            return 0;
+        }
+
+        if (session is null)
+            return DefWindowProc(window, message, wParam, lParam);
+
         if (message == WmTrayCallback)
         {
             var mouseMessage = unchecked((uint)lParam);
             if (mouseMessage == WmLButtonDoubleClick)
             {
-                Enqueue(_open);
+                Enqueue(session, session.InvokeOpen);
                 return 0;
             }
 
@@ -243,7 +280,7 @@ public sealed class TrayIconService : IDisposable
         else if (message == WmCommand)
         {
             var command = unchecked((int)(wParam & 0xffff));
-            Enqueue(command == OpenCommand ? _open : _exit);
+            Enqueue(session, command == OpenCommand ? session.InvokeOpen : session.InvokeExit);
             return 0;
         }
         else if (message == WmDestroy)
@@ -253,6 +290,23 @@ public sealed class TrayIconService : IDisposable
         }
 
         return DefWindowProc(window, message, wParam, lParam);
+    }
+
+    private void HandleTaskbarCreated(TrayIconSession session)
+    {
+        try
+        {
+            var data = _iconData;
+            if (!ShellNotifyIcon(NimAdd, ref data))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "无法恢复托盘图标。");
+        }
+#pragma warning disable CA1031 // 原生回调不抛出故障；消息线程退出后统一通知应用恢复窗口。
+        catch (Exception ex)
+        {
+            session.RecordFailure(ex);
+            PostQuitMessage(0);
+        }
+#pragma warning restore CA1031
     }
 
     private void ShowMenu(nint window)
@@ -284,28 +338,48 @@ public sealed class TrayIconService : IDisposable
         }
     }
 
-    private void Enqueue(Action? action)
+    private bool IsCurrentSession(TrayIconSession session)
     {
-        if (action is not null)
-        {
-            _dispatcher.TryEnqueue(() => action());
-        }
+        lock (_sync)
+            return !_disposed && ReferenceEquals(_session, session);
     }
 
-    public void Dispose()
+    private void Enqueue(TrayIconSession session, Action action)
     {
-        if (_disposed)
-        {
+        if (!IsCurrentSession(session))
             return;
-        }
 
-        _disposed = true;
-        Stop();
-        _ready.Dispose();
+        _dispatcher.TryEnqueue(() =>
+        {
+            if (IsCurrentSession(session))
+            {
+                action();
+            }
+        });
     }
 
-    public void Stop()
+    public ValueTask DisposeAsync()
     {
+        lock (_sync)
+        {
+            _disposed = true;
+            RequestStop();
+            return new ValueTask(_session?.Stopped ?? Task.CompletedTask);
+        }
+    }
+
+    public Task StopAsync()
+    {
+        lock (_sync)
+        {
+            RequestStop();
+            return _session?.Stopped ?? Task.CompletedTask;
+        }
+    }
+
+    private void RequestStop()
+    {
+        _session?.RequestStop();
         if (_window != 0)
         {
             PostMessage(_window, WmClose, 0, 0);
@@ -313,14 +387,6 @@ public sealed class TrayIconService : IDisposable
         else if (_threadId != 0)
         {
             PostThreadMessage(_threadId, 0x0012, 0, 0);
-        }
-
-        _thread?.Join(TimeSpan.FromSeconds(2));
-        lock (_sync)
-        {
-            _thread = null;
-            _threadId = 0;
-            _window = 0;
         }
     }
 
@@ -404,8 +470,17 @@ public sealed class TrayIconService : IDisposable
         public int Y;
     }
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern ushort RegisterClassEx(ref WindowClass windowClass);
+
+    [DllImport("user32.dll", EntryPoint = "RegisterWindowMessageW", ExactSpelling = true,
+        CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint RegisterWindowMessage(string messageName);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ChangeWindowMessageFilterEx(
+        nint window, uint message, uint action, nint changeFilter);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -413,7 +488,7 @@ public sealed class TrayIconService : IDisposable
         string className,
         nint instance);
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern nint CreateWindowEx(
         uint extendedStyle,
         string className,
@@ -439,7 +514,7 @@ public sealed class TrayIconService : IDisposable
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool DestroyWindow(nint window);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     private static extern int GetMessage(
         out NativeMessage message,
         nint window,
@@ -471,7 +546,7 @@ public sealed class TrayIconService : IDisposable
         nuint wParam,
         nint lParam);
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern nint LoadIcon(nint instance, nint iconName);
 
     [DllImport(

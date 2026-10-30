@@ -16,6 +16,7 @@ namespace AniMeido.App.Services
         private readonly NavigationStack _backStack = new();
         private Frame? _frame;
         private object? _lastParameter;
+        private bool _isStopped;
 
         public bool CanGoBack => _backStack.CanGoBack;
 
@@ -36,7 +37,18 @@ namespace AniMeido.App.Services
 
         public void Initialize(Frame frame)
         {
+            ObjectDisposedException.ThrowIf(_isStopped, this);
             _frame = frame;
+        }
+
+        /// <summary>在 UI 线程停止接纳导航并释放页面引用；控件卸载由窗口负责。</summary>
+        internal void Stop()
+        {
+            _isStopped = true;
+            _frame = null;
+            _backStack.Clear();
+            _lastParameter = null;
+            CurrentPageType = null;
         }
 
         /// <summary>
@@ -66,9 +78,10 @@ namespace AniMeido.App.Services
             if (_frame == null || !_backStack.CanGoBack)
                 return;
 
-            var entry = _backStack.Pop();
+            var entry = _backStack.Peek()!;
 
             _frame.Content = entry.Page;
+            _backStack.Pop();
             CurrentPageType = entry.Page.GetType();
             _lastParameter = entry.Parameter;
             Navigated?.Invoke(CurrentPageType);
@@ -80,6 +93,9 @@ namespace AniMeido.App.Services
 
         private void NavigateCore(Type pageType, object? parameter, NavigationMode mode)
         {
+            if (_isStopped)
+                return;
+
             if (_frame == null)
                 throw new InvalidOperationException("NavigationService 未初始化。请先调用 Initialize(Frame)。");
 
@@ -95,18 +111,7 @@ namespace AniMeido.App.Services
                 return;
             }
 
-            if (mode == NavigationMode.TopLevel)
-            {
-                _backStack.Clear();
-            }
-            else if (CurrentPageType != null && _frame.Content is Page currentPage)
-            {
-                if (_backStack.Peek() is not { } top || (Page)top.Page != currentPage)
-                    _backStack.Push(currentPage, _lastParameter);
-            }
-
-            _lastParameter = parameter;
-
+            var previousPage = _frame.Content;
             Page page;
             try
             {
@@ -118,6 +123,18 @@ namespace AniMeido.App.Services
                 ex.Data["AniMeido.TargetPage"] = pageType.FullName;
                 throw;
             }
+            if (mode == NavigationMode.TopLevel)
+            {
+                _backStack.Clear();
+            }
+            else if (CurrentPageType != null && previousPage is Page currentPage)
+            {
+                if (_backStack.Peek() is not { } top || (Page)top.Page != currentPage)
+                    _backStack.Push(currentPage, _lastParameter);
+            }
+
+            _lastParameter = parameter;
+
             CurrentPageType = pageType;
             Navigated?.Invoke(pageType);
 

@@ -1,11 +1,13 @@
-﻿using System.Buffers.Binary;
-using System.Text;
+﻿using System.Text;
 
 namespace AniMeido.Updates.Install;
 
-public sealed record DatabaseRollbackResult(bool Success, string? ArchiveDirectory, string? Error);
+public sealed record DatabaseRollbackResult(bool Success, string? ArchiveDirectory, string? Error)
+{
+    public IReadOnlyList<CleanupError> CleanupErrors { get; init; } = [];
+}
 
-/// <summary>调用方必须先阻止本安装根下的 App 运行；本类不访问环境变量、不打开 SQLite。</summary>
+/// <summary>恢复前调用方必须阻止本安装根下的 App 运行；SQLite 只打开待恢复数据的临时副本。</summary>
 public static class DatabaseRollback
 {
     private static readonly byte[] SqliteHeader = Encoding.ASCII.GetBytes("SQLite format 3\0");
@@ -30,21 +32,17 @@ public static class DatabaseRollback
 
     public static int ReadUserVersion(string databasePath)
     {
-        RollbackDataDirectory.CheckAncestors(Path.GetFullPath(databasePath));
-        using var stream = new FileStream(databasePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        return ReadUserVersion(stream);
-    }
-
-    private static int ReadUserVersion(Stream stream)
-    {
-        Span<byte> header = stackalloc byte[64];
-        stream.ReadExactly(header);
-        if (!header[..16].SequenceEqual(SqliteHeader))
-            throw new InstallException("这份数据不是有效的 SQLite 文件（文件头错误）。");
-        var version = BinaryPrimitives.ReadInt32BigEndian(header[60..64]);
-        if (version < 0)
-            throw new InstallException("这份数据的 SQLite user_version 无效。");
-        return version;
+        var sources = new Dictionary<string, FileStream>();
+        try
+        {
+            OpenSources(databasePath, includeSidecars: true, sources);
+            return DatabaseSnapshotVersion.Read(sources);
+        }
+        finally
+        {
+            foreach (var source in sources.Values)
+                source.Dispose();
+        }
     }
 
     public static string ValidateRestore(string dataDirectory, string directory, int currentVersion)
@@ -92,36 +90,16 @@ public static class DatabaseRollback
         var temporaries = new List<string>();
         var detachedFiles = new List<(string Original, string Detached)>();
         var installedFiles = new List<string>();
+        var cleanupErrors = new List<CleanupError>();
+        DatabaseRollbackResult? result = null;
         var archived = false;
         var stagingCreated = false;
-        var completed = false;
         try
         {
-            // 校验并持有源文件只读句柄，直到复制完成；另存之前不改动当前库。
-            RollbackDataDirectory.CheckAncestors(backupPath);
-            var backup = new FileStream(backupPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            sources.Add("", backup);
+            // 版本判断与实际恢复使用同一组源句柄；不在检查后重新打开源文件。
+            OpenSources(backupPath, restoreSidecars, sources);
             if (currentVersion is { } version)
-                CheckVersion(ReadUserVersion(backup), version);
-            else
-            {
-                Span<byte> header = stackalloc byte[16];
-                backup.ReadExactly(header);
-                if (!header.SequenceEqual(SqliteHeader))
-                    throw new InstallException("迁移前备份不是有效的 SQLite 文件（文件头错误）。");
-            }
-            if (restoreSidecars)
-            {
-                foreach (var suffix in Suffixes.Skip(1))
-                {
-                    RollbackDataDirectory.CheckAncestors(backupPath + suffix);
-                    try
-                    {
-                        sources.Add(suffix, new FileStream(backupPath + suffix, FileMode.Open, FileAccess.Read, FileShare.Read));
-                    }
-                    catch (FileNotFoundException) { }
-                }
-            }
+                CheckVersion(DatabaseSnapshotVersion.Read(sources), version);
             if (!File.Exists(database))
                 throw new InstallException("当前 AniMeido.db 不存在，无法另存当前数据。");
             RollbackDataDirectory.CheckAncestors(archiveRoot);
@@ -168,8 +146,7 @@ public static class DatabaseRollback
                 File.Move(database + ".restore-tmp" + suffix, target);
                 installedFiles.Add(target);
             }
-            completed = true;
-            return new(true, archive, null);
+            result = new(true, archive, null);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -177,7 +154,10 @@ public static class DatabaseRollback
             var recoveryFailed = false;
             foreach (var installed in installedFiles.AsEnumerable().Reverse())
             {
-                try { File.Delete(installed); }
+                try
+                {
+                    File.Delete(installed);
+                }
                 catch (Exception recoveryError) when (recoveryError is IOException or UnauthorizedAccessException)
                 {
                     recoveryFailed = true;
@@ -186,27 +166,63 @@ public static class DatabaseRollback
             }
             foreach (var (original, detached) in detachedFiles.AsEnumerable().Reverse())
             {
-                try { File.Move(detached, original); }
+                try
+                {
+                    File.Move(detached, original);
+                }
                 catch (Exception recoveryError) when (recoveryError is IOException or UnauthorizedAccessException)
                 {
                     recoveryFailed = true;
                     error += $"\n无法放回 {original}，原文件保留在 {detached}：{recoveryError.Message}";
                 }
             }
-            return new(false, archived ? archive : null,
+            result = new(false, archived ? archive : null,
                 archived && !recoveryFailed ? $"{error}\n当前数据库未变。" : error);
         }
         finally
         {
             foreach (var input in sources.Values)
                 input.Dispose();
-            if (completed)
+            if (result?.Success == true)
+            {
                 foreach (var (_, detached) in detachedFiles)
-                    TryDeleteTemporary(detached, isDirectory: false);
+                {
+                    TryDeleteTemporary(detached, isDirectory: false, cleanupErrors);
+                }
+            }
             if (stagingCreated)
-                TryDeleteTemporary(staging, isDirectory: true);
+                TryDeleteTemporary(staging, isDirectory: true, cleanupErrors);
             foreach (var temporary in temporaries)
-                TryDeleteTemporary(temporary, isDirectory: false);
+                TryDeleteTemporary(temporary, isDirectory: false, cleanupErrors);
+        }
+
+        return result with { CleanupErrors = cleanupErrors.AsReadOnly() };
+    }
+
+    private static void OpenSources(string databasePath, bool includeSidecars, Dictionary<string, FileStream> sources)
+    {
+        RollbackDataDirectory.CheckAncestors(Path.GetFullPath(databasePath));
+        var database = new FileStream(databasePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        sources.Add("", database);
+        Span<byte> header = stackalloc byte[16];
+        database.ReadExactly(header);
+        if (!header.SequenceEqual(SqliteHeader))
+            throw new InstallException("这份数据不是有效的 SQLite 文件（文件头错误）。");
+
+        if (!includeSidecars)
+            return;
+
+        foreach (var suffix in Suffixes.Skip(1))
+        {
+            RollbackDataDirectory.CheckAncestors(databasePath + suffix);
+            try
+            {
+                sources.Add(suffix, new FileStream(databasePath + suffix, FileMode.Open, FileAccess.Read, FileShare.Read));
+            }
+            catch (FileNotFoundException)
+            {
+                // 归档可以没有 WAL 或 SHM，只有实际存在的文件参与恢复。
+            }
         }
     }
 
@@ -217,7 +233,7 @@ public static class DatabaseRollback
         output.Flush(flushToDisk: true);
     }
 
-    private static void TryDeleteTemporary(string path, bool isDirectory)
+    private static void TryDeleteTemporary(string path, bool isDirectory, List<CleanupError> errors)
     {
         try
         {
@@ -231,7 +247,7 @@ public static class DatabaseRollback
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // 保留失败的临时文件，不覆盖原始失败原因。
+            errors.Add(new CleanupError(path, ex.Message));
         }
     }
 }

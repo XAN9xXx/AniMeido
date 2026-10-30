@@ -10,6 +10,8 @@ public sealed class SplashCoordinator
 {
     private readonly Image _splashImage;
     private readonly UIElement _splashOverlay;
+    private BitmapImage? _loadingImage;
+    private TaskCompletionSource? _imageLoad;
 
     public SplashCoordinator(Image splashImage, UIElement splashOverlay)
     {
@@ -25,19 +27,43 @@ public sealed class SplashCoordinator
         var splashPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "SplashScreen.png");
         if (!System.IO.File.Exists(splashPath)) return;
 
-        var img = new BitmapImage();
-        img.UriSource = new Uri($"file:///{splashPath.Replace('\\', '/')}");
-        _splashImage.Source = img;
+        if (_loadingImage is { } previousImage)
+        {
+            previousImage.ImageOpened -= OnImageLoadCompleted;
+            previousImage.ImageFailed -= OnImageLoadCompleted;
+            _imageLoad?.TrySetResult();
+        }
+
+        _loadingImage = new BitmapImage();
+        _imageLoad = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _loadingImage.ImageOpened += OnImageLoadCompleted;
+        _loadingImage.ImageFailed += OnImageLoadCompleted;
+        _loadingImage.UriSource = new Uri($"file:///{splashPath.Replace('\\', '/')}");
+        _splashImage.Source = _loadingImage;
+    }
+
+    private void OnImageLoadCompleted(object sender, RoutedEventArgs e)
+    {
+        if (ReferenceEquals(sender, _loadingImage))
+            _imageLoad?.TrySetResult();
     }
 
     public async Task WaitForImageAsync()
     {
-        if (_splashImage.Source is not BitmapImage bmp) return;
+        var image = _loadingImage;
+        var imageLoad = _imageLoad?.Task;
+        if (image is null || imageLoad is null)
+            return;
 
-        var tcs = new TaskCompletionSource();
-        bmp.ImageOpened += (_, _) => tcs.TrySetResult();
-        bmp.ImageFailed += (_, _) => tcs.TrySetResult();
-        await Task.WhenAny(tcs.Task, Task.Delay(5000));
+        try
+        {
+            await Task.WhenAny(imageLoad, Task.Delay(5000));
+        }
+        finally
+        {
+            image.ImageOpened -= OnImageLoadCompleted;
+            image.ImageFailed -= OnImageLoadCompleted;
+        }
     }
 
     public async Task FadeOutAsync()

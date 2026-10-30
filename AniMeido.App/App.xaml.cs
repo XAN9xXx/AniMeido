@@ -22,6 +22,12 @@ namespace AniMeido.App
         private AppWindow? _mainAppWindow;
         private AppWindowActivationService? _activationService;
         private readonly InstalledAppContext _installedApp;
+        private readonly CancellationTokenSource _shutdownCancellation = new();
+        private Task _themeStartup = Task.CompletedTask;
+        private Task _trayStartup = Task.CompletedTask;
+        private Task _dataStartup = Task.CompletedTask;
+        private Task _startupNotices = Task.CompletedTask;
+        private Task _updateStartup = Task.CompletedTask;
 
         public App()
         {
@@ -49,8 +55,6 @@ namespace AniMeido.App
 
         public static IServiceProvider? Services { get; private set; }
         public static Window? MainWindow { get; private set; }
-        public static ThemeService ThemeService { get; } = new ThemeService();
-        public static PrivacyService PrivacyService { get; } = new PrivacyService();
         public static IReadOnlyList<IPlugin>? Plugins { get; private set; }
         public static string? LatestVersion { get; internal set; }
 
@@ -74,8 +78,7 @@ namespace AniMeido.App
         {
             ShowRestoreNoticeBeforeDatabaseInitialization();
             var services = new ServiceCollection()
-                .AddAppServices();
-            services.AddSingleton(_installedApp);
+                .AddAppServices(_installedApp);
 
             var pluginPackageManager = PluginPackageManager.CreateDefault();
             services.AddSingleton(pluginPackageManager);
@@ -91,9 +94,7 @@ namespace AniMeido.App
                 .GetRequiredService<WindowsAppNotificationService>()
                 .InitializeAsync();
             var databaseInitialization = DatabaseStartup.InitializeAsync(provider);
-            var desktopSettingsLoad = provider
-                .GetRequiredService<DesktopSettingsStore>()
-                .LoadAsync();
+            var desktopSettingsLoad = LoadDesktopSettingsAsync(provider);
             await Task.WhenAll(
                 notificationInitialization,
                 databaseInitialization,
@@ -106,6 +107,8 @@ namespace AniMeido.App
             _window = new MainWindow(
                 contributionRegistry,
                 provider.GetRequiredService<NavigationService>(),
+                provider.GetRequiredService<ThemeService>(),
+                provider.GetRequiredService<StartupDialogCoordinator>(),
                 new MainWindowDragDropAdapter(
                     () => provider.GetRequiredService<
                         AniMeido.Plugin.Base.Services.DragDropService>()),
@@ -134,17 +137,45 @@ namespace AniMeido.App
             // 数据库初始化已完成，主窗口已经 Activate；这不是首帧或全部后台功能的健康保证。
             MarkInstalledAppHealthy();
             _window.ShowLegacyInstallationNotice(provider.GetRequiredService<LegacyInstallationService>());
-            _ = StartDataServicesWhenReadyAsync(provider, _window.DataReady.Task);
+            _dataStartup = StartDataServicesWhenReadyAsync(provider, _window.DataReady.Task);
             if (_desktopSettings.KeepInTrayOnClose)
             {
-                await StartTrayIconAtStartupAsync(provider);
+                _trayStartup = StartTrayIconAtStartupAsync(provider);
+                await _trayStartup;
+            }
+
+            if (_shutdownStarted)
+            {
+                return;
             }
 
             if (_window.Content is FrameworkElement root)
-                ThemeService.InitializeTheme(root);
+            {
+                _themeStartup = provider.GetRequiredService<ThemeService>().InitializeThemeAsync(root);
+                await _themeStartup;
+            }
+            if (_shutdownStarted)
+            {
+                return;
+            }
 
-            _ = UpdateStartupTask.CheckForUpdateSilentlyAsync(provider, _window);
-            QueueRolledBackNotice();
+            _startupNotices = ShowStartupNoticesAsync(provider, _shutdownCancellation.Token);
+            _updateStartup = UpdateStartupTask.CheckForUpdateSilentlyAsync(
+                provider, _window, _startupNotices, _shutdownCancellation.Token);
+        }
+
+        private static async Task<DesktopSettings> LoadDesktopSettingsAsync(IServiceProvider provider)
+        {
+            try
+            {
+                return await provider.GetRequiredService<LegacyDesktopSettingsImporter>().ImportAsync();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                or System.Security.SecurityException)
+            {
+                Log.Warning(ex, "旧桌面设置尚未导入，下次启动重试");
+                return await provider.GetRequiredService<DesktopSettingsStore>().LoadAsync();
+            }
         }
 
         private void ShowRestoreNoticeBeforeDatabaseInitialization()
@@ -184,11 +215,13 @@ namespace AniMeido.App
         {
             try
             {
-                await dataReady;
+                await dataReady.WaitAsync(_shutdownCancellation.Token);
                 if (_shutdownStarted) return;
+                await provider.GetRequiredService<AniMeido.Plugin.Base.Services.CacheService>().CleanExpiredAsync();
+                _shutdownCancellation.Token.ThrowIfCancellationRequested();
                 provider.GetRequiredService<AniMeido.Plugin.Base.Services.PublicIdCheckService>().Start();
-                await provider.GetRequiredService<GlobalShortcutManager>().StartAsync();
-                await StartPluginHostSafelyAsync(provider.GetRequiredService<PluginHostSupervisor>());
+                await provider.GetRequiredService<GlobalShortcutManager>().StartAsync(_shutdownCancellation.Token);
+                await StartPluginHostSafelyAsync(provider.GetRequiredService<PluginHostSupervisor>(), _shutdownCancellation.Token);
             }
             catch (OperationCanceledException) when (_shutdownStarted) { }
 #pragma warning disable CA1031 // 数据就绪后的后台初始化失败不能使可用窗口退出。
@@ -232,54 +265,44 @@ namespace AniMeido.App
 #pragma warning restore CA1031
         }
 
-        private void QueueRolledBackNotice()
+        private async Task ShowStartupNoticesAsync(
+            IServiceProvider provider,
+            CancellationToken cancellationToken)
         {
-            if (!_installedApp.IsInstalled || _window?.Content is not FrameworkElement element)
-            {
-                return;
-            }
-            if (element.XamlRoot is null)
-            {
-                // Activate 并不保证 XamlRoot 已就绪；等 Loaded，不能悄悄漏掉首次提示。
-                RoutedEventHandler? loaded = null;
-                loaded = (_, _) =>
-                {
-                    element.Loaded -= loaded;
-                    _ = ShowRolledBackNoticeAsync();
-                };
-                element.Loaded += loaded;
-            }
-            else
-            {
-                _ = ShowRolledBackNoticeAsync();
-            }
-        }
-
-        private async Task ShowRolledBackNoticeAsync()
-        {
-            if (!_installedApp.IsInstalled)
-            {
-                return;
-            }
             try
             {
-                if (_window?.Content is FrameworkElement element && element.XamlRoot is { } root
-                    && _installedApp.ConsumeRolledBackNotice() is { } notice)
+                await provider.GetRequiredService<StartupDialogCoordinator>()
+                    .WaitForCompletionAsync(cancellationToken);
+                if (!_installedApp.IsInstalled)
+                    return;
+
+                if (_window?.Content is not FrameworkElement element || element.XamlRoot is not { } root)
+                    return;
+
+                await _installedApp.ShowRolledBackNoticeAsync(async notice =>
                 {
                     var message = $"已恢复到上一版本 {_installedApp.Version}，新版本 {notice.Version} 未能正常启动。";
                     if (notice.Reason == AniMeido.Updates.Install.RolledBackNotice.UserRestored)
                     {
                         message += "\n新版本期间的数据已另存到 Backups\\update 的 AniMeido-rollback-from-* 目录。";
                     }
-                    await new ContentDialog
+                    var dialog = new ContentDialog
                     {
                         Title = "已恢复上一版本",
                         Content = message,
                         CloseButtonText = "知道了",
                         DefaultButton = ContentDialogButton.Close,
                         XamlRoot = root,
-                    }.ShowAsync();
-                }
+                    };
+                    cancellationToken.ThrowIfCancellationRequested();
+                    using var closing = cancellationToken.Register(() =>
+                        dialog.DispatcherQueue.TryEnqueue(dialog.Hide));
+                    await dialog.ShowAsync();
+                    cancellationToken.ThrowIfCancellationRequested();
+                });
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
             }
 #pragma warning disable CA1031 // 回滚提示不能中断已经成功启动的应用。
             catch (Exception ex)
@@ -300,7 +323,8 @@ namespace AniMeido.App
 
             args.Cancel = true;
             if (!_exitRequested
-                && _desktopSettings.KeepInTrayOnClose)
+                && _desktopSettings.KeepInTrayOnClose
+                && _serviceProvider?.GetRequiredService<TrayIconService>().IsRunning == true)
             {
                 _serviceProvider?
                     .GetRequiredService<AppWindowActivationService>()
@@ -314,24 +338,27 @@ namespace AniMeido.App
             }
 
             _shutdownStarted = true;
+            _shutdownCancellation.Cancel();
             _window?.BeginShutdown();
+            var restorePreparation = _installedApp.StopRestorePreparationAsync();
             try
             {
                 var provider = _serviceProvider;
                 _serviceProvider = null;
                 if (provider is not null)
                 {
-                    await provider.DisposeAsync();
+                    await StopApplicationServicesAsync(provider, restorePreparation);
                 }
             }
 #pragma warning disable CA1031 // Shutdown cleanup failure must not trap the window open.
             catch (Exception ex)
             {
-                Log.Warning(ex, "应用关闭清理失败");
+                Log.Error(ex, "应用关闭清理失败");
             }
 #pragma warning restore CA1031
             finally
             {
+                _shutdownCancellation.Dispose();
                 Services = null;
                 _shutdownCompleted = true;
                 if (_mainAppWindow is not null)
@@ -345,6 +372,129 @@ namespace AniMeido.App
             }
         }
 
+        private async Task StopApplicationServicesAsync(
+            ServiceProvider provider,
+            Task restorePreparation)
+        {
+            var notifications = provider.GetRequiredService<WindowsAppNotificationService>();
+            var failures = new List<Exception>();
+            try
+            {
+                await StopStartupTasksAsync(provider, restorePreparation, failures);
+                await StopDataProducersAsync(provider, notifications, failures);
+            }
+#pragma warning disable CA1031 // 组合阶段失败仍要执行数据屏障，并在全部收尾后统一报告。
+            catch (Exception ex)
+            {
+                failures.Add(ex);
+            }
+#pragma warning restore CA1031
+            finally
+            {
+                try
+                {
+                    await PluginStartup.StopAfterDataDrainAsync(
+                        Plugins ?? [],
+                        provider.GetRequiredService<AniMeido.Plugin.Base.Services.SqliteConnectionFactory>());
+                }
+#pragma warning disable CA1031 // 插件资源在数据排空后停止，故障不阻止后续依赖释放。
+                catch (Exception ex)
+                {
+                    failures.Add(ex);
+                }
+#pragma warning restore CA1031
+
+                try
+                {
+                    await notifications.DisposeAsync();
+                }
+#pragma warning disable CA1031 // 通知失败不阻止其余服务释放，原始异常由最终边界报告。
+                catch (Exception ex)
+                {
+                    failures.Add(ex);
+                }
+#pragma warning restore CA1031
+
+                try
+                {
+                    await provider.DisposeAsync();
+                }
+#pragma warning disable CA1031 // DI 可能再次交还已观察的失败，仍保留本次真实收尾结果。
+                catch (Exception ex)
+                {
+                    failures.Add(ex);
+                }
+#pragma warning restore CA1031
+            }
+
+            if (failures.Count > 0)
+            {
+                var errors = new AggregateException(failures).Flatten().InnerExceptions.Distinct();
+                throw new AggregateException("应用关闭清理未全部完成。", errors);
+            }
+        }
+
+        private async Task StopStartupTasksAsync(
+            ServiceProvider provider,
+            Task restorePreparation,
+            List<Exception> failures)
+        {
+            Task? completion = null;
+            try
+            {
+                completion = Task.WhenAll(
+                    _dataStartup, _startupNotices, _updateStartup, _trayStartup, _themeStartup,
+                    restorePreparation,
+                    provider.GetRequiredService<TrayIconService>().DisposeAsync().AsTask(),
+                    _window?.WaitForStartupAsync() ?? Task.CompletedTask);
+                await completion;
+            }
+#pragma warning disable CA1031 // 启动收尾失败也必须继续停止数据入口并排空已接纳写入。
+            catch (Exception ex)
+            {
+                failures.Add(completion?.Exception ?? ex);
+            }
+#pragma warning restore CA1031
+        }
+
+        private static async Task StopDataProducersAsync(
+            ServiceProvider provider,
+            WindowsAppNotificationService notifications,
+            List<Exception> failures)
+        {
+            // 宿主的依赖可能首次注册提醒回调，必须在封住通知入口之前完成组合。
+            var supervisor = provider.GetRequiredService<PluginHostSupervisor>();
+            var checks = provider.GetRequiredService<AniMeido.Plugin.Base.Services.PublicIdCheckService>();
+            var shortcuts = provider.GetRequiredService<GlobalShortcutManager>();
+
+            try
+            {
+                await notifications.StopActivationsAsync();
+            }
+#pragma warning disable CA1031 // 激活回调已结束，取消回调的失败不能阻止其他生产者停止。
+            catch (Exception ex)
+            {
+                failures.Add(ex);
+            }
+#pragma warning restore CA1031
+
+            Task? completion = null;
+            try
+            {
+                completion = Task.WhenAll(
+                    shortcuts.DisposeAsync().AsTask(),
+                    checks.DisposeAsync().AsTask(),
+                    supervisor.StopAndDrainAsync());
+                await completion;
+            }
+#pragma warning disable CA1031 // 所有生产者的停止均已等待；失败不能跳过数据库永久停止屏障。
+            catch (Exception ex)
+            {
+                failures.Add(completion?.Exception ?? ex);
+            }
+#pragma warning restore CA1031
+        }
+
         internal async Task SetKeepInTrayOnCloseAsync(bool enabled)
         {
             var provider = _serviceProvider;
@@ -356,27 +506,31 @@ namespace AniMeido.App
             var trayIcon = provider.GetRequiredService<TrayIconService>();
             if (enabled)
             {
-                StartTrayIcon(provider);
+                await StartTrayIconAsync(provider);
             }
             else
             {
-                trayIcon.Stop();
+                await trayIcon.StopAsync();
             }
 
             try
             {
-                _desktopSettings = await provider.GetRequiredService<DesktopSettingsStore>()
+                var savedSettings = await provider.GetRequiredService<DesktopSettingsStore>()
                     .UpdateAsync(settings => settings with { KeepInTrayOnClose = enabled });
+                _desktopSettings = savedSettings with
+                {
+                    KeepInTrayOnClose = savedSettings.KeepInTrayOnClose && trayIcon.IsRunning,
+                };
             }
             catch
             {
                 if (enabled)
                 {
-                    trayIcon.Stop();
+                    await trayIcon.StopAsync();
                 }
                 else if (_desktopSettings.KeepInTrayOnClose)
                 {
-                    StartTrayIcon(provider);
+                    await StartTrayIconAsync(provider);
                 }
 
                 throw;
@@ -390,19 +544,32 @@ namespace AniMeido.App
             _window?.Close();
         }
 
-        private void StartTrayIcon(IServiceProvider provider)
-            => provider.GetRequiredService<TrayIconService>().Start(
+        private Task StartTrayIconAsync(IServiceProvider provider)
+            => provider.GetRequiredService<TrayIconService>().StartAsync(
                 () => provider
                     .GetRequiredService<AppWindowActivationService>()
                     .ActivateMainWindow(),
-                RequestExit);
+                RequestExit,
+                OnTrayUnavailable);
+
+        private void OnTrayUnavailable()
+        {
+            if (_shutdownStarted || _shutdownCompleted || _exitRequested)
+                return;
+
+            _desktopSettings = _desktopSettings with { KeepInTrayOnClose = false };
+            _activationService?.ActivateMainWindow();
+        }
 
         private async Task StartTrayIconAtStartupAsync(
             IServiceProvider provider)
         {
             try
             {
-                StartTrayIcon(provider);
+                await StartTrayIconAsync(provider);
+            }
+            catch (OperationCanceledException) when (_shutdownStarted)
+            {
             }
             catch (Exception ex) when (
                 ex is InvalidOperationException or TimeoutException)
@@ -431,11 +598,15 @@ namespace AniMeido.App
         }
 
         private static async Task StartPluginHostSafelyAsync(
-            PluginHostSupervisor supervisor)
+            PluginHostSupervisor supervisor,
+            CancellationToken cancellationToken)
         {
             try
             {
-                await supervisor.StartAsync();
+                await supervisor.StartAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
             }
 #pragma warning disable CA1031 // Optional plugins must not prevent the core App from running.
             catch (Exception ex)

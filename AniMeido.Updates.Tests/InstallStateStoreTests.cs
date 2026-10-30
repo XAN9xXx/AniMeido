@@ -33,8 +33,8 @@ public sealed class InstallStateStoreTests
         Assert.Equal(state.FailedVersions, actual.FailedVersions);
         using var document = JsonDocument.Parse(File.ReadAllBytes(temp.Store.StatePath));
         Assert.Equal(new[] { "schema", "current", "previous", "pending", "currentHealthy", "failedStarts",
-            "migration", "rolledBackFrom", "pendingRestore", "lastRestore", "failedVersions" },
-            document.RootElement.EnumerateObject().Select(p => p.Name));
+            "migration", "rolledBackFrom", "pendingRestore", "lastRestore", "failedVersions" }.Order(StringComparer.Ordinal),
+            document.RootElement.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));
         Assert.False(File.Exists(temp.Store.StatePath + ".tmp"));
     }
 

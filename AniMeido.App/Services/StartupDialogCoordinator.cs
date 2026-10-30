@@ -5,37 +5,54 @@ namespace AniMeido.App.Services;
 
 public sealed class StartupDialogCoordinator
 {
-    private readonly FrameworkElement _xamlRootProvider;
+    private readonly PrivacyService _privacy;
+    private readonly DesktopSettingsStore _settings;
+    private readonly TaskCompletionSource _completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public StartupDialogCoordinator(FrameworkElement xamlRootProvider)
+    public StartupDialogCoordinator(PrivacyService privacy, DesktopSettingsStore settings)
     {
-        _xamlRootProvider = xamlRootProvider;
+        _privacy = privacy;
+        _settings = settings;
     }
 
-    public async Task ShowPrivacyDialogAsync()
+    /// <summary>只在隐私和公告都处理成功后报告完成；失败或取消的尝试允许重试。</summary>
+    public async Task ShowStartupDialogsAsync(FrameworkElement root, CancellationToken cancellationToken = default)
     {
-        if (App.PrivacyService.IsAccepted()) return;
+        await ShowPrivacyDialogAsync(root, cancellationToken);
+        await ShowAnnouncementDialogAsync(root, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        _completed.TrySetResult();
+    }
+
+    /// <summary>取消只结束本次等待，不改变启动弹窗的共享完成状态。</summary>
+    public Task WaitForCompletionAsync(CancellationToken cancellationToken = default)
+        => _completed.Task.WaitAsync(cancellationToken);
+
+    public async Task ShowPrivacyDialogAsync(FrameworkElement root, CancellationToken cancellationToken = default)
+    {
+        if (await _privacy.IsAcceptedAsync(cancellationToken)) return;
 
         var dialog = new ContentDialog
         {
             Title = "隐私声明",
-            Content = "AniMeido 仅向 Bangumi API 请求番剧数据，不收集或发送任何个人信息。当前应用会在本地存储追番记录、浏览历史、收藏标签和拖放配置等数据（%AppData%/AniMeido/AniMeido.db），不会上传到外部服务器。后续某些插件的功能可能涉及隐私问题，此类插件安装后，将在初次启动时以弹窗提醒。",
+            Content = "AniMeido 会联网获取番剧资料、图片和更新信息。搜索与资料查询会向相应服务发送关键词、作品编号等必要参数；使用播放插件时，会访问你选择的播放源。\n\n"
+                + "追番状态、个人评分、计划、笔记、浏览历史和截图保存在本机。当前应用不提供这些个人记录的云端同步。应用设置也保存在当前数据目录中。\n\n"
+                + "播放源由第三方提供；在源站登录或完成验证时，相关信息按该网站的规则处理。请只安装和使用你信任的插件与播放源。",
 
             PrimaryButtonText = "同意",
             CloseButtonText = "拒绝",
-            XamlRoot = _xamlRootProvider.XamlRoot
+            XamlRoot = root.XamlRoot
         };
 
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
-            App.PrivacyService.Accept();
+        if (await ShowAsync(dialog, cancellationToken) == ContentDialogResult.Primary)
+            await _privacy.AcceptAsync(cancellationToken);
         else
             Environment.Exit(0);
     }
 
-    public async Task ShowAnnouncementDialogAsync()
+    public async Task ShowAnnouncementDialogAsync(FrameworkElement root, CancellationToken cancellationToken = default)
     {
-        const string regKey = @"HKEY_CURRENT_USER\Software\AniMeido";
-        if (Microsoft.Win32.Registry.GetValue(regKey, "AnnouncementShown", null) is 1)
+        if ((await _settings.LoadAsync(cancellationToken)).AnnouncementShown == true)
             return;
 
         var dialog = new ContentDialog
@@ -45,10 +62,22 @@ public sealed class StartupDialogCoordinator
                     + "官方网站：animeido.com\n\n"
                     + "如果您有新想法或需要报告 Bug，请通过设置页的「关于」卡片中提供的联系方式与我们取得联系。",
             PrimaryButtonText = "知道了",
-            XamlRoot = _xamlRootProvider.XamlRoot
+            XamlRoot = root.XamlRoot
         };
 
-        await dialog.ShowAsync();
-        Microsoft.Win32.Registry.SetValue(regKey, "AnnouncementShown", 1);
+        await ShowAsync(dialog, cancellationToken);
+        await _settings.UpdateAsync(value => value with { AnnouncementShown = true }, cancellationToken);
+    }
+
+    private static async Task<ContentDialogResult> ShowAsync(
+        ContentDialog dialog,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using var closing = cancellationToken.Register(() =>
+            dialog.DispatcherQueue.TryEnqueue(dialog.Hide));
+        var result = await dialog.ShowAsync();
+        cancellationToken.ThrowIfCancellationRequested();
+        return result;
     }
 }

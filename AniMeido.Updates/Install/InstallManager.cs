@@ -86,8 +86,17 @@ public sealed class InstallManager(InstallStateStore store, Action<string>? log 
             FailedStarts = result.Success ? 0 : state.FailedStarts,
             Migration = result.Success ? null : state.Migration,
         });
+        ReportRestoreCleanupErrors(result);
         log?.Invoke(result.Success ? $"已从 {request.Directory} 恢复，当前数据另存到 {result.ArchiveDirectory}。"
             : $"恢复数据失败：{result.Error}");
+    }
+
+    internal void ReportRestoreCleanupErrors(DatabaseRollbackResult result)
+    {
+        foreach (var error in result.CleanupErrors)
+        {
+            log?.Invoke($"恢复流程的临时文件未能清理，已保留 {error.Path}：{error.Message}");
+        }
     }
 
     public string ValidateRestore(string dataDirectory, string directory, int currentVersion) => store.WithLock(() =>
@@ -165,6 +174,7 @@ public sealed class InstallManager(InstallStateStore store, Action<string>? log 
                     throw new InstallException("仍有 AniMeido.App.exe 正在运行或无法确认其状态；未恢复数据库，未切换版本。");
                 }
                 var result = DatabaseRollback.Restore(dataDirectory, request.Backup, archive);
+                ReportRestoreCleanupErrors(result);
                 if (!result.Success)
                 {
                     throw new InstallException($"恢复数据库失败，未切换版本：{result.Error}"
@@ -192,11 +202,30 @@ public sealed class InstallManager(InstallStateStore store, Action<string>? log 
     public void RecordMigration(string version, string backupPath)
     {
         var backup = Path.GetFullPath(backupPath);
-        ChangeCurrent(version, state => state with
+        SemanticVersion.Parse(version);
+        store.WithLock(() =>
         {
-            Migration = new MigrationRecord { Version = version, Backup = backup },
+            var state = store.ReadLocked();
+            if (!string.Equals(version, state.Current, StringComparison.Ordinal))
+                throw new InstallException("运行版本与当前安装版本不一致，未登记数据库升级。");
+
+            store.WriteLocked(state with
+            {
+                Migration = new MigrationRecord { Version = version, Backup = backup },
+            });
+            return true;
         });
     }
+
+    public RolledBackNotice? ReadRolledBackNotice() => store.Read().RolledBackFrom;
+
+    public void ClearRolledBackNotice(RolledBackNotice notice) => store.WithLock(() =>
+    {
+        var state = store.ReadLocked();
+        if (state.RolledBackFrom == notice)
+            store.WriteLocked(state with { RolledBackFrom = null });
+        return true;
+    });
 
     public RolledBackNotice? ConsumeRolledBackNotice() => store.WithLock(() =>
     {
@@ -234,61 +263,81 @@ public sealed class InstallManager(InstallStateStore store, Action<string>? log 
         return true;
     });
 
-    public IReadOnlyList<CleanupError> CleanupObsolete()
+    public IReadOnlyList<CleanupError> CleanupObsolete() => CleanupObsolete(null);
+
+    internal IReadOnlyList<CleanupError> CleanupObsolete(Action<string>? beforeDirectoryDelete)
     {
         var errors = new List<CleanupError>();
         try
         {
             using var updateLock = AcquireUpdateLock();
-            store.WithLock(() =>
+            var directories = store.WithLock(() => StageObsoleteDirectories(errors));
+            foreach (var directory in directories)
             {
-                var state = store.ReadLocked();
-                var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "app-" + state.Current };
-                if (state.Previous is not null)
+                TryCleanup(directory.Original, () =>
                 {
-                    keep.Add("app-" + state.Previous);
-                }
-                // 应用内更新可能刚设置 pending；不能在后台清理中删除下一次启动需要的目录。
-                if (state.Pending is not null)
-                {
-                    keep.Add("app-" + state.Pending);
-                }
-                foreach (var directory in Directory.GetDirectories(store.Root))
-                {
-                    var name = Path.GetFileName(directory);
-                    if (!keep.Contains(name) && (name.StartsWith("app-", StringComparison.Ordinal)
-                        || name.EndsWith(".staging", StringComparison.OrdinalIgnoreCase)))
-                    {
-                        TryCleanup(directory, () => DeleteDirectorySafely(directory), errors);
-                    }
-                }
-                var packages = Path.Combine(store.Root, "packages");
-                if (Directory.Exists(packages))
-                {
-                    TryCleanup(packages, () =>
-                    {
-                        RejectReparsePoint(packages);
-                        foreach (var file in Directory.GetFiles(packages))
-                        {
-                            // 已完成的哈希命名 ZIP 不再需要；最近的 partial 留给下载器续传。
-                            var extension = Path.GetExtension(file);
-                            if (extension.Equals(".zip", StringComparison.OrdinalIgnoreCase)
-                                || (extension.Equals(".partial", StringComparison.OrdinalIgnoreCase)
-                                    && File.GetLastWriteTimeUtc(file) < DateTime.UtcNow.AddDays(-14)))
-                            {
-                                TryCleanup(file, () => File.Delete(file), errors);
-                            }
-                        }
-                    }, errors);
-                }
-                return true;
-            });
+                    beforeDirectoryDelete?.Invoke(directory.Staged);
+                    DeleteDirectorySafely(directory.Staged);
+                }, errors);
+            }
+            CleanupPackages(errors);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             errors.Add(new CleanupError(store.Root, ex.Message));
         }
         return errors;
+    }
+
+    private List<(string Original, string Staged)> StageObsoleteDirectories(List<CleanupError> errors)
+    {
+        var state = store.ReadLocked();
+        var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "app-" + state.Current };
+        if (state.Previous is not null)
+            keep.Add("app-" + state.Previous);
+        if (state.Pending is not null)
+            keep.Add("app-" + state.Pending);
+
+        var staged = new List<(string Original, string Staged)>();
+        foreach (var directory in Directory.GetDirectories(store.Root))
+        {
+            var name = Path.GetFileName(directory);
+            if (keep.Contains(name) || (!name.StartsWith("app-", StringComparison.Ordinal)
+                && !name.EndsWith(".staging", StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            TryCleanup(directory, () =>
+            {
+                RejectReparsePoint(directory);
+                // 锁内改名后，启动恢复和 SetPending 都不能再把它选作版本。
+                // 失败或中断后仍按既有 staging 规则重试，不新增安装状态字段。
+                var destination = Path.Combine(store.Root, $".cleanup-{Guid.NewGuid():N}.staging");
+                Directory.Move(directory, destination);
+                staged.Add((directory, destination));
+            }, errors);
+        }
+        return staged;
+    }
+
+    private void CleanupPackages(List<CleanupError> errors)
+    {
+        var packages = Path.Combine(store.Root, "packages");
+        if (!Directory.Exists(packages))
+            return;
+
+        TryCleanup(packages, () =>
+        {
+            RejectReparsePoint(packages);
+            foreach (var file in Directory.GetFiles(packages))
+            {
+                // update.lock 仍由整次清理持有，下载器不会同时操作包文件。
+                var extension = Path.GetExtension(file);
+                if (extension.Equals(".zip", StringComparison.OrdinalIgnoreCase)
+                    || (extension.Equals(".partial", StringComparison.OrdinalIgnoreCase)
+                        && File.GetLastWriteTimeUtc(file) < DateTime.UtcNow.AddDays(-14)))
+                    TryCleanup(file, () => File.Delete(file), errors);
+            }
+        }, errors);
     }
 
     private void DeleteDirectorySafely(string directory)

@@ -47,6 +47,8 @@ english.ExitLegacy=Please fully exit old AniMeido, including its tray icon, befo
 chinesesimplified.ExitLegacy=请完全退出旧版 AniMeido（包括托盘），再继续安装。退出后请点击“重试”。
 english.ProcessCheckFailed=Unable to verify running AniMeido processes. Installation cannot continue safely. Fully exit AniMeido and retry.
 chinesesimplified.ProcessCheckFailed=无法确认 AniMeido 进程是否已经退出，不能安全继续。请完全退出后重试。
+english.LegacyDetectionFailed=Unable to confirm the old AniMeido installation location. Uninstall the old version in Windows Installed apps, then try again.
+chinesesimplified.LegacyDetectionFailed=无法确认旧版 AniMeido 的安装位置。请先在 Windows“已安装的应用”中卸载旧版，再重试。
 english.Downgrade=An installed version is newer than this installer. Downgrading may make the database unreadable. Installation was refused.
 chinesesimplified.Downgrade=已安装更高版本，降级可能导致数据库无法打开。已拒绝安装。
 english.InvalidState=Unable to read a valid current version from state.json. Installation was refused to avoid an accidental downgrade.
@@ -69,6 +71,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "{#InstallImage}\AniMeido.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#InstallImage}\e_sqlite3.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#InstallImage}\app-{#AppVersion}\*"; DestDir: "{app}\app-{#AppVersion}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Always replace the packaged initial state; previous and pending are null in this image.
 Source: "{#InstallImage}\state.json"; DestDir: "{app}"; Flags: ignoreversion
@@ -421,8 +424,13 @@ var
     N: Integer;
 begin
     if not RegKeyExists(Root, LegacyKey) then Exit;
-    if not RegQueryStringValue(Root, LegacyKey, 'InstallLocation', Directory) then
+    if not RegQueryStringValue(Root, LegacyKey, 'InstallLocation', Directory)
+        or (Trim(Directory) = '') then
+    begin
         Log('Warning: legacy InstallLocation is unavailable.');
+        LegacyDetectionFailed := True;
+        Exit;
+    end;
     if not RegQueryStringValue(Root, LegacyKey, 'UninstallString', Command) then
         Log('Warning: legacy UninstallString is unavailable.');
     N := GetArrayLength(LegacyCommands);
@@ -526,7 +534,7 @@ begin
     DetectLegacy();
     if LegacyDetectionFailed then
     begin
-        Result := CustomMessage('ProcessCheckFailed');
+        Result := CustomMessage('LegacyDetectionFailed');
         Exit;
     end;
     for I := 0 to GetArrayLength(LegacyDirectories) - 1 do

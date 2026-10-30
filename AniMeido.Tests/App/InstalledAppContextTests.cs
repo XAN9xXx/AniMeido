@@ -45,6 +45,41 @@ public sealed class InstalledAppContextTests : DbTestBase
     }
 
     [Fact]
+    public async Task RollbackNoticeSurvivesFailedDisplayAndDoesNotClearNewerNotice()
+    {
+        var root = Path.Combine(Paths.RootDirectory, "notice-install");
+        var directory = InstallLayout.VersionDirectory(root, "2.2.0");
+        Directory.CreateDirectory(directory);
+        var executable = Path.Combine(directory, InstallLayout.AppFileName);
+        File.WriteAllText(executable, "never executed");
+        var first = new RolledBackNotice { Version = "2.3.0", Reason = RolledBackNotice.StartFailed };
+        var newer = new RolledBackNotice { Version = "2.4.0", Reason = RolledBackNotice.StartFailed };
+        var store = new InstallStateStore(root);
+        store.Write(new InstallState { Current = "2.2.0", RolledBackFrom = first });
+        var context = new InstalledAppContext(executable);
+
+        await Assert.ThrowsAsync<IOException>(() => context.ShowRolledBackNoticeAsync(
+            _ => Task.FromException(new IOException("dialog unavailable"))));
+        Assert.Equal(first, store.Read().RolledBackFrom);
+
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => context.ShowRolledBackNoticeAsync(
+            _ => Task.FromCanceled(cancellation.Token)));
+        Assert.Equal(first, store.Read().RolledBackFrom);
+
+        await context.ShowRolledBackNoticeAsync(notice =>
+        {
+            Assert.Equal(first, notice);
+            store.Write(store.Read() with { RolledBackFrom = newer });
+            return Task.CompletedTask;
+        });
+        Assert.Equal(newer, store.Read().RolledBackFrom);
+        await context.ShowRolledBackNoticeAsync(_ => Task.CompletedTask);
+        Assert.Null(store.Read().RolledBackFrom);
+    }
+
+    [Fact]
     public void InstalledOperationsUseDirectoryVersionAndConsumeNoticeOnce()
     {
         var root = Path.Combine(Paths.RootDirectory, "install");

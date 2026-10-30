@@ -12,6 +12,7 @@ param(
     [string]$Root,
     [Parameter(Mandatory = $true)]
     [string]$Version,
+    [Parameter(Mandatory = $true)]
     [ValidateNotNullOrEmpty()]
     [string]$DataRoot,
     [switch]$AsPending,
@@ -95,12 +96,8 @@ try {
     & dotnet build '.\AniMeido.Updates' -c Release $testSourceProperty "-p:RestoreSources=$cache" '-p:NuGetAudit=false'
     if ($LASTEXITCODE -ne 0) { throw 'AniMeido.Updates 构建失败。' }
     $built = Join-Path $repo 'AniMeido.Updates\bin\x64\Release\net10.0\AniMeido.Updates.dll'
-    # 加载副本：直接加载会锁住构建输出，后面发布启动器时无法重新编译 Updates。副本留在临时目录。
-    $libraryDirectory = Join-Path ([IO.Path]::GetTempPath()) ('AniMeido-DevInstall-' + [Guid]::NewGuid().ToString('N'))
-    $null = New-Item -ItemType Directory -Path $libraryDirectory
-    $library = Join-Path $libraryDirectory 'AniMeido.Updates.dll'
-    Copy-Item -LiteralPath $built -Destination $library
-    Add-Type -LiteralPath $library
+    # 按字节加载，避免锁住后续发布需要重建的 Updates，也不留下临时副本。
+    $null = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes($built))
     $null = [AniMeido.Updates.SemanticVersion]::Parse($Version)
     $versionDirectory = [AniMeido.Updates.Install.InstallLayout]::VersionDirectory($installRoot, $Version)
     $staging = $versionDirectory + '.staging'
@@ -143,7 +140,9 @@ try {
         & dotnet publish '.\AniMeido.Launcher' -c Release -r win-x64 `
             "-p:RestoreSources=$cache" '-p:NuGetAudit=false' --output $launcherStaging
         if ($LASTEXITCODE -ne 0) { throw '启动器 AOT 发布失败；未修改 state.json，请先准备本机所需发布依赖。' }
-        [IO.File]::Move((Join-Path $launcherStaging 'AniMeido.exe'), $launcher)
+        foreach ($name in @('AniMeido.exe', 'e_sqlite3.dll')) {
+            [IO.File]::Move((Join-Path $launcherStaging $name), (Join-Path $installRoot $name))
+        }
         # 只删除本次创建且已核对位于 Root 内的暂存目录。
         $resolved = [IO.Path]::GetFullPath($launcherStaging)
         if ([IO.Path]::GetDirectoryName($resolved) -ne $installRoot) {

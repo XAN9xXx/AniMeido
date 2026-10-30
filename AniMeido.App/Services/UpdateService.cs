@@ -60,19 +60,19 @@ namespace AniMeido.App.Services
             PropertyNameCaseInsensitive = true,
         };
 
-        internal async Task<UpdateCheckResult> CheckForUpdateAsync()
+        internal async Task<UpdateCheckResult> CheckForUpdateAsync(CancellationToken cancellationToken = default)
         {
             using var client = _httpClientFactory.CreateClient();
             string json;
             try
             {
-                json = await client.GetStringAsync(_manifestUrl).ConfigureAwait(false);
+                json = await client.GetStringAsync(_manifestUrl, cancellationToken).ConfigureAwait(false);
             }
             catch (HttpRequestException ex)
             {
                 return Failure(UpdateCheckStatus.NetworkError, $"无法获取更新清单：{ex.Message}");
             }
-            catch (TaskCanceledException)
+            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 return Failure(UpdateCheckStatus.NetworkError, "获取更新清单超时或请求已取消，请检查网络连接后重试。");
             }

@@ -31,10 +31,9 @@ public static class TitleBarHelper
             TitleBarHeightOption.Tall;
     }
 
-    public static void UpdateButtonColors(AppWindow appWindow)
+    public static void UpdateButtonColors(AppWindow appWindow, ElementTheme theme)
     {
         var titleBar = appWindow.TitleBar;
-        var theme = App.ThemeService.GetCurrentTheme();
         var isLightTheme = theme == ElementTheme.Light ||
             (theme == ElementTheme.Default && Application.Current.RequestedTheme == ApplicationTheme.Light);
 

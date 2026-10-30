@@ -18,13 +18,39 @@ public sealed class WindowsAppNotificationService :
     private readonly Dictionary<string, ActivationRegistration> _handlers =
         new(StringComparer.Ordinal);
     private readonly Queue<AppNotificationActivation> _pending = new();
+    private readonly CancellationTokenSource _shutdown = new();
+    private readonly HashSet<Task> _activeHandlers = [];
+    private readonly Func<Action, bool> _enqueue;
+    private Task? _stopActivationsTask;
+    private Task? _disposeTask;
+    private AppNotificationManager? _manager;
     private DispatcherQueue? _dispatcherQueue;
     private bool _registered;
     private bool _disposed;
 
     public WindowsAppNotificationService(
         ILogger<WindowsAppNotificationService> logger)
-        => _logger = logger;
+        : this(logger, null)
+    {
+    }
+
+    internal WindowsAppNotificationService(
+        ILogger<WindowsAppNotificationService> logger,
+        Func<Action, bool>? enqueue)
+    {
+        _logger = logger;
+        _enqueue = enqueue ?? TryEnqueue;
+    }
+
+    private bool TryEnqueue(Action action)
+    {
+        if (_dispatcherQueue?.HasThreadAccess == true)
+        {
+            action();
+            return true;
+        }
+        return _dispatcherQueue?.TryEnqueue(() => action()) == true;
+    }
 
     public bool IsSupported { get; private set; }
 
@@ -35,13 +61,17 @@ public sealed class WindowsAppNotificationService :
 
     public Task InitializeAsync()
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(_disposed || _stopActivationsTask is not null, this);
+        if (_registered)
+        {
+            return Task.CompletedTask;
+        }
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
         try
         {
-            var manager = AppNotificationManager.Default;
-            manager.NotificationInvoked += OnNotificationInvoked;
-            manager.Register();
+            _manager = AppNotificationManager.Default;
+            _manager.NotificationInvoked += OnNotificationInvoked;
+            _manager.Register();
             _registered = true;
             IsSupported = true;
         }
@@ -49,6 +79,11 @@ public sealed class WindowsAppNotificationService :
             ex is InvalidOperationException
             or System.Runtime.InteropServices.COMException)
         {
+            if (_manager is not null)
+            {
+                _manager.NotificationInvoked -= OnNotificationInvoked;
+                _manager = null;
+            }
             IsSupported = false;
             _logger.LogWarning(
                 ex,
@@ -193,7 +228,7 @@ public sealed class WindowsAppNotificationService :
         string category,
         Func<AppNotificationActivation, CancellationToken, Task> handler)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(_disposed || _stopActivationsTask is not null, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(category);
         ArgumentNullException.ThrowIfNull(handler);
         var registration = new ActivationRegistration(
@@ -203,6 +238,7 @@ public sealed class WindowsAppNotificationService :
         List<AppNotificationActivation> pending;
         lock (_sync)
         {
+            ObjectDisposedException.ThrowIf(_disposed || _stopActivationsTask is not null, this);
             _handlers[category] = registration;
             pending = _pending
                 .Where(item => string.Equals(
@@ -280,6 +316,14 @@ public sealed class WindowsAppNotificationService :
         AppNotificationManager sender,
         AppNotificationActivatedEventArgs args)
     {
+        lock (_sync)
+        {
+            if (_disposed || _stopActivationsTask is not null)
+            {
+                return;
+            }
+        }
+
         var values = ParseArguments(args.Argument);
         if (!values.Remove("category", out var category)
             || string.IsNullOrWhiteSpace(category))
@@ -297,13 +341,13 @@ public sealed class WindowsAppNotificationService :
         ActivationRegistration? handler;
         lock (_sync)
         {
+            if (_disposed || _stopActivationsTask is not null)
+            {
+                return;
+            }
             if (!_handlers.TryGetValue(category, out handler))
             {
-                _pending.Enqueue(activation);
-                while (_pending.Count > 32)
-                {
-                    _pending.Dequeue();
-                }
+                EnqueuePending(activation);
                 return;
             }
         }
@@ -311,37 +355,73 @@ public sealed class WindowsAppNotificationService :
         Dispatch(handler.Handler, activation);
     }
 
-    private void Dispatch(
+    internal void Dispatch(
         Func<AppNotificationActivation, CancellationToken, Task> handler,
         AppNotificationActivation activation)
     {
+        TaskCompletionSource completion;
+        CancellationToken cancellationToken;
+        lock (_sync)
+        {
+            if (_disposed || _stopActivationsTask is not null)
+            {
+                return;
+            }
+            completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _activeHandlers.Add(completion.Task);
+            cancellationToken = _shutdown.Token;
+        }
+
         async void Invoke()
         {
             try
             {
-                await handler(activation, CancellationToken.None);
+                cancellationToken.ThrowIfCancellationRequested();
+                await handler(activation, cancellationToken);
             }
-#pragma warning disable CA1031 // Notification actions cannot crash the App.
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+#pragma warning disable CA1031 // 通知操作在此处理最终结果，不把异常交给 UI 消息循环。
             catch (Exception ex)
             {
-                _logger.LogWarning(
-                    ex,
-                    "Notification action {Action} failed.",
-                    activation.Action);
+                _logger.LogError(ex, "Notification action {Action} failed.", activation.Action);
             }
 #pragma warning restore CA1031
+            finally
+            {
+                CompleteDispatch(completion);
+            }
         }
 
-        if (_dispatcherQueue?.HasThreadAccess == true)
-        {
-            Invoke();
-        }
-        else if (_dispatcherQueue?.TryEnqueue(Invoke) != true)
+        if (!_enqueue(Invoke))
         {
             lock (_sync)
             {
-                _pending.Enqueue(activation);
+                if (!_disposed && _stopActivationsTask is null)
+                {
+                    EnqueuePending(activation);
+                }
             }
+            CompleteDispatch(completion);
+        }
+    }
+
+    private void CompleteDispatch(TaskCompletionSource completion)
+    {
+        lock (_sync)
+        {
+            _activeHandlers.Remove(completion.Task);
+            completion.TrySetResult();
+        }
+    }
+
+    private void EnqueuePending(AppNotificationActivation activation)
+    {
+        _pending.Enqueue(activation);
+        while (_pending.Count > 32)
+        {
+            _pending.Dequeue();
         }
     }
 
@@ -378,29 +458,108 @@ public sealed class WindowsAppNotificationService :
         }
     }
 
-    public ValueTask DisposeAsync()
+    internal Task StopActivationsAsync()
     {
-        if (_disposed)
-        {
-            return ValueTask.CompletedTask;
-        }
-
-        _disposed = true;
-        if (_registered)
-        {
-            var manager = AppNotificationManager.Default;
-            manager.NotificationInvoked -= OnNotificationInvoked;
-            manager.Unregister();
-            _registered = false;
-        }
-
+        TaskCompletionSource completion;
+        Task[] handlers;
         lock (_sync)
         {
+            if (_stopActivationsTask is not null)
+            {
+                return _stopActivationsTask;
+            }
+
             _handlers.Clear();
             _pending.Clear();
+            handlers = _activeHandlers.ToArray();
+            completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _stopActivationsTask = completion.Task;
         }
 
-        return ValueTask.CompletedTask;
+        _ = StopActivationsCoreAsync(handlers, completion);
+        return completion.Task;
+    }
+
+    private async Task StopActivationsCoreAsync(Task[] handlers, TaskCompletionSource completion)
+    {
+        try
+        {
+            try
+            {
+                _shutdown.Cancel();
+            }
+            finally
+            {
+                await Task.WhenAll(handlers).ConfigureAwait(false);
+            }
+            completion.TrySetResult();
+        }
+#pragma warning disable CA1031 // 停止任务向调用方传递原始失败，仍先等待真实回调退出。
+        catch (Exception error)
+        {
+            completion.TrySetException(error);
+        }
+#pragma warning restore CA1031
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        TaskCompletionSource completion;
+        lock (_sync)
+        {
+            if (_disposeTask is not null)
+            {
+                return new ValueTask(_disposeTask);
+            }
+
+            _disposed = true;
+            IsSupported = false;
+            completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _disposeTask = completion.Task;
+        }
+
+        _ = DisposeCoreAsync(completion);
+        return new ValueTask(completion.Task);
+    }
+
+    private async Task DisposeCoreAsync(TaskCompletionSource completion)
+    {
+        try
+        {
+            try
+            {
+                await StopActivationsAsync();
+            }
+            finally
+            {
+                if (_manager is not null)
+                {
+                    _manager.NotificationInvoked -= OnNotificationInvoked;
+                    if (_registered)
+                    {
+                        try
+                        {
+                            _manager.Unregister();
+                        }
+                        catch (Exception ex) when (IsNotificationInfrastructureError(ex))
+                        {
+                            _logger.LogWarning(ex, "Unable to unregister Windows notifications during shutdown.");
+                        }
+                        _registered = false;
+                    }
+                    _manager = null;
+                }
+
+                _shutdown.Dispose();
+            }
+            completion.TrySetResult();
+        }
+#pragma warning disable CA1031 // 共享销毁任务向所有调用方传递同一次收尾结果。
+        catch (Exception error)
+        {
+            completion.TrySetException(error);
+        }
+#pragma warning restore CA1031
     }
 
     private sealed class ActivationRegistration : IDisposable

@@ -7,6 +7,9 @@ namespace AniMeido.App.Services;
 public sealed class InstalledAppContext
 {
     private readonly InstallManager? _manager;
+    private readonly object _restoreGate = new();
+    private readonly HashSet<Task> _restorePreparations = [];
+    private bool _restoreStopping;
 
     public bool IsInstalled => _manager is not null;
     public string? Version { get; }
@@ -45,11 +48,62 @@ public sealed class InstalledAppContext
 
     public RolledBackNotice? ConsumeRolledBackNotice() => _manager?.ConsumeRolledBackNotice();
 
-    internal string ValidateRestore(string dataDirectory, string directory) => RequireManager()
-        .ValidateRestore(dataDirectory, directory, AniMeido.Plugin.Base.Services.DatabaseSchema.CurrentVersion);
+    internal async Task ShowRolledBackNoticeAsync(Func<RolledBackNotice, Task> show)
+    {
+        if (_manager?.ReadRolledBackNotice() is not { } notice)
+            return;
 
-    internal void RequestRestore(string dataDirectory, string directory) => RequireManager()
-        .RequestRestore(dataDirectory, directory, AniMeido.Plugin.Base.Services.DatabaseSchema.CurrentVersion);
+        await show(notice);
+        _manager.ClearRolledBackNotice(notice);
+    }
+
+    internal Task<string> ValidateRestoreAsync(string dataDirectory, string directory)
+        => PrepareRestoreAsync(() => RequireManager().ValidateRestore(
+            dataDirectory, directory, AniMeido.Plugin.Base.Services.DatabaseSchema.CurrentVersion));
+
+    internal Task RequestRestoreAsync(string dataDirectory, string directory)
+        => PrepareRestoreAsync(() =>
+        {
+            RequireManager().RequestRestore(
+                dataDirectory, directory, AniMeido.Plugin.Base.Services.DatabaseSchema.CurrentVersion);
+            return true;
+        });
+
+    private async Task<T> PrepareRestoreAsync<T>(Func<T> prepare)
+    {
+        Task<T> task;
+        lock (_restoreGate)
+        {
+            if (_restoreStopping)
+                throw new InvalidOperationException("应用正在退出，不能再准备恢复数据。");
+            // 文件复制和 SQLite 读取属于同一次准备操作，不占用 UI 线程。
+            task = Task.Run(prepare);
+            _restorePreparations.Add(task);
+        }
+
+        try
+        {
+            return await task.ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_restoreGate)
+                _restorePreparations.Remove(task);
+        }
+    }
+
+    internal async Task StopRestorePreparationAsync()
+    {
+        Task[] pending;
+        lock (_restoreGate)
+        {
+            _restoreStopping = true;
+            pending = _restorePreparations.ToArray();
+        }
+
+        // 操作结果交给原调用者；退出只等待文件句柄和临时目录收尾。
+        await Task.WhenAll(pending).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+    }
 
     internal void ShowRestoreNotice(Action<RestoreNotice> show)
     {

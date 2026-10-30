@@ -15,10 +15,11 @@ internal static class UpdatePromptDialog
         UpdateService.UpdateCheckResult result,
         DesktopSettingsStore settingsStore,
         UpdatePromptTrigger trigger,
-        XamlRoot xamlRoot)
+        XamlRoot xamlRoot,
+        CancellationToken cancellationToken = default)
     {
         // 两个入口共用一把锁，避免同一窗口同时打开两个 ContentDialog。
-        await DialogGate.WaitAsync();
+        await DialogGate.WaitAsync(cancellationToken);
         try
         {
             string? skippedVersion = null;
@@ -26,7 +27,7 @@ internal static class UpdatePromptDialog
             {
                 try
                 {
-                    skippedVersion = (await settingsStore.LoadAsync()).SkippedUpdateVersion;
+                    skippedVersion = (await settingsStore.LoadAsync(cancellationToken)).SkippedUpdateVersion;
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
@@ -66,7 +67,11 @@ internal static class UpdatePromptDialog
                 XamlRoot = xamlRoot,
             };
 
+            cancellationToken.ThrowIfCancellationRequested();
+            using var closing = cancellationToken.Register(() =>
+                dialog.DispatcherQueue.TryEnqueue(dialog.Hide));
             var choice = await dialog.ShowAsync();
+            cancellationToken.ThrowIfCancellationRequested();
             if (choice == ContentDialogResult.Secondary && decision.AllowSkip)
             {
                 await settingsStore.UpdateAsync(settings => settings with
@@ -103,15 +108,16 @@ internal static class UpdatePromptDialog
         InstalledUpdateService service,
         DesktopSettingsStore settingsStore,
         UpdatePromptTrigger trigger,
-        XamlRoot xamlRoot)
+        XamlRoot xamlRoot,
+        CancellationToken cancellationToken = default)
     {
-        await DialogGate.WaitAsync();
+        await DialogGate.WaitAsync(cancellationToken);
         try
         {
-            var settings = await settingsStore.LoadAsync();
+            var settings = await settingsStore.LoadAsync(cancellationToken);
             var decision = UpdatePromptPolicy.Decide(result, settings.SkippedUpdateVersion, trigger);
-            if (decision.LogWarning)
-                Log.Warning("安装更新检查失败：{Status}，{Reason}", result.Status, result.FailureReason);
+            if (trigger == UpdatePromptTrigger.Manual && decision.LogWarning)
+                Log.Error(result.Failure, "安装更新检查失败：{Status}，{Reason}", result.Status, result.FailureReason);
             if (!decision.ShouldPrompt)
                 return;
 
@@ -138,9 +144,10 @@ internal static class UpdatePromptDialog
                 XamlRoot = xamlRoot,
             };
             CancellationTokenSource? downloadCancellation = null;
+            Task? primaryAction = null;
             dialog.Closing += (_, args) =>
             {
-                if (busy)
+                if (busy && !cancellationToken.IsCancellationRequested)
                 {
                     args.Cancel = true;
                     downloadCancellation?.Cancel();
@@ -153,17 +160,19 @@ internal static class UpdatePromptDialog
                 args.Cancel = true;
                 // 不用长时间的按钮 deferral，避免 WinUI 在下载期间禁用“取消”。
                 if (!busy)
-                    _ = HandlePrimaryAsync();
+                    primaryAction = HandlePrimaryAsync();
             };
             async Task HandlePrimaryAsync()
             {
+                busy = true;
+                dialog.IsPrimaryButtonEnabled = false;
                 try
                 {
                     if (ready)
                     {
                         if (Application.Current is not App app)
                             throw new InvalidOperationException("应用退出入口不可用。");
-                        service.Restart(() =>
+                        await service.RestartAsync(() =>
                         {
                             restartRequested = true;
                             dialog.Hide();
@@ -171,9 +180,7 @@ internal static class UpdatePromptDialog
                         });
                         return;
                     }
-                    busy = true;
-                    dialog.IsPrimaryButtonEnabled = false;
-                    downloadCancellation = new CancellationTokenSource();
+                    downloadCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                     // 下载前取消跳过；立即重启时不会在释放 DI 后再访问设置存储。
                     await ResumeSkippedAsync(settingsStore, result.LatestVersion, decision);
                     dialog.Title = "正在准备更新";
@@ -202,9 +209,8 @@ internal static class UpdatePromptDialog
                     dialog.CloseButtonText = "下次启动时更新";
                     progressBar.Visibility = progressText.Visibility = Visibility.Collapsed;
                 }
-                catch (OperationCanceledException ex)
+                catch (OperationCanceledException)
                 {
-                    Log.Warning(ex, "用户取消了应用更新下载");
                     message.Text = "下载已取消，未完成的包已保留。可以重试续传或关闭。";
                     dialog.PrimaryButtonText = "重试";
                     dialog.CloseButtonText = "关闭";
@@ -212,7 +218,7 @@ internal static class UpdatePromptDialog
 #pragma warning disable CA1031 // 模态对话框事件必须显示失败并允许重试，不让 async void 异常逃逸。
                 catch (Exception ex)
                 {
-                    Log.Warning(ex, "应用更新操作失败");
+                    Log.Error(ex, "应用更新操作失败");
                     message.Text = $"更新失败：{ex.Message}\n安装路径：{service.InstallRoot}\n可以重试或关闭，当前版本未切换。";
                     dialog.PrimaryButtonText = ready ? "重试立即重启" : "重试";
                     dialog.CloseButtonText = "关闭";
@@ -227,7 +233,19 @@ internal static class UpdatePromptDialog
                 }
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
+            using var closing = cancellationToken.Register(() =>
+                dialog.DispatcherQueue.TryEnqueue(() =>
+                {
+                    downloadCancellation?.Cancel();
+                    dialog.Hide();
+                }));
             var choice = await dialog.ShowAsync();
+            if (primaryAction is not null)
+            {
+                await primaryAction;
+            }
+            cancellationToken.ThrowIfCancellationRequested();
             if (restartRequested)
                 return;
             if (choice == ContentDialogResult.Secondary && decision.AllowSkip)

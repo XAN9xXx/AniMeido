@@ -6,15 +6,26 @@ namespace AniMeido.Updates;
 
 public static class UpdatePackageDownloader
 {
-    public static async Task<string> DownloadAsync(UpdatePackage package, string downloadDirectory,
+    private static readonly TimeSpan NoProgressTimeout = TimeSpan.FromSeconds(60);
+
+    public static Task<string> DownloadAsync(UpdatePackage package, string downloadDirectory,
         HttpClient httpClient, IProgress<long>? progress = null, CancellationToken cancellationToken = default)
+        => DownloadAsync(package, downloadDirectory, httpClient, progress, cancellationToken, TimeProvider.System);
+
+    internal static async Task<string> DownloadAsync(UpdatePackage package, string downloadDirectory,
+        HttpClient httpClient, IProgress<long>? progress, CancellationToken cancellationToken, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(httpClient);
         try
         {
-            return await DownloadCoreAsync(package, downloadDirectory, httpClient, progress, cancellationToken)
+            return await DownloadCoreAsync(package, downloadDirectory, httpClient, progress, timeProvider, cancellationToken)
                 .ConfigureAwait(false);
+        }
+        catch (NoProgressTimeoutException ex)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            throw new UpdateException(UpdateErrorKind.Network, ex.Message, ex);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -23,7 +34,7 @@ public static class UpdatePackageDownloader
     }
 
     private static async Task<string> DownloadCoreAsync(UpdatePackage package, string directory,
-        HttpClient client, IProgress<long>? progress, CancellationToken cancellationToken)
+        HttpClient client, IProgress<long>? progress, TimeProvider timeProvider, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(directory);
@@ -74,7 +85,7 @@ public static class UpdatePackageDownloader
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                await DownloadFromAsync(url, partialPath, package.Size, client, Report, cancellationToken)
+                await DownloadFromAsync(url, partialPath, package.Size, client, Report, timeProvider, cancellationToken)
                     .ConfigureAwait(false);
                 if (!await MatchesAsync(partialPath, package, cancellationToken).ConfigureAwait(false))
                 {
@@ -110,7 +121,7 @@ public static class UpdatePackageDownloader
     }
 
     private static async Task DownloadFromAsync(Uri url, string partialPath, long size, HttpClient client,
-        Action<long> report, CancellationToken cancellationToken)
+        Action<long> report, TimeProvider timeProvider, CancellationToken cancellationToken)
     {
         var offset = File.Exists(partialPath) ? new FileInfo(partialPath).Length : 0;
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -147,48 +158,8 @@ public static class UpdatePackageDownloader
 
         await using var output = new FileStream(partialPath, offset == 0 ? FileMode.Create : FileMode.Append,
             FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous);
-        Stream responseStream;
-        try
-        {
-            responseStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (IOException ex)
-        {
-            throw new UpdateException(UpdateErrorKind.Network, "无法打开更新包响应流。", ex);
-        }
-
-        await using var input = responseStream;
-        report(offset);
-        var buffer = new byte[81920];
-        long written = offset;
-        long received = 0;
-        while (true)
-        {
-            int count;
-            try
-            {
-                count = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-            }
-            catch (IOException ex)
-            {
-                throw new UpdateException(UpdateErrorKind.Network, "读取更新包响应流失败。", ex);
-            }
-
-            if (count == 0)
-            {
-                break;
-            }
-
-            if (count > size - written)
-            {
-                throw new UpdateException(UpdateErrorKind.PackageTooLarge, "更新包数据超过清单声明的大小，已中止下载。");
-            }
-
-            await output.WriteAsync(buffer.AsMemory(0, count), cancellationToken).ConfigureAwait(false);
-            written += count;
-            received += count;
-            report(written);
-        }
+        var received = await CopyResponseBodyAsync(response.Content, output, size, offset, report,
+            timeProvider, cancellationToken).ConfigureAwait(false);
 
         var contentRange = response.Content.Headers.ContentRange;
         if (response.StatusCode == HttpStatusCode.PartialContent
@@ -197,6 +168,82 @@ public static class UpdatePackageDownloader
             throw new UpdateException(UpdateErrorKind.Network, "续传响应实际长度与 Content-Range 不一致。");
         }
     }
+
+    private static async Task<long> CopyResponseBodyAsync(HttpContent content, Stream output, long size, long offset,
+        Action<long> report, TimeProvider timeProvider, CancellationToken cancellationToken)
+    {
+        using var idleCancellation = new CancellationTokenSource();
+        using var bodyCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken, idleCancellation.Token);
+        await using var timer = timeProvider.CreateTimer(
+            static state => ((CancellationTokenSource)state!).Cancel(),
+            idleCancellation, NoProgressTimeout, Timeout.InfiniteTimeSpan);
+        try
+        {
+            Stream responseStream;
+            try
+            {
+                responseStream = await content.ReadAsStreamAsync(bodyCancellation.Token).ConfigureAwait(false);
+            }
+            catch (IOException ex)
+            {
+                if (bodyCancellation.IsCancellationRequested)
+                {
+                    throw new OperationCanceledException("更新包响应已取消。", ex, bodyCancellation.Token);
+                }
+                throw new UpdateException(UpdateErrorKind.Network, "无法打开更新包响应流。", ex);
+            }
+
+            await using var input = responseStream;
+            report(offset);
+            var buffer = new byte[81920];
+            long written = offset;
+            long received = 0;
+            while (true)
+            {
+                int count;
+                try
+                {
+                    count = await input.ReadAsync(buffer, bodyCancellation.Token).ConfigureAwait(false);
+                }
+                catch (IOException ex)
+                {
+                    if (bodyCancellation.IsCancellationRequested)
+                    {
+                        throw new OperationCanceledException("更新包响应已取消。", ex, bodyCancellation.Token);
+                    }
+                    throw new UpdateException(UpdateErrorKind.Network, "读取更新包响应流失败。", ex);
+                }
+
+                // 部分响应流不响应取消；仍须等实际读取结束，但不能把迟到结果报成完成。
+                bodyCancellation.Token.ThrowIfCancellationRequested();
+                if (count == 0)
+                {
+                    break;
+                }
+
+                if (count > size - written)
+                {
+                    throw new UpdateException(UpdateErrorKind.PackageTooLarge, "更新包数据超过清单声明的大小，已中止下载。");
+                }
+
+                timer.Change(NoProgressTimeout, Timeout.InfiniteTimeSpan);
+                await output.WriteAsync(buffer.AsMemory(0, count), cancellationToken).ConfigureAwait(false);
+                written += count;
+                received += count;
+                report(written);
+            }
+            return received;
+        }
+        catch (OperationCanceledException ex)
+            when (idleCancellation.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new NoProgressTimeoutException(ex);
+        }
+    }
+
+    private sealed class NoProgressTimeoutException(OperationCanceledException innerException)
+        : TimeoutException("下载已连续 60 秒未收到新数据。已保留下载进度，请重试。", innerException);
 
     private static async Task<bool> MatchesAsync(string path, UpdatePackage package,
         CancellationToken cancellationToken)

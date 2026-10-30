@@ -119,6 +119,10 @@ public sealed class DesktopSettingsStore
 public sealed record DesktopSettings
 {
     public bool KeepInTrayOnClose { get; init; }
+    public string? ThemeSetting { get; init; }
+    public bool? PrivacyAccepted { get; init; }
+    public bool? AnnouncementShown { get; init; }
+    public bool LegacyUiSettingsImported { get; init; }
     public string? SkippedUpdateVersion { get; init; }
     [System.Text.Json.Serialization.JsonConverter(typeof(UpdateChannelJsonConverter))]
     public string UpdateChannel { get; init; } = "stable";

@@ -1,10 +1,10 @@
-using AniMeido.Contracts.Desktop;
+﻿using AniMeido.Contracts.Desktop;
 using Microsoft.Extensions.Logging;
 using System.Runtime.InteropServices;
 
 namespace AniMeido.App.Services;
 
-public sealed class GlobalShortcutManager : IDisposable
+public sealed class GlobalShortcutManager : IAsyncDisposable
 {
     private const int WhKeyboardLl = 13;
     private const int WmKeyDown = 0x0100;
@@ -18,6 +18,11 @@ public sealed class GlobalShortcutManager : IDisposable
     private readonly LowLevelKeyboardProc _callback;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly ShortcutInputGate _inputGate = new();
+    private readonly object _lifecycleSync = new();
+    private readonly TaskCompletionSource _listenerStopped = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
+    private Task? _startTask;
+    private Task? _disposeTask;
     private Thread? _thread;
     private nint _hook;
     private uint _threadId;
@@ -33,61 +38,84 @@ public sealed class GlobalShortcutManager : IDisposable
         _callback = OnKeyboardInput;
     }
 
-    public async Task StartAsync(
-        CancellationToken cancellationToken = default)
+    public Task StartAsync(CancellationToken cancellationToken = default)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        if (_thread is not null || _actions.Count == 0)
+        lock (_lifecycleSync)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return _startTask ??= StartCoreAsync(cancellationToken);
+        }
+    }
+
+    private async Task StartCoreAsync(CancellationToken cancellationToken)
+    {
+        if (_actions.Count == 0)
         {
             return;
         }
 
+        using var startup = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _shutdown.Token);
         foreach (var action in _actions)
         {
-            await action.InitializeAsync(cancellationToken);
+            await action.InitializeAsync(startup.Token);
         }
 
-        _thread = new Thread(RunMessageLoop)
+        lock (_lifecycleSync)
         {
-            IsBackground = true,
-            Name = "AniMeido global shortcut listener",
-        };
-        _thread.Start();
+            startup.Token.ThrowIfCancellationRequested();
+            _thread = new Thread(RunMessageLoop)
+            {
+                IsBackground = true,
+                Name = "AniMeido global shortcut listener",
+            };
+            _thread.Start();
+        }
     }
 
     private void RunMessageLoop()
     {
-        _threadId = GetCurrentThreadId();
-        _hook = SetWindowsHookEx(
-            WhKeyboardLl,
-            _callback,
-            GetModuleHandle(null),
-            0);
-        if (_hook == 0)
-        {
-            _logger.LogWarning(
-                "Unable to install global shortcut hook. Win32={Error}.",
-                Marshal.GetLastWin32Error());
-            return;
-        }
-
         try
         {
-            while (GetMessage(out _, 0, 0, 0) > 0
-                && !_shutdown.IsCancellationRequested)
+            // 先创建消息队列，再发布线程 ID；关闭请求不会丢在队列创建之前。
+            PeekMessage(out _, 0, 0, 0, 0);
+            lock (_lifecycleSync)
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+                _threadId = GetCurrentThreadId();
+            }
+
+            _hook = SetWindowsHookEx(WhKeyboardLl, _callback, GetModuleHandle(null), 0);
+            if (_hook == 0)
+            {
+                _logger.LogWarning(
+                    "Unable to install global shortcut hook. Win32={Error}.",
+                    Marshal.GetLastWin32Error());
+                return;
+            }
+
+            while (!_shutdown.IsCancellationRequested && GetMessage(out _, 0, 0, 0) > 0)
             {
             }
         }
         finally
         {
-            UnhookWindowsHookEx(_hook);
-            _hook = 0;
+            if (_hook != 0)
+            {
+                UnhookWindowsHookEx(_hook);
+                _hook = 0;
+            }
+            _listenerStopped.TrySetResult();
         }
     }
 
     private nint OnKeyboardInput(int code, nuint wParam, nint lParam)
     {
-        if (code < 0)
+        if (code < 0 || _shutdown.IsCancellationRequested)
         {
             return CallNextHookEx(_hook, code, wParam, lParam);
         }
@@ -136,7 +164,7 @@ public sealed class GlobalShortcutManager : IDisposable
 #pragma warning disable CA1031 // A hook callback action must never terminate the listener process.
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(
+                        _logger.LogError(
                             ex,
                             "Global shortcut action {ActionId} failed.",
                             action.Id);
@@ -154,30 +182,86 @@ public sealed class GlobalShortcutManager : IDisposable
             : CallNextHookEx(_hook, code, wParam, lParam);
     }
 
-    public void Dispose()
+    public ValueTask DisposeAsync()
     {
-        if (_disposed)
+        lock (_lifecycleSync)
         {
-            return;
-        }
+            if (_disposeTask is not null)
+            {
+                return new ValueTask(_disposeTask);
+            }
 
-        _disposed = true;
-        _shutdown.Cancel();
-        if (_threadId != 0)
-        {
-            PostThreadMessage(_threadId, WmQuit, 0, 0);
+            _disposed = true;
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _disposeTask = completion.Task;
+            AggregateException? cancellationFailure = null;
+            try
+            {
+                _shutdown.Cancel();
+            }
+            catch (AggregateException ex)
+            {
+                // 取消回调失败不能跳过资源收尾；由共享停止任务在排空后报告。
+                cancellationFailure = ex;
+            }
+            if (_threadId != 0)
+            {
+                PostThreadMessage(_threadId, WmQuit, 0, 0);
+            }
+            _ = CompleteStopAsync(completion, cancellationFailure);
+            return new ValueTask(_disposeTask);
         }
-        _thread?.Join(TimeSpan.FromSeconds(2));
+    }
+
+    private async Task CompleteStopAsync(
+        TaskCompletionSource completion,
+        AggregateException? cancellationFailure)
+    {
         try
         {
-            _runningAction?.Wait(TimeSpan.FromSeconds(2));
+            if (_startTask is not null)
+            {
+                try
+                {
+                    await _startTask;
+                }
+                catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+                {
+                }
+#pragma warning disable CA1031 // 初始化故障由 StartAsync 的调用方报告；仍需完成资源收尾。
+                catch (Exception) when (_startTask.IsFaulted)
+                {
+                }
+#pragma warning restore CA1031
+            }
+
+            if (_thread is not null)
+            {
+                await _listenerStopped.Task;
+            }
+            if (_runningAction is not null)
+            {
+                await _runningAction;
+            }
+
+            _shutdown.Dispose();
+            if (cancellationFailure is null)
+            {
+                completion.SetResult();
+            }
+            else
+            {
+                completion.SetException(cancellationFailure);
+            }
         }
-        catch (AggregateException ex)
-            when (ex.InnerExceptions.All(
-                error => error is OperationCanceledException))
+#pragma warning disable CA1031 // 关闭调用方接收收尾失败；任务未完成时不提前释放取消源。
+        catch (Exception ex)
         {
+            completion.SetException(cancellationFailure is null
+                ? ex
+                : new AggregateException(cancellationFailure, ex));
         }
-        _shutdown.Dispose();
+#pragma warning restore CA1031
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -219,6 +303,15 @@ public sealed class GlobalShortcutManager : IDisposable
         nint window,
         uint minimum,
         uint maximum);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PeekMessage(
+        out NativeMessage message,
+        nint window,
+        uint minimum,
+        uint maximum,
+        uint remove);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

@@ -18,7 +18,7 @@ param(
     [string]$PrivateKey,
     [string]$Notes,
     [string]$MinUpdatableFrom = '3.0.0',
-    [string]$IsccPath = 'D:\Inno Setup 6\ISCC.exe'
+    [string]$IsccPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -70,7 +70,7 @@ function Test-EmbeddedText([string]$Path, [string]$Text) {
 
 function Assert-ProductionBuild([string]$UpdatesAssembly, [string]$AppAssembly) {
     $productionKey = 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEOJeoMG4coWpH3j9W3928GGN7ARuQ0VrYv9YvlD6QmghBy9I6YN4AdAAym/9lmfIaonp5VSaGuyE/9rNUEIB10A=='
-    $testKey = 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEqb1QRo/Hi1LW5mvX1rSnRdz3UU6XVpIKMN/sDXwsljLTyP8gn5lPrm+PtDqQCyUsfDnyt0hpM1p0+qrPEXC4Ew=='
+    $testKey = 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEh52U5QsTDc3ccrzCG4kNjfXi+ssyMbFnsF2D4vBkaU+kPBABVxhvp0qSsaz1SZsATs3u4LD7PAq0vQFYC/Ehig=='
     if (-not (Test-EmbeddedText $UpdatesAssembly $productionKey)) {
         throw '产物缺少生产公钥：先填入生产公钥，再生成发布产物。'
     }
@@ -100,6 +100,12 @@ if (-not (Test-Path -LiteralPath $PrivateKey -PathType Leaf)) {
     throw '离线私钥文件不存在。'
 }
 $PrivateKey = [IO.Path]::GetFullPath($PrivateKey)
+if ([string]::IsNullOrWhiteSpace($IsccPath)) {
+    $compiler = Get-Command ISCC.exe -CommandType Application -ErrorAction SilentlyContinue
+    $IsccPath = if ($compiler) { $compiler.Source } else {
+        Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Inno Setup 6/ISCC.exe'
+    }
+}
 if (-not (Test-Path -LiteralPath $IsccPath -PathType Leaf)) {
     throw 'ISCC.exe 不存在；请用 -IsccPath 指定 Inno Setup 6 编译器。'
 }
@@ -192,12 +198,14 @@ try {
         throw '安装镜像路径越出本次发布目录，拒绝移动。'
     }
     [IO.Directory]::Move($payload, $versionDirectory)
-    Copy-Item -LiteralPath (Join-Path $launcherOutput 'AniMeido.exe') -Destination (Join-Path $image 'AniMeido.exe')
+    foreach ($name in @('AniMeido.exe', 'e_sqlite3.dll')) {
+        Copy-Item -LiteralPath (Join-Path $launcherOutput $name) -Destination (Join-Path $image $name)
+    }
     $state = [AniMeido.Updates.Install.InstallState]::new()
     $state.Current = $Version
     $state.CurrentHealthy = $false
     [AniMeido.Updates.Install.InstallStateStore]::new($image, $null, $null).Write($state)
-    # The state writer creates its lock; lock is not part of the three-item install image.
+    # The state writer creates its lock; it is not part of the install image.
     Remove-Item -LiteralPath (Join-Path $image 'state.lock')
     & $IsccPath "/DAppVersion=$Version" "/DInstallImage=$image" "/DOutputDirectory=$output" (Join-Path $repo 'Installer\AniMeido.iss')
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup 编译失败，退出码 $LASTEXITCODE。" }
@@ -215,9 +223,13 @@ try {
     if ([AniMeido.Updates.UpdateTrustedKeys]::PublicKeys.Count -eq 0) { throw '先填入生产公钥，再发布。' }
 
     # 9. Print exactly the upload assets. version.json belongs to the website, never R2.
+    $packageHash = (Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json).package.sha256
     Write-Host 'GitHub Release 附件（由维护者手动上传）：'
     foreach ($file in @($installer, $zip, $manifest, ($manifest + '.sig'))) {
-        Write-Host ("{0}  SHA-256={1}" -f $file, (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant())
+        $displayHash = if ($file -ceq $zip) { $packageHash } else {
+            (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+        Write-Host ("{0}  SHA-256={1}" -f $file, $displayHash)
     }
     if ($null -ne $legacyManifest) {
         Write-Host ("网站文件：{0}  SHA-256={1}" -f $legacyPath, (Get-FileHash -LiteralPath $legacyPath -Algorithm SHA256).Hash.ToLowerInvariant())

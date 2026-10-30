@@ -39,6 +39,8 @@ internal sealed class PluginHostSession : IPluginHostSession
     private Task? _stopTask;
     private Task? _disposeTask;
     private Task? _deferredCleanupTask;
+    private Task? _processExitTask;
+    private TimeoutException? _processStopFailure;
 
     public PluginHostSession(
         HostedPluginDescriptor descriptor,
@@ -314,40 +316,45 @@ internal sealed class PluginHostSession : IPluginHostSession
 #pragma warning restore CA1031
         finally
         {
-            if (entered)
+            try
             {
-                _gate.Release();
-            }
-
-            var forcedCleanup = budget.IsCancellationRequested;
-            if (!budgetTransferred)
-            {
-                budget.Dispose();
-            }
-            if (entered)
-            {
-                CompleteStopLifecycle();
-                if (failure is null)
+                var forcedCleanup = budget.IsCancellationRequested;
+                if (!budgetTransferred)
                 {
-                    if (forcedCleanup)
-                    {
-                        _logger.LogWarning(
-                            "PluginHost {PluginId} exceeded the graceful "
-                                + "stop budget; forced cleanup completed.",
-                            PluginId);
-                    }
-
-                    completion.TrySetResult();
+                    budget.Dispose();
                 }
-                else
+                if (entered)
                 {
+                    CompleteStopLifecycle();
+                    if (failure is null)
+                    {
+                        if (forcedCleanup)
+                        {
+                            _logger.LogWarning(
+                                "PluginHost {PluginId} exceeded the graceful "
+                                    + "stop budget; forced cleanup completed.",
+                                PluginId);
+                        }
+
+                        completion.TrySetResult();
+                    }
+                    else
+                    {
+                        completion.TrySetException(failure);
+                    }
+                }
+                else if (failure is not null)
+                {
+                    CompleteStopLifecycle();
                     completion.TrySetException(failure);
                 }
             }
-            else if (failure is not null)
+            finally
             {
-                CompleteStopLifecycle();
-                completion.TrySetException(failure);
+                if (entered)
+                {
+                    _gate.Release();
+                }
             }
         }
     }
@@ -371,17 +378,12 @@ internal sealed class PluginHostSession : IPluginHostSession
         TaskCompletionSource completion)
     {
         Exception? failure = null;
+        var entered = false;
         try
         {
             await _gate.WaitAsync();
-            try
-            {
-                await StopCoreWithBudgetAsync(budget.Token);
-            }
-            finally
-            {
-                _gate.Release();
-            }
+            entered = true;
+            await StopCoreWithBudgetAsync(budget.Token);
         }
 #pragma warning disable CA1031 // Transfer the exception to the deferred completion.
         catch (Exception ex)
@@ -391,15 +393,25 @@ internal sealed class PluginHostSession : IPluginHostSession
 #pragma warning restore CA1031
         finally
         {
-            budget.Dispose();
-            CompleteStopLifecycle();
-            if (failure is not null)
+            try
             {
-                completion.TrySetException(failure);
+                budget.Dispose();
+                CompleteStopLifecycle();
+                if (failure is not null)
+                {
+                    completion.TrySetException(failure);
+                }
+                else
+                {
+                    completion.TrySetResult();
+                }
             }
-            else
+            finally
             {
-                completion.TrySetResult();
+                if (entered)
+                {
+                    _gate.Release();
+                }
             }
         }
     }
@@ -418,7 +430,7 @@ internal sealed class PluginHostSession : IPluginHostSession
 #pragma warning disable CA1031 // Deferred cleanup has its own logging boundary.
         catch (Exception ex)
         {
-            _logger.LogWarning(
+            _logger.LogError(
                 ex,
                 "Deferred PluginHost {PluginId} cleanup faulted.",
                 PluginId);
@@ -430,6 +442,11 @@ internal sealed class PluginHostSession : IPluginHostSession
     {
         lock (_lifecycleSync)
         {
+            if (_processExitTask is not null)
+            {
+                return;
+            }
+
             _deferredCleanupTask = null;
             _stopTask = null;
             Volatile.Write(ref _stopping, 0);
@@ -593,7 +610,12 @@ internal sealed class PluginHostSession : IPluginHostSession
             _descriptor.Manifest);
         _callbackServerTask = new JsonPipeRpcServer(
             _callbackPipe,
-            (request, token) => callbackTarget.DispatchAsync(request, token)).RunAsync(
+            (request, token) => callbackTarget.DispatchAsync(request, token),
+            reportDispatchFailure: (method, error) =>
+            {
+                if (error is not (OperationCanceledException or ArgumentException or InvalidDataException))
+                    _logger.LogError(error, "Plugin callback {Method} failed.", method);
+            }).RunAsync(
                 _callbackServerCancellation.Token);
         _ = ObserveBackgroundTaskAsync(
             _callbackServerTask,
@@ -630,6 +652,11 @@ internal sealed class PluginHostSession : IPluginHostSession
 
     private async Task StopCoreWithBudgetAsync(CancellationToken budget)
     {
+        if (_processExitTask is not null)
+        {
+            throw _processStopFailure!;
+        }
+
         _intentionalStop = true;
         Volatile.Write(ref _acceptingWork, 0);
         try
@@ -684,10 +711,9 @@ internal sealed class PluginHostSession : IPluginHostSession
                         }
                         catch (Win32Exception ex)
                         {
-                            _logger.LogDebug(
-                                ex,
-                                "PluginHost {PluginId} kill raced process exit.",
-                                PluginId);
+                            _processStopFailure = new TimeoutException(
+                                $"PluginHost {PluginId} process {process.Id} did not stop.",
+                                ex);
                         }
                         try
                         {
@@ -697,9 +723,7 @@ internal sealed class PluginHostSession : IPluginHostSession
                         }
                         catch (OperationCanceledException)
                         {
-                            _logger.LogWarning(
-                                "PluginHost {PluginId} did not exit after kill.",
-                                PluginId);
+                            // Cleanup retains a live process and reports the incomplete stop.
                         }
                     }
                 }
@@ -707,8 +731,14 @@ internal sealed class PluginHostSession : IPluginHostSession
         }
         finally
         {
-            CleanupConnection();
-            _intentionalStop = false;
+            try
+            {
+                CleanupConnection();
+            }
+            finally
+            {
+                _intentionalStop = false;
+            }
         }
     }
 
@@ -738,6 +768,7 @@ internal sealed class PluginHostSession : IPluginHostSession
             await _gate.WaitAsync(budget.Token);
             entered = true;
             if (_intentionalStop
+                || _processExitTask is not null
                 || Volatile.Read(ref _disposed) != 0
                 || exitedProcess is null
                 || !ReferenceEquals(exitedProcess, _process))
@@ -768,19 +799,59 @@ internal sealed class PluginHostSession : IPluginHostSession
     {
         Volatile.Write(ref _acceptingWork, 0);
         _progressPumpCancellation?.Cancel();
-        if (_process is not null)
-        {
-            _process.Exited -= OnProcessExited;
-            _process.Dispose();
-            _process = null;
-        }
-
         _rpc?.Dispose();
         _rpc = null;
         _pipe?.Dispose();
         _pipe = null;
         _callbackPipe?.Dispose();
         _callbackPipe = null;
+
+        if (_process is not { } process)
+        {
+            return;
+        }
+
+        if (!process.HasExited)
+        {
+            if (_processExitTask is null)
+            {
+                _processStopFailure ??= new TimeoutException(
+                    $"PluginHost {PluginId} process {process.Id} did not stop.");
+                process.Exited -= OnProcessExited;
+                _processExitTask = ReleaseProcessAfterExitAsync(process);
+                TrackDeferredCleanup(_processExitTask);
+            }
+
+            throw _processStopFailure!;
+        }
+
+        process.Exited -= OnProcessExited;
+        process.Dispose();
+        _process = null;
+        _processStopFailure = null;
+    }
+
+    private async Task ReleaseProcessAfterExitAsync(Process process)
+    {
+        await process.WaitForExitAsync().ConfigureAwait(false);
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (!ReferenceEquals(_process, process))
+            {
+                return;
+            }
+
+            process.Dispose();
+            _process = null;
+            _processExitTask = null;
+            _processStopFailure = null;
+            CompleteStopLifecycle();
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     private void CancelBackgroundOperations()
@@ -1059,45 +1130,50 @@ internal sealed class PluginHostSession : IPluginHostSession
 #pragma warning restore CA1031
         finally
         {
-            if (entered)
+            try
             {
-                _gate.Release();
-            }
-
-            if (!entered && !budgetTransferred)
-            {
-                budget.Dispose();
-            }
-
-            if (entered)
-            {
-                var forcedCleanup = budget.IsCancellationRequested;
-                if (!budgetTransferred)
+                if (!entered && !budgetTransferred)
                 {
                     budget.Dispose();
                 }
-                Volatile.Write(ref _stopping, 0);
-                if (failure is null)
-                {
-                    if (forcedCleanup)
-                    {
-                        _logger.LogWarning(
-                            "PluginHost {PluginId} exceeded the graceful "
-                                + "disposal budget; forced cleanup completed.",
-                            PluginId);
-                    }
 
-                    completion.TrySetResult();
-                }
-                else
+                if (entered)
                 {
+                    var forcedCleanup = budget.IsCancellationRequested;
+                    if (!budgetTransferred)
+                    {
+                        budget.Dispose();
+                    }
+                    CompleteStopLifecycle();
+                    if (failure is null)
+                    {
+                        if (forcedCleanup)
+                        {
+                            _logger.LogWarning(
+                                "PluginHost {PluginId} exceeded the graceful "
+                                    + "disposal budget; forced cleanup completed.",
+                                PluginId);
+                        }
+
+                        completion.TrySetResult();
+                    }
+                    else
+                    {
+                        completion.TrySetException(failure);
+                    }
+                }
+                else if (failure is not null)
+                {
+                    CompleteStopLifecycle();
                     completion.TrySetException(failure);
                 }
             }
-            else if (failure is not null)
+            finally
             {
-                Volatile.Write(ref _stopping, 0);
-                completion.TrySetException(failure);
+                if (entered)
+                {
+                    _gate.Release();
+                }
             }
         }
     }
@@ -1119,17 +1195,12 @@ internal sealed class PluginHostSession : IPluginHostSession
         TaskCompletionSource completion)
     {
         Exception? failure = null;
+        var entered = false;
         try
         {
             await _gate.WaitAsync();
-            try
-            {
-                await StopCoreWithBudgetAsync(budget.Token);
-            }
-            finally
-            {
-                _gate.Release();
-            }
+            entered = true;
+            await StopCoreWithBudgetAsync(budget.Token);
         }
 #pragma warning disable CA1031 // Transfer the exception to the deferred completion.
         catch (Exception ex)
@@ -1139,15 +1210,25 @@ internal sealed class PluginHostSession : IPluginHostSession
 #pragma warning restore CA1031
         finally
         {
-            budget.Dispose();
-            Volatile.Write(ref _stopping, 0);
-            if (failure is not null)
+            try
             {
-                completion.TrySetException(failure);
+                budget.Dispose();
+                CompleteStopLifecycle();
+                if (failure is not null)
+                {
+                    completion.TrySetException(failure);
+                }
+                else
+                {
+                    completion.TrySetResult();
+                }
             }
-            else
+            finally
             {
-                completion.TrySetResult();
+                if (entered)
+                {
+                    _gate.Release();
+                }
             }
         }
     }

@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 
 namespace AniMeido.App.Services;
 
-public sealed class PluginHostSupervisor : IAsyncDisposable
+public sealed class PluginHostSupervisor : IAsyncDisposable, IPluginReloadHost
 {
     private static readonly TimeSpan GracefulStopTimeout =
         TimeSpan.FromSeconds(5);
@@ -31,7 +31,8 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
     private int _stopGeneration;
     private CancellationTokenSource? _startupCancellation;
     private Task? _disposeTask;
-    private Task? _deferredCleanupTask;
+    private Task? _cleanupTask;
+    private bool _drainRequested;
 
     public PluginHostSupervisor(
         PluginPackageManager packageManager,
@@ -244,20 +245,42 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         string pluginId,
         string commandId)
     {
-        var session = await GetStartedSessionAsync(
-            pluginId,
-            CancellationToken.None);
-        await session.InvokeCommandAsync(commandId);
+        try
+        {
+            var session = await GetStartedSessionAsync(
+                pluginId,
+                CancellationToken.None);
+            await session.InvokeCommandAsync(commandId);
+        }
+#pragma warning disable CA1031 // 调用边界记录本机最终失败，并保留原异常向调用方传播。
+        catch (Exception ex) when (ex is not OperationCanceledException
+            && ex is not JsonPipeRpcException { IsRemoteError: true })
+        {
+            _logger.LogError(ex, "PluginHost {PluginId} command {CommandId} failed.", pluginId, commandId);
+            throw;
+        }
+#pragma warning restore CA1031
     }
 
     public async Task OpenSettingsAsync(
         string pluginId,
         string settingsId)
     {
-        var session = await GetStartedSessionAsync(
-            pluginId,
-            CancellationToken.None);
-        await session.OpenSettingsAsync(settingsId);
+        try
+        {
+            var session = await GetStartedSessionAsync(
+                pluginId,
+                CancellationToken.None);
+            await session.OpenSettingsAsync(settingsId);
+        }
+#pragma warning disable CA1031 // 调用边界记录本机最终失败，并保留原异常向调用方传播。
+        catch (Exception ex) when (ex is not OperationCanceledException
+            && ex is not JsonPipeRpcException { IsRemoteError: true })
+        {
+            _logger.LogError(ex, "PluginHost {PluginId} settings {SettingsId} failed.", pluginId, settingsId);
+            throw;
+        }
+#pragma warning restore CA1031
     }
 
     public async Task LaunchAnimePlaybackAsync(
@@ -320,17 +343,14 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
             return;
         }
 
-        var directories = await _packageManager.PrepareForStartupAsync(
+        var prepared = await _packageManager.PrepareForStartupAsync(
             cancellationToken);
-        foreach (var directory in directories)
+        foreach (var descriptor in prepared)
         {
-            var manifest = PluginManifest.LoadFromFile(
-                Path.Combine(directory, "plugin.json"))
-                ?? throw new PluginOperationException(
-                    "已验证插件缺少 plugin.json。");
+            var manifest = descriptor.Manifest;
             if (!_descriptors.TryAdd(
                 manifest.PluginId,
-                new HostedPluginDescriptor(directory, manifest)))
+                descriptor))
             {
                 throw new PluginOperationException(
                     $"插件 ID 重复：{manifest.PluginId}");
@@ -517,6 +537,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         bool resetRecoveryBudget)
     {
         var snapshot = await session.StartAsync(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         if (snapshot.Failures.Count > 0)
         {
             await RecordFailuresAsync(snapshot.Failures, cancellationToken);
@@ -544,46 +565,86 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         object? sender,
         PluginHostSessionExitedEventArgs e)
     {
-        if (sender is not IPluginHostSession session
-            || Volatile.Read(ref _disposed) != 0
-            || Volatile.Read(ref _acceptingWork) == 0)
+        if (sender is not IPluginHostSession session)
         {
             return;
         }
 
-        if (PluginHostExitClassifier.IsNormal(e.ExitCode))
-        {
-            _automaticRestartUsed.Remove(session.PluginId);
-            SetStatus($"{session.DisplayName} 已关闭，用到时会自动启动");
-            return;
-        }
-
-        if (!_automaticRestartUsed.Add(session.PluginId))
-        {
-            SetStatus(
-                $"{session.DisplayName} 连续异常退出，请手动重载");
-            return;
-        }
-
-        SetStatus($"{session.DisplayName} 异常退出，正在自动恢复");
+        var generation = Volatile.Read(ref _stopGeneration);
+        var entered = false;
+        CancellationTokenSource? startupCancellation = null;
         try
         {
+            await _gate.WaitAsync();
+            entered = true;
+            if (Volatile.Read(ref _disposed) != 0
+                || Volatile.Read(ref _acceptingWork) == 0
+                || generation != Volatile.Read(ref _stopGeneration))
+            {
+                return;
+            }
+
+            lock (_sessionsSync)
+            {
+                if (!_sessions.TryGetValue(session.PluginId, out var current)
+                    || !ReferenceEquals(current, session)
+                    || session.IsRunning)
+                {
+                    return;
+                }
+            }
+
+            if (PluginHostExitClassifier.IsNormal(e.ExitCode))
+            {
+                _automaticRestartUsed.Remove(session.PluginId);
+                SetStatus($"{session.DisplayName} 已关闭，用到时会自动启动");
+                return;
+            }
+
+            if (!_automaticRestartUsed.Add(session.PluginId))
+            {
+                SetStatus($"{session.DisplayName} 连续异常退出，请手动重载");
+                return;
+            }
+
+            startupCancellation = BeginStartup(CancellationToken.None, generation);
+            SetStatus($"{session.DisplayName} 异常退出，正在自动恢复");
             await StartSessionAsync(
                 session,
-                CancellationToken.None,
+                startupCancellation.Token,
                 resetRecoveryBudget: false);
         }
-#pragma warning disable CA1031 // A failed optional host restart must not crash the App.
+        catch (OperationCanceledException) when (startupCancellation?.IsCancellationRequested == true)
+        {
+        }
+        catch (ObjectDisposedException) when (Volatile.Read(ref _disposed) != 0)
+        {
+        }
+        catch (InvalidOperationException) when (generation != Volatile.Read(ref _stopGeneration))
+        {
+        }
+#pragma warning disable CA1031 // 自动恢复是事件处理边界；失败保留诊断，不使应用退出。
         catch (Exception ex)
         {
-            _logger.LogWarning(
+            _logger.LogError(
                 ex,
                 "PluginHost {PluginId} automatic restart failed.",
                 session.PluginId);
-            SetStatus(
-                $"{session.DisplayName} 自动恢复失败：{ex.Message}");
+            if (generation == Volatile.Read(ref _stopGeneration)
+                && Volatile.Read(ref _acceptingWork) != 0)
+            {
+                SetStatus($"{session.DisplayName} 自动恢复失败：{ex.Message}");
+            }
         }
 #pragma warning restore CA1031
+        finally
+        {
+            EndStartup(startupCancellation);
+            if (entered)
+            {
+                _gate.Release();
+            }
+        }
     }
 
     private void ApplyManifestContributions()
@@ -658,11 +719,6 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
             catch (Exception ex)
             {
                 failures.Add(ex);
-                _logger.LogWarning(
-                    ex,
-                    "PluginHost {PluginId} disposal failed; continuing "
-                        + "with remaining sessions.",
-                    session.PluginId);
             }
 #pragma warning restore CA1031
         }
@@ -704,127 +760,44 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
         return budget;
     }
 
+    internal Task StopAndDrainAsync()
+        => BeginDisposal(claimDrain: true).Cleanup;
+
     public ValueTask DisposeAsync()
+        => new(BeginDisposal(claimDrain: false).BoundedWait);
+
+    private (Task Cleanup, Task BoundedWait) BeginDisposal(bool claimDrain)
     {
-        TaskCompletionSource completion;
+        TaskCompletionSource cleanup;
+        TaskCompletionSource boundedWait;
         CancellationTokenSource? startupCancellation;
         lock (_lifecycleSync)
         {
-            if (_disposeTask is not null || _deferredCleanupTask is not null)
-            {
-                return new ValueTask(
-                    _disposeTask ?? _deferredCleanupTask!);
-            }
+            _drainRequested |= claimDrain;
+            if (_cleanupTask is not null)
+                return (_cleanupTask, _disposeTask!);
 
             Interlocked.Exchange(ref _disposed, 1);
             Volatile.Write(ref _acceptingWork, 0);
             Volatile.Write(ref _stopping, 1);
             Interlocked.Increment(ref _stopGeneration);
             startupCancellation = _startupCancellation;
-            completion = new TaskCompletionSource(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            // Publish before cancellation so re-entrant DisposeAsync calls
-            // share this exact completion task.
-            _disposeTask = completion.Task;
+            cleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            boundedWait = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            // 取消回调可能同步重入两个入口，先公布同一次真实清理和公开等待。
+            _cleanupTask = cleanup.Task;
+            _disposeTask = boundedWait.Task;
         }
 
         CancelStartup(startupCancellation);
-        _ = DisposeWithGateAsync(completion);
-        return new ValueTask(completion.Task);
-    }
-
-    private async Task DisposeWithGateAsync(TaskCompletionSource completion)
-    {
+        var gateEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var budget = CreateStopBudget(CancellationToken.None);
-        var entered = false;
-        var budgetTransferred = false;
-        Exception? failure = null;
-        try
-        {
-            try
-            {
-                await _gate.WaitAsync(budget.Token);
-            }
-            catch (OperationCanceledException) when (budget.IsCancellationRequested)
-            {
-                var deferred = StartDeferredDispose(budget);
-                TrackDeferredCleanup(deferred);
-                completion.TrySetException(
-                    new TimeoutException(
-                        "PluginHost supervisor disposal exceeded its 5 second budget."));
-                budgetTransferred = true;
-                return;
-            }
-            entered = true;
-            await StopSessionsCoreAsync(clearContributions: true);
-        }
-#pragma warning disable CA1031 // Transfer the exception to the published completion.
-        catch (Exception ex)
-        {
-            failure = ex;
-        }
-#pragma warning restore CA1031
-        finally
-        {
-            if (entered)
-            {
-                _gate.Release();
-            }
-
-            if (!entered && !budgetTransferred)
-            {
-                budget.Dispose();
-            }
-
-            if (entered)
-            {
-                var forcedCleanup = budget.IsCancellationRequested;
-                if (!budgetTransferred)
-                {
-                    budget.Dispose();
-                }
-                Volatile.Write(ref _stopping, 0);
-                if (failure is null)
-                {
-                    if (forcedCleanup)
-                    {
-                        _logger.LogWarning(
-                            "PluginHost supervisor exceeded the graceful "
-                                + "disposal budget; forced cleanup completed.");
-                    }
-
-                    completion.TrySetResult();
-                }
-                else
-                {
-                    completion.TrySetException(failure);
-                }
-            }
-            else if (failure is not null)
-            {
-                Volatile.Write(ref _stopping, 0);
-                completion.TrySetException(failure);
-            }
-        }
+        _ = CompleteCleanupAsync(cleanup, gateEntered);
+        _ = CompleteDisposalWaitAsync(gateEntered.Task, cleanup.Task, boundedWait, budget);
+        return (cleanup.Task, boundedWait.Task);
     }
 
-    private Task StartDeferredDispose(CancellationTokenSource budget)
-    {
-        var deferred = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        lock (_lifecycleSync)
-        {
-            // Publish before starting the continuation so a free gate cannot
-            // complete deferred cleanup before it is tracked.
-            _deferredCleanupTask = deferred.Task;
-        }
-        _ = ContinueDisposeAfterGateAsync(budget, deferred);
-        return deferred.Task;
-    }
-
-    private async Task ContinueDisposeAfterGateAsync(
-        CancellationTokenSource budget,
-        TaskCompletionSource completion)
+    private async Task CompleteCleanupAsync(TaskCompletionSource completion, TaskCompletionSource gateEntered)
     {
         Exception? failure = null;
         try
@@ -832,6 +805,7 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
             await _gate.WaitAsync();
             try
             {
+                gateEntered.TrySetResult();
                 await StopSessionsCoreAsync(clearContributions: true);
             }
             finally
@@ -839,44 +813,81 @@ public sealed class PluginHostSupervisor : IAsyncDisposable
                 _gate.Release();
             }
         }
-#pragma warning disable CA1031 // Transfer the exception to the deferred completion.
+#pragma warning disable CA1031 // 真实清理只执行一次，原始失败交给共享任务的最终等待方。
         catch (Exception ex)
         {
             failure = ex;
+            gateEntered.TrySetException(ex);
         }
 #pragma warning restore CA1031
         finally
         {
-            budget.Dispose();
             Volatile.Write(ref _stopping, 0);
-            if (failure is not null)
+        }
+
+        if (failure is null)
+            completion.TrySetResult();
+        else
+            completion.TrySetException(failure);
+    }
+
+    private async Task CompleteDisposalWaitAsync(
+        Task gateEntered,
+        Task cleanup,
+        TaskCompletionSource completion,
+        CancellationTokenSource budget)
+    {
+        using (budget)
+        {
+            try
             {
-                completion.TrySetException(failure);
-            }
-            else
-            {
+                try
+                {
+                    // 公开预算只限制取锁等待；已进入的会话清理仍须等到实际结束。
+                    await gateEntered.WaitAsync(budget.Token);
+                }
+                catch (OperationCanceledException) when (budget.IsCancellationRequested)
+                {
+                    _ = ObserveUnclaimedCleanupAsync(cleanup);
+                    completion.TrySetException(new TimeoutException(
+                        "PluginHost supervisor disposal exceeded its 5 second budget."));
+                    return;
+                }
+
+                await cleanup;
+                if (budget.IsCancellationRequested)
+                {
+                    _logger.LogWarning(
+                        "PluginHost supervisor exceeded the graceful "
+                            + "disposal budget; forced cleanup completed.");
+                }
                 completion.TrySetResult();
             }
+#pragma warning disable CA1031 // 公开等待保持原始清理结果，超时也保留真实清理任务。
+            catch (Exception ex)
+            {
+                completion.TrySetException(ex);
+            }
+#pragma warning restore CA1031
         }
     }
 
-    private void TrackDeferredCleanup(Task deferred)
-    {
-        _ = ObserveDeferredCleanupAsync(deferred);
-    }
-
-    private async Task ObserveDeferredCleanupAsync(Task deferred)
+    private async Task ObserveUnclaimedCleanupAsync(Task cleanup)
     {
         try
         {
-            await deferred;
+            await cleanup;
         }
-#pragma warning disable CA1031 // Deferred cleanup has its own logging boundary.
+#pragma warning disable CA1031 // 公开等待超时后，仅在应用尚未接管最终排空时报告一次。
         catch (Exception ex)
         {
-            _logger.LogWarning(
-                ex,
-                "Deferred PluginHost supervisor cleanup faulted.");
+            lock (_lifecycleSync)
+            {
+                if (!_drainRequested)
+                {
+                    _logger.LogWarning(ex, "Deferred PluginHost supervisor cleanup faulted.");
+                }
+            }
         }
 #pragma warning restore CA1031
     }

@@ -29,5 +29,6 @@
 
   <ItemGroup>
     <Compile Include="..\Shared\AppDataRoots.cs" Link="Shared\AppDataRoots.cs" />
+    <Compile Include="..\Shared\DiagnosticFileStore.cs" Link="Shared\DiagnosticFileStore.cs" />
   </ItemGroup>
 </Project>
