@@ -56,15 +56,21 @@ internal sealed class HostWebSessionManager
         }
     }
 
-    public async Task<IReadOnlyList<HostWebSessionMetadata>> ListAsync(
+    public async Task<HostWebSessionReadResult> ListAsync(
         CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            return (await ReadCoreAsync(cancellationToken))
+            var items = (await ReadCoreAsync(cancellationToken))
                 .OrderByDescending(item => item.LastVerifiedAt)
                 .ToArray();
+            return new HostWebSessionReadResult(items, ReadFailure: null);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidDataException
+            or IOException or UnauthorizedAccessException)
+        {
+            return new HostWebSessionReadResult([], ex);
         }
         finally
         {
@@ -160,7 +166,8 @@ internal sealed class HostWebSessionManager
     private async Task<IReadOnlyList<HostWebSessionMetadata>> ReadCoreAsync(
         CancellationToken cancellationToken)
     {
-        if (_metadataPath is null || !File.Exists(_metadataPath))
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_metadataPath is null)
         {
             return [];
         }
@@ -168,17 +175,25 @@ internal sealed class HostWebSessionManager
         try
         {
             await using var stream = File.OpenRead(_metadataPath);
-            return await JsonSerializer.DeserializeAsync<
+            var items = await JsonSerializer.DeserializeAsync<
                     List<HostWebSessionMetadata>>(
                     stream,
                     SerializerOptions,
                     cancellationToken)
-                ?? [];
+                ?? throw new InvalidDataException("站点会话记录必须是列表。");
+            if (items.Any(item => item is null
+                || string.IsNullOrWhiteSpace(item.Host)
+                || item.SourceIds is null))
+            {
+                throw new InvalidDataException("站点会话记录缺少站点或来源列表。");
+            }
+            return items;
         }
-        catch (Exception ex)
-            when (ex is JsonException
-                or IOException
-                or UnauthorizedAccessException)
+        catch (FileNotFoundException)
+        {
+            return [];
+        }
+        catch (DirectoryNotFoundException)
         {
             return [];
         }
@@ -213,6 +228,10 @@ internal sealed class HostWebSessionManager
         }
     }
 }
+
+internal sealed record HostWebSessionReadResult(
+    IReadOnlyList<HostWebSessionMetadata> Items,
+    Exception? ReadFailure);
 
 internal sealed class HostWebSessionMetadata
 {

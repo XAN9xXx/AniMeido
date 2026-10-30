@@ -10,7 +10,7 @@ namespace AniMeido.Plugin.Player.Playback;
 /// <summary>
 /// Minimal managed owner for the official libmpv client API.
 /// </summary>
-internal sealed class LibMpvClient : IDisposable
+internal sealed class LibMpvClient : IAsyncDisposable
 {
     private const string DefaultUserAgent = "AniMeido/1.0";
     private readonly nint _nativeLibrary;
@@ -18,8 +18,8 @@ internal sealed class LibMpvClient : IDisposable
     private readonly PlaybackDiagnosticRecorder _diagnostics;
     private nint _handle;
     private bool _disposed;
-    private volatile bool _stopEventLoop;
-    private Thread? _eventThread;
+    private readonly object _nativeSync = new();
+    private readonly PlaybackEventLoop _eventLoop;
 
     public event EventHandler? FileLoaded;
 
@@ -62,12 +62,7 @@ internal sealed class LibMpvClient : IDisposable
                 {
                     ["windowHandleSet"] = windowHandle != 0,
                 });
-            _eventThread = new Thread(PumpEvents)
-            {
-                IsBackground = true,
-                Name = "AniMeido libmpv events",
-            };
-            _eventThread.Start();
+            _eventLoop = new PlaybackEventLoop(ReadEvent, ReleaseNativeResources);
         }
         catch
         {
@@ -129,72 +124,75 @@ internal sealed class LibMpvClient : IDisposable
 
     public void Load(ResolvedMedia media)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        ArgumentNullException.ThrowIfNull(media);
-
-        _diagnostics.Record(
-            "libmpv",
-            "load-started",
-            uri: media.Uri,
-            data: new Dictionary<string, object?>
-            {
-                ["headerNames"] = string.Join(
-                    ",",
-                    media.Headers.Keys.Order(StringComparer.OrdinalIgnoreCase)),
-                ["subtitleCount"] = media.Subtitles?.Count ?? 0,
-            });
-        try
+        lock (_nativeSync)
         {
-            var headerPlan = CreateHttpHeaderPlan(media.Headers);
-            ThrowIfError(
-                _api.SetPropertyString(
-                    _handle,
-                    "user-agent",
-                    headerPlan.UserAgent ?? DefaultUserAgent),
-                "设置媒体 User-Agent");
-            ThrowIfError(
-                _api.SetPropertyString(
-                    _handle,
-                    "referrer",
-                    headerPlan.Referrer ?? string.Empty),
-                "设置媒体 Referer");
-            Command("change-list", "http-header-fields", "clr", string.Empty);
-            foreach (var field in headerPlan.AdditionalFields)
-            {
-                Command("change-list", "http-header-fields", "append", field);
-            }
-
-            Command("loadfile", media.Uri.AbsoluteUri, "replace");
-            foreach (var subtitle in media.Subtitles ?? [])
-            {
-                Command(
-                    "sub-add",
-                    subtitle.Uri.AbsoluteUri,
-                    "auto",
-                    subtitle.Title,
-                    subtitle.Language ?? string.Empty);
-            }
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            ArgumentNullException.ThrowIfNull(media);
 
             _diagnostics.Record(
                 "libmpv",
-                "load-command-accepted",
-                uri: media.Uri);
-        }
-#pragma warning disable CA1031 // Native failures must be captured before surfacing.
-        catch (Exception ex)
-        {
-            _diagnostics.Record(
-                "libmpv",
-                "load-failed",
+                "load-started",
                 uri: media.Uri,
                 data: new Dictionary<string, object?>
                 {
-                    ["exception"] = ex.GetType().Name,
-                    ["message"] = ex.Message,
+                    ["headerNames"] = string.Join(
+                        ",",
+                        media.Headers.Keys.Order(StringComparer.OrdinalIgnoreCase)),
+                    ["subtitleCount"] = media.Subtitles?.Count ?? 0,
                 });
-            throw;
+            try
+            {
+                var headerPlan = CreateHttpHeaderPlan(media.Headers);
+                ThrowIfError(
+                    _api.SetPropertyString(
+                        _handle,
+                        "user-agent",
+                        headerPlan.UserAgent ?? DefaultUserAgent),
+                    "设置媒体 User-Agent");
+                ThrowIfError(
+                    _api.SetPropertyString(
+                        _handle,
+                        "referrer",
+                        headerPlan.Referrer ?? string.Empty),
+                    "设置媒体 Referer");
+                Command("change-list", "http-header-fields", "clr", string.Empty);
+                foreach (var field in headerPlan.AdditionalFields)
+                {
+                    Command("change-list", "http-header-fields", "append", field);
+                }
+
+                Command("loadfile", media.Uri.AbsoluteUri, "replace");
+                foreach (var subtitle in media.Subtitles ?? [])
+                {
+                    Command(
+                        "sub-add",
+                        subtitle.Uri.AbsoluteUri,
+                        "auto",
+                        subtitle.Title,
+                        subtitle.Language ?? string.Empty);
+                }
+
+                _diagnostics.Record(
+                    "libmpv",
+                    "load-command-accepted",
+                    uri: media.Uri);
+            }
+    #pragma warning disable CA1031 // Native failures must be captured before surfacing.
+            catch (Exception ex)
+            {
+                _diagnostics.Record(
+                    "libmpv",
+                    "load-failed",
+                    uri: media.Uri,
+                    data: new Dictionary<string, object?>
+                    {
+                        ["exception"] = ex.GetType().Name,
+                        ["message"] = ex.Message,
+                    });
+                throw;
+            }
+    #pragma warning restore CA1031
         }
-#pragma warning restore CA1031
     }
 
     internal static MpvHttpHeaderPlan CreateHttpHeaderPlan(
@@ -271,99 +269,99 @@ internal sealed class LibMpvClient : IDisposable
             & TryGetFlagProperty("pause", out paused);
     }
 
-    public void Dispose()
+    public ValueTask DisposeAsync()
     {
-        if (_disposed)
+        lock (_nativeSync)
+        {
+            _disposed = true;
+            return new ValueTask(_eventLoop.StopAsync());
+        }
+    }
+
+    private void ReleaseNativeResources()
+    {
+        lock (_nativeSync)
+        {
+            _disposed = true;
+            if (_handle != 0)
+            {
+                _api.TerminateDestroy(_handle);
+                _handle = 0;
+            }
+            NativeLibrary.Free(_nativeLibrary);
+        }
+    }
+
+    private void ReadEvent()
+    {
+        var eventPointer = _api.WaitEvent(_handle, 0.1);
+        if (eventPointer == 0)
         {
             return;
         }
 
-        _disposed = true;
-        _stopEventLoop = true;
-        _eventThread?.Join(TimeSpan.FromSeconds(1));
-        _eventThread = null;
-        if (_handle != 0)
+        try
         {
-            _api.TerminateDestroy(_handle);
-            _handle = 0;
+            var nativeEvent = Marshal.PtrToStructure<MpvEvent>(
+                eventPointer);
+            if (nativeEvent.EventId == 0)
+            {
+                return;
+            }
+
+            var data = new Dictionary<string, object?>
+            {
+                ["eventId"] = nativeEvent.EventId,
+                ["eventName"] = GetEventName(nativeEvent.EventId),
+                ["error"] = nativeEvent.Error,
+            };
+            if (nativeEvent.EventId == 2 && nativeEvent.Data != 0)
+            {
+                var message = Marshal.PtrToStructure<MpvLogMessage>(
+                    nativeEvent.Data);
+                data["prefix"] = Marshal.PtrToStringUTF8(message.Prefix);
+                data["level"] = Marshal.PtrToStringUTF8(message.Level);
+                data["message"] = Marshal.PtrToStringUTF8(message.Text);
+            }
+            else if (nativeEvent.EventId == 7 && nativeEvent.Data != 0)
+            {
+                var endFile = Marshal.PtrToStructure<MpvEndFileEvent>(
+                    nativeEvent.Data);
+                data["reason"] = endFile.Reason;
+                data["playbackError"] = endFile.Error;
+                if (endFile.Error < 0)
+                {
+                    PlaybackFailed?.Invoke(
+                        this,
+                        new MpvPlaybackFailedEventArgs(
+                            endFile.Error,
+                            GetErrorMessage(endFile.Error)));
+                }
+                else if (endFile.Reason == 0)
+                {
+                    PlaybackEnded?.Invoke(this, EventArgs.Empty);
+                }
+            }
+            else if (nativeEvent.EventId == 8)
+            {
+                FileLoaded?.Invoke(this, EventArgs.Empty);
+            }
+
+            _diagnostics.Record("libmpv", "event", data: data);
         }
-
-        NativeLibrary.Free(_nativeLibrary);
-    }
-
-    private void PumpEvents()
-    {
-        while (!_stopEventLoop)
-        {
-            var eventPointer = _api.WaitEvent(_handle, 0.1);
-            if (eventPointer == 0)
-            {
-                continue;
-            }
-
-            try
-            {
-                var nativeEvent = Marshal.PtrToStructure<MpvEvent>(
-                    eventPointer);
-                if (nativeEvent.EventId == 0)
-                {
-                    continue;
-                }
-
-                var data = new Dictionary<string, object?>
-                {
-                    ["eventId"] = nativeEvent.EventId,
-                    ["eventName"] = GetEventName(nativeEvent.EventId),
-                    ["error"] = nativeEvent.Error,
-                };
-                if (nativeEvent.EventId == 2 && nativeEvent.Data != 0)
-                {
-                    var message = Marshal.PtrToStructure<MpvLogMessage>(
-                        nativeEvent.Data);
-                    data["prefix"] = Marshal.PtrToStringUTF8(message.Prefix);
-                    data["level"] = Marshal.PtrToStringUTF8(message.Level);
-                    data["message"] = Marshal.PtrToStringUTF8(message.Text);
-                }
-                else if (nativeEvent.EventId == 7 && nativeEvent.Data != 0)
-                {
-                    var endFile = Marshal.PtrToStructure<MpvEndFileEvent>(
-                        nativeEvent.Data);
-                    data["reason"] = endFile.Reason;
-                    data["playbackError"] = endFile.Error;
-                    if (endFile.Error < 0)
-                    {
-                        PlaybackFailed?.Invoke(
-                            this,
-                            new MpvPlaybackFailedEventArgs(
-                                endFile.Error,
-                                GetErrorMessage(endFile.Error)));
-                    }
-                    else if (endFile.Reason == 0)
-                    {
-                        PlaybackEnded?.Invoke(this, EventArgs.Empty);
-                    }
-                }
-                else if (nativeEvent.EventId == 8)
-                {
-                    FileLoaded?.Invoke(this, EventArgs.Empty);
-                }
-
-                _diagnostics.Record("libmpv", "event", data: data);
-            }
 #pragma warning disable CA1031 // Native event diagnostics must not terminate the pump.
-            catch (Exception ex)
-            {
-                _diagnostics.Record(
-                    "libmpv",
-                    "event-read-failed",
-                    data: new Dictionary<string, object?>
-                    {
-                        ["exception"] = ex.GetType().Name,
-                        ["message"] = ex.Message,
-                    });
-            }
-#pragma warning restore CA1031
+        catch (Exception ex)
+        {
+            _diagnostics.Record(
+                "libmpv",
+                "event-read-failed",
+                data: new Dictionary<string, object?>
+                {
+                    ["exception"] = ex.GetType().Name,
+                    ["message"] = ex.Message,
+                });
         }
+#pragma warning restore CA1031
     }
 
     private static string GetEventName(int eventId)
@@ -410,81 +408,93 @@ internal sealed class LibMpvClient : IDisposable
 
     private bool TryGetDoubleProperty(string name, out double value)
     {
-        value = 0;
-        if (_disposed || _handle == 0)
+        lock (_nativeSync)
         {
-            return false;
-        }
+            value = 0;
+            if (_disposed || _handle == 0)
+            {
+                return false;
+            }
 
-        return _api.GetDoubleProperty(
-            _handle,
-            name,
-            MpvFormat.Double,
-            ref value) >= 0;
+            return _api.GetDoubleProperty(
+                _handle,
+                name,
+                MpvFormat.Double,
+                ref value) >= 0;
+        }
     }
 
     private bool TryGetFlagProperty(string name, out bool value)
     {
-        var flag = 0;
-        if (_disposed
-            || _handle == 0
-            || _api.GetFlagProperty(
-                _handle,
-                name,
-                MpvFormat.Flag,
-                ref flag) < 0)
+        lock (_nativeSync)
         {
-            value = false;
-            return false;
-        }
+            var flag = 0;
+            if (_disposed
+                || _handle == 0
+                || _api.GetFlagProperty(
+                    _handle,
+                    name,
+                    MpvFormat.Flag,
+                    ref flag) < 0)
+            {
+                value = false;
+                return false;
+            }
 
-        value = flag != 0;
-        return true;
+            value = flag != 0;
+            return true;
+        }
     }
 
     private void SetDoubleProperty(string name, double value)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        ThrowIfError(
-            _api.SetProperty(
-                _handle,
-                name,
-                MpvFormat.Double,
-                ref value),
-            $"设置 libmpv 属性 {name}");
+        lock (_nativeSync)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            ThrowIfError(
+                _api.SetProperty(
+                    _handle,
+                    name,
+                    MpvFormat.Double,
+                    ref value),
+                $"设置 libmpv 属性 {name}");
+        }
     }
 
     private void Command(params string[] arguments)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        var strings = new nint[arguments.Length];
-        var array = Marshal.AllocHGlobal(
-            checked((arguments.Length + 1) * IntPtr.Size));
-        try
+        lock (_nativeSync)
         {
-            for (var index = 0; index < arguments.Length; index++)
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            var strings = new nint[arguments.Length];
+            var array = Marshal.AllocHGlobal(
+                checked((arguments.Length + 1) * IntPtr.Size));
+            try
             {
-                strings[index] = Marshal.StringToCoTaskMemUTF8(arguments[index]);
-                Marshal.WriteIntPtr(array, index * IntPtr.Size, strings[index]);
-            }
-
-            Marshal.WriteIntPtr(
-                array,
-                arguments.Length * IntPtr.Size,
-                IntPtr.Zero);
-            ThrowIfError(_api.Command(_handle, array), "执行 libmpv 命令");
-        }
-        finally
-        {
-            foreach (var value in strings)
-            {
-                if (value != 0)
+                for (var index = 0; index < arguments.Length; index++)
                 {
-                    Marshal.FreeCoTaskMem(value);
+                    strings[index] = Marshal.StringToCoTaskMemUTF8(arguments[index]);
+                    Marshal.WriteIntPtr(array, index * IntPtr.Size, strings[index]);
                 }
-            }
 
-            Marshal.FreeHGlobal(array);
+                Marshal.WriteIntPtr(
+                    array,
+                    arguments.Length * IntPtr.Size,
+                    IntPtr.Zero);
+                ThrowIfError(_api.Command(_handle, array), "执行 libmpv 命令");
+            }
+            finally
+            {
+                foreach (var value in strings)
+                {
+                    if (value != 0)
+                    {
+                        Marshal.FreeCoTaskMem(value);
+                    }
+                }
+
+                Marshal.FreeHGlobal(array);
+            }
         }
     }
 

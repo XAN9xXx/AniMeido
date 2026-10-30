@@ -1,4 +1,4 @@
-using AniMeido.Contracts.Playback;
+﻿using AniMeido.Contracts.Playback;
 using AniMeido.Plugin.Player.Sources.Managed;
 using AniMeido.Plugin.Player.Sources.Rules;
 using AniMeido.Plugin.Player.Sources.EasyBangumi;
@@ -6,6 +6,7 @@ using AniMeido.Plugin.Player.Sources.Subscriptions;
 using AniMeido.Plugin.Player.Sources.Web;
 using System.Collections.Concurrent;
 using System.Net.Http;
+using Microsoft.Extensions.Logging;
 
 namespace AniMeido.Plugin.Player.Sources;
 
@@ -16,9 +17,10 @@ internal sealed class OnlineSourceCatalog
 {
     private readonly Func<IEnumerable<IOnlineAnimeSource>>? _sourceFactory;
     private readonly SourceMappingStore _mappingStore;
+    private readonly ILogger<OnlineSourceCatalog>? _logger;
     private readonly SemaphoreSlim _reloadGate = new(1, 1);
     private readonly object _diagnosticsGate = new();
-    private IReadOnlyDictionary<string, IOnlineAnimeSource> _sources;
+    private IReadOnlyDictionary<string, IOnlineAnimeSource>? _sources;
     private IReadOnlyList<SourceDiagnostic> _lastDiagnostics = [];
     private IReadOnlyList<SourceMappingRequest> _lastMappingRequests = [];
 
@@ -26,29 +28,33 @@ internal sealed class OnlineSourceCatalog
         HttpClient httpClient,
         SourceMappingStore mappingStore,
         WebMediaResolver webResolver,
-        EasyPreferenceStore preferenceStore)
+        EasyPreferenceStore preferenceStore,
+        ILogger<OnlineSourceCatalog>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(mappingStore);
         ArgumentNullException.ThrowIfNull(webResolver);
         ArgumentNullException.ThrowIfNull(preferenceStore);
-        var managedSources = ManagedSourceLoader.Load().ToArray();
+        var managedSources = new Lazy<IReadOnlyList<IOnlineAnimeSource>>(
+            () => ManagedSourceLoader.Load(logger).ToArray());
         _sourceFactory = () => CreateSources(
             httpClient,
             webResolver,
             preferenceStore,
-            managedSources);
-        _sources = CreateSourceMap(_sourceFactory());
+            managedSources.Value,
+            logger);
         _mappingStore = mappingStore;
+        _logger = logger;
     }
 
     private static IEnumerable<IOnlineAnimeSource> CreateSources(
         HttpClient httpClient,
         WebMediaResolver webResolver,
         EasyPreferenceStore preferenceStore,
-        IReadOnlyList<IOnlineAnimeSource> managedSources)
+        IReadOnlyList<IOnlineAnimeSource> managedSources,
+        ILogger? logger)
     {
-        foreach (var source in SourceRuleLoader.Load(httpClient))
+        foreach (var source in SourceRuleLoader.Load(httpClient, logger))
         {
             yield return source;
         }
@@ -61,7 +67,8 @@ internal sealed class OnlineSourceCatalog
         foreach (var source in SubscriptionSourceLoader.Load(
             httpClient,
             webResolver,
-            preferenceStore))
+            preferenceStore,
+            logger))
         {
             yield return source;
         }
@@ -69,20 +76,23 @@ internal sealed class OnlineSourceCatalog
 
     internal OnlineSourceCatalog(
         IEnumerable<IOnlineAnimeSource> sources,
-        SourceMappingStore? mappingStore = null)
+        SourceMappingStore? mappingStore = null,
+        ILogger<OnlineSourceCatalog>? logger = null)
     {
         _sources = CreateSourceMap(sources);
         _mappingStore = mappingStore ?? new SourceMappingStore(path: null);
+        _logger = logger;
     }
 
     internal OnlineSourceCatalog(
         Func<IEnumerable<IOnlineAnimeSource>> sourceFactory,
-        SourceMappingStore? mappingStore = null)
+        SourceMappingStore? mappingStore = null,
+        ILogger<OnlineSourceCatalog>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(sourceFactory);
         _sourceFactory = sourceFactory;
-        _sources = CreateSourceMap(sourceFactory());
         _mappingStore = mappingStore ?? new SourceMappingStore(path: null);
+        _logger = logger;
     }
 
     internal IReadOnlyList<SourceMappingRequest> LastMappingRequests
@@ -96,7 +106,9 @@ internal sealed class OnlineSourceCatalog
         }
     }
 
-    public int SourceCount => Volatile.Read(ref _sources).Count;
+    internal SourceMappingStore MappingStore => _mappingStore;
+
+    public int SourceCount => Volatile.Read(ref _sources)?.Count ?? 0;
 
     public IReadOnlyList<SourceDiagnostic> LastDiagnostics
     {
@@ -111,10 +123,13 @@ internal sealed class OnlineSourceCatalog
 
     public async Task<IReadOnlyList<SourceEpisodeEntry>> GetEpisodesAsync(
         AnimePlaybackContext anime,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SourceMappingLookup? preparedLookup = null)
     {
         ArgumentNullException.ThrowIfNull(anime);
-        var sources = Volatile.Read(ref _sources);
+        var lookup = preparedLookup ?? await _mappingStore.BeginLookupAsync(anime.AnimeId, cancellationToken);
+        anime = anime with { AnimeId = lookup.AnimeId };
+        var sources = await GetSourcesAsync(cancellationToken);
         var entries = new ConcurrentBag<SourceEpisodeEntry>();
         var diagnostics = new ConcurrentBag<SourceDiagnostic>();
         var mappingRequests = new ConcurrentBag<SourceMappingRequest>();
@@ -137,6 +152,7 @@ internal sealed class OnlineSourceCatalog
                         ? await GetMappedEpisodesAsync(
                             anime,
                             mappable,
+                            lookup,
                             mappingRequests,
                             sourceCancellation.Token)
                         : await source.GetEpisodesAsync(
@@ -154,8 +170,9 @@ internal sealed class OnlineSourceCatalog
                 {
                     throw;
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException ex)
                 {
+                    _logger?.LogWarning(ex, "Source {SourceId} episode lookup timed out; skipping source", source.Id);
                     diagnostics.Add(new SourceDiagnostic(
                         source.Id,
                         source.DisplayName,
@@ -167,6 +184,8 @@ internal sealed class OnlineSourceCatalog
 #pragma warning disable CA1031 // One source must not hide episodes from other sources.
                 catch (Exception ex)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    _logger?.LogWarning(ex, "Source {SourceId} episode lookup failed; skipping source", source.Id);
                     diagnostics.Add(new SourceDiagnostic(
                         source.Id,
                         source.DisplayName,
@@ -184,6 +203,7 @@ internal sealed class OnlineSourceCatalog
 
         lock (_diagnosticsGate)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             _lastDiagnostics = diagnostics.ToArray();
             _lastMappingRequests = mappingRequests
                 .OrderBy(request => request.SourceName)
@@ -199,11 +219,11 @@ internal sealed class OnlineSourceCatalog
 
     internal async Task<IReadOnlyList<SourceEpisodeEntry>>
         SelectMappingAsync(
-            AnimePlaybackContext anime,
+            SourceMappingRequest request,
             SourceAnimeCandidate candidate,
             CancellationToken cancellationToken)
     {
-        var sources = Volatile.Read(ref _sources);
+        var sources = await GetSourcesAsync(cancellationToken);
         if (!sources.TryGetValue(
                 candidate.SourceId,
                 out var source)
@@ -213,8 +233,7 @@ internal sealed class OnlineSourceCatalog
                 $"播放源不支持标题映射：{candidate.SourceId}");
         }
 
-        await _mappingStore.SetAsync(
-            anime.AnimeId,
+        await request.MappingLookup.SetAsync(
             source.Id,
             candidate.RemoteId,
             cancellationToken);
@@ -233,7 +252,7 @@ internal sealed class OnlineSourceCatalog
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(episode);
-        var sources = Volatile.Read(ref _sources);
+        var sources = await GetSourcesAsync(cancellationToken);
         if (!sources.TryGetValue(episode.SourceId, out var source))
         {
             throw new InvalidOperationException(
@@ -257,7 +276,7 @@ internal sealed class OnlineSourceCatalog
                 source.Id,
                 source.DisplayName,
                 "解析媒体",
-                HeaderNormalizer.RedactDiagnostic(ex.Message)));
+                HeaderNormalizer.RedactDiagnostic(ex.Message)), cancellationToken);
             throw;
         }
 #pragma warning disable CA1031 // Source failures are normalized for the player UI.
@@ -267,7 +286,7 @@ internal sealed class OnlineSourceCatalog
                 source.Id,
                 source.DisplayName,
                 "解析媒体",
-                HeaderNormalizer.RedactDiagnostic(ex.Message)));
+                HeaderNormalizer.RedactDiagnostic(ex.Message)), cancellationToken);
             throw new InvalidOperationException(
                 $"{source.DisplayName} 解析失败："
                 + HeaderNormalizer.RedactDiagnostic(ex.Message),
@@ -276,10 +295,11 @@ internal sealed class OnlineSourceCatalog
 #pragma warning restore CA1031
     }
 
-    private void AppendDiagnostic(SourceDiagnostic diagnostic)
+    private void AppendDiagnostic(SourceDiagnostic diagnostic, CancellationToken cancellationToken)
     {
         lock (_diagnosticsGate)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             _lastDiagnostics = _lastDiagnostics
                 .Append(diagnostic)
                 .TakeLast(20)
@@ -290,12 +310,12 @@ internal sealed class OnlineSourceCatalog
     private async Task<IReadOnlyList<SourceEpisode>> GetMappedEpisodesAsync(
         AnimePlaybackContext anime,
         IMappableOnlineAnimeSource source,
+        SourceMappingLookup lookup,
         ConcurrentBag<SourceMappingRequest> mappingRequests,
         CancellationToken cancellationToken)
     {
         var candidates = await source.SearchAsync(anime, cancellationToken);
-        var rememberedId = await _mappingStore.GetAsync(
-            anime.AnimeId,
+        var rememberedId = await lookup.GetAsync(
             source.Id,
             cancellationToken);
         if (!string.IsNullOrWhiteSpace(rememberedId))
@@ -312,8 +332,7 @@ internal sealed class OnlineSourceCatalog
                     cancellationToken);
             }
 
-            await _mappingStore.RemoveAsync(
-                anime.AnimeId,
+            await lookup.RemoveAsync(
                 source.Id,
                 cancellationToken);
         }
@@ -326,8 +345,7 @@ internal sealed class OnlineSourceCatalog
 
         if (ranked.Count == 1 || TitleMatcher.IsConfident(anime, ranked[0]))
         {
-            await _mappingStore.SetAsync(
-                anime.AnimeId,
+            await lookup.SetAsync(
                 source.Id,
                 ranked[0].RemoteId,
                 cancellationToken);
@@ -339,28 +357,53 @@ internal sealed class OnlineSourceCatalog
         mappingRequests.Add(new SourceMappingRequest(
             source.Id,
             source.DisplayName,
-            ranked.Take(10).ToArray()));
+            ranked.Take(10).ToArray())
+        {
+            MappingLookup = lookup,
+        });
         return [];
     }
 
-    public async Task<SourceCatalogReloadResult> ReloadAsync(
+    internal Task EnsureLoadedAsync(CancellationToken cancellationToken)
+        => LoadSourcesAsync(forceReload: false, cancellationToken);
+
+    private async Task<IReadOnlyDictionary<string, IOnlineAnimeSource>> GetSourcesAsync(
         CancellationToken cancellationToken)
     {
-        if (_sourceFactory is null)
+        await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+        return Volatile.Read(ref _sources)!;
+    }
+
+    public Task<SourceCatalogReloadResult> ReloadAsync(CancellationToken cancellationToken)
+        => LoadSourcesAsync(forceReload: true, cancellationToken);
+
+    private async Task<SourceCatalogReloadResult> LoadSourcesAsync(
+        bool forceReload,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var current = Volatile.Read(ref _sources);
+        if (_sourceFactory is null || (!forceReload && current is not null))
         {
-            var unchanged = Volatile.Read(ref _sources).Count;
+            var unchanged = current?.Count ?? 0;
             return new SourceCatalogReloadResult(unchanged, unchanged);
         }
 
-        await _reloadGate.WaitAsync(cancellationToken);
+        await _reloadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var previous = Volatile.Read(ref _sources);
+            if (!forceReload && previous is not null)
+            {
+                return new SourceCatalogReloadResult(previous.Count, previous.Count);
+            }
+
             var next = await Task.Run(
                 () => CreateSourceMap(_sourceFactory()),
-                cancellationToken);
+                cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             Volatile.Write(ref _sources, next);
-            return new SourceCatalogReloadResult(previous.Count, next.Count);
+            return new SourceCatalogReloadResult(previous?.Count ?? 0, next.Count);
         }
         finally
         {

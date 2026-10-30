@@ -1,4 +1,4 @@
-using AniMeido.Contracts;
+﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Playback;
 using AniMeido.Contracts.Plugins;
 using AniMeido.Plugin.Player.Diagnostics;
@@ -45,12 +45,10 @@ public sealed class PlayerPlugin : IPlugin
 
     public bool IsRequired => false;
 
-    public async Task InitializeAsync(IServiceCollection services)
+    public Task InitializeAsync(IServiceCollection services)
     {
         var mappings = _startupMappings ?? new SourceMappingStore();
         var settings = _startupSettings ?? new PlayerExperienceSettingsStore();
-        await mappings.EnsurePublicIdsAsync(default);
-        await settings.ReadAsync(default);
         services.TryAddSingleton<
             IAnimePlaybackProgressReporter,
             NullAnimePlaybackProgressReporter>();
@@ -72,6 +70,7 @@ public sealed class PlayerPlugin : IPlugin
             provider.GetRequiredService<PlayerWindowManager>());
         services.AddSingleton<IPluginSettingsLauncher>(provider =>
             provider.GetRequiredService<PlayerWindowManager>());
+        return Task.CompletedTask;
     }
 
     public IEnumerable<PluginNavigationItem> GetNavigationItems() => [];

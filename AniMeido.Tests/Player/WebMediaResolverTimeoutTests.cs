@@ -43,13 +43,21 @@ public sealed class WebMediaResolverTimeoutTests
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var handler = ProbeHandler(entered);
         await using var fixture = new Fixture(handler, TimeSpan.FromMilliseconds(100));
-        var pending = fixture.Resolver.ResolveAsync(Request(), CancellationToken.None);
-        await entered.Task.WaitAsync(ShortBudget);
-        var error = await Assert.ThrowsAsync<SourceResolutionException>(() => pending.WaitAsync(ShortBudget));
-        Assert.Equal(SourceResolutionFailureKind.Timeout, error.Kind);
-        Assert.Equal("播放源请求超过 0.1 秒未响应。", error.Message);
-        Assert.Equal(Page, error.PageUri);
-        Assert.IsAssignableFrom<OperationCanceledException>(error.InnerException);
+        using var cancellation = new CancellationTokenSource();
+        var pending = fixture.Resolver.ResolveAsync(Request(), cancellation.Token);
+        try
+        {
+            await entered.Task.WaitAsync(ShortBudget);
+            var error = await Assert.ThrowsAsync<SourceResolutionException>(() => pending.WaitAsync(ShortBudget));
+            Assert.Equal(SourceResolutionFailureKind.Timeout, error.Kind);
+            Assert.Equal("播放源请求超过 0.1 秒未响应。", error.Message);
+            Assert.Equal(Page, error.PageUri);
+            Assert.IsAssignableFrom<OperationCanceledException>(error.InnerException);
+        }
+        finally
+        {
+            await FinishResolutionAsync(pending, cancellation);
+        }
     }
 
     [Fact]
@@ -60,9 +68,32 @@ public sealed class WebMediaResolverTimeoutTests
         await using var fixture = new Fixture(handler, TimeSpan.FromSeconds(60));
         using var cancellation = new CancellationTokenSource();
         var pending = fixture.Resolver.ResolveAsync(Request(), cancellation.Token);
-        await entered.Task.WaitAsync(ShortBudget);
+        try
+        {
+            await entered.Task.WaitAsync(ShortBudget);
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(ShortBudget));
+        }
+        finally
+        {
+            await FinishResolutionAsync(pending, cancellation);
+        }
+    }
+
+    private static async Task FinishResolutionAsync(Task pending, CancellationTokenSource cancellation)
+    {
         cancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(ShortBudget));
+        try
+        {
+            await pending.WaitAsync(ShortBudget);
+        }
+        catch (OperationCanceledException) when (pending.IsCanceled)
+        {
+        }
+        catch (SourceResolutionException) when (pending.IsFaulted)
+        {
+            // 正文拥有结果断言；收尾只观察已结束的任务，不吞掉排空超时。
+        }
     }
 
     private static void AssertTimeout(SourceResolutionException error)
@@ -111,7 +142,7 @@ public sealed class WebMediaResolverTimeoutTests
         }
         public async ValueTask DisposeAsync()
         {
-            Resolver.Dispose();
+            await Resolver.DisposeAsync().AsTask().WaitAsync(ShortBudget);
             _http.Dispose();
             await _diagnostics.DisposeAsync();
             if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);

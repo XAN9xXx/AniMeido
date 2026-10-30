@@ -1,9 +1,12 @@
+﻿using System.Runtime.CompilerServices;
 using AniMeido.Contracts.Playback;
 using AniMeido.Plugin.Player.Diagnostics;
 using AniMeido.Plugin.Player.Models;
 using AniMeido.Plugin.Player.Playback;
 using AniMeido.Plugin.Player.Sources;
 using AniMeido.Plugin.Player.Sources.Web;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
@@ -23,9 +26,12 @@ namespace AniMeido.Plugin.Player.Views;
 internal sealed class PlayerWindow : Window
 {
     private readonly OnlineSourceCatalog _sourceCatalog;
-    private readonly Action _openSourceManagement;
+    private readonly Func<Task> _openSourceManagement;
     private readonly WebMediaResolver _webResolver;
+    private readonly WebViewHostBinding _webBinding;
+    private readonly CancellationTokenSource _webBindingCancellation = new();
     private readonly PlaybackDiagnosticRecorder _diagnostics;
+    private readonly ILogger _logger;
     private readonly Grid _root = new();
     private readonly Border _videoSurface = new();
     private readonly ComboBox _episodeList = new();
@@ -45,6 +51,7 @@ internal sealed class PlayerWindow : Window
     private readonly Grid _selectorBar = new();
     private readonly Grid _footer = new();
     private readonly PlayerExperienceSettingsStore _experienceSettings;
+    private readonly PlayerPublicIdBoundary _publicIds;
     private readonly IAnimePlaybackProgressReporter _playbackProgressReporter;
     private readonly DispatcherTimer _playbackTimer = new()
     {
@@ -60,7 +67,11 @@ internal sealed class PlayerWindow : Window
     private bool _updatingControls;
     private bool _isFullScreen;
     private bool _sourceLookupInProgress;
-    private bool _isClosing;
+    internal bool IsClosing => _closeTask is not null;
+    private Task? _closeTask;
+    private Task<bool>? _webBindingTask;
+    private readonly HashSet<Task> _pendingOperations = [];
+    private readonly HashSet<ContentDialog> _openDialogs = [];
     private bool _suppressSelectionPlayback;
     private bool _isChangingEpisode;
     private bool _isProgressDragging;
@@ -68,12 +79,10 @@ internal sealed class PlayerWindow : Window
     private bool _reachedEnd;
     private double _playbackSpeed = 1;
     private double? _pendingResumePosition;
-    private double _lastPlaybackPosition;
-    private double _lastPlaybackDuration;
-    private bool _progressReportedForEpisode;
     private DateTimeOffset _resolutionStartedAtUtc;
     private PlaybackViewState _viewState = PlaybackViewState.Idle;
     private PlayerExperienceSettings _experience = new();
+    private readonly ConditionalWeakTable<AnimePlaybackContext, PlayerRouteIdentity> _routeIdentities = new();
     private IReadOnlyList<PlayerEpisodeGroup> _episodeGroups = [];
     private AppWindow? _appWindow;
     private XamlRoot? _trackedXamlRoot;
@@ -88,11 +97,14 @@ internal sealed class PlayerWindow : Window
     public PlayerWindow(
         AnimePlaybackContext anime,
         OnlineSourceCatalog sourceCatalog,
-        Action openSourceManagement,
+        Func<Task> openSourceManagement,
         WebMediaResolver webResolver,
         PlaybackDiagnosticRecorder diagnostics,
         PlayerExperienceSettingsStore experienceSettings,
-        IAnimePlaybackProgressReporter playbackProgressReporter)
+        PlayerPublicIdBoundary publicIds,
+        IAnimePlaybackProgressReporter playbackProgressReporter,
+        PlayerRouteIdentity initialRouteIdentity,
+        ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(anime);
         _sourceCatalog = sourceCatalog;
@@ -100,10 +112,11 @@ internal sealed class PlayerWindow : Window
         _webResolver = webResolver;
         _diagnostics = diagnostics;
         _experienceSettings = experienceSettings;
+        _publicIds = publicIds;
+        _routeIdentities.Add(anime, initialRouteIdentity);
         _playbackProgressReporter = playbackProgressReporter;
-        webResolver.AttachUiThread(
-            Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread(),
-            WindowNative.GetWindowHandle(this));
+        _logger = logger ?? NullLogger.Instance;
+        _webBinding = WebViewHostBinding.FromWindow(this);
         _session = new PlaybackSession(anime);
         _activeAnimeId = anime.AnimeId;
         _activeAnimeTitle = anime.Title;
@@ -114,13 +127,46 @@ internal sealed class PlayerWindow : Window
         _root.KeyDown += OnRootKeyDown;
         Activated += OnWindowActivated;
         Closed += OnWindowClosed;
+        _appWindow!.Closing += OnWindowClosing;
+    }
+
+    internal Task<bool> EnsureWebBindingAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (IsClosing)
+        {
+            return Task.FromResult(false);
+        }
+
+        _webBindingTask ??= BindWebViewCoreAsync();
+        // 调用方只取消自己的等待；实际绑定由窗口持有并在关闭时取消、排空。
+        return _webBindingTask.WaitAsync(cancellationToken);
+    }
+
+    private async Task<bool> BindWebViewCoreAsync()
+    {
+        var attached = false;
+        await RunWindowOperationAsync(async () =>
+        {
+            try
+            {
+                attached = await _webResolver.AttachUiThreadAsync(
+                    _webBinding, _webBindingCancellation.Token);
+            }
+            catch (OperationCanceledException) when (_webBindingCancellation.IsCancellationRequested)
+            {
+            }
+        });
+        return attached && !IsClosing;
     }
 
     public async Task ShowAnimeAsync(
         AnimePlaybackContext anime,
+        PlayerRouteIdentity identity,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(anime);
+        _routeIdentities.GetValue(anime, _ => identity);
         if (_session.AnimeContext == anime)
         {
             return;
@@ -137,7 +183,6 @@ internal sealed class PlayerWindow : Window
             _hasActivePlayback = false;
             _activeContextObservedAt = DateTimeOffset.UtcNow;
         }
-        ResetProgressReport();
         await LoadEpisodesAsync(cancellationToken);
     }
 
@@ -367,25 +412,32 @@ internal sealed class PlayerWindow : Window
         object sender,
         WindowActivatedEventArgs args)
     {
+        if (IsClosing)
+        {
+            return;
+        }
         TrackDpiChanges();
         if (!_nativePlayerInitialized)
         {
+            _nativePlayerInitialized = true;
             try
             {
                 await LoadExperienceAsync();
+                if (IsClosing)
+                {
+                    return;
+                }
                 InitializeNativePlayer();
                 await LoadEpisodesAsync(CancellationToken.None);
             }
 #pragma warning disable CA1031 // Native player startup is recoverable in its own window.
             catch (Exception ex)
             {
+                _logger.LogError(ex, "Player window initialization failed.");
                 _nativePlayerError = $"播放器初始化失败：{ex.Message}";
                 _status.Text = _nativePlayerError;
                 _loading.IsActive = false;
-                _mpv?.Dispose();
-                _mpv = null;
-                _nativeVideoHost?.Dispose();
-                _nativeVideoHost = null;
+                await StopNativePlayerAsync();
             }
 #pragma warning restore CA1031
         }
@@ -393,7 +445,6 @@ internal sealed class PlayerWindow : Window
 
     private void InitializeNativePlayer()
     {
-        _nativePlayerInitialized = true;
         var windowHandle = WindowNative.GetWindowHandle(this);
         _nativeVideoHost = new NativeVideoHost(windowHandle);
         if (!LibMpvClient.TryCreate(
@@ -419,11 +470,11 @@ internal sealed class PlayerWindow : Window
     }
 
     private void OnMpvFileLoaded(object? sender, EventArgs e)
-        => _ = DispatcherQueue.TryEnqueue(HandleMpvFileLoadedAsync);
+        => _ = DispatcherQueue.TryEnqueue(() => _ = RunWindowOperationAsync(HandleMpvFileLoadedAsync));
 
-    private async void HandleMpvFileLoadedAsync()
+    private async Task HandleMpvFileLoadedAsync()
     {
-        if (_isClosing)
+        if (IsClosing)
         {
             return;
         }
@@ -433,21 +484,22 @@ internal sealed class PlayerWindow : Window
         if (_session.Episode is { } episode)
         {
             await TryRecordRouteResultAsync(
-                _session.AnimeContext.AnimeId,
+                _session.AnimeContext,
                 PlayerEpisodeGroup.GetRouteKey(episode),
                 succeeded: true,
                 DateTimeOffset.UtcNow - _resolutionStartedAtUtc);
         }
 
-        SetPlaybackState(
-            PlaybackViewState.Playing,
-            GetNowPlayingText());
+        if (!IsClosing)
+        {
+            SetPlaybackState(PlaybackViewState.Playing, GetNowPlayingText());
+        }
     }
 
     private void OnMpvPlaybackEnded(object? sender, EventArgs e)
         => _ = DispatcherQueue.TryEnqueue(() =>
         {
-            if (!_isClosing)
+            if (!IsClosing)
             {
                 _playbackTimer.Stop();
                 _reachedEnd = true;
@@ -462,12 +514,12 @@ internal sealed class PlayerWindow : Window
         object? sender,
         MpvPlaybackFailedEventArgs e)
         => _ = DispatcherQueue.TryEnqueue(
-            () => HandleMpvPlaybackFailureAsync(e));
+            () => _ = RunWindowOperationAsync(() => HandleMpvPlaybackFailureAsync(e)));
 
-    private async void HandleMpvPlaybackFailureAsync(
+    private async Task HandleMpvPlaybackFailureAsync(
         MpvPlaybackFailedEventArgs failure)
     {
-        if (_isClosing || _session.Episode is not { } failedEpisode)
+        if (IsClosing || _session.Episode is not { } failedEpisode)
         {
             return;
         }
@@ -475,10 +527,14 @@ internal sealed class PlayerWindow : Window
         _playbackTimer.Stop();
         _session.ClearResolvedMedia();
         await TryRecordRouteResultAsync(
-            _session.AnimeContext.AnimeId,
+            _session.AnimeContext,
             PlayerEpisodeGroup.GetRouteKey(failedEpisode),
             succeeded: false,
             TimeSpan.Zero);
+        if (IsClosing)
+        {
+            return;
+        }
         SetPlaybackState(
             PlaybackViewState.Failed,
             $"媒体播放失败：{failure.Message}。请重试或切换线路。");
@@ -489,10 +545,12 @@ internal sealed class PlayerWindow : Window
         }
     }
 
-    private async Task LoadEpisodesAsync(CancellationToken cancellationToken)
+    private Task LoadEpisodesAsync(CancellationToken cancellationToken)
+        => RunWindowOperationAsync(() => LoadEpisodesCoreAsync(cancellationToken));
+
+    private async Task LoadEpisodesCoreAsync(CancellationToken cancellationToken)
     {
         _sourceLoadCancellation?.Cancel();
-        _sourceLoadCancellation?.Dispose();
         _sourceLoadCancellation =
             CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var activeCancellation = _sourceLoadCancellation;
@@ -507,9 +565,17 @@ internal sealed class PlayerWindow : Window
             + "每个源最多等待 15 秒。";
         try
         {
+            var anime = _session.AnimeContext;
+            var identity = await GetRouteIdentityAsync(anime, activeCancellation.Token);
+            var prepared = await _publicIds.PrepareLookupAsync(identity, activeCancellation.Token);
+            if (prepared.Experience.ReadResult.FallbackReason is { } reason)
+                _logger.LogWarning(reason, "Failed to read player settings; using defaults for episode lookup.");
+            activeCancellation.Token.ThrowIfCancellationRequested();
+            _experience = prepared.Experience.ReadResult.Settings;
             var entries = await _sourceCatalog.GetEpisodesAsync(
-                _session.AnimeContext,
-                activeCancellation.Token);
+                anime with { AnimeId = prepared.Mapping.AnimeId },
+                activeCancellation.Token,
+                prepared.Mapping);
             if (activeCancellation.IsCancellationRequested)
             {
                 return;
@@ -519,16 +585,18 @@ internal sealed class PlayerWindow : Window
             foreach (var request in _sourceCatalog.LastMappingRequests)
             {
                 var selected = await PromptForMappingAsync(request);
+                activeCancellation.Token.ThrowIfCancellationRequested();
                 if (selected is not null)
                 {
                     allEntries.AddRange(
                         await _sourceCatalog.SelectMappingAsync(
-                            _session.AnimeContext,
+                            request,
                             selected,
                             activeCancellation.Token));
                 }
             }
 
+            activeCancellation.Token.ThrowIfCancellationRequested();
             _episodeGroups = PlayerEpisodeGroup.Create(
                 allEntries,
                 _experience.RouteHealth);
@@ -558,12 +626,14 @@ internal sealed class PlayerWindow : Window
         }
         finally
         {
-            _suppressSelectionPlayback = false;
             if (ReferenceEquals(activeCancellation, _sourceLoadCancellation))
             {
+                _sourceLoadCancellation = null;
+                _suppressSelectionPlayback = false;
                 _sourceLookupInProgress = false;
                 _loading.IsActive = false;
             }
+            activeCancellation.Dispose();
         }
     }
 
@@ -591,17 +661,30 @@ internal sealed class PlayerWindow : Window
             PrimaryButtonText = "使用所选条目",
             CloseButtonText = "跳过此源",
         };
-        return await dialog.ShowAsync() == ContentDialogResult.Primary
+        return await ShowDialogAsync(dialog) == ContentDialogResult.Primary
             ? candidates.SelectedItem as SourceAnimeCandidate
             : null;
     }
 
-    private void OnManageSourcesClick(object sender, RoutedEventArgs e)
-        => _openSourceManagement();
+    private async void OnManageSourcesClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await RunWindowOperationAsync(_openSourceManagement);
+        }
+#pragma warning disable CA1031 // 设置打开失败由窗口事件边界报告，不遗留后台任务。
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to open player source settings.");
+            if (!IsClosing)
+                _status.Text = "无法打开播放源设置，请重试。";
+        }
+#pragma warning restore CA1031
+    }
 
     internal async Task RefreshSourcesAsync()
     {
-        if (_isClosing)
+        if (IsClosing)
         {
             return;
         }
@@ -613,6 +696,7 @@ internal sealed class PlayerWindow : Window
 #pragma warning disable CA1031 // Hot-reload failures are reported in the player.
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Player source refresh failed after the source update.");
             _status.Text = $"播放源已更新，但重新查询失败：{ex.Message}";
         }
 #pragma warning restore CA1031
@@ -644,6 +728,7 @@ internal sealed class PlayerWindow : Window
     {
         if (_episodeList.SelectedItem is not PlayerEpisodeGroup group)
         {
+            _session.BeginEpisode(null);
             lock (_activeContextSync)
             {
                 _activeEpisodeNumber = null;
@@ -658,22 +743,24 @@ internal sealed class PlayerWindow : Window
         }
 
         CancelPlaybackResolution();
+        var selectedEpisodeNumber = group.TryGetEpisodeNumber(out var episodeNumber)
+            ? episodeNumber
+            : (int?)null;
+        _session.BeginEpisode(selectedEpisodeNumber);
         lock (_activeContextSync)
         {
-            _activeEpisodeNumber = group.TryGetEpisodeNumber(
-                out var episodeNumber)
-                ? episodeNumber
-                : null;
+            _activeEpisodeNumber = selectedEpisodeNumber;
             _activePositionSeconds = null;
             _hasActivePlayback = false;
             _activeContextObservedAt = DateTimeOffset.UtcNow;
         }
         _pendingResumePosition = null;
-        ResetProgressReport();
         var routes = group.Routes.ToList();
-        if (_experience.PreferredRouteByAnime.TryGetValue(
-                _session.AnimeContext.AnimeId.ToString(),
-                out var preferredRoute))
+        var anime = _session.AnimeContext;
+        var currentAnimeId = _routeIdentities.TryGetValue(anime, out var identity)
+            ? identity.CurrentAnimeId : anime.AnimeId;
+        if (_experience.PreferredRouteByAnime.TryGetValue(currentAnimeId.ToString(), out var preferredRoute)
+            || _experience.PreferredRouteByAnime.TryGetValue(anime.AnimeId.ToString(), out preferredRoute))
         {
             routes = routes
                 .OrderByDescending(entry =>
@@ -763,13 +850,17 @@ internal sealed class PlayerWindow : Window
             allowFallback: _experience.AutoFallbackEnabled);
     }
 
-    private async Task StartSelectedEpisodeAsync(bool allowFallback)
+    private Task StartSelectedEpisodeAsync(bool allowFallback)
+        => RunWindowOperationAsync(() => StartSelectedEpisodeCoreAsync(allowFallback));
+
+    private async Task StartSelectedEpisodeCoreAsync(bool allowFallback)
     {
         if (_mpv is null || _session.Episode is not { } selectedEpisode)
         {
             return;
         }
 
+        CancelPlaybackResolution();
         _playButton.IsEnabled = false;
         _loading.IsActive = true;
         lock (_activeContextSync)
@@ -813,7 +904,7 @@ internal sealed class PlayerWindow : Window
         catch (SourceResolutionException ex)
             when (ex.Kind == SourceResolutionFailureKind.Timeout)
         {
-            if (!_isClosing)
+            if (!IsClosing)
             {
                 SetPlaybackState(
                     PlaybackViewState.Failed,
@@ -824,11 +915,11 @@ internal sealed class PlayerWindow : Window
 #pragma warning disable CA1031 // A failed source should remain a recoverable player error.
         catch (Exception ex)
         {
-            if (!_isClosing)
+            if (!IsClosing)
             {
                 _session.ClearResolvedMedia();
                 await TryRecordRouteResultAsync(
-                    _session.AnimeContext.AnimeId,
+                    _session.AnimeContext,
                     PlayerEpisodeGroup.GetRouteKey(selectedEpisode),
                     succeeded: false,
                     stopwatch.Elapsed);
@@ -868,9 +959,8 @@ internal sealed class PlayerWindow : Window
                 activeCancellation,
                 _playbackResolutionCancellation))
             {
-                activeCancellation.Dispose();
                 _playbackResolutionCancellation = null;
-                if (!_isClosing)
+                if (!IsClosing)
                 {
                     if (_viewState != PlaybackViewState.Buffering)
                     {
@@ -879,11 +969,12 @@ internal sealed class PlayerWindow : Window
                     _playButton.IsEnabled = _session.Episode is not null;
                 }
             }
+            activeCancellation.Dispose();
         }
 
         if (recovery is ResolutionTimeoutAction.Retry
             or ResolutionTimeoutAction.Verify
-            && !_isClosing
+            && !IsClosing
             && _session.Episode == selectedEpisode)
         {
             if (recovery == ResolutionTimeoutAction.Verify
@@ -917,7 +1008,7 @@ internal sealed class PlayerWindow : Window
             DefaultButton = ContentDialogButton.Primary,
             IsSecondaryButtonEnabled = exception.PageUri is not null,
         };
-        return await dialog.ShowAsync() switch
+        return await ShowDialogAsync(dialog) switch
         {
             ContentDialogResult.Primary => ResolutionTimeoutAction.Retry,
             ContentDialogResult.Secondary => ResolutionTimeoutAction.Verify,
@@ -957,7 +1048,7 @@ internal sealed class PlayerWindow : Window
             IsSecondaryButtonEnabled = hasNextRoute,
             DefaultButton = ContentDialogButton.Primary,
         };
-        return await dialog.ShowAsync() switch
+        return await ShowDialogAsync(dialog) switch
         {
             ContentDialogResult.Primary => PlaybackFailureAction.Retry,
             ContentDialogResult.Secondary =>
@@ -1056,8 +1147,7 @@ internal sealed class PlayerWindow : Window
         _updatingControls = true;
         try
         {
-            _lastPlaybackPosition = position;
-            _lastPlaybackDuration = duration;
+            _session.ObservePlayback(position, duration);
             lock (_activeContextSync)
             {
                 _activePositionSeconds = position;
@@ -1103,11 +1193,7 @@ internal sealed class PlayerWindow : Window
                     paused ? "已暂停" : GetNowPlayingText());
             }
 
-            if (duration >= 300
-                && position / duration >= 0.9)
-            {
-                ReportProgressIfEligible(reachedNaturalEnd: false);
-            }
+            ReportProgressIfEligible(reachedNaturalEnd: false);
         }
         finally
         {
@@ -1115,35 +1201,16 @@ internal sealed class PlayerWindow : Window
         }
     }
 
-    private void ResetProgressReport()
-    {
-        _lastPlaybackPosition = 0;
-        _lastPlaybackDuration = 0;
-        _progressReportedForEpisode = false;
-    }
-
     private void ReportProgressIfEligible(bool reachedNaturalEnd)
     {
-        if (_progressReportedForEpisode
-            || _episodeList.SelectedItem is not PlayerEpisodeGroup group
-            || !group.TryGetEpisodeNumber(out var episodeNumber)
-            || _lastPlaybackDuration < 300)
-        {
-            return;
-        }
-
-        _progressReportedForEpisode = true;
-        _ = ReportProgressAsync(new AnimePlaybackProgress(
-            Guid.NewGuid().ToString("N"),
-            _session.AnimeContext.AnimeId,
-            episodeNumber,
-            _lastPlaybackPosition,
-            _lastPlaybackDuration,
-            reachedNaturalEnd,
-            DateTimeOffset.UtcNow));
+        if (_session.TryCreateProgress(reachedNaturalEnd) is { } progress)
+            _ = ReportProgressAsync(progress);
     }
 
-    private async Task ReportProgressAsync(AnimePlaybackProgress progress)
+    private Task ReportProgressAsync(AnimePlaybackProgress progress)
+        => RunWindowOperationAsync(() => ReportProgressCoreAsync(progress));
+
+    private async Task ReportProgressCoreAsync(AnimePlaybackProgress progress)
     {
         try
         {
@@ -1252,9 +1319,9 @@ internal sealed class PlayerWindow : Window
             SecondaryButtonText = "源诊断",
             CloseButtonText = "关闭",
         };
-        var result = await dialog.ShowAsync();
+        var result = await ShowDialogAsync(dialog);
         _experience.AutoFallbackEnabled = autoFallback.IsChecked == true;
-        await PersistPreferencesAsync();
+        await PersistPreferencesSafelyAsync();
         if (result == ContentDialogResult.Primary)
         {
             OnManageSourcesClick(sender, e);
@@ -1360,10 +1427,17 @@ internal sealed class PlayerWindow : Window
                 ? $"正在播放：{episode.DisplayText}"
                 : "正在播放";
 
-    private async Task LoadExperienceAsync()
+    private Task LoadExperienceAsync()
+        => RunWindowOperationAsync(() => LoadExperienceCoreAsync());
+
+    private async Task LoadExperienceCoreAsync()
     {
-        _experience = await _experienceSettings.ReadAsync(
-            CancellationToken.None);
+        var result = await _experienceSettings.ReadAsync(CancellationToken.None);
+        if (result.FallbackReason is { } reason)
+            _logger.LogWarning(reason,
+                "Failed to read player settings; using defaults for {Operation}.",
+                "window initialization");
+        _experience = result.Settings;
         _updatingControls = true;
         try
         {
@@ -1392,26 +1466,41 @@ internal sealed class PlayerWindow : Window
         }
     }
 
+    private async Task<PlayerRouteIdentity> GetRouteIdentityAsync(
+        AnimePlaybackContext anime, CancellationToken cancellationToken)
+    {
+        if (_routeIdentities.TryGetValue(anime, out var current))
+            return current;
+
+        var created = await _experienceSettings.BeginRouteAsync(anime.AnimeId, cancellationToken);
+        return _routeIdentities.GetValue(anime, _ => created);
+    }
+
     private async Task TryRecordRouteResultAsync(
-        int animeId,
+        AnimePlaybackContext anime,
         string routeKey,
         bool succeeded,
         TimeSpan latency)
     {
         try
         {
-            await _experienceSettings.RecordRouteResultAsync(
-                animeId,
+            var identity = await GetRouteIdentityAsync(anime, CancellationToken.None);
+            _experience = await _experienceSettings.RecordRouteResultAsync(
+                identity,
                 routeKey,
                 succeeded,
                 latency,
                 CancellationToken.None);
-            _experience = await _experienceSettings.ReadAsync(
-                CancellationToken.None);
         }
-#pragma warning disable CA1031 // Preference persistence cannot break playback.
-        catch
+        catch (OperationCanceledException ex) when (ex.CancellationToken.IsCancellationRequested)
         {
+        }
+#pragma warning disable CA1031 // 线路记录保存失败由此报告，不打断当前播放。
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save player route result for anime {AnimeId}.", anime.AnimeId);
+            if (!IsClosing)
+                _status.Text = "播放线路记录未能保存。本次播放可继续。";
         }
 #pragma warning restore CA1031
     }
@@ -1433,15 +1522,24 @@ internal sealed class PlayerWindow : Window
             CancellationToken.None);
     }
 
-    private async Task PersistPreferencesSafelyAsync()
+    private Task PersistPreferencesSafelyAsync()
+        => RunWindowOperationAsync(() => PersistPreferencesSafelyCoreAsync());
+
+    private async Task PersistPreferencesSafelyCoreAsync()
     {
         try
         {
             await PersistPreferencesAsync();
         }
-#pragma warning disable CA1031 // Preference persistence cannot break playback.
-        catch
+        catch (OperationCanceledException ex) when (ex.CancellationToken.IsCancellationRequested)
         {
+        }
+#pragma warning disable CA1031 // 播放设置保存失败由此报告，不打断当前播放。
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save player preferences.");
+            if (!IsClosing)
+                _status.Text = "播放设置未能保存。本次播放可继续。";
         }
 #pragma warning restore CA1031
     }
@@ -1521,6 +1619,7 @@ internal sealed class PlayerWindow : Window
 #pragma warning disable CA1031 // Export failures are shown in the dialog.
             catch (Exception ex)
             {
+                _logger.LogError(ex, "Playback diagnostic export failed.");
                 traceStatus.Text = $"导出失败：{ex.Message}";
             }
 #pragma warning restore CA1031
@@ -1584,7 +1683,7 @@ internal sealed class PlayerWindow : Window
             Content = content,
             CloseButtonText = "关闭",
         };
-        await dialog.ShowAsync();
+        await ShowDialogAsync(dialog);
     }
 
     private string GetDiagnosticStatusText()
@@ -1615,7 +1714,6 @@ internal sealed class PlayerWindow : Window
     private void CancelPlaybackResolution()
     {
         _playbackResolutionCancellation?.Cancel();
-        _playbackResolutionCancellation?.Dispose();
         _playbackResolutionCancellation = null;
         _loading.IsActive = false;
     }
@@ -1630,6 +1728,7 @@ internal sealed class PlayerWindow : Window
 #pragma warning disable CA1031 // Transport errors should remain in the player UI.
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Player command failed.");
             _status.Text = $"播放控制失败：{ex.Message}";
         }
 #pragma warning restore CA1031
@@ -1651,36 +1750,172 @@ internal sealed class PlayerWindow : Window
         Title = $"{_session.AnimeContext.Title} - AniMeido 在线播放器";
     }
 
+    private async Task RunWindowOperationAsync(Func<Task> action)
+    {
+        if (IsClosing)
+        {
+            return;
+        }
+
+        var operation = action();
+        _pendingOperations.Add(operation);
+        try
+        {
+            await operation;
+        }
+        finally
+        {
+            _pendingOperations.Remove(operation);
+        }
+    }
+
+    private async Task<ContentDialogResult> ShowDialogAsync(ContentDialog dialog)
+    {
+        if (IsClosing)
+        {
+            return ContentDialogResult.None;
+        }
+
+        _openDialogs.Add(dialog);
+        try
+        {
+            return await dialog.ShowAsync();
+        }
+        finally
+        {
+            _openDialogs.Remove(dialog);
+        }
+    }
+
+    private async void OnWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        args.Cancel = true;
+        try
+        {
+            await CloseAsync();
+        }
+#pragma warning disable CA1031 // 原生资源停止失败时保留窗口及资源所有权，不假装已关闭。
+        catch (Exception ex)
+        {
+            _status.Text = "播放器关闭未完成，请退出播放插件后重试。";
+            RecordCloseFailure(ex);
+        }
+#pragma warning restore CA1031
+    }
+
+    public Task CloseAsync()
+    {
+        if (_closeTask is not null)
+        {
+            return _closeTask;
+        }
+
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _closeTask = completion.Task;
+        _webResolver.InvalidateBinding(_webBinding);
+        _ = CompleteCloseAsync(completion);
+        return _closeTask;
+    }
+
     private void OnWindowClosed(object sender, WindowEventArgs args)
     {
-        _isClosing = true;
-        _ = PersistPreferencesSafelyAsync();
+        _webResolver.InvalidateBinding(_webBinding);
+        Closed -= OnWindowClosed;
+    }
+
+    private async Task CompleteCloseAsync(TaskCompletionSource completion)
+    {
+        try
+        {
+            await CloseCoreAsync();
+            completion.SetResult();
+        }
+#pragma warning disable CA1031 // 将完整收尾结果交给关闭请求及插件宿主。
+        catch (Exception ex)
+        {
+            completion.SetException(ex);
+        }
+#pragma warning restore CA1031
+    }
+
+    private async Task CloseCoreAsync()
+    {
+        _root.IsHitTestVisible = false;
+        _root.KeyDown -= OnRootKeyDown;
+        foreach (var control in new Control[]
+        {
+            _episodeList, _routeList, _speedList, _playButton, _progressSlider,
+            _volumeSlider, _muteButton, _nextButton, _fullScreenButton,
+        })
+        {
+            control.IsEnabled = false;
+        }
+        _status.Text = "正在关闭播放器…";
         _sourceLoadCancellation?.Cancel();
-        _sourceLoadCancellation?.Dispose();
-        _sourceLoadCancellation = null;
         CancelPlaybackResolution();
+        await _webBindingCancellation.CancelAsync();
+        foreach (var dialog in _openDialogs.ToArray())
+        {
+            dialog.Hide();
+        }
         _playbackTimer.Stop();
         _playbackTimer.Tick -= OnPlaybackTimerTick;
-        if (_mpv is not null)
+
+        try
         {
-            _mpv.FileLoaded -= OnMpvFileLoaded;
-            _mpv.PlaybackEnded -= OnMpvPlaybackEnded;
-            _mpv.PlaybackFailed -= OnMpvPlaybackFailed;
-            _mpv.Dispose();
+            await Task.WhenAll(_pendingOperations.ToArray());
         }
-        _mpv = null;
-        _nativeVideoHost?.Dispose();
-        _nativeVideoHost = null;
+#pragma warning disable CA1031 // 操作已结束后仍应收尾；单项失败不跳过播放器关闭。
+        catch (Exception ex)
+        {
+            RecordCloseFailure(ex);
+        }
+#pragma warning restore CA1031
+
+        // 绑定失败时窗口尚未激活，不能把未加载过偏好的控件默认值保存回去。
+        if (_nativePlayerInitialized)
+        {
+            await PersistPreferencesSafelyCoreAsync();
+        }
+        await _webResolver.DetachUiThreadAsync(_webBinding);
+        await StopNativePlayerAsync();
+        _webBindingCancellation.Dispose();
         if (_trackedXamlRoot is not null)
         {
             _trackedXamlRoot.Changed -= OnXamlRootChanged;
             _trackedXamlRoot = null;
         }
-        _webResolver.CloseBrowserWindow();
         _root.KeyDown -= OnRootKeyDown;
         Activated -= OnWindowActivated;
-        Closed -= OnWindowClosed;
+        _appWindow!.Closing -= OnWindowClosing;
+        Close();
     }
+
+    private async Task StopNativePlayerAsync()
+    {
+        if (_mpv is not null)
+        {
+            _mpv.FileLoaded -= OnMpvFileLoaded;
+            _mpv.PlaybackEnded -= OnMpvPlaybackEnded;
+            _mpv.PlaybackFailed -= OnMpvPlaybackFailed;
+            await _mpv.DisposeAsync();
+            _mpv = null;
+        }
+
+        // 视频子窗口必须活到 mpv 的事件与渲染线程停止之后。
+        _nativeVideoHost?.Dispose();
+        _nativeVideoHost = null;
+    }
+
+    private void RecordCloseFailure(Exception exception)
+        => _diagnostics.Record(
+            "player-window",
+            "close-failed",
+            data: new Dictionary<string, object?>
+            {
+                ["exception"] = exception.GetType().Name,
+                ["message"] = exception.Message,
+            });
 
     private void ResizeWindow()
     {

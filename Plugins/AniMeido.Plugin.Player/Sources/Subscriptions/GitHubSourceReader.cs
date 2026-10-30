@@ -14,31 +14,39 @@ internal sealed class GitHubSourceReader
         _httpClient = httpClient;
     }
 
-    public async Task<IReadOnlyList<GitHubSourceFile>> ReadAsync(
+    public Task<IReadOnlyList<GitHubSourceFile>> ReadAsync(
         string url,
         SourceSubscriptionKind kind,
+        CancellationToken cancellationToken)
+        => ReadAsync(url, kind, null, cancellationToken);
+
+    internal async Task<IReadOnlyList<GitHubSourceFile>> ReadAsync(
+        string url,
+        SourceSubscriptionKind kind,
+        IReadOnlyDictionary<string, string>? knownVersions,
         CancellationToken cancellationToken)
     {
         var location = Parse(url);
         var branch = location.Branch
-            ?? await GetDefaultBranchAsync(location, cancellationToken);
+            ?? await GetDefaultBranchAsync(location, cancellationToken).ConfigureAwait(false);
+        var revision = await GetRevisionAsync(location, branch, cancellationToken).ConfigureAwait(false);
         var root = kind == SourceSubscriptionKind.EasyBangumi
             ? ResolveRoot(location.Subpath, "inner_source")
             : ResolveRoot(location.Subpath, "subs/web");
         var treeUri = new Uri(
             $"https://api.github.com/repos/{location.Owner}/{location.Repository}"
-            + $"/git/trees/{Uri.EscapeDataString(branch)}?recursive=1");
+            + $"/git/trees/{Uri.EscapeDataString(revision.TreeId)}?recursive=1");
         using var treeRequest = CreateRequest(treeUri);
         using var treeResponse = await _httpClient.SendAsync(
             treeRequest,
             HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
         treeResponse.EnsureSuccessStatusCode();
         await using var treeStream = await treeResponse.Content.ReadAsStreamAsync(
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
         var tree = await JsonSerializer.DeserializeAsync<GitHubTreeResponse>(
             treeStream,
-            cancellationToken: cancellationToken)
+            cancellationToken: cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidDataException("GitHub 返回了空的文件树。");
         if (tree.Truncated)
         {
@@ -49,52 +57,82 @@ internal sealed class GitHubSourceReader
         var extension = kind == SourceSubscriptionKind.EasyBangumi
             ? ".js"
             : ".json";
-        var paths = tree.Tree
+        var entries = tree.Tree
             .Where(item => string.Equals(item.Type, "blob", StringComparison.Ordinal))
-            .Select(item => item.Path)
-            .Where(path => path.StartsWith(
+            .Where(item => item.Path.StartsWith(
                 root.TrimEnd('/') + "/",
                 StringComparison.Ordinal))
-            .Where(path => path.EndsWith(
+            .Where(item => item.Path.EndsWith(
                 extension,
                 StringComparison.OrdinalIgnoreCase))
-            .Where(path => kind != SourceSubscriptionKind.EasyBangumi
+            .Where(item => kind != SourceSubscriptionKind.EasyBangumi
                 || string.Equals(
-                    Path.GetDirectoryName(path)?.Replace('\\', '/'),
+                    Path.GetDirectoryName(item.Path)?.Replace('\\', '/'),
                     root.TrimEnd('/'),
                     StringComparison.Ordinal))
-            .OrderBy(path => path, StringComparer.Ordinal)
+            .OrderBy(item => item.Path, StringComparer.Ordinal)
             .ToArray();
-        if (paths.Length == 0)
+        if (entries.Length == 0)
         {
             throw new InvalidDataException(
                 $"GitHub 仓库中未找到 {root}/ 下的源文件。");
         }
 
-        using var concurrency = new SemaphoreSlim(6, 6);
-        var files = await Task.WhenAll(paths.Select(async path =>
-        {
-            await concurrency.WaitAsync(cancellationToken);
-            try
+        var files = new GitHubSourceFile[entries.Length];
+        await Parallel.ForEachAsync(
+            Enumerable.Range(0, entries.Length),
+            new ParallelOptions
             {
+                MaxDegreeOfParallelism = 6,
+                CancellationToken = cancellationToken,
+            },
+            async (index, token) =>
+            {
+                var entry = entries[index];
+                if (!string.IsNullOrWhiteSpace(entry.Sha)
+                    && knownVersions?.TryGetValue(entry.Path, out var previous) == true
+                    && string.Equals(previous, entry.Sha, StringComparison.Ordinal))
+                {
+                    files[index] = new GitHubSourceFile(entry.Path, null, entry.Sha);
+                    return;
+                }
+
                 var rawUri = new Uri(
                     $"https://raw.githubusercontent.com/{location.Owner}/"
-                    + $"{location.Repository}/{branch}/{path}");
+                    + $"{location.Repository}/{Uri.EscapeDataString(revision.CommitId)}/{entry.Path}");
                 using var request = CreateRequest(rawUri);
                 using var response = await _httpClient.SendAsync(
                     request,
-                    cancellationToken);
+                    token).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
-                return new GitHubSourceFile(
-                    path,
-                    await response.Content.ReadAsStringAsync(cancellationToken));
-            }
-            finally
-            {
-                concurrency.Release();
-            }
-        }));
+                files[index] = new GitHubSourceFile(
+                    entry.Path,
+                    await response.Content.ReadAsStringAsync(token).ConfigureAwait(false),
+                    entry.Sha);
+            }).ConfigureAwait(false);
         return files;
+    }
+
+    private async Task<RepositoryRevision> GetRevisionAsync(
+        GitHubRepositoryLocation location,
+        string reference,
+        CancellationToken cancellationToken)
+    {
+        var uri = new Uri(
+            $"https://api.github.com/repos/{location.Owner}/{location.Repository}"
+            + $"/commits/{Uri.EscapeDataString(reference)}?per_page=1");
+        using var request = CreateRequest(uri);
+        using var response = await _httpClient.SendAsync(
+            request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var document = await JsonDocument.ParseAsync(
+            stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var commitId = document.RootElement.GetProperty("sha").GetString()
+            ?? throw new InvalidDataException("GitHub 提交信息缺少提交版本。");
+        var treeId = document.RootElement.GetProperty("commit").GetProperty("tree").GetProperty("sha").GetString()
+            ?? throw new InvalidDataException("GitHub 提交信息缺少文件树版本。");
+        return new RepositoryRevision(commitId, treeId);
     }
 
     private async Task<string> GetDefaultBranchAsync(
@@ -107,13 +145,13 @@ internal sealed class GitHubSourceReader
         using var response = await _httpClient.SendAsync(
             request,
             HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
         using var document = await JsonDocument.ParseAsync(
             stream,
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         return document.RootElement.GetProperty("default_branch").GetString()
             ?? throw new InvalidDataException("GitHub 仓库没有默认分支。");
     }
@@ -171,6 +209,8 @@ internal sealed class GitHubSourceReader
             ? defaultRoot
             : subpath.Trim('/');
 
+    private sealed record RepositoryRevision(string CommitId, string TreeId);
+
     private sealed record GitHubRepositoryLocation(
         string Owner,
         string Repository,
@@ -193,7 +233,10 @@ internal sealed class GitHubSourceReader
 
         [JsonPropertyName("type")]
         public string Type { get; set; } = string.Empty;
+
+        [JsonPropertyName("sha")]
+        public string? Sha { get; set; }
     }
 }
 
-internal sealed record GitHubSourceFile(string Path, string Content);
+internal sealed record GitHubSourceFile(string Path, string? Content, string? BlobId = null);

@@ -72,7 +72,7 @@ if (-not $entryPath.StartsWith(
 $stagingDirectory = Join-Path (
     [IO.Path]::GetTempPath()) (
     "animeido-source-" + [Guid]::NewGuid().ToString('N'))
-$temporaryZip = [IO.Path]::ChangeExtension($outputFile, '.tmp.zip')
+$temporaryZip = "$outputFile.$([Guid]::NewGuid().ToString('N')).tmp.zip"
 try {
     [void][IO.Directory]::CreateDirectory($stagingDirectory)
     Get-ChildItem -LiteralPath $sourceDirectory -File -Recurse |

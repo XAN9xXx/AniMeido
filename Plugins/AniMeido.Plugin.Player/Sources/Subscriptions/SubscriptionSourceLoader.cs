@@ -3,6 +3,7 @@ using AniMeido.Plugin.Player.Sources.EasyBangumi;
 using AniMeido.Plugin.Player.Sources.Packages;
 using AniMeido.Plugin.Player.Sources.Web;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace AniMeido.Plugin.Player.Sources.Subscriptions;
 
@@ -16,9 +17,18 @@ internal static class SubscriptionSourceLoader
     public static IEnumerable<IOnlineAnimeSource> Load(
         HttpClient httpClient,
         WebMediaResolver webResolver,
-        EasyPreferenceStore preferenceStore)
+        EasyPreferenceStore preferenceStore,
+        ILogger? logger = null)
+        => Load(httpClient, webResolver, preferenceStore,
+            SourcePackageInstaller.GetSourcesDirectory(), logger);
+
+    internal static IEnumerable<IOnlineAnimeSource> Load(
+        HttpClient httpClient,
+        WebMediaResolver webResolver,
+        EasyPreferenceStore preferenceStore,
+        string sourcesDirectory,
+        ILogger? logger)
     {
-        var sourcesDirectory = SourcePackageInstaller.GetSourcesDirectory();
         foreach (var directory in SourcePackageDiscovery
             .EnumerateEnabledPackageDirectories(sourcesDirectory))
         {
@@ -51,8 +61,9 @@ internal static class SubscriptionSourceLoader
                 };
             }
 #pragma warning disable CA1031 // Invalid subscription packages do not hide valid sources.
-            catch (Exception)
+            catch (Exception ex)
             {
+                logger?.LogWarning(ex, "无法加载订阅播放源，已跳过：{Directory}", directory);
             }
 #pragma warning restore CA1031
 

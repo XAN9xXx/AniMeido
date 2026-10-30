@@ -24,12 +24,10 @@ internal sealed class EasyPreferenceStore
         _directory = directory;
     }
 
-    public async Task<IReadOnlyDictionary<string, string>> ReadAsync(
+    public Task<IReadOnlyDictionary<string, string>> ReadAsync(
         string sourceId,
         CancellationToken cancellationToken)
-    {
-        await _gate.WaitAsync(cancellationToken);
-        try
+        => WithGateAsync<IReadOnlyDictionary<string, string>>(async ct =>
         {
             var path = GetPath(sourceId);
             if (!File.Exists(path))
@@ -41,22 +39,15 @@ internal sealed class EasyPreferenceStore
             return await JsonSerializer.DeserializeAsync<Dictionary<string, string>>(
                 stream,
                 SerializerOptions,
-                cancellationToken)
+                ct)
                 ?? new Dictionary<string, string>(StringComparer.Ordinal);
-        }
-        finally
-        {
-            _gate.Release();
-        }
-    }
+        }, cancellationToken);
 
-    public async Task WriteAsync(
+    public Task WriteAsync(
         string sourceId,
         IReadOnlyDictionary<string, string> values,
         CancellationToken cancellationToken)
-    {
-        await _gate.WaitAsync(cancellationToken);
-        try
+        => WithGateAsync(async ct =>
         {
             Directory.CreateDirectory(_directory);
             var path = GetPath(sourceId);
@@ -64,8 +55,20 @@ internal sealed class EasyPreferenceStore
             await File.WriteAllTextAsync(
                 temporaryPath,
                 JsonSerializer.Serialize(values, SerializerOptions),
-                cancellationToken);
+                ct);
             File.Move(temporaryPath, path, overwrite: true);
+            return true;
+        }, cancellationToken);
+
+    private async Task<T> WithGateAsync<T>(
+        Func<CancellationToken, Task<T>> action,
+        CancellationToken cancellationToken)
+    {
+        // 先按调用顺序排队，再后台执行，避免较早的保存晚于新选择落盘。
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await Task.Run(() => action(cancellationToken), cancellationToken).ConfigureAwait(false);
         }
         finally
         {

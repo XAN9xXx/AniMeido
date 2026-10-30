@@ -1,5 +1,6 @@
-using AniMeido.Plugin.Player.Sources.Packages;
+﻿using AniMeido.Plugin.Player.Sources.Packages;
 using System.Text.Json;
+using System.Globalization;
 
 namespace AniMeido.Plugin.Player.Playback;
 
@@ -15,6 +16,7 @@ internal sealed class PlayerExperienceSettingsStore
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly string? _migrationPath;
     private readonly string? _remapPath;
+    private readonly List<WeakReference<PlayerRouteIdentity>> _routeIdentities = [];
 
     public PlayerExperienceSettingsStore()
         : this(Path.Combine(
@@ -31,11 +33,59 @@ internal sealed class PlayerExperienceSettingsStore
         _remapPath = remapPath;
     }
 
-    public Task<PlayerExperienceSettings> ReadAsync(
+    public Task<PlayerExperienceReadResult> ReadAsync(
         CancellationToken cancellationToken)
-        => WithGateAsync(ReadAndMigrateAsync, cancellationToken);
+        => WithGateAsync(ct => ReadCoreAsync(ct, allowReadFallback: true), cancellationToken);
 
-    public async Task UpdatePreferencesAsync(
+    internal Task<PlayerExperienceReadResult> ReadAndApplyPublicIdsAsync(
+        CancellationToken cancellationToken)
+        => WithGateAsync(ct => ReadAndMigrateAsync(ct, allowReadFallback: true), cancellationToken);
+
+    internal Task<PlayerPublicIdChanges> ReadPublicIdChangesAsync(CancellationToken cancellationToken)
+        => Task.Run(() => PlayerPublicIdChanges.ReadAsync(_migrationPath, _remapPath, cancellationToken), cancellationToken);
+
+    internal Task<PlayerExperienceReadResult> ReadAndApplyPublicIdsAsync(
+        PlayerPublicIdChanges changes, CancellationToken cancellationToken)
+        => WithGateAsync(ct => ReadAndMigrateAsync(ct, allowReadFallback: true, changes), cancellationToken);
+
+    internal Task<PlayerRouteIdentity> BeginRouteAsync(long animeId, CancellationToken cancellationToken)
+        => WithGateAsync(ct => Task.FromResult(RegisterRouteIdentity(animeId)), cancellationToken);
+
+    internal Task<PlayerRoutePreparation> PrepareRouteAsync(long animeId, CancellationToken cancellationToken)
+        => WithGateAsync(async ct =>
+        {
+            var changes = await PlayerPublicIdChanges.ReadAsync(_migrationPath, _remapPath, ct);
+            var result = await ReadAndMigrateAsync(ct, allowReadFallback: true, changes);
+            var identity = RegisterRouteIdentity(animeId);
+            var sequence = changes.Remaps.Count == 0 ? 0 : changes.Remaps[^1].Seq;
+            identity.Publish(changes.ResolveCurrentId(checked((int)animeId)), isShadowed: false, appliedRemapSeq: sequence);
+            return new PlayerRoutePreparation(identity, result, changes);
+        }, cancellationToken);
+
+    internal Task<PlayerRoutePreparation> PrepareRouteAsync(
+        PlayerRouteIdentity identity, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        return WithGateAsync(ct => PrepareRouteCoreAsync(identity, ct), cancellationToken);
+    }
+
+    private async Task<PlayerRoutePreparation> PrepareRouteCoreAsync(
+        PlayerRouteIdentity identity, CancellationToken cancellationToken)
+    {
+        var changes = await PlayerPublicIdChanges.ReadAsync(_migrationPath, _remapPath, cancellationToken);
+        var result = await ReadAndMigrateAsync(cancellationToken, allowReadFallback: true, changes);
+        return new PlayerRoutePreparation(identity, result, changes);
+    }
+
+    private PlayerRouteIdentity RegisterRouteIdentity(long animeId)
+    {
+        _routeIdentities.RemoveAll(reference => !reference.TryGetTarget(out _));
+        var identity = new PlayerRouteIdentity(animeId);
+        _routeIdentities.Add(new WeakReference<PlayerRouteIdentity>(identity));
+        return identity;
+    }
+
+    public Task UpdatePreferencesAsync(
         double volume,
         bool muted,
         double speed,
@@ -43,37 +93,51 @@ internal sealed class PlayerExperienceSettingsStore
         int windowWidth,
         int windowHeight,
         CancellationToken cancellationToken)
-    {
-        await _gate.WaitAsync(cancellationToken);
-        try
+        => WithGateAsync(async ct =>
         {
-            var settings = await ReadAndMigrateAsync(cancellationToken);
+            var settings = (await ReadCoreAsync(ct, allowReadFallback: false)).Settings;
             settings.Volume = Math.Clamp(volume, 0, 100);
             settings.IsMuted = muted;
             settings.Speed = Math.Clamp(speed, 0.5, 2);
             settings.AutoFallbackEnabled = autoFallbackEnabled;
             settings.WindowWidth = Math.Clamp(windowWidth, 800, 3840);
             settings.WindowHeight = Math.Clamp(windowHeight, 520, 2160);
-            await WriteCoreAsync(settings, cancellationToken);
-        }
-        finally
-        {
-            _gate.Release();
-        }
+            await WriteCoreAsync(settings, ct);
+            return true;
+        }, cancellationToken);
+
+    public Task<PlayerExperienceSettings> RecordRouteResultAsync(
+        long animeId,
+        string routeKey,
+        bool succeeded,
+        TimeSpan latency,
+        CancellationToken cancellationToken)
+        => RecordRouteResultCoreAsync(animeId, null, routeKey, succeeded, latency, cancellationToken);
+
+    internal Task<PlayerExperienceSettings> RecordRouteResultAsync(
+        PlayerRouteIdentity identity,
+        string routeKey,
+        bool succeeded,
+        TimeSpan latency,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        return RecordRouteResultCoreAsync(
+            identity.OriginalAnimeId, identity, routeKey, succeeded, latency, cancellationToken);
     }
 
-    public async Task RecordRouteResultAsync(
+    private Task<PlayerExperienceSettings> RecordRouteResultCoreAsync(
         long animeId,
+        PlayerRouteIdentity? identity,
         string routeKey,
         bool succeeded,
         TimeSpan latency,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(routeKey);
-        await _gate.WaitAsync(cancellationToken);
-        try
+        return WithGateAsync(async ct =>
         {
-            var settings = await ReadAndMigrateAsync(cancellationToken);
+            var settings = (await ReadCoreAsync(ct, allowReadFallback: false)).Settings;
             settings.RouteHealth.TryGetValue(routeKey, out var previous);
             previous ??= new RouteHealthRecord();
             settings.RouteHealth[routeKey] = succeeded
@@ -91,27 +155,26 @@ internal sealed class PlayerExperienceSettingsStore
                     LastLatencyMilliseconds = Math.Max(0, latency.TotalMilliseconds),
                     LastFailureUtc = DateTimeOffset.UtcNow,
                 };
-            if (succeeded)
+            if (succeeded && identity?.IsShadowed != true)
             {
-                settings.PreferredRouteByAnime[animeId.ToString()] = routeKey;
+                var currentAnimeId = identity?.CurrentAnimeId ?? animeId;
+                settings.PreferredRouteByAnime[currentAnimeId.ToString(CultureInfo.InvariantCulture)] = routeKey;
             }
 
-            await WriteCoreAsync(settings, cancellationToken);
-        }
-        finally
-        {
-            _gate.Release();
-        }
+            await WriteCoreAsync(settings, ct);
+            return settings;
+        }, cancellationToken);
     }
 
     private async Task<T> WithGateAsync<T>(
         Func<CancellationToken, Task<T>> action,
         CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken);
+        // 先按调用顺序排队，再后台执行整次读改写，避免旧偏好晚于新偏好落盘。
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return await action(cancellationToken);
+            return await Task.Run(() => action(cancellationToken), cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -119,12 +182,13 @@ internal sealed class PlayerExperienceSettingsStore
         }
     }
 
-    private async Task<PlayerExperienceSettings> ReadCoreAsync(
-        CancellationToken cancellationToken)
+    private async Task<PlayerExperienceReadResult> ReadCoreAsync(
+        CancellationToken cancellationToken,
+        bool allowReadFallback)
     {
         if (_path is null || !File.Exists(_path))
         {
-            return new PlayerExperienceSettings();
+            return new PlayerExperienceReadResult(new PlayerExperienceSettings(), null);
         }
 
         try
@@ -135,43 +199,91 @@ internal sealed class PlayerExperienceSettingsStore
                     stream,
                     SerializerOptions,
                     cancellationToken);
-            return settings is { SchemaVersion: 1 }
-                ? Normalize(settings)
-                : new PlayerExperienceSettings();
+            if (settings is { SchemaVersion: 1 })
+                return new PlayerExperienceReadResult(Normalize(settings), null);
+
+            var failure = new InvalidDataException("Player 设置无效或版本不兼容，未保存文件。");
+            if (allowReadFallback)
+                return new PlayerExperienceReadResult(new PlayerExperienceSettings(), failure);
+
+            throw failure;
         }
         catch (Exception ex)
-            when (ex is JsonException
+            when (allowReadFallback && ex is (JsonException
                 or IOException
-                or UnauthorizedAccessException)
+                or UnauthorizedAccessException))
         {
-            return new PlayerExperienceSettings();
+            return new PlayerExperienceReadResult(new PlayerExperienceSettings(), ex);
         }
     }
 
-    private async Task<PlayerExperienceSettings> ReadAndMigrateAsync(CancellationToken ct)
+    private async Task<PlayerExperienceReadResult> ReadAndMigrateAsync(
+        CancellationToken ct, bool allowReadFallback, PlayerPublicIdChanges? changes = null)
     {
-        var settings = await ReadCoreAsync(ct);
-        var ids = settings.IdMigrationVersion < 9 ? await PlayerPublicIds.ReadAsync(_migrationPath, ct) : null;
-        var remaps = await PlayerPublicIds.ReadRemapsAsync(_remapPath, ct);
-        if (ids is null && !remaps.Any(r => r.Seq > settings.LastRemapSeq)) return settings;
-        if (_path is not null && File.Exists(_path))
-        {
-            settings = JsonSerializer.Deserialize<PlayerExperienceSettings>(await File.ReadAllTextAsync(_path, ct), SerializerOptions)
-                ?? throw new InvalidDataException("Player 设置无效，未迁移或覆盖文件。");
-            if (settings.SchemaVersion != 1) throw new InvalidDataException("Player 设置版本不兼容。");
-            settings = Normalize(settings);
-        }
+        var result = await ReadCoreAsync(ct, allowReadFallback);
+        if (result.FallbackReason is not null)
+            return result;
+
+        var settings = result.Settings;
+        changes ??= await PlayerPublicIdChanges.ReadAsync(_migrationPath, _remapPath, ct);
+        var ids = settings.IdMigrationVersion < 9 ? await changes.ReadMigrationAsync() : null;
+        var remaps = changes.Remaps.Where(row => row.Seq > settings.LastRemapSeq).ToList();
+        if (ids is null && remaps.Count == 0)
+            return result;
+
+        var identities = CaptureRouteIdentities();
         if (settings.IdMigrationVersion < 9 && ids is not null)
         {
             settings.PreferredRouteByAnime = PlayerPublicIds.Rewrite(settings.PreferredRouteByAnime, ids, sourceKeys: false);
             settings.IdMigrationVersion = 9;
+            // C2a 只转换文件中的旧 Bangumi 键；活跃身份已经是公共 ID。
         }
-        settings.PreferredRouteByAnime = PlayerPublicIds.ApplyRemaps(settings.PreferredRouteByAnime,
-            remaps.Where(r => r.Seq > settings.LastRemapSeq), sourceKeys: false);
-        if (remaps.Count > 0) settings.LastRemapSeq = Math.Max(settings.LastRemapSeq, remaps[^1].Seq);
+        settings.PreferredRouteByAnime = PlayerPublicIds.ApplyRemaps(
+            settings.PreferredRouteByAnime,
+            remaps,
+            sourceKeys: false,
+            beforeRemap: (entry, preferences) =>
+            {
+                var targetExists = preferences.ContainsKey(entry.To.ToString(CultureInfo.InvariantCulture));
+                for (var index = 0; index < identities.Count; index++)
+                {
+                    var identity = identities[index];
+                    if (entry.Seq <= identity.AppliedRemapSeq)
+                        continue;
+
+                    identities[index] = identity with
+                    {
+                        AnimeId = identity.AnimeId == entry.From ? entry.To : identity.AnimeId,
+                        IsShadowed = identity.IsShadowed || (identity.AnimeId == entry.From && targetExists),
+                        AppliedRemapSeq = entry.Seq,
+                    };
+                }
+            });
+        if (remaps.Count > 0)
+            settings.LastRemapSeq = Math.Max(settings.LastRemapSeq, remaps[^1].Seq);
         await WriteCoreAsync(settings, ct);
-        return settings;
+        // 保存成功后才改变仍在播放的身份，失败时旧请求继续使用旧编号。
+        foreach (var identity in identities)
+            identity.Identity.Publish(identity.AnimeId, identity.IsShadowed, identity.AppliedRemapSeq);
+        return new PlayerExperienceReadResult(settings, null);
     }
+
+    private List<RouteIdentityUpdate> CaptureRouteIdentities()
+    {
+        var identities = new List<RouteIdentityUpdate>(_routeIdentities.Count);
+        for (var index = _routeIdentities.Count - 1; index >= 0; index--)
+        {
+            if (_routeIdentities[index].TryGetTarget(out var identity))
+                identities.Add(new RouteIdentityUpdate(
+                    identity, identity.CurrentAnimeId, identity.IsShadowed, identity.AppliedRemapSeq));
+            else
+                _routeIdentities.RemoveAt(index);
+        }
+        return identities;
+    }
+
+    private sealed record RouteIdentityUpdate(
+        PlayerRouteIdentity Identity, long AnimeId, bool IsShadowed, long AppliedRemapSeq);
 
     private async Task WriteCoreAsync(
         PlayerExperienceSettings settings,
@@ -214,6 +326,10 @@ internal sealed class PlayerExperienceSettingsStore
         return settings;
     }
 }
+
+internal sealed record PlayerExperienceReadResult(
+    PlayerExperienceSettings Settings,
+    Exception? FallbackReason);
 
 internal sealed class PlayerExperienceSettings
 {

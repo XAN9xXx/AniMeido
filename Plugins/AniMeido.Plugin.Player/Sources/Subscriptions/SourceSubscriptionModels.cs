@@ -47,6 +47,8 @@ internal sealed class SubscriptionSourceState
 
     public string Revision { get; set; } = string.Empty;
 
+    public string? UpstreamBlobId { get; set; }
+
     public int RevisionNumber { get; set; }
 
     public bool IsOrphaned { get; set; }
@@ -71,6 +73,9 @@ internal sealed record SubscriptionPreviewItem(
     [JsonIgnore]
     internal string? Content { get; init; }
 
+    [JsonIgnore]
+    internal string? UpstreamBlobId { get; init; }
+
     public string DisplayText
         => $"{Change}: {DisplayName}"
             + (string.IsNullOrWhiteSpace(Message)
@@ -90,4 +95,13 @@ internal sealed record SourceSubscriptionPreview(
         item.Change is SubscriptionChangeKind.Added
             or SubscriptionChangeKind.Updated
             or SubscriptionChangeKind.Orphaned);
+}
+
+internal sealed record SubscriptionItemResult(string Path, string DisplayName, bool Applied, string? Error = null);
+
+internal sealed record SubscriptionApplyResult(
+    IReadOnlyList<SubscriptionItemResult> Items, bool Cancelled = false, string? Warning = null)
+{
+    public int AppliedCount => Items.Count(item => item.Applied);
+    public int FailedCount => Items.Count(item => !item.Applied);
 }

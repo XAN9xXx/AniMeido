@@ -15,7 +15,7 @@ public sealed class PlayerIdRemapTests : DbTestBase
         var source = new SourceMappingStore(mappings, remapPath: log);
         var experience = new PlayerExperienceSettingsStore(settings, remapPath: log);
         await source.EnsurePublicIdsAsync(default);
-        var value = await experience.ReadAsync(default);
+        var value = (await experience.ReadAndApplyPublicIdsAsync(default)).Settings;
         Assert.Equal("target", await source.GetAsync(2, "a", default));
         Assert.Equal("other-source", await source.GetAsync(2, "b", default));
         Assert.Null(await source.GetAsync(-1, "a", default));
@@ -24,25 +24,36 @@ public sealed class PlayerIdRemapTests : DbTestBase
         Assert.Equal(2, value.LastRemapSeq);
         var sourceJson = await File.ReadAllTextAsync(mappings); var settingsJson = await File.ReadAllTextAsync(settings);
         await new SourceMappingStore(mappings, remapPath: log).EnsurePublicIdsAsync(default);
-        await new PlayerExperienceSettingsStore(settings, remapPath: log).ReadAsync(default);
+        await new PlayerExperienceSettingsStore(settings, remapPath: log).ReadAndApplyPublicIdsAsync(default);
         Assert.Equal(sourceJson, await File.ReadAllTextAsync(mappings)); Assert.Equal(settingsJson, await File.ReadAllTextAsync(settings));
         await File.WriteAllTextAsync(log, """[{"seq":1,"from":-1,"to":2,"at":"2026-10-20"},{"seq":2,"from":3,"to":-4,"at":"2026-10-20"},{"seq":3,"from":2,"to":5,"at":"2026-10-20"}]""");
-        await source.EnsurePublicIdsAsync(default); value = await experience.ReadAsync(default);
+        await source.EnsurePublicIdsAsync(default); value = (await experience.ReadAndApplyPublicIdsAsync(default)).Settings;
         Assert.Equal("target", await source.GetAsync(5, "a", default)); Assert.Equal("target-route", value.PreferredRouteByAnime["5"]);
         Assert.Equal(3, value.LastRemapSeq); Assert.True(File.Exists(log));
     }
 
     [Fact]
-    public async Task StartupPluginInitialization_UsesInjectedStoresAndEachMarkerResumesIndependently()
+    public async Task PluginInitializationOnlyRegistersStores_OpeningBoundaryResumesIndependentMarkers()
     {
         var (log, mappings, settings) = await SeedAsync();
-        await new SourceMappingStore(mappings, remapPath: log).EnsurePublicIdsAsync(default);
-        var before = await File.ReadAllTextAsync(mappings);
+        var source = new SourceMappingStore(mappings, remapPath: log);
+        var experience = new PlayerExperienceSettingsStore(settings, remapPath: log);
+        await source.EnsurePublicIdsAsync(default);
+        var beforeMappings = await File.ReadAllTextAsync(mappings);
+        var beforeSettings = await File.ReadAllTextAsync(settings);
         var services = new ServiceCollection();
-        await new PlayerPlugin(new SourceMappingStore(mappings, remapPath: log),
-            new PlayerExperienceSettingsStore(settings, remapPath: log)).InitializeAsync(services);
-        Assert.Equal(before, await File.ReadAllTextAsync(mappings));
-        using var json = JsonDocument.Parse(await File.ReadAllTextAsync(settings)); Assert.Equal(2, json.RootElement.GetProperty("LastRemapSeq").GetInt64());
+
+        await new PlayerPlugin(source, experience).InitializeAsync(services);
+
+        Assert.Equal(beforeMappings, await File.ReadAllTextAsync(mappings));
+        Assert.Equal(beforeSettings, await File.ReadAllTextAsync(settings));
+        using var provider = services.BuildServiceProvider();
+        Assert.Same(source, provider.GetRequiredService<SourceMappingStore>());
+        Assert.Same(experience, provider.GetRequiredService<PlayerExperienceSettingsStore>());
+
+        var result = await experience.ReadAndApplyPublicIdsAsync(default);
+        Assert.Equal(2, result.Settings.LastRemapSeq);
+        Assert.Equal(beforeMappings, await File.ReadAllTextAsync(mappings));
     }
 
     [Theory]
@@ -54,7 +65,7 @@ public sealed class PlayerIdRemapTests : DbTestBase
         var a = await File.ReadAllTextAsync(mappings); var b = await File.ReadAllTextAsync(settings);
         await File.WriteAllTextAsync(log, invalid);
         Assert.NotNull(await Record.ExceptionAsync(() => new SourceMappingStore(mappings, remapPath: log).EnsurePublicIdsAsync(default)));
-        Assert.NotNull(await Record.ExceptionAsync(() => new PlayerExperienceSettingsStore(settings, remapPath: log).ReadAsync(default)));
+        Assert.NotNull(await Record.ExceptionAsync(() => new PlayerExperienceSettingsStore(settings, remapPath: log).ReadAndApplyPublicIdsAsync(default)));
         Assert.Equal(a, await File.ReadAllTextAsync(mappings)); Assert.Equal(b, await File.ReadAllTextAsync(settings));
     }
 
@@ -69,7 +80,7 @@ public sealed class PlayerIdRemapTests : DbTestBase
         await File.WriteAllTextAsync(settings, """{"SchemaVersion":1,"PreferredRouteByAnime":{"7":"old-route"}}""");
         var source = new SourceMappingStore(mappings, map, log); await source.EnsurePublicIdsAsync(default);
         Assert.Equal("old-route", await source.GetAsync(2, "a", default));
-        var value = await new PlayerExperienceSettingsStore(settings, map, log).ReadAsync(default);
+        var value = (await new PlayerExperienceSettingsStore(settings, map, log).ReadAndApplyPublicIdsAsync(default)).Settings;
         Assert.Equal("old-route", value.PreferredRouteByAnime["2"]); Assert.Equal(9, value.IdMigrationVersion); Assert.Equal(2, value.LastRemapSeq);
     }
 
@@ -84,7 +95,7 @@ public sealed class PlayerIdRemapTests : DbTestBase
         await File.WriteAllTextAsync(log, text); await source.EnsurePublicIdsAsync(default);
         await source.SetAsync(9, "a", "new", default);
         using var json = JsonDocument.Parse(await File.ReadAllTextAsync(mappings)); Assert.Equal(2, json.RootElement.GetProperty("LastRemapSeq").GetInt64());
-        var settingsValue = await new PlayerExperienceSettingsStore(settings, remapPath: log).ReadAsync(default); Assert.Equal(2, settingsValue.LastRemapSeq);
+        var settingsValue = (await new PlayerExperienceSettingsStore(settings, remapPath: log).ReadAndApplyPublicIdsAsync(default)).Settings; Assert.Equal(2, settingsValue.LastRemapSeq);
     }
 
     private async Task<(string Log, string Mappings, string Settings)> SeedAsync()

@@ -36,9 +36,9 @@ function Find-7Zip {
     $commands = @(
         (Get-Command 7z.exe -ErrorAction SilentlyContinue |
             Select-Object -First 1 -ExpandProperty Source),
-        'C:\Program Files\7-Zip\7z.exe',
-        'C:\Program Files (x86)\7-Zip\7z.exe',
-        'C:\Program Files\NVIDIA Corporation\NVIDIA App\7z.exe'
+        (Join-Path $env:ProgramFiles '7-Zip\7z.exe'),
+        (Join-Path ${env:ProgramFiles(x86)} '7-Zip\7z.exe'),
+        (Join-Path $env:ProgramFiles 'NVIDIA Corporation\NVIDIA App\7z.exe')
     ) | Where-Object {
         $_ -and (Test-Path -LiteralPath $_ -PathType Leaf)
     }

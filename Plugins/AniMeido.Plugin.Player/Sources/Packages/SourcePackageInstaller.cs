@@ -1,5 +1,7 @@
 using System.IO.Compression;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AniMeido.Plugin.Player.Sources.Packages;
 
@@ -20,17 +22,19 @@ public sealed class SourcePackageInstaller
         PropertyNameCaseInsensitive = true,
     };
     private readonly string _sourcesDirectory;
+    private readonly ILogger<SourcePackageInstaller> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    public SourcePackageInstaller()
-        : this(GetSourcesDirectory())
+    public SourcePackageInstaller(ILogger<SourcePackageInstaller>? logger = null)
+        : this(GetSourcesDirectory(), logger)
     {
     }
 
-    internal SourcePackageInstaller(string sourcesDirectory)
+    internal SourcePackageInstaller(string sourcesDirectory, ILogger<SourcePackageInstaller>? logger = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcesDirectory);
         _sourcesDirectory = Path.GetFullPath(sourcesDirectory);
+        _logger = logger ?? NullLogger<SourcePackageInstaller>.Instance;
     }
 
     public async Task<string> InstallAsync(
@@ -107,7 +111,7 @@ public sealed class SourcePackageInstaller
                         EntryFile: manifest.EntryFile));
                 }
 #pragma warning disable CA1031 // A malformed package must not hide valid packages.
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     var directoryName = Path.GetFileName(directory);
                     packages.Add(new InstalledSourcePackage(
@@ -240,7 +244,7 @@ public sealed class SourcePackageInstaller
             {
                 if (Directory.Exists(stagingDirectory))
                 {
-                    Directory.Delete(stagingDirectory, recursive: true);
+                    TryDeleteDirectory(stagingDirectory);
                 }
             }
         }
@@ -258,15 +262,16 @@ public sealed class SourcePackageInstaller
         try
         {
             var packageDirectory = GetInstalledPackageDirectory(packageId);
-            await File.WriteAllTextAsync(
-                Path.Combine(packageDirectory, OrphanedMarkerName),
-                "The source is no longer present in its subscription.",
-                cancellationToken);
+            // 停用成功后再标记，避免失败时留下仍启用的孤立来源。
             await File.WriteAllTextAsync(
                 Path.Combine(
                     packageDirectory,
                     SourcePackageDiscovery.DisabledMarkerName),
                 "Disabled because the upstream source was removed.",
+                cancellationToken);
+            await File.WriteAllTextAsync(
+                Path.Combine(packageDirectory, OrphanedMarkerName),
+                "The source is no longer present in its subscription.",
                 cancellationToken);
         }
         finally
@@ -283,15 +288,16 @@ public sealed class SourcePackageInstaller
         try
         {
             var packageDirectory = GetInstalledPackageDirectory(packageId);
-            await File.WriteAllTextAsync(
-                Path.Combine(packageDirectory, UnmanagedMarkerName),
-                "The source subscription was removed.",
-                cancellationToken);
+            // 先停用；否则重启核对会跳过仍启用的来源，无法继续移除。
             await File.WriteAllTextAsync(
                 Path.Combine(
                     packageDirectory,
                     SourcePackageDiscovery.DisabledMarkerName),
                 "Disabled because the source subscription was removed.",
+                cancellationToken);
+            await File.WriteAllTextAsync(
+                Path.Combine(packageDirectory, UnmanagedMarkerName),
+                "The source subscription was removed.",
                 cancellationToken);
         }
         finally
@@ -320,52 +326,7 @@ public sealed class SourcePackageInstaller
                 packagePath,
                 stagingDirectory,
                 cancellationToken);
-            var targetDirectory = ResolveSafePath(
-                packagesDirectory,
-                manifest.Id);
-            var preserveDisabledState = File.Exists(Path.Combine(
-                targetDirectory,
-                SourcePackageDiscovery.DisabledMarkerName));
-            var backupDirectory =
-                $"{targetDirectory}.backup-{Guid.NewGuid():N}";
-            if (Directory.Exists(targetDirectory))
-            {
-                Directory.Move(targetDirectory, backupDirectory);
-            }
-
-            try
-            {
-                Directory.Move(stagingDirectory, targetDirectory);
-                if (preserveDisabledState)
-                {
-                    await File.WriteAllTextAsync(
-                        Path.Combine(
-                            targetDirectory,
-                            SourcePackageDiscovery.DisabledMarkerName),
-                        "Disabled by AniMeido PlayerPlugin.",
-                        cancellationToken);
-                }
-
-                if (Directory.Exists(backupDirectory))
-                {
-                    TryDeleteDirectory(backupDirectory);
-                }
-            }
-            catch
-            {
-                if (Directory.Exists(targetDirectory))
-                {
-                    TryDeleteDirectory(targetDirectory);
-                }
-
-                if (!Directory.Exists(targetDirectory)
-                    && Directory.Exists(backupDirectory))
-                {
-                    Directory.Move(backupDirectory, targetDirectory);
-                }
-
-                throw;
-            }
+            await ReplaceInstalledDirectoryAsync(stagingDirectory, manifest, disableWhenNew: false, cancellationToken);
 
             return $"{manifest.DisplayName} {manifest.Version}";
         }
@@ -373,7 +334,7 @@ public sealed class SourcePackageInstaller
         {
             if (Directory.Exists(stagingDirectory))
             {
-                Directory.Delete(stagingDirectory, recursive: true);
+                TryDeleteDirectory(stagingDirectory);
             }
         }
     }
@@ -391,45 +352,39 @@ public sealed class SourcePackageInstaller
             && File.Exists(Path.Combine(
                 targetDirectory,
                 SourcePackageDiscovery.DisabledMarkerName));
+        // 所有可取消写入都在暂存目录完成；目录替换后不再有启用标记写入这个失败点。
+        if (preserveDisabledState || (!targetExists && disableWhenNew))
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(stagingDirectory, SourcePackageDiscovery.DisabledMarkerName),
+                "Disabled by AniMeido PlayerPlugin.", cancellationToken);
+        }
+        cancellationToken.ThrowIfCancellationRequested();
         var backupDirectory = $"{targetDirectory}.backup-{Guid.NewGuid():N}";
         if (targetExists)
-        {
             Directory.Move(targetDirectory, backupDirectory);
-        }
 
         try
         {
             Directory.Move(stagingDirectory, targetDirectory);
-            if (preserveDisabledState || (!targetExists && disableWhenNew))
-            {
-                await File.WriteAllTextAsync(
-                    Path.Combine(
-                        targetDirectory,
-                        SourcePackageDiscovery.DisabledMarkerName),
-                    "Disabled by AniMeido PlayerPlugin.",
-                    cancellationToken);
-            }
-
-            if (Directory.Exists(backupDirectory))
-            {
-                TryDeleteDirectory(backupDirectory);
-            }
         }
-        catch
+        catch (Exception installError) when (installError is IOException or UnauthorizedAccessException)
         {
-            if (Directory.Exists(targetDirectory))
+            try
             {
-                TryDeleteDirectory(targetDirectory);
+                if (targetExists)
+                    Directory.Move(backupDirectory, targetDirectory);
             }
-
-            if (!Directory.Exists(targetDirectory)
-                && Directory.Exists(backupDirectory))
+            catch (Exception restoreError) when (restoreError is IOException or UnauthorizedAccessException)
             {
-                Directory.Move(backupDirectory, targetDirectory);
+                throw new IOException($"播放源安装和恢复均未完成，请保留原源备份：{backupDirectory}。",
+                    new AggregateException(installError, restoreError));
             }
-
             throw;
         }
+
+        if (targetExists)
+            TryDeleteDirectory(backupDirectory);
     }
 
     private string GetInstalledPackageDirectory(string packageId)
@@ -465,20 +420,24 @@ public sealed class SourcePackageInstaller
             throw new InvalidDataException("播放源包目录与清单 ID 不一致。");
         }
 
+        if (!File.Exists(ResolveSafePath(packageDirectory, manifest.EntryFile)))
+        {
+            throw new InvalidDataException($"播放源包入口不存在：{manifest.EntryFile}");
+        }
+
         return manifest;
     }
 
-    private static void TryDeleteDirectory(string directory)
+    private void TryDeleteDirectory(string directory)
     {
         try
         {
             Directory.Delete(directory, recursive: true);
         }
-#pragma warning disable CA1031 // Stale backup is ignored by discovery and may be cleaned later.
-        catch (Exception)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            _logger.LogWarning(ex, "Source package cleanup deferred for {Directory}", directory);
         }
-#pragma warning restore CA1031
     }
 
     private static async Task<SourcePackageManifest> ExtractAsync(

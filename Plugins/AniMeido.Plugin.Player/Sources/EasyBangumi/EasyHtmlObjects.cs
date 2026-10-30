@@ -7,6 +7,7 @@ namespace AniMeido.Plugin.Player.Sources.EasyBangumi;
 internal sealed class EasyHtmlDocument
 {
     private readonly IDocument _document;
+    internal EasyHtmlQueryCache Queries { get; } = new();
 
     public EasyHtmlDocument(string html, string? baseUrl)
     {
@@ -19,9 +20,11 @@ internal sealed class EasyHtmlDocument
 
     internal string? BaseUrl { get; }
 
+    internal HtmlNode XPathRoot => Queries.GetXPathRoot(this);
+
     public EasyElementList select(string selector)
         => new(_document.QuerySelectorAll(selector)
-            .Select(element => new EasyHtmlElement(element, BaseUrl)));
+            .Select(element => new EasyHtmlElement(element, BaseUrl, Queries)));
 
     public string title() => _document.Title ?? string.Empty;
 }
@@ -30,29 +33,34 @@ internal sealed class EasyHtmlElement
 {
     private readonly IElement? _element;
     private readonly HtmlNode? _node;
+    internal EasyHtmlQueryCache Queries { get; }
 
-    public EasyHtmlElement(IElement element, string? baseUrl)
+    public EasyHtmlElement(IElement element, string? baseUrl, EasyHtmlQueryCache queries)
     {
         _element = element;
         BaseUrl = baseUrl;
+        Queries = queries;
     }
 
-    public EasyHtmlElement(HtmlNode node, string? baseUrl)
+    public EasyHtmlElement(HtmlNode node, string? baseUrl, EasyHtmlQueryCache queries)
     {
         _node = node;
         BaseUrl = baseUrl;
+        Queries = queries;
     }
 
     internal string? BaseUrl { get; }
 
     internal string Html => _element?.OuterHtml ?? _node?.OuterHtml ?? string.Empty;
 
+    // 保留片段重新作为文档查询的既有范围；直接查询原节点会改变自身和祖先的可见性。
+    internal IDocument SelectionDocument => Queries.GetSelectionDocument(this);
+
+    internal HtmlNode XPathRoot => Queries.GetXPathRoot(this);
+
     public EasyElementList select(string selector)
-    {
-        var document = new HtmlParser().ParseDocument(Html);
-        return new EasyElementList(document.QuerySelectorAll(selector)
-            .Select(element => new EasyHtmlElement(element, BaseUrl)));
-    }
+        => new(SelectionDocument.QuerySelectorAll(selector)
+            .Select(element => new EasyHtmlElement(element, BaseUrl, Queries)));
 
     public string text()
         => (_element?.TextContent ?? _node?.InnerText ?? string.Empty).Trim();
@@ -69,7 +77,7 @@ internal sealed class EasyHtmlElement
         if (_element is not null)
         {
             return index >= 0 && index < _element.Children.Length
-                ? new EasyHtmlElement(_element.Children[index], BaseUrl)
+                ? new EasyHtmlElement(_element.Children[index], BaseUrl, Queries)
                 : null;
         }
 
@@ -77,7 +85,7 @@ internal sealed class EasyHtmlElement
             .Where(node => node.NodeType == HtmlNodeType.Element)
             .ToArray() ?? [];
         return index >= 0 && index < children.Length
-            ? new EasyHtmlElement(children[index], BaseUrl)
+            ? new EasyHtmlElement(children[index], BaseUrl, Queries)
             : null;
     }
 
@@ -86,14 +94,51 @@ internal sealed class EasyHtmlElement
         if (_element is not null)
         {
             return new EasyElementList(_element.Children
-                .Select(child => new EasyHtmlElement(child, BaseUrl)));
+                .Select(child => new EasyHtmlElement(child, BaseUrl, Queries)));
         }
 
         var children = _node?.ChildNodes
             .Where(node => node.NodeType == HtmlNodeType.Element)
             ?? Enumerable.Empty<HtmlNode>();
         return new EasyElementList(children.Select(
-            node => new EasyHtmlElement(node, BaseUrl)));
+            node => new EasyHtmlElement(node, BaseUrl, Queries)));
+    }
+}
+
+/// <summary>一份脚本文档只复用当前片段，避免逐行查询时保留每行的完整解析树。</summary>
+internal sealed class EasyHtmlQueryCache
+{
+    private EasyHtmlElement? _selectionOwner;
+    private IDocument? _selectionDocument;
+    private object? _xpathOwner;
+    private HtmlNode? _xpathRoot;
+
+    internal IDocument GetSelectionDocument(EasyHtmlElement owner)
+    {
+        if (!ReferenceEquals(_selectionOwner, owner))
+        {
+            var document = new HtmlParser().ParseDocument(owner.Html);
+            _selectionDocument = document;
+            _selectionOwner = owner;
+        }
+        return _selectionDocument!;
+    }
+
+    internal HtmlNode GetXPathRoot(object owner)
+    {
+        if (!ReferenceEquals(_xpathOwner, owner))
+        {
+            var html = owner switch
+            {
+                EasyHtmlDocument document => document.Html,
+                EasyHtmlElement element => element.Html,
+                _ => string.Empty,
+            };
+            var documentRoot = EasyXPathFacade.ParseHtml(html);
+            _xpathRoot = documentRoot;
+            _xpathOwner = owner;
+        }
+        return _xpathRoot!;
     }
 }
 
@@ -141,13 +186,11 @@ internal sealed class EasyXPathFacade
 {
     public EasyElementList nodes(object value, string xpath)
     {
-        var (html, baseUrl) = GetHtml(value);
-        var document = new HtmlDocument();
-        document.LoadHtml(html);
-        var nodes = document.DocumentNode.SelectNodes(xpath);
+        var (root, baseUrl, queries) = GetRoot(value);
+        var nodes = root.SelectNodes(xpath);
         return new EasyElementList(
             (nodes?.AsEnumerable() ?? Enumerable.Empty<HtmlNode>())
-            .Select(node => new EasyHtmlElement(node, baseUrl)));
+            .Select(node => new EasyHtmlElement(node, baseUrl, queries)));
     }
 
     public string text(object value, string xpath)
@@ -179,11 +222,18 @@ internal sealed class EasyXPathFacade
             ? document.title()
             : string.Empty;
 
-    private static (string Html, string? BaseUrl) GetHtml(object value)
+    internal static HtmlNode ParseHtml(string html)
+    {
+        var document = new HtmlDocument();
+        document.LoadHtml(html);
+        return document.DocumentNode;
+    }
+
+    private static (HtmlNode Root, string? BaseUrl, EasyHtmlQueryCache Queries) GetRoot(object value)
         => value switch
         {
-            EasyHtmlDocument document => (document.Html, document.BaseUrl),
-            EasyHtmlElement element => (element.Html, element.BaseUrl),
-            _ => (string.Empty, null),
+            EasyHtmlDocument document => (document.XPathRoot, document.BaseUrl, document.Queries),
+            EasyHtmlElement element => (element.XPathRoot, element.BaseUrl, element.Queries),
+            _ => (ParseHtml(string.Empty), null, new EasyHtmlQueryCache()),
         };
 }

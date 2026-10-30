@@ -78,24 +78,19 @@ public sealed class PlayerRuntimeInfrastructureTests
             settings.SourceTimeoutSeconds["source-a"] = 70;
             await store.WriteAsync(settings, CancellationToken.None);
 
-            Assert.Equal(
-                TimeSpan.FromSeconds(70),
-                await store.GetEffectiveTimeoutAsync(
-                    "source-a",
-                    TimeSpan.FromSeconds(55),
-                    CancellationToken.None));
-            Assert.Equal(
-                TimeSpan.FromSeconds(55),
-                await store.GetEffectiveTimeoutAsync(
-                    "source-b",
-                    TimeSpan.FromSeconds(55),
-                    CancellationToken.None));
-            Assert.Equal(
-                TimeSpan.FromSeconds(40),
-                await store.GetEffectiveTimeoutAsync(
-                    "source-c",
-                    sourceDeclaredTimeout: null,
-                    CancellationToken.None));
+            var sourceOverride = await store.GetEffectiveTimeoutAsync(
+                "source-a", TimeSpan.FromSeconds(55), CancellationToken.None);
+            var sourceDeclared = await store.GetEffectiveTimeoutAsync(
+                "source-b", TimeSpan.FromSeconds(55), CancellationToken.None);
+            var global = await store.GetEffectiveTimeoutAsync(
+                "source-c", sourceDeclaredTimeout: null, CancellationToken.None);
+
+            Assert.Equal(TimeSpan.FromSeconds(70), sourceOverride.Timeout);
+            Assert.Equal(TimeSpan.FromSeconds(55), sourceDeclared.Timeout);
+            Assert.Equal(TimeSpan.FromSeconds(40), global.Timeout);
+            Assert.Null(sourceOverride.FallbackReason);
+            Assert.Null(sourceDeclared.FallbackReason);
+            Assert.Null(global.FallbackReason);
         }
         finally
         {
@@ -145,7 +140,7 @@ public sealed class PlayerRuntimeInfrastructureTests
             + "?url=https%3A%2F%2Fmedia.test%2Fepisode.m3u8"
             + "%3Ftoken%3Dtemporary");
 
-        var found = WebMediaResolver.TryExtractEmbeddedMediaUri(
+        var found = WebMediaUrlParser.TryExtractEmbeddedMediaUri(
             wrapper,
             Pattern,
             wrapper,
@@ -168,12 +163,12 @@ public sealed class PlayerRuntimeInfrastructureTests
             "https://player.test/index.html"
             + "?url=https%3A%2F%2Fmedia.test%2Fepisode.m3u8";
 
-        Assert.False(WebMediaResolver.TryMatchObservedMediaUrl(
+        Assert.False(WebMediaUrlParser.TryMatchObservedMediaUrl(
             Wrapper,
             Pattern,
             page,
             out _));
-        Assert.True(WebMediaResolver.TryMatchObservedMediaUrl(
+        Assert.True(WebMediaUrlParser.TryMatchObservedMediaUrl(
             "https://media.test/episode.m3u8?token=temporary",
             Pattern,
             page,
@@ -191,7 +186,7 @@ public sealed class PlayerRuntimeInfrastructureTests
     {
         Assert.Equal(
             expected,
-            WebMediaResolver.ShouldUseRangeProbe(new Uri(url)));
+            MediaProbe.ShouldUseRangeProbe(new Uri(url)));
     }
 
     [Fact]
@@ -226,7 +221,7 @@ public sealed class PlayerRuntimeInfrastructureTests
     {
         Assert.Contains(
             expected,
-            WebMediaResolver.DescribeMediaRejection(status, body));
+            MediaProbe.DescribeMediaRejection(status, body));
     }
 
     [Fact]
@@ -238,7 +233,7 @@ public sealed class PlayerRuntimeInfrastructureTests
             <iframe src="https://player.test/embed?id=42"></iframe>
             """;
 
-        var nested = WebMediaResolver.FindNestedPageUri(
+        var nested = WebMediaUrlParser.FindNestedPageUri(
             Html,
             @"https?://[^\s""'<>\\]+",
             new Uri("https://source.test/watch/1"));

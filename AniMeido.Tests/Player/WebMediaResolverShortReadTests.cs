@@ -21,7 +21,7 @@ public sealed class WebMediaResolverShortReadTests
         using var http = new HttpClient(handler);
         var root = Path.Combine(Path.GetTempPath(), $"AniMeido-web-short-read-{Guid.NewGuid():N}");
         var diagnostics = new PlaybackDiagnosticRecorder(root);
-        using var resolver = new WebMediaResolver(http,
+        await using var resolver = new WebMediaResolver(http,
             new PlayerRuntimeSettingsStore(Path.Combine(root, "runtime.json")),
             new HostWebSessionManager(root), diagnostics);
         try
@@ -42,6 +42,7 @@ public sealed class WebMediaResolverShortReadTests
         }
         finally
         {
+            await resolver.DisposeAsync();
             await diagnostics.DisposeAsync();
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }

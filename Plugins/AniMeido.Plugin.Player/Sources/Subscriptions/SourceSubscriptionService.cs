@@ -5,6 +5,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AniMeido.Plugin.Player.Sources.Subscriptions;
 
@@ -18,29 +20,33 @@ internal sealed partial class SourceSubscriptionService
     private readonly GitHubSourceReader _reader;
     private readonly SourcePackageInstaller _installer;
     private readonly string _statePath;
+    private readonly ILogger<SourceSubscriptionService> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public SourceSubscriptionService(
         HttpClient httpClient,
-        SourcePackageInstaller installer)
+        SourcePackageInstaller installer,
+        ILogger<SourceSubscriptionService>? logger = null)
         : this(
             new GitHubSourceReader(httpClient),
             installer,
             Path.Combine(
                 SourcePackageInstaller.GetSourcesDirectory(),
                 "Subscriptions",
-                "subscriptions.json"))
+                "subscriptions.json"), logger)
     {
     }
 
     internal SourceSubscriptionService(
         GitHubSourceReader reader,
         SourcePackageInstaller installer,
-        string statePath)
+        string statePath,
+        ILogger<SourceSubscriptionService>? logger = null)
     {
         _reader = reader;
         _installer = installer;
         _statePath = statePath;
+        _logger = logger ?? NullLogger<SourceSubscriptionService>.Instance;
     }
 
     public async Task<IReadOnlyList<SourceSubscriptionState>> ListAsync(
@@ -79,14 +85,15 @@ internal sealed partial class SourceSubscriptionService
                 throw new InvalidDataException("订阅 URL 类型与现有记录不一致。");
             }
 
-            var remoteFiles = await _reader.ReadAsync(
-                normalizedUrl,
-                kind,
-                cancellationToken);
             var existingByPath = (existing?.Sources ?? [])
                 .ToDictionary(
                     item => item.UpstreamPath,
                     StringComparer.Ordinal);
+            var knownVersions = existingByPath.Values
+                .Where(item => !string.IsNullOrWhiteSpace(item.UpstreamBlobId))
+                .ToDictionary(item => item.UpstreamPath, item => item.UpstreamBlobId!, StringComparer.Ordinal);
+            var remoteFiles = await _reader.ReadAsync(
+                normalizedUrl, kind, knownVersions, cancellationToken);
             var previewItems = new List<SubscriptionPreviewItem>();
             var seenPaths = new HashSet<string>(StringComparer.Ordinal);
             foreach (var file in remoteFiles)
@@ -114,6 +121,8 @@ internal sealed partial class SourceSubscriptionService
                     "上游已移除，本地源将保留并禁用。"));
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
+            await SavePreviewCacheAsync(document, existingByPath, previewItems, cancellationToken);
             return new SourceSubscriptionPreview(
                 subscriptionId,
                 normalizedUrl,
@@ -129,7 +138,7 @@ internal sealed partial class SourceSubscriptionService
         }
     }
 
-    public async Task ApplyAsync(
+    public async Task<SubscriptionApplyResult> ApplyAsync(
         SourceSubscriptionPreview preview,
         CancellationToken cancellationToken)
     {
@@ -154,55 +163,77 @@ internal sealed partial class SourceSubscriptionService
                 document.Subscriptions.Add(subscription);
             }
 
-            var nextSources = new List<SubscriptionSourceState>();
-            foreach (var item in preview.Items)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (item.Change is SubscriptionChangeKind.Added
-                    or SubscriptionChangeKind.Updated)
-                {
-                    var manifest = CreateManifest(preview, item);
-                    await _installer.InstallSubscriptionSourceAsync(
-                        manifest,
-                        item.Content
-                            ?? throw new InvalidDataException(
-                                $"预览内容已失效：{item.UpstreamPath}"),
-                        cancellationToken);
-                }
-                else if (item.Change == SubscriptionChangeKind.Orphaned)
-                {
-                    await _installer.MarkOrphanedAsync(
-                        item.SourceId,
-                        cancellationToken);
-                }
-
-                if (item.Change != SubscriptionChangeKind.Skipped
-                    && (item.Change != SubscriptionChangeKind.Invalid
-                        || !string.IsNullOrWhiteSpace(item.SourceId)))
-                {
-                    nextSources.Add(new SubscriptionSourceState
-                    {
-                        UpstreamPath = item.UpstreamPath,
-                        SourceId = item.SourceId,
-                        DisplayName = item.DisplayName,
-                        Revision = item.Revision,
-                        RevisionNumber = item.RevisionNumber,
-                        IsOrphaned =
-                            item.Change == SubscriptionChangeKind.Orphaned,
-                    });
-                }
-            }
-
             subscription.Url = preview.Url;
             subscription.Kind = preview.Kind;
-            subscription.LastRefreshUtc = DateTimeOffset.UtcNow;
-            subscription.Sources = nextSources;
+            // 首次安装前先持久化订阅身份；即使进程在安装后退出，也能从包清单恢复逐项状态。
             await SaveAsync(document, cancellationToken);
+            var results = new List<SubscriptionItemResult>();
+            foreach (var item in preview.Items.Where(item => item.Change is
+                SubscriptionChangeKind.Added or SubscriptionChangeKind.Updated or SubscriptionChangeKind.Orphaned))
+            {
+                if (cancellationToken.IsCancellationRequested)
+                    return new SubscriptionApplyResult(results, Cancelled: true);
+
+                try
+                {
+                    await ApplyItemAsync(preview, item, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return new SubscriptionApplyResult(results, Cancelled: true);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+                {
+                    _logger.LogError(ex, "Subscription source {Path} could not be applied", item.UpstreamPath);
+                    results.Add(new SubscriptionItemResult(item.UpstreamPath, item.DisplayName, false, ex.Message));
+                    continue;
+                }
+
+                subscription.Sources.RemoveAll(source => source.UpstreamPath == item.UpstreamPath);
+                subscription.Sources.Add(new SubscriptionSourceState
+                {
+                    UpstreamPath = item.UpstreamPath,
+                    SourceId = item.SourceId,
+                    DisplayName = item.DisplayName,
+                    Revision = item.Revision,
+                    UpstreamBlobId = item.UpstreamBlobId,
+                    RevisionNumber = item.RevisionNumber,
+                    IsOrphaned = item.Change == SubscriptionChangeKind.Orphaned,
+                });
+                subscription.LastRefreshUtc = DateTimeOffset.UtcNow;
+                results.Add(new SubscriptionItemResult(item.UpstreamPath, item.DisplayName, true));
+                try
+                {
+                    // 包已提交，调用方取消不能跳过对应记录。
+                    await SaveAsync(document, CancellationToken.None);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _logger.LogWarning(ex, "Sources committed; subscription state will be reconciled on next load");
+                    return new SubscriptionApplyResult(results, Warning:
+                        $"已安装的源保留，但订阅记录暂未保存。下次刷新会核对已安装的源。{ex.Message}");
+                }
+            }
+            return new SubscriptionApplyResult(results);
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    private async Task ApplyItemAsync(
+        SourceSubscriptionPreview preview, SubscriptionPreviewItem item, CancellationToken cancellationToken)
+    {
+        if (item.Change == SubscriptionChangeKind.Orphaned)
+        {
+            await _installer.MarkOrphanedAsync(item.SourceId, cancellationToken);
+            return;
+        }
+
+        await _installer.InstallSubscriptionSourceAsync(CreateManifest(preview, item),
+            item.Content ?? throw new InvalidDataException($"预览内容已失效：{item.UpstreamPath}"),
+            cancellationToken);
     }
 
     public async Task RemoveAsync(
@@ -250,8 +281,18 @@ internal sealed partial class SourceSubscriptionService
         GitHubSourceFile file,
         SubscriptionSourceState? previous)
     {
+        if (file.Content is null && previous is not null)
+        {
+            return new SubscriptionPreviewItem(file.Path, previous.SourceId, previous.DisplayName,
+                previous.Revision, previous.RevisionNumber, SubscriptionChangeKind.Unchanged)
+            {
+                UpstreamBlobId = file.BlobId,
+            };
+        }
+
+        var content = file.Content ?? throw new InvalidDataException($"源文件缺少正文：{file.Path}");
         var revision = Convert.ToHexString(
-            SHA256.HashData(Encoding.UTF8.GetBytes(file.Content)))
+            SHA256.HashData(Encoding.UTF8.GetBytes(content)))
             .ToLowerInvariant();
         if (kind == SourceSubscriptionKind.EasyBangumi
             && Path.GetFileName(file.Path).StartsWith(
@@ -271,8 +312,8 @@ internal sealed partial class SourceSubscriptionService
         try
         {
             var metadata = kind == SourceSubscriptionKind.EasyBangumi
-                ? ReadEasyMetadata(file.Content)
-                : ReadAnimekoMetadata(file.Content);
+                ? ReadEasyMetadata(content)
+                : ReadAnimekoMetadata(content);
             var sourceId = kind == SourceSubscriptionKind.EasyBangumi
                 ? SanitizeId($"easybangumi.{metadata.Key}")
                 : CreateStableId(
@@ -296,7 +337,8 @@ internal sealed partial class SourceSubscriptionService
                     : previous?.RevisionNumber ?? 1,
                 change)
             {
-                Content = file.Content,
+                Content = change == SubscriptionChangeKind.Unchanged ? null : content,
+                UpstreamBlobId = file.BlobId,
             };
         }
 #pragma warning disable CA1031 // Invalid siblings must not block a subscription preview.
@@ -402,7 +444,66 @@ internal sealed partial class SourceSubscriptionService
             throw new InvalidDataException("播放源订阅状态版本不受支持。");
         }
 
+        var installed = await _installer.ListAsync(cancellationToken);
+        foreach (var subscription in document.Subscriptions)
+        {
+            var cachedByPath = subscription.Sources.ToLookup(item => item.UpstreamPath, StringComparer.Ordinal);
+            subscription.Sources.Clear();
+            foreach (var package in installed.Where(package => package.IsValid && !package.IsUnmanaged
+                && package.SubscriptionId == subscription.Id && package.UpstreamPath is not null))
+            {
+                var cached = cachedByPath[package.UpstreamPath!].FirstOrDefault(item =>
+                    item.SourceId == package.Id && item.Revision == package.UpstreamRevision);
+                subscription.Sources.RemoveAll(source => source.UpstreamPath == package.UpstreamPath);
+                subscription.Sources.Add(new SubscriptionSourceState
+                {
+                    UpstreamPath = package.UpstreamPath!,
+                    SourceId = package.Id,
+                    DisplayName = package.DisplayName,
+                    Revision = package.UpstreamRevision ?? string.Empty,
+                    UpstreamBlobId = cached?.UpstreamBlobId,
+                    RevisionNumber = Math.Max(1, package.Version.Build),
+                    IsOrphaned = package.IsOrphaned,
+                });
+            }
+        }
         return document;
+    }
+
+    private async Task SavePreviewCacheAsync(
+        SourceSubscriptionDocument document,
+        IReadOnlyDictionary<string, SubscriptionSourceState> existingByPath,
+        IReadOnlyList<SubscriptionPreviewItem> items,
+        CancellationToken cancellationToken)
+    {
+        var changed = false;
+        foreach (var item in items)
+        {
+            if (item.Change != SubscriptionChangeKind.Unchanged
+                || string.IsNullOrWhiteSpace(item.UpstreamBlobId)
+                || !existingByPath.TryGetValue(item.UpstreamPath, out var previous)
+                || previous.UpstreamBlobId == item.UpstreamBlobId)
+            {
+                continue;
+            }
+
+            previous.UpstreamBlobId = item.UpstreamBlobId;
+            changed = true;
+        }
+
+        if (!changed)
+        {
+            return;
+        }
+
+        try
+        {
+            await SaveAsync(document, cancellationToken);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "Subscription download cache was not saved; preview remains usable");
+        }
     }
 
     private async Task SaveAsync(
@@ -410,18 +511,21 @@ internal sealed partial class SourceSubscriptionService
         CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(_statePath)!);
-        var temporaryPath = $"{_statePath}.tmp";
+        var temporaryPath = $"{_statePath}.{Guid.NewGuid():N}.tmp";
         var backupPath = $"{_statePath}.bak";
-        await File.WriteAllTextAsync(
-            temporaryPath,
-            JsonSerializer.Serialize(document, SerializerOptions),
-            cancellationToken);
-        if (File.Exists(_statePath))
+        try
         {
-            File.Copy(_statePath, backupPath, overwrite: true);
+            await File.WriteAllTextAsync(temporaryPath,
+                JsonSerializer.Serialize(document, SerializerOptions), cancellationToken);
+            if (File.Exists(_statePath))
+                File.Copy(_statePath, backupPath, overwrite: true);
+            File.Move(temporaryPath, _statePath, overwrite: true);
         }
-
-        File.Move(temporaryPath, _statePath, overwrite: true);
+        finally
+        {
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
+        }
     }
 
     private static SourceSubscriptionKind DetectKind(string url)

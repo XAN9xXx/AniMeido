@@ -111,6 +111,25 @@ public sealed class SourcePackageInstallerTests : IDisposable
         Assert.Empty(await installer.ListAsync(CancellationToken.None));
     }
 
+    [Fact]
+    public async Task ListAsync_MissingEntryIsNotReportedAsAUsableInstalledPackage()
+    {
+        var sourcesDirectory = Path.Combine(_testDirectory, "Sources");
+        var installer = new SourcePackageInstaller(sourcesDirectory);
+        var package = CreatePackage("missing.entry", "1.0.0", "{}");
+        await installer.InstallAsync(package, default);
+        var installed = Assert.Single(await installer.ListAsync(default));
+        File.Delete(Path.Combine(sourcesDirectory, "Packages", installed.Id, installed.EntryFile!));
+
+        var broken = Assert.Single(await installer.ListAsync(default));
+
+        Assert.False(broken.IsValid);
+        Assert.Contains("入口不存在", broken.Error);
+        await Assert.ThrowsAsync<InvalidDataException>(() => installer.SetEnabledAsync(installed.Id, true, default));
+        await installer.UninstallAsync(installed.Id, default);
+        Assert.Empty(await installer.ListAsync(default));
+    }
+
     [Theory]
     [InlineData(".example")]
     [InlineData(".")]

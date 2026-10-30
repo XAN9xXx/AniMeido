@@ -85,11 +85,21 @@ internal static partial class TitleMatcher
     {
         var leftTokens = ExtractSeasonPartTokens(left);
         var rightTokens = ExtractSeasonPartTokens(right);
-        return leftTokens.Length == 0
-            || rightTokens.Length == 0
-            || leftTokens.Intersect(
-                rightTokens,
-                StringComparer.Ordinal).Any();
+        if (leftTokens.Length == 0 || rightTokens.Length == 0)
+            return true;
+        if (!leftTokens.Intersect(rightTokens, StringComparer.Ordinal).Any())
+            return false;
+
+        return SharedKindIsCompatible("season:") && SharedKindIsCompatible("part:");
+
+        bool SharedKindIsCompatible(string prefix)
+        {
+            var leftKind = leftTokens.Where(token => token.StartsWith(prefix, StringComparison.Ordinal));
+            var rightKind = rightTokens.Where(token => token.StartsWith(prefix, StringComparison.Ordinal));
+            return !leftKind.Any()
+                || !rightKind.Any()
+                || leftKind.Intersect(rightKind, StringComparer.Ordinal).Any();
+        }
     }
 
     private static string[] ExtractSeasonPartTokens(string value)

@@ -29,6 +29,50 @@ internal static class HeaderNormalizer
         return result;
     }
 
+    public static Dictionary<string, string> BuildMediaHeaders(
+        WebResolutionRequest request,
+        Uri referer)
+    {
+        var headers = HeaderNormalizer.Merge(request.Headers);
+        if (!headers.ContainsKey("Referer"))
+        {
+            headers["Referer"] = referer.AbsoluteUri;
+        }
+
+        if (!headers.ContainsKey("Origin")
+            && Uri.TryCreate(
+                headers.GetValueOrDefault("Referer"),
+                UriKind.Absolute,
+                out var effectiveReferer))
+        {
+            headers["Origin"] =
+                effectiveReferer.GetLeftPart(UriPartial.Authority);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Cookies))
+        {
+            headers["Cookie"] = request.Cookies;
+        }
+
+        return headers;
+    }
+
+    public static void AddToRequest(
+        HttpRequestMessage message,
+        IReadOnlyDictionary<string, string> headers,
+        string? cookies)
+    {
+        foreach (var header in headers)
+        {
+            message.Headers.TryAddWithoutValidation(header.Key, header.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(cookies))
+        {
+            message.Headers.TryAddWithoutValidation("Cookie", cookies);
+        }
+    }
+
     public static string Redact(string name, string value)
         => IsSensitive(name) ? "<redacted>" : RedactUri(value);
 

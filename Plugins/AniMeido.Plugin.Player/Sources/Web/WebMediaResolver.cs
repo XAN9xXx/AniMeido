@@ -1,8 +1,8 @@
 using AniMeido.Plugin.Player.Views;
 using AniMeido.Plugin.Player.Diagnostics;
-using Microsoft.UI.Dispatching;
 using Microsoft.Web.WebView2.Core;
-using System.Net;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -11,125 +11,31 @@ using System.Collections.Concurrent;
 
 namespace AniMeido.Plugin.Player.Sources.Web;
 
-internal sealed class WebMediaResolver : IDisposable
+internal sealed class WebMediaResolver : IAsyncDisposable
 {
     private static readonly TimeSpan InteractionDetectionGracePeriod =
         TimeSpan.FromSeconds(2);
-
-    private const string MediaCaptureScript =
-        """
-        (() => {
-            if (window.__animeidoCaptureInstalled) return;
-            window.__animeidoCaptureInstalled = true;
-            window.__animeidoMediaCandidates = [];
-            const push = (value, confirmed) => {
-                if (typeof value !== "string" || !value) return;
-                const candidate = {
-                    url: value,
-                    confirmed: !!confirmed
-                };
-                window.__animeidoMediaCandidates.push(candidate);
-                try {
-                    window.chrome?.webview?.postMessage(candidate);
-                } catch {}
-            };
-            const inspectText = (text, responseUrl) => {
-                if (typeof text !== "string") return;
-                if (text.trimStart().startsWith("#EXTM3U")) {
-                    push(responseUrl, true);
-                }
-                const matches = text.match(
-                    /https?:\/\/[^\s"'<>\\]+?(?:\.m3u8|\.mp4)(?:\?[^\s"'<>\\]*)?/gi);
-                if (matches) matches.forEach(url => push(url, false));
-            };
-            const scanDom = root => {
-                if (!root || !root.querySelectorAll) return;
-                root.querySelectorAll("video, source").forEach(node => {
-                    push(node.currentSrc || node.src || node.getAttribute("src"), false);
-                });
-            };
-            const startObserver = () => {
-                scanDom(document);
-                if (!document.documentElement) return;
-                new MutationObserver(records => {
-                    for (const record of records) {
-                        if (record.type === "attributes") {
-                            const node = record.target;
-                            push(node.currentSrc || node.src || node.getAttribute?.("src"), false);
-                        }
-                        record.addedNodes.forEach(node => {
-                            if (node.nodeType === Node.ELEMENT_NODE) {
-                                if (node.matches?.("video, source")) {
-                                    push(
-                                        node.currentSrc || node.src || node.getAttribute("src"),
-                                        false);
-                                }
-                                scanDom(node);
-                            }
-                        });
-                    }
-                }).observe(document.documentElement, {
-                    subtree: true,
-                    childList: true,
-                    attributes: true,
-                    attributeFilter: ["src"]
-                });
-            };
-            if (document.readyState === "loading") {
-                document.addEventListener("DOMContentLoaded", startObserver, { once: true });
-            } else {
-                startObserver();
-            }
-            const originalFetch = window.fetch;
-            if (originalFetch) {
-                window.fetch = async (...args) => {
-                    const response = await originalFetch.apply(window, args);
-                    try {
-                        const clone = response.clone();
-                        const type = clone.headers.get("content-type") || "";
-                        if (/mpegurl|text\/plain|octet-stream/i.test(type)
-                            || /\.m3u8(?:\?|$)/i.test(clone.url)) {
-                            clone.text()
-                                .then(text => inspectText(text, clone.url))
-                                .catch(() => {});
-                        }
-                    } catch {}
-                    return response;
-                };
-            }
-            const originalOpen = XMLHttpRequest.prototype.open;
-            const originalSend = XMLHttpRequest.prototype.send;
-            XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-                this.__animeidoUrl = String(url);
-                return originalOpen.call(this, method, url, ...rest);
-            };
-            XMLHttpRequest.prototype.send = function(...args) {
-                this.addEventListener("loadend", () => {
-                    try {
-                        if (!this.responseType || this.responseType === "text") {
-                            inspectText(
-                                this.responseText,
-                                this.responseURL || this.__animeidoUrl);
-                        }
-                    } catch {}
-                }, { once: true });
-                return originalSend.apply(this, args);
-            };
-        })();
-        """;
 
     private readonly HttpClient _httpClient;
     private readonly PlayerRuntimeSettingsStore _runtimeSettings;
     private readonly HostWebSessionManager _sessionManager;
     private readonly PlaybackDiagnosticRecorder _diagnostics;
+    private readonly MediaProbe _mediaProbe;
+    private readonly HttpPageMediaResolver _httpPageResolver;
+    private readonly ILogger<WebMediaResolver> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly object _lifecycleSync = new();
+    private readonly CancellationTokenSource _shutdown = new();
+    private readonly WebNavigationHistory _navigationHistory = new();
+    private Task _idleCleanupTask = Task.CompletedTask;
+    private Task? _disposeTask;
     private readonly ConcurrentDictionary<string, byte>
         _forcedVerificationHosts = new(StringComparer.OrdinalIgnoreCase);
-    private DispatcherQueue? _dispatcher;
-    private nint _hostWindowHandle;
+    private WebViewHostBinding? _binding;
     private CoreWebView2Environment? _environment;
     private CoreWebView2Controller? _controller;
     private CoreWebView2? _coreWebView;
+    private bool _webViewReady;
     private SourceVerificationWindow? _verificationWindow;
     private CancellationTokenSource? _idleCleanupCancellation;
     private long _generation;
@@ -139,44 +45,146 @@ internal sealed class WebMediaResolver : IDisposable
         HttpClient httpClient,
         PlayerRuntimeSettingsStore runtimeSettings,
         HostWebSessionManager sessionManager,
-        PlaybackDiagnosticRecorder diagnostics)
+        PlaybackDiagnosticRecorder diagnostics,
+        ILogger<WebMediaResolver>? logger = null)
     {
         _httpClient = httpClient;
         _runtimeSettings = runtimeSettings;
         _sessionManager = sessionManager;
         _diagnostics = diagnostics;
+        _mediaProbe = new MediaProbe(httpClient, diagnostics);
+        _httpPageResolver = new HttpPageMediaResolver(httpClient, diagnostics);
+        _logger = logger ?? NullLogger<WebMediaResolver>.Instance;
     }
 
-    public void AttachUiThread(
-        DispatcherQueue dispatcher,
-        nint hostWindowHandle)
+    internal WebViewHostBinding? CurrentBinding
     {
-        ArgumentNullException.ThrowIfNull(dispatcher);
-        if (hostWindowHandle == nint.Zero)
+        get
         {
-            throw new ArgumentException(
-                "播放器窗口句柄不能为空。",
-                nameof(hostWindowHandle));
+            lock (_lifecycleSync)
+                return _binding;
         }
+    }
 
-        if (_hostWindowHandle != nint.Zero
-            && _hostWindowHandle != hostWindowHandle)
+    public void InvalidateBinding(WebViewHostBinding binding)
+    {
+        lock (_lifecycleSync)
+            binding.Invalidate();
+    }
+
+    public async Task<bool> AttachUiThreadAsync(WebViewHostBinding binding, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        using var operation = CreateOperationCancellation(cancellationToken);
+        await _gate.WaitAsync(operation.Token);
+        try
         {
-            CloseBrowserWindow();
-        }
+            operation.Token.ThrowIfCancellationRequested();
+            lock (_lifecycleSync)
+            {
+                if (_disposed || !binding.IsActive)
+                    return false;
+                if (ReferenceEquals(_binding, binding))
+                    return true;
+            }
 
-        _dispatcher = dispatcher;
-        _hostWindowHandle = hostWindowHandle;
+            CancelIdleCleanup();
+            await CloseBrowserWindowCoreAsync(CurrentBinding);
+            operation.Token.ThrowIfCancellationRequested();
+            lock (_lifecycleSync)
+            {
+                if (_disposed || !binding.IsActive)
+                    return false;
+                _binding = binding;
+                return true;
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task DetachUiThreadAsync(WebViewHostBinding binding)
+    {
+        Task waiting;
+        bool disposing;
+        lock (_lifecycleSync)
+        {
+            binding.Invalidate();
+            disposing = _disposeTask is not null;
+            // 在同一个短锁内登记等待，释放流程不会越过尚未登记的解绑操作。
+            waiting = _disposeTask ?? _gate.WaitAsync();
+        }
+        await waiting;
+        if (disposing)
+            return;
+
+        try
+        {
+            if (!ReferenceEquals(CurrentBinding, binding))
+                return;
+            CancelIdleCleanup();
+            await CloseBrowserWindowCoreAsync(binding);
+            lock (_lifecycleSync)
+                _binding = null;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    internal async Task<T> RunWithTemporaryHostAsync<T>(WebViewHostBinding binding,
+        Func<CancellationToken, Task<T>> action, CancellationToken cancellationToken)
+    {
+        using var operation = CreateOperationCancellation(cancellationToken);
+        await _gate.WaitAsync(operation.Token);
+        var previous = CurrentBinding;
+        var borrowed = false;
+        try
+        {
+            lock (_lifecycleSync)
+                ObjectDisposedException.ThrowIf(!binding.IsActive, binding);
+            CancelIdleCleanup();
+            await CloseBrowserWindowCoreAsync(previous);
+            operation.Token.ThrowIfCancellationRequested();
+            lock (_lifecycleSync)
+            {
+                ObjectDisposedException.ThrowIf(_disposed || !binding.IsActive, binding);
+                _binding = binding;
+                borrowed = true;
+            }
+            return await action(operation.Token);
+        }
+        finally
+        {
+            try
+            {
+                if (borrowed)
+                {
+                    // 清理失败时不恢复旧身份；当前宿主仍持有最终解绑责任。
+                    await CloseBrowserWindowCoreAsync(binding);
+                    lock (_lifecycleSync)
+                        _binding = !_disposed && previous is { IsActive: true } ? previous : null;
+                    ScheduleIdleCleanup();
+                }
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
     }
 
     public async Task<WebResolvedMedia> ResolveAsync(
         WebResolutionRequest request,
         CancellationToken cancellationToken)
     {
-        _idleCleanupCancellation?.Cancel();
-        _idleCleanupCancellation?.Dispose();
-        _idleCleanupCancellation = null;
+        using var operation = CreateOperationCancellation(cancellationToken);
+        cancellationToken = operation.Token;
         await _gate.WaitAsync(cancellationToken);
+        CancelIdleCleanup();
         _diagnostics.Record(
             "resolver",
             "resolve-started",
@@ -199,8 +207,13 @@ internal sealed class WebMediaResolver : IDisposable
         {
             var normalizedHost = HostWebSessionManager.NormalizeHost(
                 request.PageUri.Host);
-            var hostSession = (await _sessionManager.ListAsync(
-                    cancellationToken))
+            var sessions = await _sessionManager.ListAsync(cancellationToken);
+            if (sessions.ReadFailure is { } readFailure)
+            {
+                _logger.LogWarning(readFailure,
+                    "Site session records could not be read; continuing without stored session details.");
+            }
+            var hostSession = sessions.Items
                 .FirstOrDefault(item => string.Equals(
                     item.Host,
                     normalizedHost,
@@ -227,10 +240,16 @@ internal sealed class WebMediaResolver : IDisposable
                     cancellationToken);
                 request = request with { Cookies = profileCookies };
             }
-            var timeout = await _runtimeSettings.GetEffectiveTimeoutAsync(
+            var timeoutResult = await _runtimeSettings.GetEffectiveTimeoutAsync(
                 request.SourceId,
                 request.SourceDeclaredTimeout,
                 cancellationToken);
+            if (timeoutResult.FallbackReason is { } timeoutReadFailure)
+            {
+                _logger.LogWarning(timeoutReadFailure,
+                    "Runtime timeout settings could not be read; continuing with default settings.");
+            }
+            var timeout = timeoutResult.Timeout;
             var forceVerification =
                 _forcedVerificationHosts.TryRemove(normalizedHost, out _);
             var initialAttempt = forceVerification
@@ -244,7 +263,7 @@ internal sealed class WebMediaResolver : IDisposable
                     {
                         attempt = attempt with
                         {
-                            Media = await ValidateMediaCandidateAsync(
+                            Media = await _mediaProbe.ValidateAsync(
                                 attempt.Media, request.PageUri, request.SourceId, token),
                         };
                     }
@@ -331,20 +350,8 @@ internal sealed class WebMediaResolver : IDisposable
                     cancellationToken);
             }
 
-            var userAgent = verifiedMedia.Headers.GetValueOrDefault(
-                "User-Agent");
-            await _sessionManager.RecordVerifiedAsync(
-                request.PageUri.Host,
-                request.SourceId,
-                userAgent,
-                cancellationToken);
-            // 人工操作及 VerifyAsync 的重试不计入这次媒体探测的新预算。
-            var validatedAfterVerification = await RunWithResolutionBudgetAsync(
-                token => ValidateMediaCandidateAsync(
-                    verifiedMedia, request.PageUri, request.SourceId, token),
-                request,
-                timeout,
-                cancellationToken);
+            var validatedAfterVerification = await CompleteVerificationAsync(
+                request, verifiedMedia, timeout, cancellationToken);
             _diagnostics.Record(
                 "resolver",
                 "resolve-succeeded",
@@ -381,45 +388,126 @@ internal sealed class WebMediaResolver : IDisposable
 #pragma warning restore CA1031
         finally
         {
-            _gate.Release();
             ScheduleIdleCleanup();
+            _gate.Release();
+        }
+    }
+
+    private CancellationTokenSource CreateOperationCancellation(CancellationToken cancellationToken)
+    {
+        lock (_lifecycleSync)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                _shutdown.Token);
+        }
+    }
+
+    private void CancelIdleCleanup()
+    {
+        lock (_lifecycleSync)
+        {
+            _idleCleanupCancellation?.Cancel();
         }
     }
 
     private void ScheduleIdleCleanup()
     {
-        if (_disposed)
+        lock (_lifecycleSync)
         {
-            return;
-        }
+            if (_disposed)
+            {
+                return;
+            }
 
-        var cancellation = new CancellationTokenSource();
-        _idleCleanupCancellation = cancellation;
-        _ = Task.Run(async () =>
+            _idleCleanupCancellation?.Cancel();
+            var cancellation = new CancellationTokenSource();
+            _idleCleanupCancellation = cancellation;
+            var previousCleanup = _idleCleanupTask;
+            var cleanup = CleanupWhenIdleAsync(cancellation);
+            // 取消不代表旧任务已经退出；释放仍需等待它完成最后的收尾。
+            _idleCleanupTask = previousCleanup.IsCompletedSuccessfully
+                ? cleanup
+                : Task.WhenAll(previousCleanup, cleanup);
+        }
+    }
+
+    private async Task CleanupWhenIdleAsync(CancellationTokenSource cancellation)
+    {
+        try
         {
+            await Task.Delay(TimeSpan.FromMinutes(5), cancellation.Token);
             try
             {
-                await Task.Delay(TimeSpan.FromMinutes(5), cancellation.Token);
-                if (_dispatcher is not null)
-                {
-                    _ = _dispatcher.TryEnqueue(CloseHiddenController);
-                }
+                await _gate.WaitAsync(cancellation.Token);
             }
-            catch (OperationCanceledException)
+            catch (ObjectDisposedException) when (cancellation.IsCancellationRequested)
             {
+                return;
             }
-        });
+            try
+            {
+                var binding = CurrentBinding;
+                if (binding is null)
+                    return;
+                await binding.InvokeAsync(() =>
+                {
+                    bool canClean;
+                    lock (_lifecycleSync)
+                    {
+                        canClean = !_disposed && !cancellation.IsCancellationRequested
+                            && ReferenceEquals(_idleCleanupCancellation, cancellation);
+                    }
+                    if (canClean)
+                        CloseHiddenController();
+                    return Task.CompletedTask;
+                }, cancellation.Token);
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex) when (ex is COMException or InvalidOperationException)
+        {
+            _logger.LogWarning(ex, "Idle browser cleanup failed; retaining its owner for retry.");
+            _diagnostics.Record("webview", "idle-cleanup-failed",
+                data: new Dictionary<string, object?> { ["message"] = ex.Message });
+        }
+        finally
+        {
+            lock (_lifecycleSync)
+            {
+                if (ReferenceEquals(_idleCleanupCancellation, cancellation))
+                {
+                    _idleCleanupCancellation = null;
+                }
+                cancellation.Dispose();
+            }
+        }
     }
 
     private void CloseHiddenController()
     {
-        _coreWebView = null;
-        var controller = _controller;
-        _controller = null;
-        if (controller is not null)
+        // Close 失败仍由当前绑定持有控制器，后续解绑可重试。
+        _controller?.Close();
+        if (_coreWebView is { } webView)
         {
-            TryRunWebViewCleanup(controller.Close);
+            TryRunWebViewCleanup(() =>
+            {
+                webView.NavigationStarting -= OnHiddenNavigationStarting;
+                webView.NavigationCompleted -= OnHiddenNavigationCompleted;
+            });
         }
+
+        _navigationHistory.Clear();
+        _coreWebView = null;
+        _controller = null;
+        _webViewReady = false;
     }
 
     private async Task<string?> ReadCookiesOnUiAsync(
@@ -434,175 +522,6 @@ internal sealed class WebMediaResolver : IDisposable
             : string.Join(
                 "; ",
                 cookies.Select(cookie => $"{cookie.Name}={cookie.Value}"));
-    }
-
-    private async Task<WebResolvedMedia> ValidateMediaCandidateAsync(
-        WebResolvedMedia media,
-        Uri pageUri,
-        string sourceId,
-        CancellationToken cancellationToken)
-    {
-        using var message = new HttpRequestMessage(HttpMethod.Get, media.Uri);
-        AddHeaders(message, media.Headers, cookies: null);
-        var useRangeProbe = ShouldUseRangeProbe(media.Uri);
-        if (useRangeProbe)
-        {
-            message.Headers.Range =
-                new System.Net.Http.Headers.RangeHeaderValue(0, 1023);
-        }
-        else
-        {
-            message.Headers.Accept.ParseAdd(
-                "application/vnd.apple.mpegurl, application/x-mpegURL, */*");
-        }
-
-        _diagnostics.Record(
-            "media-probe",
-            "request",
-            sourceId,
-            media.Uri,
-            data: new Dictionary<string, object?>
-            {
-                ["method"] = "GET",
-                ["range"] = useRangeProbe ? "bytes=0-1023" : null,
-                ["headerNames"] = string.Join(
-                    ",",
-                    media.Headers.Keys.Order(StringComparer.OrdinalIgnoreCase)),
-            });
-        var probeStarted = System.Diagnostics.Stopwatch.GetTimestamp();
-        using var response = await _httpClient.SendAsync(
-            message,
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken);
-        _diagnostics.Record(
-            "media-probe",
-            "response",
-            sourceId,
-            media.Uri,
-            data: new Dictionary<string, object?>
-            {
-                ["status"] = (int)response.StatusCode,
-                ["contentType"] =
-                    response.Content.Headers.ContentType?.MediaType,
-                ["contentLength"] =
-                    response.Content.Headers.ContentLength,
-                ["acceptRanges"] = string.Join(
-                    ",",
-                    response.Headers.AcceptRanges),
-                ["elapsedMs"] = System.Diagnostics.Stopwatch
-                    .GetElapsedTime(probeStarted)
-                    .TotalMilliseconds,
-            });
-        if (response.StatusCode is HttpStatusCode.Unauthorized
-            or HttpStatusCode.Forbidden
-            or HttpStatusCode.NotFound)
-        {
-            var rejectionBody = await ReadResponsePrefixAsync(
-                response.Content,
-                4096,
-                cancellationToken);
-            _diagnostics.Record(
-                "media-probe",
-                "rejected-body",
-                sourceId,
-                media.Uri,
-                data: new Dictionary<string, object?>
-                {
-                    ["status"] = (int)response.StatusCode,
-                    ["bytes"] = System.Text.Encoding.UTF8.GetByteCount(
-                        rejectionBody),
-                },
-                rejectionBody);
-            throw new SourceResolutionException(
-                SourceResolutionFailureKind.MediaRejected,
-                DescribeMediaRejection(
-                    response.StatusCode,
-                    rejectionBody),
-                pageUri);
-        }
-
-        response.EnsureSuccessStatusCode();
-        var contentType =
-            response.Content.Headers.ContentType?.MediaType ?? string.Empty;
-        if (contentType.StartsWith("video/", StringComparison.OrdinalIgnoreCase)
-            || contentType.Contains(
-                "mpegurl",
-                StringComparison.OrdinalIgnoreCase)
-            || contentType.Contains(
-                "octet-stream",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return media;
-        }
-
-        await using var stream = await response.Content.ReadAsStreamAsync(
-            cancellationToken);
-        var buffer = new byte[1024];
-        var length = await stream.ReadAtLeastAsync(
-            buffer, 16, throwOnEndOfStream: false, cancellationToken: cancellationToken);
-        var prefix = System.Text.Encoding.UTF8.GetString(buffer, 0, length);
-        _diagnostics.Record(
-            "media-probe",
-            "body-prefix",
-            sourceId,
-            media.Uri,
-            data: new Dictionary<string, object?>
-            {
-                ["bytes"] = length,
-            },
-            prefix);
-        // MIME 不可靠时嗅探实际内容，不能只因 URL 扩展名像视频就放行 HTML。
-        var hasMp4Signature = media.Uri.AbsolutePath.EndsWith(
-                ".mp4",
-                StringComparison.OrdinalIgnoreCase)
-            && length >= 16
-            && buffer.AsSpan(4, 4).SequenceEqual("ftyp"u8);
-        if (prefix.TrimStart().StartsWith(
-                "#EXTM3U",
-                StringComparison.OrdinalIgnoreCase)
-            || hasMp4Signature)
-        {
-            return media;
-        }
-
-        throw new SourceResolutionException(
-            SourceResolutionFailureKind.MediaRejected,
-            "媒体候选返回了非视频内容，已拒绝交给播放器。",
-            pageUri);
-    }
-
-    internal static string DescribeMediaRejection(
-        HttpStatusCode status,
-        string responsePrefix)
-    {
-        if (responsePrefix.Contains(
-                "region has been denied",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return "媒体 CDN 拒绝当前网络地区。"
-                + "请检查 VPN、TUN 或代理分流，并尝试让媒体域名直连。";
-        }
-
-        return status switch
-        {
-            HttpStatusCode.NotFound =>
-                "媒体地址已失效（HTTP 404），请切换线路或刷新播放源。",
-            HttpStatusCode.Unauthorized =>
-                "媒体请求未获授权（HTTP 401），可能需要重新登录源站。",
-            _ => $"媒体候选被源站拒绝（HTTP {(int)status}）。",
-        };
-    }
-
-    private static async Task<string> ReadResponsePrefixAsync(
-        HttpContent content,
-        int maximumBytes,
-        CancellationToken cancellationToken)
-    {
-        await using var stream = await content.ReadAsStreamAsync(
-            cancellationToken);
-        var buffer = new byte[maximumBytes];
-        var length = await stream.ReadAsync(buffer, cancellationToken);
-        return System.Text.Encoding.UTF8.GetString(buffer, 0, length);
     }
 
     public void RequireVerificationOnNextResolve(Uri pageUri)
@@ -653,7 +572,7 @@ internal sealed class WebMediaResolver : IDisposable
         WebResolvedMedia? direct = null;
         try
         {
-            direct = await TryResolveFromHttpAsync(request, cancellationToken);
+            direct = await _httpPageResolver.TryResolveAsync(request, cancellationToken);
         }
         catch (HttpRequestException)
         {
@@ -681,7 +600,10 @@ internal sealed class WebMediaResolver : IDisposable
         bool interactive,
         CancellationToken cancellationToken)
     {
+        using var operation = CreateOperationCancellation(cancellationToken);
+        cancellationToken = operation.Token;
         await _gate.WaitAsync(cancellationToken);
+        CancelIdleCleanup();
         try
         {
             return await RunOnUiAsync(
@@ -693,211 +615,93 @@ internal sealed class WebMediaResolver : IDisposable
         }
         finally
         {
+            ScheduleIdleCleanup();
             _gate.Release();
         }
     }
 
-    public Task<IReadOnlyList<HostWebSessionMetadata>> ListSessionsAsync(
+    internal async Task<WebResolvedMedia> CompleteVerificationAsync(
+        WebResolutionRequest request,
+        WebResolvedMedia verifiedMedia,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            await _sessionManager.RecordVerifiedAsync(
+                request.PageUri.Host,
+                request.SourceId,
+                verifiedMedia.Headers.GetValueOrDefault("User-Agent"),
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidDataException
+            or IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex,
+                "Could not save the verified site session for {Host} and {SourceId}; continuing playback.",
+                request.PageUri.Host, request.SourceId);
+        }
+
+        // 人工验证及其重试不计入随后媒体探测的预算；保存记录失败也不能跳过探测。
+        return await RunWithResolutionBudgetAsync(
+            token => _mediaProbe.ValidateAsync(
+                verifiedMedia, request.PageUri, request.SourceId, token),
+            request, timeout, cancellationToken);
+    }
+
+    public Task<HostWebSessionReadResult> ListSessionsAsync(
         CancellationToken cancellationToken)
         => _sessionManager.ListAsync(cancellationToken);
 
-    public async Task ClearSessionAsync(
+    public Task<HostWebSessionClearResult> ClearSessionAsync(
+        string? host, WebViewHostBinding binding, CancellationToken cancellationToken)
+        => RunWithTemporaryHostAsync(binding, token => ClearSessionOnHostAsync(host, token), cancellationToken);
+
+    private async Task<HostWebSessionClearResult> ClearSessionOnHostAsync(string? host, CancellationToken cancellationToken)
+    {
+        await RunOnUiAsync(async () =>
+        {
+            await EnsureWebViewAsync(cancellationToken);
+            var cookieManager = _coreWebView!.CookieManager;
+            if (host is null)
+            {
+                cookieManager.DeleteAllCookies();
+            }
+            else
+            {
+                var normalizedHost = HostWebSessionManager.NormalizeHost(host);
+                var hosts = new[] { normalizedHost, $"www.{normalizedHost}" };
+                foreach (var scheme in new[] { "https", "http" })
+                {
+                    foreach (var candidateHost in hosts)
+                    {
+                        var cookies = await cookieManager.GetCookiesAsync($"{scheme}://{candidateHost}/");
+                        foreach (var cookie in cookies)
+                            cookieManager.DeleteCookie(cookie);
+                    }
+                }
+            }
+            return true;
+        }, cancellationToken);
+        return await CompleteSessionClearAsync(host, cancellationToken);
+    }
+
+    internal async Task<HostWebSessionClearResult> CompleteSessionClearAsync(
         string? host,
         CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken);
         try
         {
-            await RunOnUiAsync(async () =>
-            {
-                await EnsureWebViewAsync(cancellationToken);
-                var cookieManager = _coreWebView!.CookieManager;
-                if (host is null)
-                {
-                    cookieManager.DeleteAllCookies();
-                }
-                else
-                {
-                    var normalizedHost =
-                        HostWebSessionManager.NormalizeHost(host);
-                    var hosts = new[]
-                    {
-                        normalizedHost,
-                        $"www.{normalizedHost}",
-                    };
-                    foreach (var scheme in new[] { "https", "http" })
-                    {
-                        foreach (var candidateHost in hosts)
-                        {
-                            var cookies =
-                                await cookieManager.GetCookiesAsync(
-                                    $"{scheme}://{candidateHost}/");
-                            foreach (var cookie in cookies)
-                            {
-                                cookieManager.DeleteCookie(cookie);
-                            }
-                        }
-                    }
-                }
-
-                return true;
-            }, cancellationToken);
-            await _sessionManager.RemoveMetadataAsync(
-                host,
-                cancellationToken);
+            await _sessionManager.RemoveMetadataAsync(host, cancellationToken);
+            return new HostWebSessionClearResult(MetadataFailure: null);
         }
-        finally
+        catch (Exception ex) when (ex is JsonException or InvalidDataException
+            or IOException or UnauthorizedAccessException)
         {
-            _gate.Release();
+            // Cookie 已由前一阶段清除；交给界面报告部分完成，不再误报完全失败。
+            return new HostWebSessionClearResult(ex);
         }
-    }
-
-    private async Task<WebResolvedMedia?> TryResolveFromHttpAsync(
-        WebResolutionRequest request,
-        CancellationToken cancellationToken)
-    {
-        using var message = new HttpRequestMessage(
-            HttpMethod.Get,
-            request.PageUri);
-        AddHeaders(message, request.Headers, request.Cookies);
-        _diagnostics.Record(
-            "http",
-            "request",
-            request.SourceId,
-            request.PageUri,
-            new Dictionary<string, object?>
-            {
-                ["method"] = "GET",
-                ["phase"] = "page",
-                ["headerNames"] = string.Join(
-                    ",",
-                    request.Headers.Keys.Order(StringComparer.OrdinalIgnoreCase)),
-                ["hasCookie"] = !string.IsNullOrWhiteSpace(request.Cookies),
-            });
-        var requestStarted = System.Diagnostics.Stopwatch.GetTimestamp();
-        using var response = await _httpClient.SendAsync(
-            message,
-            cancellationToken);
-        _diagnostics.Record(
-            "http",
-            "response",
-            request.SourceId,
-            request.PageUri,
-            new Dictionary<string, object?>
-            {
-                ["phase"] = "page",
-                ["status"] = (int)response.StatusCode,
-                ["contentType"] =
-                    response.Content.Headers.ContentType?.MediaType,
-                ["contentLength"] =
-                    response.Content.Headers.ContentLength,
-                ["elapsedMs"] = System.Diagnostics.Stopwatch
-                    .GetElapsedTime(requestStarted)
-                    .TotalMilliseconds,
-                ["redirectLocation"] = response.Headers.Location,
-            });
-        var failureKind = WebPageAccessEvaluator.Classify(
-            response.StatusCode,
-            WebPageInteractionKind.None);
-        if (failureKind is not null)
-        {
-            throw new SourceResolutionException(
-                failureKind.Value,
-                $"源站返回 HTTP {(int)response.StatusCode}。",
-                request.PageUri);
-        }
-
-        response.EnsureSuccessStatusCode();
-        var html = await response.Content.ReadAsStringAsync(cancellationToken);
-        _diagnostics.Record(
-            "http",
-            "response-body",
-            request.SourceId,
-            request.PageUri,
-            new Dictionary<string, object?>
-            {
-                ["phase"] = "page",
-                ["characters"] = html.Length,
-            },
-            html);
-        var effectivePageUri = response.RequestMessage?.RequestUri ?? request.PageUri;
-        var resolved = FindMedia(html, request, effectivePageUri);
-        if (resolved is not null)
-        {
-            return new WebResolvedMedia(
-                resolved,
-                BuildMediaHeaders(request, effectivePageUri));
-        }
-
-        if (request.EnableNestedUrl
-            && !string.IsNullOrWhiteSpace(request.NestedUrlPattern))
-        {
-            var nested = FindNestedPageUri(
-                html,
-                request.NestedUrlPattern,
-                effectivePageUri);
-            if (nested is not null)
-            {
-                using var nestedMessage = new HttpRequestMessage(
-                    HttpMethod.Get,
-                    nested);
-                AddHeaders(nestedMessage, request.Headers, request.Cookies);
-                _diagnostics.Record(
-                    "http",
-                    "request",
-                    request.SourceId,
-                    nested,
-                    new Dictionary<string, object?>
-                    {
-                        ["method"] = "GET",
-                        ["phase"] = "nested",
-                    });
-                var nestedStarted =
-                    System.Diagnostics.Stopwatch.GetTimestamp();
-                using var nestedResponse = await _httpClient.SendAsync(
-                    nestedMessage,
-                    cancellationToken);
-                _diagnostics.Record(
-                    "http",
-                    "response",
-                    request.SourceId,
-                    nested,
-                    new Dictionary<string, object?>
-                    {
-                        ["phase"] = "nested",
-                        ["status"] = (int)nestedResponse.StatusCode,
-                        ["contentType"] =
-                            nestedResponse.Content.Headers.ContentType?.MediaType,
-                        ["elapsedMs"] = System.Diagnostics.Stopwatch
-                            .GetElapsedTime(nestedStarted)
-                            .TotalMilliseconds,
-                    });
-                nestedResponse.EnsureSuccessStatusCode();
-                var nestedHtml = await nestedResponse.Content.ReadAsStringAsync(
-                    cancellationToken);
-                _diagnostics.Record(
-                    "http",
-                    "response-body",
-                    request.SourceId,
-                    nested,
-                    new Dictionary<string, object?>
-                    {
-                        ["phase"] = "nested",
-                        ["characters"] = nestedHtml.Length,
-                    },
-                    nestedHtml);
-                var effectiveNestedUri = nestedResponse.RequestMessage?.RequestUri ?? nested;
-                resolved = FindMedia(nestedHtml, request, effectiveNestedUri);
-                if (resolved is not null)
-                {
-                    return new WebResolvedMedia(
-                        resolved,
-                        BuildMediaHeaders(request, effectiveNestedUri));
-                }
-            }
-        }
-
-        return null;
     }
 
     private async Task<WebViewResolutionAttempt> TryResolveWithWebViewOnUiAsync(
@@ -906,6 +710,9 @@ internal sealed class WebMediaResolver : IDisposable
     {
         await EnsureWebViewAsync(cancellationToken);
         var generation = Interlocked.Increment(ref _generation);
+        var navigationCallbacks = new WebNavigationCallbackScope();
+        using var captureCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var completion = new TaskCompletionSource<Uri>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var interactionCompletion =
@@ -915,11 +722,21 @@ internal sealed class WebMediaResolver : IDisposable
         var nestedNavigated = false;
         var actionExecuted = false;
 
+        bool IsCurrentAttempt()
+            => navigationCallbacks.IsAccepting
+                && !captureCancellation.IsCancellationRequested
+                && generation == Volatile.Read(ref _generation);
+
+        bool CanContinueNavigation()
+            => IsCurrentAttempt()
+                && !completion.Task.IsCompleted
+                && !interactionCompletion.Task.IsCompleted;
+
         void OnResponse(
             CoreWebView2 sender,
             CoreWebView2WebResourceResponseReceivedEventArgs args)
         {
-            if (generation != Volatile.Read(ref _generation))
+            if (!IsCurrentAttempt())
             {
                 return;
             }
@@ -949,7 +766,7 @@ internal sealed class WebMediaResolver : IDisposable
                             args.Request.Headers.Contains("Range"),
                     });
                 if (args.Response.StatusCode is >= 200 and < 300
-                    && TryMatchObservedMediaUrl(
+                    && WebMediaUrlParser.TryMatchObservedMediaUrl(
                         args.Request.Uri,
                         request.VideoUrlPattern,
                         request.PageUri,
@@ -970,7 +787,7 @@ internal sealed class WebMediaResolver : IDisposable
                         UriKind.Absolute,
                         out mediaUri)
                     && mediaUri.Scheme is "http" or "https"
-                    && !IsIgnoredMediaUrl(mediaUri))
+                    && !WebMediaUrlParser.IsIgnoredMediaUrl(mediaUri))
                 {
                     capturedMediaHeaders = ReadMediaRequestHeaders(
                         args.Request.Headers);
@@ -991,7 +808,7 @@ internal sealed class WebMediaResolver : IDisposable
             CoreWebView2 sender,
             CoreWebView2WebMessageReceivedEventArgs args)
         {
-            if (generation != Volatile.Read(ref _generation))
+            if (!IsCurrentAttempt())
             {
                 return;
             }
@@ -1012,11 +829,11 @@ internal sealed class WebMediaResolver : IDisposable
                         ? currentSourceUri
                         : request.PageUri;
                 var matched = (candidate.Confirmed
-                        && TryCreateMediaUri(
+                        && WebMediaUrlParser.TryCreateMediaUri(
                             candidate.Url,
                             messageBaseUri,
                             out var mediaUri))
-                    || TryMatchObservedMediaUrl(
+                    || WebMediaUrlParser.TryMatchObservedMediaUrl(
                         candidate.Url,
                         request.VideoUrlPattern,
                         messageBaseUri,
@@ -1053,6 +870,12 @@ internal sealed class WebMediaResolver : IDisposable
             CoreWebView2 sender,
             CoreWebView2NavigationCompletedEventArgs args)
         {
+            using var registration = navigationCallbacks.TryEnter();
+            if (registration is null || !CanContinueNavigation())
+            {
+                return;
+            }
+
             _diagnostics.Record(
                 "webview",
                 "navigation-completed",
@@ -1066,9 +889,7 @@ internal sealed class WebMediaResolver : IDisposable
                     ["webError"] = args.WebErrorStatus.ToString(),
                     ["generation"] = generation,
                 });
-            if (generation != Volatile.Read(ref _generation)
-                || !args.IsSuccess
-                || completion.Task.IsCompleted)
+            if (!args.IsSuccess)
             {
                 return;
             }
@@ -1081,6 +902,10 @@ internal sealed class WebMediaResolver : IDisposable
                     try
                     {
                         await sender.ExecuteScriptAsync(request.ActionScript);
+                        if (!CanContinueNavigation())
+                        {
+                            return;
+                        }
                         actionExecuted = true;
                         _diagnostics.Record(
                             "webview",
@@ -1092,6 +917,10 @@ internal sealed class WebMediaResolver : IDisposable
                         when (ex is COMException
                             or InvalidOperationException)
                     {
+                        if (!CanContinueNavigation())
+                        {
+                            return;
+                        }
                         completion.TrySetException(
                             new SourceResolutionException(
                                 SourceResolutionFailureKind.RuleMismatch,
@@ -1111,6 +940,10 @@ internal sealed class WebMediaResolver : IDisposable
                             .map(frame => frame.src)
                             .filter(Boolean)
                         """);
+                    if (!CanContinueNavigation())
+                    {
+                        return;
+                    }
                     var iframeUrls =
                         JsonSerializer.Deserialize<string[]>(iframeJson) ?? [];
                     var iframeUri = iframeUrls
@@ -1148,6 +981,10 @@ internal sealed class WebMediaResolver : IDisposable
 
                 var json = await sender.ExecuteScriptAsync(
                     "document.documentElement.outerHTML");
+                if (!CanContinueNavigation())
+                {
+                    return;
+                }
                 var html = JsonSerializer.Deserialize<string>(json) ?? string.Empty;
                 var currentDocumentUri = Uri.TryCreate(
                     sender.Source,
@@ -1166,7 +1003,7 @@ internal sealed class WebMediaResolver : IDisposable
                         ["nested"] = nestedNavigated,
                     },
                     html);
-                var mediaUri = FindMedia(
+                var mediaUri = WebMediaUrlParser.FindMedia(
                     html,
                     request,
                     currentDocumentUri);
@@ -1179,6 +1016,10 @@ internal sealed class WebMediaResolver : IDisposable
                 }
 
                 var interaction = await DetectInteractionAsync(sender);
+                if (!CanContinueNavigation())
+                {
+                    return;
+                }
                 _diagnostics.Record(
                     "webview",
                     "interaction-classified",
@@ -1192,8 +1033,8 @@ internal sealed class WebMediaResolver : IDisposable
                 {
                     await Task.Delay(
                         InteractionDetectionGracePeriod,
-                        cancellationToken);
-                    if (!completion.Task.IsCompleted)
+                        captureCancellation.Token);
+                    if (CanContinueNavigation())
                     {
                         interactionCompletion.TrySetResult(interaction);
                     }
@@ -1207,59 +1048,59 @@ internal sealed class WebMediaResolver : IDisposable
         }
 
         var webView = _coreWebView!;
+        var domPolling = Task.CompletedTask;
         webView.WebResourceResponseReceived += OnResponse;
         webView.WebMessageReceived += OnWebMessageReceived;
         webView.NavigationCompleted += OnNavigationCompleted;
         try
         {
             Navigate(webView, request.PageUri, request.Headers, request.Cookies);
-            using var pollingCancellation =
-                CancellationTokenSource.CreateLinkedTokenSource(
-                    cancellationToken);
-            var domPolling = PollForMediaAsync(
+            domPolling = PollForMediaAsync(
                 webView,
                 request,
                 completion,
                 headers => capturedMediaHeaders = headers,
-                pollingCancellation.Token);
-            try
+                captureCancellation.Token);
+            var completed = await Task.WhenAny(
+                    completion.Task,
+                    interactionCompletion.Task)
+                .WaitAsync(cancellationToken);
+            if (ReferenceEquals(completed, interactionCompletion.Task))
             {
-                var completed = await Task.WhenAny(
-                        completion.Task,
-                        interactionCompletion.Task)
-                    .WaitAsync(cancellationToken);
-                if (ReferenceEquals(completed, interactionCompletion.Task))
-                {
-                    return new WebViewResolutionAttempt(
-                        null,
-                        await interactionCompletion.Task);
-                }
-
-                var uri = await completion.Task;
-                var resolvedHeaders = HeaderNormalizer.Merge(
-                    await BuildWebViewHeadersAsync(request, uri),
-                    capturedMediaHeaders);
                 return new WebViewResolutionAttempt(
-                    new WebResolvedMedia(
-                        uri,
-                        resolvedHeaders),
-                    WebPageInteractionKind.None);
+                    null,
+                    await interactionCompletion.Task);
             }
-            finally
-            {
-                pollingCancellation.Cancel();
-                await domPolling;
-            }
+
+            var uri = await completion.Task;
+            var resolvedHeaders = HeaderNormalizer.Merge(
+                await BuildWebViewHeadersAsync(request, uri),
+                capturedMediaHeaders);
+            return new WebViewResolutionAttempt(
+                new WebResolvedMedia(
+                    uri,
+                    resolvedHeaders),
+                WebPageInteractionKind.None);
         }
         finally
         {
+            navigationCallbacks.StopAccepting();
             TryRunWebViewCleanup(() =>
             {
                 webView.WebResourceResponseReceived -= OnResponse;
                 webView.WebMessageReceived -= OnWebMessageReceived;
                 webView.NavigationCompleted -= OnNavigationCompleted;
-                ResetWebView(webView);
             });
+            captureCancellation.Cancel();
+            try
+            {
+                // 原生脚本不能被取消；真正退出前继续持有 WebView 和外层解析资格。
+                await Task.WhenAll(domPolling, navigationCallbacks.WaitForDrainAsync());
+            }
+            finally
+            {
+                TryRunWebViewCleanup(() => ResetWebView(webView));
+            }
         }
     }
 
@@ -1289,24 +1130,20 @@ internal sealed class WebMediaResolver : IDisposable
 
         var navigation = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-
-        void OnNavigationCompleted(
-            CoreWebView2 sender,
-            CoreWebView2NavigationCompletedEventArgs args)
+        var webView = _coreWebView!;
+        var observation = _navigationHistory.BeginObservation((success, errorStatus) =>
         {
-            if (args.IsSuccess)
+            if (success)
             {
                 navigation.TrySetResult();
             }
             else
             {
                 navigation.TrySetException(new InvalidOperationException(
-                    $"WebView2 页面加载失败：{args.WebErrorStatus}"));
+                    $"WebView2 页面加载失败：{errorStatus}"));
             }
-        }
+        });
 
-        var webView = _coreWebView!;
-        webView.NavigationCompleted += OnNavigationCompleted;
         try
         {
             Navigate(
@@ -1323,11 +1160,8 @@ internal sealed class WebMediaResolver : IDisposable
         }
         finally
         {
-            TryRunWebViewCleanup(() =>
-            {
-                webView.NavigationCompleted -= OnNavigationCompleted;
-                ResetWebView(webView);
-            });
+            _navigationHistory.EndObservation(observation);
+            TryRunWebViewCleanup(() => ResetWebView(webView));
         }
     }
 
@@ -1338,14 +1172,8 @@ internal sealed class WebMediaResolver : IDisposable
         await EnsureWebViewAsync(cancellationToken);
         var navigation = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-
-        void OnNavigationCompleted(
-            CoreWebView2 sender,
-            CoreWebView2NavigationCompletedEventArgs args)
-            => navigation.TrySetResult();
-
         var webView = _coreWebView!;
-        webView.NavigationCompleted += OnNavigationCompleted;
+        var observation = _navigationHistory.BeginObservation((_, _) => navigation.TrySetResult());
         try
         {
             webView.Navigate(uri.AbsoluteUri);
@@ -1362,11 +1190,8 @@ internal sealed class WebMediaResolver : IDisposable
         }
         finally
         {
-            TryRunWebViewCleanup(() =>
-            {
-                webView.NavigationCompleted -= OnNavigationCompleted;
-                ResetWebView(webView);
-            });
+            _navigationHistory.EndObservation(observation);
+            TryRunWebViewCleanup(() => ResetWebView(webView));
         }
     }
 
@@ -1374,110 +1199,110 @@ internal sealed class WebMediaResolver : IDisposable
         Func<Task<T>> operation,
         CancellationToken cancellationToken)
     {
-        if (_dispatcher is null)
-        {
-            throw new InvalidOperationException(
-                "网页解析器尚未绑定播放器 UI 线程。");
-        }
+        cancellationToken.ThrowIfCancellationRequested();
+        var binding = RequireActiveBinding();
+        return await binding.InvokeAsync(operation, cancellationToken);
+    }
 
-        if (_dispatcher.HasThreadAccess)
+    private WebViewHostBinding RequireActiveBinding()
+    {
+        lock (_lifecycleSync)
         {
-            return await operation();
+            if (_binding is null)
+                throw new InvalidOperationException("网页解析器尚未绑定播放器 UI 线程。");
+            ObjectDisposedException.ThrowIf(!_binding.IsActive, _binding);
+            return _binding;
         }
-
-        var completion = new TaskCompletionSource<T>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        if (!_dispatcher.TryEnqueue(async () =>
-        {
-            try
-            {
-                completion.SetResult(await operation());
-            }
-#pragma warning disable CA1031 // Preserve arbitrary operation failures for the awaiting caller.
-            catch (Exception ex)
-            {
-                completion.SetException(ex);
-            }
-#pragma warning restore CA1031
-        }))
-        {
-            throw new InvalidOperationException("无法调度 WebView2 操作。");
-        }
-
-        return await completion.Task.WaitAsync(cancellationToken);
     }
 
     private async Task EnsureWebViewAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (_coreWebView is not null)
+        if (_webViewReady)
         {
             return;
         }
 
-        if (_dispatcher is null)
-        {
-            throw new InvalidOperationException(
-                "网页解析器尚未绑定播放器 UI 线程。");
-        }
-
-        if (_hostWindowHandle == nint.Zero)
-        {
-            throw new InvalidOperationException(
-                "网页解析器尚未绑定播放器窗口。");
-        }
-
-        if (!_dispatcher.HasThreadAccess)
-        {
-            var completion = new TaskCompletionSource(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            if (!_dispatcher.TryEnqueue(async () =>
-            {
-                try
-                {
-                    await CreateWebViewAsync();
-                    completion.SetResult();
-                }
-#pragma warning disable CA1031 // Preserve WebView2 initialization failures for the awaiting caller.
-                catch (Exception ex)
-                {
-                    completion.SetException(ex);
-                }
-#pragma warning restore CA1031
-            }))
-            {
-                throw new InvalidOperationException("无法调度 WebView2 初始化。");
-            }
-
-            await completion.Task.WaitAsync(cancellationToken);
-            return;
-        }
-
-        await CreateWebViewAsync();
+        cancellationToken.ThrowIfCancellationRequested();
+        // 所有调用均由绑定的 UI 派发包围；等待真正创建完成后才能交还解析资格。
+        await CreateWebViewAsync(RequireActiveBinding().WindowHandle);
     }
 
-    private async Task CreateWebViewAsync()
+    private async Task CreateWebViewAsync(nint hostWindowHandle)
     {
-        if (_coreWebView is not null)
+        if (_webViewReady)
         {
             return;
+        }
+
+        if (_controller is not null)
+        {
+            CloseHiddenController();
         }
 
         _environment ??= await _sessionManager.GetEnvironmentAsync();
         var parentWindow =
             CoreWebView2ControllerWindowReference.CreateFromWindowHandle(
-                unchecked((ulong)_hostWindowHandle.ToInt64()));
+                unchecked((ulong)hostWindowHandle.ToInt64()));
         var controller = await _environment.CreateCoreWebView2ControllerAsync(
             parentWindow);
-        controller.Bounds = new Windows.Foundation.Rect(0, 0, 1, 1);
-        controller.IsVisible = false;
         _controller = controller;
-        _coreWebView = controller.CoreWebView2;
-        await _coreWebView.AddScriptToExecuteOnDocumentCreatedAsync(
-            MediaCaptureScript);
-        _coreWebView.AddWebResourceRequestedFilter(
-            "*",
-            CoreWebView2WebResourceContext.All);
+        try
+        {
+            controller.Bounds = new Windows.Foundation.Rect(0, 0, 1, 1);
+            controller.IsVisible = false;
+            _coreWebView = controller.CoreWebView2;
+            _coreWebView.NavigationStarting += OnHiddenNavigationStarting;
+            _coreWebView.NavigationCompleted += OnHiddenNavigationCompleted;
+            await _coreWebView.AddScriptToExecuteOnDocumentCreatedAsync(
+                WebMediaCaptureScripts.Install);
+            _coreWebView.AddWebResourceRequestedFilter(
+                "*",
+                CoreWebView2WebResourceContext.All);
+            _webViewReady = true;
+        }
+#pragma warning disable CA1031 // 初始化失败仍须收尾；关闭失败保留资源引用和两个原始异常。
+        catch (Exception initializationFailure)
+        {
+            try
+            {
+                CloseHiddenController();
+            }
+            catch (Exception cleanupFailure)
+            {
+                throw new AggregateException(initializationFailure, cleanupFailure);
+            }
+
+            throw;
+        }
+#pragma warning restore CA1031
+    }
+
+    private void OnHiddenNavigationStarting(
+        CoreWebView2 sender,
+        CoreWebView2NavigationStartingEventArgs args)
+    {
+        if (!ReferenceEquals(sender, _coreWebView))
+        {
+            return;
+        }
+
+        _navigationHistory.RecordStarting(args.NavigationId);
+    }
+
+    private void OnHiddenNavigationCompleted(
+        CoreWebView2 sender,
+        CoreWebView2NavigationCompletedEventArgs args)
+    {
+        if (!ReferenceEquals(sender, _coreWebView))
+        {
+            return;
+        }
+
+        _navigationHistory.Complete(
+            args.NavigationId,
+            args.IsSuccess,
+            args.WebErrorStatus.ToString());
     }
 
     private void Navigate(
@@ -1516,51 +1341,27 @@ internal sealed class WebMediaResolver : IDisposable
         Action<IReadOnlyDictionary<string, string>> captureHeaders,
         CancellationToken cancellationToken)
     {
-        var seen = new HashSet<string>(StringComparer.Ordinal);
         while (!completion.Task.IsCompleted
             && !cancellationToken.IsCancellationRequested)
         {
             try
             {
                 var json = await webView.ExecuteScriptAsync(
-                    """
-                    (() => {
-                        const candidates =
-                            Array.isArray(window.__animeidoMediaCandidates)
-                                ? window.__animeidoMediaCandidates.splice(0)
-                                : [];
-                        document.querySelectorAll("video, source").forEach(node => {
-                            const value = node.currentSrc || node.src
-                                || node.getAttribute("src");
-                            if (value) candidates.push({
-                                url: value,
-                                confirmed: false
-                            });
-                        });
-                        performance.getEntriesByType("resource").forEach(entry => {
-                            if (entry.name) candidates.push({
-                                url: entry.name,
-                                confirmed: false
-                            });
-                        });
-                        return candidates;
-                    })()
-                    """);
+                    WebMediaCaptureScripts.Poll);
+                if (cancellationToken.IsCancellationRequested || completion.Task.IsCompleted)
+                {
+                    return;
+                }
                 var candidates =
                     JsonSerializer.Deserialize<WebCapturedUrl[]>(json) ?? [];
                 foreach (var candidate in candidates)
                 {
-                    if (!seen.Add(candidate.Url))
-                    {
-                        continue;
-                    }
-
                     var matched = (candidate.Confirmed
-                            && TryCreateMediaUri(
+                            && WebMediaUrlParser.TryCreateMediaUri(
                                 candidate.Url,
                                 request.PageUri,
                                 out var confirmedUri))
-                        || TryMatchObservedMediaUrl(
+                        || WebMediaUrlParser.TryMatchObservedMediaUrl(
                             candidate.Url,
                             request.VideoUrlPattern,
                             request.PageUri,
@@ -1627,7 +1428,7 @@ internal sealed class WebMediaResolver : IDisposable
             WebResolutionRequest request,
             Uri mediaUri)
     {
-        var headers = BuildMediaHeaders(request, request.PageUri);
+        var headers = HeaderNormalizer.BuildMediaHeaders(request, request.PageUri);
         var pageCookies = await _coreWebView!.CookieManager.GetCookiesAsync(
             request.PageUri.AbsoluteUri);
         IEnumerable<CoreWebView2Cookie> mediaCookies =
@@ -1660,34 +1461,6 @@ internal sealed class WebMediaResolver : IDisposable
         return headers;
     }
 
-    private static Dictionary<string, string> BuildMediaHeaders(
-        WebResolutionRequest request,
-        Uri referer)
-    {
-        var headers = HeaderNormalizer.Merge(request.Headers);
-        if (!headers.ContainsKey("Referer"))
-        {
-            headers["Referer"] = referer.AbsoluteUri;
-        }
-
-        if (!headers.ContainsKey("Origin")
-            && Uri.TryCreate(
-                headers.GetValueOrDefault("Referer"),
-                UriKind.Absolute,
-                out var effectiveReferer))
-        {
-            headers["Origin"] =
-                effectiveReferer.GetLeftPart(UriPartial.Authority);
-        }
-
-        if (!string.IsNullOrWhiteSpace(request.Cookies))
-        {
-            headers["Cookie"] = request.Cookies;
-        }
-
-        return headers;
-    }
-
     internal static IReadOnlyDictionary<string, string>
         BuildDocumentRequestHeaders(string source)
     {
@@ -1704,168 +1477,6 @@ internal sealed class WebMediaResolver : IDisposable
         return headers;
     }
 
-    private static void AddHeaders(
-        HttpRequestMessage message,
-        IReadOnlyDictionary<string, string> headers,
-        string? cookies)
-    {
-        foreach (var header in headers)
-        {
-            message.Headers.TryAddWithoutValidation(header.Key, header.Value);
-        }
-
-        if (!string.IsNullOrWhiteSpace(cookies))
-        {
-            message.Headers.TryAddWithoutValidation("Cookie", cookies);
-        }
-    }
-
-    private static Uri? FindMedia(
-        string content,
-        WebResolutionRequest request,
-        Uri baseUri)
-    {
-        var matched = FindFirstUrl(
-            content,
-            request.VideoUrlPattern,
-            baseUri);
-        return matched is not null
-            && TryExtractEmbeddedMediaUri(
-                matched,
-                request.VideoUrlPattern,
-                baseUri,
-                out var embedded)
-                    ? embedded
-                    : matched;
-    }
-
-    internal static Uri? FindNestedPageUri(
-        string content,
-        string pattern,
-        Uri baseUri)
-    {
-        var iframePattern = new Regex(
-            """<iframe\b[^>]*\bsrc\s*=\s*["'](?<v>[^"']+)["']""",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
-            TimeSpan.FromSeconds(2));
-        foreach (Match match in iframePattern.Matches(content))
-        {
-            var value = WebUtility.HtmlDecode(match.Groups["v"].Value);
-            if (Uri.TryCreate(baseUri, value, out var iframeUri)
-                && iframeUri.Scheme is "http" or "https"
-                && !IsIgnoredMediaUrl(iframeUri))
-            {
-                return iframeUri;
-            }
-        }
-
-        return FindFirstUrl(content, pattern, baseUri);
-    }
-
-    private static Uri? FindFirstUrl(
-        string content,
-        string pattern,
-        Uri baseUri)
-    {
-        if (string.IsNullOrWhiteSpace(pattern))
-        {
-            return null;
-        }
-
-        var regex = new Regex(
-            pattern,
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
-            TimeSpan.FromSeconds(2));
-        foreach (Match match in regex.Matches(content))
-        {
-            var value = match.Groups["v"].Success
-                ? match.Groups["v"].Value
-                : match.Value;
-            value = value
-                .Replace("\\/", "/", StringComparison.Ordinal)
-                .Replace("&amp;", "&", StringComparison.Ordinal);
-            if (value.StartsWith("url=", StringComparison.OrdinalIgnoreCase))
-            {
-                value = value[4..];
-            }
-
-            value = Uri.UnescapeDataString(value);
-            if (Uri.TryCreate(value, UriKind.Absolute, out var absolute)
-                && absolute.Scheme is "http" or "https"
-                && !IsIgnoredMediaUrl(absolute))
-            {
-                return absolute;
-            }
-
-            if (Uri.TryCreate(baseUri, value, out var relative)
-                && relative.Scheme is "http" or "https"
-                && !IsIgnoredMediaUrl(relative))
-            {
-                return relative;
-            }
-        }
-
-        return null;
-    }
-
-    private static bool TryMatchUrl(
-        string value,
-        string pattern,
-        Uri baseUri,
-        out Uri mediaUri)
-    {
-        var matched = FindFirstUrl(value, pattern, baseUri);
-        if (matched is not null
-            && TryExtractEmbeddedMediaUri(
-                matched,
-                pattern,
-                baseUri,
-                out var embedded))
-        {
-            mediaUri = embedded;
-            return true;
-        }
-
-        mediaUri = matched!;
-        return matched is not null;
-    }
-
-    internal static bool TryMatchObservedMediaUrl(
-        string value,
-        string pattern,
-        Uri baseUri,
-        out Uri mediaUri)
-    {
-        if (!TryMatchUrl(value, pattern, baseUri, out mediaUri))
-        {
-            return false;
-        }
-
-        if (!Uri.TryCreate(baseUri, value, out var observedUri))
-        {
-            return true;
-        }
-
-        return observedUri.Scheme.Equals(
-                mediaUri.Scheme,
-                StringComparison.OrdinalIgnoreCase)
-            && observedUri.Host.Equals(
-                mediaUri.Host,
-                StringComparison.OrdinalIgnoreCase)
-            && observedUri.Port == mediaUri.Port
-            && observedUri.AbsolutePath.Equals(
-                mediaUri.AbsolutePath,
-                StringComparison.OrdinalIgnoreCase);
-    }
-
-    internal static bool ShouldUseRangeProbe(Uri mediaUri)
-    {
-        ArgumentNullException.ThrowIfNull(mediaUri);
-        return !mediaUri.AbsolutePath.EndsWith(
-            ".m3u8",
-            StringComparison.OrdinalIgnoreCase);
-    }
-
     private static IReadOnlyDictionary<string, string> ReadMediaRequestHeaders(
         CoreWebView2HttpRequestHeaders requestHeaders)
     {
@@ -1880,68 +1491,6 @@ internal sealed class WebMediaResolver : IDisposable
         }
 
         return headers;
-    }
-
-    internal static bool TryExtractEmbeddedMediaUri(
-        Uri wrapperUri,
-        string pattern,
-        Uri baseUri,
-        out Uri mediaUri)
-    {
-        mediaUri = null!;
-        if (string.IsNullOrWhiteSpace(wrapperUri.Query))
-        {
-            return false;
-        }
-
-        foreach (var pair in wrapperUri.Query.TrimStart('?').Split('&'))
-        {
-            var separator = pair.IndexOf('=');
-            if (separator < 0 || separator == pair.Length - 1)
-            {
-                continue;
-            }
-
-            var value = pair[(separator + 1)..];
-            for (var decode = 0; decode < 3; decode++)
-            {
-                var decoded = WebUtility.UrlDecode(value);
-                if (string.Equals(decoded, value, StringComparison.Ordinal))
-                {
-                    break;
-                }
-
-                value = decoded;
-            }
-
-            var matched = FindFirstUrl(value, pattern, baseUri);
-            if (matched is not null
-                && !string.Equals(
-                    matched.AbsoluteUri,
-                    wrapperUri.AbsoluteUri,
-                    StringComparison.Ordinal))
-            {
-                mediaUri = matched;
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool TryCreateMediaUri(
-        string value,
-        Uri baseUri,
-        out Uri mediaUri)
-    {
-        if (!Uri.TryCreate(value, UriKind.Absolute, out mediaUri!)
-            && !Uri.TryCreate(baseUri, value, out mediaUri!))
-        {
-            return false;
-        }
-
-        return mediaUri.Scheme is "http" or "https"
-            && !IsIgnoredMediaUrl(mediaUri);
     }
 
     private static async Task<WebPageInteractionKind> DetectInteractionAsync(
@@ -2031,56 +1580,93 @@ internal sealed class WebMediaResolver : IDisposable
                     "application/octet-stream",
                     StringComparison.OrdinalIgnoreCase));
 
-    private static bool IsIgnoredMediaUrl(Uri uri)
+    public ValueTask DisposeAsync()
     {
-        var value = uri.AbsoluteUri;
-        return value.Contains("googleads", StringComparison.OrdinalIgnoreCase)
-            || value.Contains(
-                "googlesyndication",
-                StringComparison.OrdinalIgnoreCase)
-            || value.Contains(
-                "adtrafficquality",
-                StringComparison.OrdinalIgnoreCase)
-            || value.Contains("doubleclick", StringComparison.OrdinalIgnoreCase);
+        TaskCompletionSource completion;
+        lock (_lifecycleSync)
+        {
+            if (_disposeTask is not null)
+                return new ValueTask(_disposeTask);
+            _disposed = true;
+            completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _disposeTask = completion.Task;
+        }
+        _ = CompleteDisposeAsync(completion);
+        return new ValueTask(completion.Task);
     }
 
-    public void Dispose()
+    private async Task CompleteDisposeAsync(TaskCompletionSource completion)
     {
-        if (_disposed)
+        try
         {
-            return;
+            try
+            {
+                await _shutdown.CancelAsync();
+            }
+            finally
+            {
+                CancelIdleCleanup();
+                await DisposeCoreAsync();
+            }
+            completion.TrySetResult();
         }
+#pragma warning disable CA1031 // 先公布共享释放任务，再交还真实清理结果。
+        catch (Exception ex)
+        {
+            completion.TrySetException(ex);
+        }
+#pragma warning restore CA1031
+    }
 
-        _disposed = true;
-        _idleCleanupCancellation?.Cancel();
-        _idleCleanupCancellation?.Dispose();
-        _idleCleanupCancellation = null;
-        CloseBrowserWindow();
+    private async Task DisposeCoreAsync()
+    {
+        await CloseBrowserWindowAsync();
+        await _idleCleanupTask;
+        lock (_lifecycleSync)
+        {
+            _binding?.Invalidate();
+            _binding = null;
+        }
+        _shutdown.Dispose();
         _gate.Dispose();
     }
 
-    public void CloseBrowserWindow()
+    public async Task CloseBrowserWindowAsync()
     {
-        var verificationWindow = _verificationWindow;
-        _verificationWindow = null;
-        verificationWindow?.CancelAndClose();
-        _idleCleanupCancellation?.Cancel();
-        _idleCleanupCancellation?.Dispose();
-        _idleCleanupCancellation = null;
-        var controller = _controller;
-        _coreWebView = null;
-        _controller = null;
-        _environment = null;
-        if (controller is not null)
+        await _gate.WaitAsync();
+        try
         {
-            TryRunWebViewCleanup(controller.Close);
+            CancelIdleCleanup();
+            await CloseBrowserWindowCoreAsync(CurrentBinding);
         }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private Task CloseBrowserWindowCoreAsync(WebViewHostBinding? binding)
+        => binding is null ? Task.CompletedTask : binding.InvokeAsync(() =>
+        {
+            CloseBrowserWindow();
+            return Task.CompletedTask;
+        }, CancellationToken.None);
+
+    private void CloseBrowserWindow()
+    {
+        CancelIdleCleanup();
+        _verificationWindow?.CancelAndClose();
+        CloseHiddenController();
+        _verificationWindow = null;
+        _environment = null;
     }
 }
 
 internal sealed record WebViewResolutionAttempt(
     WebResolvedMedia? Media,
     WebPageInteractionKind Interaction);
+
+internal sealed record HostWebSessionClearResult(Exception? MetadataFailure);
 
 internal sealed class WebCapturedUrl
 {

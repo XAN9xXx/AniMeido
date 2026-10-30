@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AniMeido.Plugin.Player.Sources.Packages;
+using Microsoft.Extensions.Logging;
 
 namespace AniMeido.Plugin.Player.Sources.Managed;
 
@@ -12,9 +13,12 @@ internal static class ManagedSourceLoader
         PropertyNameCaseInsensitive = true,
     };
 
-    public static IEnumerable<IOnlineAnimeSource> Load()
+    public static IEnumerable<IOnlineAnimeSource> Load(ILogger? logger = null)
+        => Load(SourcesDirectory, logger);
+
+    internal static IEnumerable<IOnlineAnimeSource> Load(string sourcesDirectory, ILogger? logger)
     {
-        foreach (var manifestPath in GetManifestPaths())
+        foreach (var manifestPath in GetManifestPaths(sourcesDirectory, logger))
         {
             IOnlineAnimeSource? source;
             try
@@ -22,8 +26,9 @@ internal static class ManagedSourceLoader
                 source = LoadOne(manifestPath);
             }
 #pragma warning disable CA1031 // One source package must not disable other sources.
-            catch (Exception)
+            catch (Exception ex)
             {
+                logger?.LogWarning(ex, "无法加载代码播放源，已跳过：{ManifestPath}", manifestPath);
                 continue;
             }
 #pragma warning restore CA1031
@@ -90,14 +95,15 @@ internal static class ManagedSourceLoader
                 "代码源 manifest 与运行时身份不一致。");
         }
 
-        return new ManagedSourceProxy(loadContext, source);
+        // 非 collectible 上下文随宿主进程保留，无需额外代理“保活”。
+        // 直接返回原对象，同时保留它实际实现的可选能力。
+        return source;
     }
 
-    private static IReadOnlyList<string> GetManifestPaths()
+    private static IReadOnlyList<string> GetManifestPaths(string sourceDirectory, ILogger? logger)
     {
         try
         {
-            var sourceDirectory = SourcesDirectory;
             Directory.CreateDirectory(sourceDirectory);
             var legacyManifests = Directory.EnumerateDirectories(
                     sourceDirectory,
@@ -118,8 +124,9 @@ internal static class ManagedSourceLoader
             return legacyManifests.Concat(packagedManifests).ToArray();
         }
 #pragma warning disable CA1031 // Source discovery failure must not break PlayerPlugin.
-        catch (Exception)
+        catch (Exception ex)
         {
+            logger?.LogWarning(ex, "无法扫描代码播放源，本次按空目录处理：{Directory}", sourceDirectory);
             return [];
         }
 #pragma warning restore CA1031

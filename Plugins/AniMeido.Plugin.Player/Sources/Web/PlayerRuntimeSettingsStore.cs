@@ -31,13 +31,15 @@ internal sealed class PlayerRuntimeSettingsStore
         _path = path;
     }
 
-    public async Task<PlayerRuntimeSettings> ReadAsync(
+    public async Task<PlayerRuntimeReadResult> ReadAsync(
         CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return await ReadCoreAsync(cancellationToken);
+            return await Task.Run(
+                () => ReadCoreAsync(cancellationToken, allowReadFallback: true),
+                cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -51,32 +53,12 @@ internal sealed class PlayerRuntimeSettingsStore
     {
         ArgumentNullException.ThrowIfNull(settings);
         Validate(settings);
-        await _gate.WaitAsync(cancellationToken);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_path is null)
-            {
-                return;
-            }
-
-            var directory = Path.GetDirectoryName(_path)!;
-            Directory.CreateDirectory(directory);
-            var temporaryPath = $"{_path}.{Guid.NewGuid():N}.tmp";
-            try
-            {
-                await File.WriteAllTextAsync(
-                    temporaryPath,
-                    JsonSerializer.Serialize(settings, SerializerOptions),
-                    cancellationToken);
-                File.Move(temporaryPath, _path, overwrite: true);
-            }
-            finally
-            {
-                if (File.Exists(temporaryPath))
-                {
-                    File.Delete(temporaryPath);
-                }
-            }
+            await Task.Run(
+                () => WriteCoreAsync(settings, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -84,36 +66,69 @@ internal sealed class PlayerRuntimeSettingsStore
         }
     }
 
-    public async Task<TimeSpan> GetEffectiveTimeoutAsync(
+    private async Task WriteCoreAsync(
+        PlayerRuntimeSettings settings,
+        CancellationToken cancellationToken)
+    {
+        if (_path is null)
+        {
+            return;
+        }
+
+        await ReadCoreAsync(cancellationToken, allowReadFallback: false);
+        var directory = Path.GetDirectoryName(_path)!;
+        Directory.CreateDirectory(directory);
+        var temporaryPath = $"{_path}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            await File.WriteAllTextAsync(
+                temporaryPath,
+                JsonSerializer.Serialize(settings, SerializerOptions),
+                cancellationToken);
+            File.Move(temporaryPath, _path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+            {
+                File.Delete(temporaryPath);
+            }
+        }
+    }
+
+    public async Task<(TimeSpan Timeout, Exception? FallbackReason)> GetEffectiveTimeoutAsync(
         string sourceId,
         TimeSpan? sourceDeclaredTimeout,
         CancellationToken cancellationToken)
     {
-        var settings = await ReadAsync(cancellationToken);
+        var result = await ReadAsync(cancellationToken);
+        var settings = result.Settings;
         if (settings.SourceTimeoutSeconds.TryGetValue(
                 sourceId,
                 out var overrideSeconds))
         {
-            return TimeSpan.FromSeconds(overrideSeconds);
+            return (TimeSpan.FromSeconds(overrideSeconds), result.FallbackReason);
         }
 
         if (sourceDeclaredTimeout is { } declared)
         {
-            return TimeSpan.FromSeconds(Math.Clamp(
+            var seconds = Math.Clamp(
                 declared.TotalSeconds,
                 MinimumTimeoutSeconds,
-                MaximumTimeoutSeconds));
+                MaximumTimeoutSeconds);
+            return (TimeSpan.FromSeconds(seconds), result.FallbackReason);
         }
 
-        return TimeSpan.FromSeconds(settings.GlobalTimeoutSeconds);
+        return (TimeSpan.FromSeconds(settings.GlobalTimeoutSeconds), result.FallbackReason);
     }
 
-    private async Task<PlayerRuntimeSettings> ReadCoreAsync(
-        CancellationToken cancellationToken)
+    private async Task<PlayerRuntimeReadResult> ReadCoreAsync(
+        CancellationToken cancellationToken,
+        bool allowReadFallback)
     {
-        if (_path is null || !File.Exists(_path))
+        if (_path is null)
         {
-            return PlayerRuntimeSettings.CreateDefault();
+            return new PlayerRuntimeReadResult(PlayerRuntimeSettings.CreateDefault(), null);
         }
 
         try
@@ -126,19 +141,24 @@ internal sealed class PlayerRuntimeSettingsStore
                     cancellationToken);
             if (settings is null)
             {
-                return PlayerRuntimeSettings.CreateDefault();
+                throw new InvalidDataException("播放器运行时设置为空，未保存文件。");
             }
 
             Validate(settings);
-            return settings;
+            return new PlayerRuntimeReadResult(settings, null);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return new PlayerRuntimeReadResult(PlayerRuntimeSettings.CreateDefault(), null);
         }
         catch (Exception ex)
-            when (ex is JsonException
+            when (allowReadFallback && ex is (JsonException
+                or InvalidDataException
                 or IOException
                 or UnauthorizedAccessException
-                or ArgumentOutOfRangeException)
+                or ArgumentOutOfRangeException))
         {
-            return PlayerRuntimeSettings.CreateDefault();
+            return new PlayerRuntimeReadResult(PlayerRuntimeSettings.CreateDefault(), ex);
         }
     }
 
@@ -149,6 +169,11 @@ internal sealed class PlayerRuntimeSettingsStore
             throw new ArgumentOutOfRangeException(
                 nameof(settings),
                 "不支持的播放器运行时设置版本。");
+        }
+
+        if (settings.SourceTimeoutSeconds is null)
+        {
+            throw new InvalidDataException("播放器运行时设置缺少播放源超时记录，未保存文件。");
         }
 
         ValidateTimeout(settings.GlobalTimeoutSeconds);
@@ -168,6 +193,10 @@ internal sealed class PlayerRuntimeSettingsStore
         }
     }
 }
+
+internal sealed record PlayerRuntimeReadResult(
+    PlayerRuntimeSettings Settings,
+    Exception? FallbackReason);
 
 internal sealed class PlayerRuntimeSettings
 {

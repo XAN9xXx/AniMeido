@@ -5,6 +5,60 @@ namespace AniMeido.Tests;
 
 public sealed class TitleMatcherTests
 {
+    public static TheoryData<string, string, bool> SeasonAndPartCompatibility { get; } = new()
+    {
+        { "Example Season 1 Part 1", "Example Season 2 Part 1", false },
+        { "Example Season 2 Part 1", "Example Season 1 Part 1", false },
+        { "Example 第1季 第1部", "Example 第2季 第1部", false },
+        { "Example 第2季 第1部", "Example 第1季 第1部", false },
+        { "Example Season 1 Part 1", "Example Season 1 Part 2", false },
+        { "Example Season 1 Part 2", "Example Season 1 Part 1", false },
+        { "Example 第1季 第1部", "Example 第1季 第2部", false },
+        { "Example 第1季 第2部", "Example 第1季 第1部", false },
+        { "Example Season 1 Part 1", "Example 第2季 第1部", false },
+        { "Example Season 1 Part 1", "Example Season 1 Part 1", true },
+        { "Example Season 1 Part 1", "Example 第1季 第1部", true },
+        { "Example Season 1 Part 1", "Example Season 1", true },
+        { "Example Season 1", "Example Season 1 Part 1", true },
+        { "Example Season 1 Part 1", "Example Part 1", true },
+        { "Example Part 1", "Example Season 1 Part 1", true },
+        { "Example Season 1", "Example Part 1", false },
+        { "Example Part 1", "Example Season 1", false },
+        { "Example", "Example Season 2 Part 3", true },
+        { "Example Season 2 Part 3", "Example", true },
+    };
+
+    [Theory]
+    [MemberData(nameof(SeasonAndPartCompatibility))]
+    public void Rank_RequiresAllSharedSeasonAndPartKindsToAgree(
+        string title,
+        string candidateTitle,
+        bool compatible)
+    {
+        var context = new AnimePlaybackContext(42, title);
+        var candidate = new SourceAnimeCandidate("source", "candidate", candidateTitle);
+
+        var ranked = TitleMatcher.Rank(context, [candidate]);
+
+        if (compatible)
+            Assert.Same(candidate, Assert.Single(ranked));
+        else
+            Assert.Empty(ranked);
+    }
+
+    [Theory]
+    [MemberData(nameof(SeasonAndPartCompatibility))]
+    public void Confidence_RequiresAllSharedSeasonAndPartKindsToAgree(
+        string title,
+        string candidateTitle,
+        bool compatible)
+    {
+        var context = new AnimePlaybackContext(42, title);
+        var candidate = new SourceAnimeCandidate("source", "candidate", candidateTitle);
+
+        Assert.Equal(compatible, TitleMatcher.IsConfident(context, candidate));
+    }
+
     [Fact]
     public void Rank_UsesAlternateTitleAndNormalizesPunctuation()
     {

@@ -5,41 +5,70 @@ namespace AniMeido.Plugin.Player.Playback;
 
 internal static class PlayerPublicIds
 {
+    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
+
     internal static string SharedMigrationPath => Path.Combine(AppDataRoots.Roaming, "id-migration-v9.json");
     internal static string SharedRemapPath => Path.Combine(Path.GetDirectoryName(SharedMigrationPath)!, "id-remap-log.json");
 
     internal sealed record RemapEntry(long Seq, int From, int To, string At);
 
-    internal static async Task<List<RemapEntry>> ReadRemapsAsync(string? path, CancellationToken ct)
+    internal static async Task<List<RemapEntry>> ReadRemapsAsync(
+        string? path, long afterSequence, CancellationToken ct)
     {
-        if (path is null || !File.Exists(path)) return [];
-        var rows = JsonSerializer.Deserialize<List<RemapEntry>>(await File.ReadAllTextAsync(path, ct),
-            new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? throw new InvalidDataException("Player ID 改写日志无效。");
-        if (rows.Where((r, i) => r.Seq != i + 1L || r.From == 0 || r.To == 0 || r.From == r.To).Any())
-            throw new InvalidDataException("Player ID 改写日志序号或 ID 无效。");
-        return rows;
+        if (path is null || !File.Exists(path))
+            return [];
+
+        await using var stream = File.OpenRead(path);
+        var rows = await JsonSerializer.DeserializeAsync<List<RemapEntry>>(stream, SerializerOptions, ct)
+            .ConfigureAwait(false) ?? throw new InvalidDataException("Player ID 改写日志无效。");
+        for (var index = 0; index < rows.Count; index++)
+        {
+            var row = rows[index];
+            if (row is null || row.Seq != index + 1L || row.From == 0 || row.To == 0 || row.From == row.To)
+                throw new InvalidDataException("Player ID 改写日志序号或 ID 无效。");
+        }
+        return rows.Where(row => row.Seq > afterSequence).ToList();
     }
 
-    internal static Dictionary<string, string> ApplyRemaps(Dictionary<string, string> values,
-        IEnumerable<RemapEntry> entries, bool sourceKeys)
+    internal static Dictionary<string, string> ApplyRemaps(
+        Dictionary<string, string> values,
+        IEnumerable<RemapEntry> entries,
+        bool sourceKeys,
+        Action<RemapEntry, IReadOnlyDictionary<string, string>>? beforeRemap = null)
     {
         var result = new Dictionary<string, string>(values, StringComparer.Ordinal);
         foreach (var entry in entries)
-            foreach (var key in result.Keys.Where(key => int.TryParse(sourceKeys ? key.Split(':', 2)[0] : key,
-                NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) && id == entry.From).ToList())
+        {
+            beforeRemap?.Invoke(entry, result);
+            foreach (var key in result.Keys.Where(key => MatchesAnimeId(key, entry.From, sourceKeys)).ToList())
             {
                 var suffix = sourceKeys && key.Contains(':') ? key[key.IndexOf(':')..] : "";
-                var value = result[key]; result.Remove(key);
+                var value = result[key];
+                result.Remove(key);
                 result.TryAdd(entry.To.ToString(CultureInfo.InvariantCulture) + suffix, value);
             }
+        }
         return result;
+    }
+
+    private static bool MatchesAnimeId(string key, int animeId, bool sourceKeys)
+    {
+        var idText = key.AsSpan();
+        if (sourceKeys)
+        {
+            var separator = idText.IndexOf(':');
+            if (separator >= 0)
+                idText = idText[..separator];
+        }
+        return int.TryParse(idText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id)
+            && id == animeId;
     }
 
     internal static async Task<Dictionary<int, int>?> ReadAsync(string? path, CancellationToken ct)
     {
         if (path is null || !File.Exists(path)) return null;
         var file = JsonSerializer.Deserialize<MigrationFile>(await File.ReadAllTextAsync(path, ct),
-            new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? throw new InvalidDataException("Player 公共 ID 迁移文件无效。");
+            SerializerOptions) ?? throw new InvalidDataException("Player 公共 ID 迁移文件无效。");
         if (file.SchemaVersion != 9 || file.WorkIds is null
             || file.WorkIds.Any(p => p.Key <= 0 || p.Value == 0 || (p.Value < 0 && p.Value != -p.Key)))
             throw new InvalidDataException("Player 公共 ID 迁移文件版本或对照表无效。");

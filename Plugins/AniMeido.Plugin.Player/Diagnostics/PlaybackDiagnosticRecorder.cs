@@ -19,8 +19,11 @@ internal sealed class PlaybackDiagnosticRecorder : IAsyncDisposable
     };
 
     private readonly object _gate = new();
+    private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly string _rootDirectory;
     private DiagnosticSession? _session;
+    private Task _draining = Task.CompletedTask;
+    private Task? _disposeTask;
     private string? _lastSessionDirectory;
     private string? _lastError;
 
@@ -43,7 +46,7 @@ internal sealed class PlaybackDiagnosticRecorder : IAsyncDisposable
         {
             lock (_gate)
             {
-                return _session is not null;
+                return _disposeTask is null && _session is not null;
             }
         }
     }
@@ -70,14 +73,35 @@ internal sealed class PlaybackDiagnosticRecorder : IAsyncDisposable
         }
     }
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfDisposed();
+        await _operationGate.WaitAsync(cancellationToken);
+        try
+        {
+            Task draining;
+            lock (_gate)
+            {
+                draining = _draining;
+            }
+
+            await draining.WaitAsync(cancellationToken);
+            StartSession();
+        }
+        finally
+        {
+            _operationGate.Release();
+        }
+    }
+
+    private void StartSession()
+    {
         lock (_gate)
         {
+            ObjectDisposedException.ThrowIf(_disposeTask is not null, this);
             if (_session is not null)
             {
-                return Task.CompletedTask;
+                return;
             }
 
             Directory.CreateDirectory(_rootDirectory);
@@ -126,31 +150,40 @@ internal sealed class PlaybackDiagnosticRecorder : IAsyncDisposable
                         .ProcessArchitecture
                         .ToString(),
             });
-        return Task.CompletedTask;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        DiagnosticSession? session;
+        await _operationGate.WaitAsync(cancellationToken);
+        try
+        {
+            await StopSessionAsync(cancellationToken);
+        }
+        finally
+        {
+            _operationGate.Release();
+        }
+    }
+
+    private Task StopSessionAsync(CancellationToken cancellationToken)
+    {
         lock (_gate)
         {
-            session = _session;
-            _session = null;
-        }
+            if (_session is { } session)
+            {
+                _session = null;
+                session.Channel.Writer.TryWrite(new PlaybackDiagnosticEntry
+                {
+                    Timestamp = DateTimeOffset.UtcNow,
+                    Category = "diagnostic",
+                    Name = "stopped",
+                });
+                session.Channel.Writer.TryComplete();
+                _draining = session.WriterTask;
+            }
 
-        if (session is null)
-        {
-            return;
+            return _draining.WaitAsync(cancellationToken);
         }
-
-        session.Channel.Writer.TryWrite(new PlaybackDiagnosticEntry
-        {
-            Timestamp = DateTimeOffset.UtcNow,
-            Category = "diagnostic",
-            Name = "stopped",
-        });
-        session.Channel.Writer.TryComplete();
-        await session.WriterTask.WaitAsync(cancellationToken);
     }
 
     public void Record(
@@ -164,7 +197,7 @@ internal sealed class PlaybackDiagnosticRecorder : IAsyncDisposable
         DiagnosticSession? session;
         lock (_gate)
         {
-            session = _session;
+            session = _disposeTask is null ? _session : null;
         }
 
         if (session is null
@@ -194,7 +227,24 @@ internal sealed class PlaybackDiagnosticRecorder : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetPath);
-        await StopAsync(cancellationToken);
+        ThrowIfDisposed();
+        await _operationGate.WaitAsync(cancellationToken);
+        try
+        {
+            ThrowIfDisposed();
+            await StopSessionAsync(cancellationToken);
+            await ExportStoppedSessionAsync(targetPath, cancellationToken);
+        }
+        finally
+        {
+            _operationGate.Release();
+        }
+    }
+
+    private async Task ExportStoppedSessionAsync(
+        string targetPath,
+        CancellationToken cancellationToken)
+    {
         string? sessionDirectory;
         lock (_gate)
         {
@@ -231,22 +281,44 @@ internal sealed class PlaybackDiagnosticRecorder : IAsyncDisposable
 
     public async Task ClearAsync(CancellationToken cancellationToken)
     {
-        await StopAsync(cancellationToken);
-        if (Directory.Exists(_rootDirectory))
+        ThrowIfDisposed();
+        await _operationGate.WaitAsync(cancellationToken);
+        try
         {
-            Directory.Delete(_rootDirectory, recursive: true);
-        }
+            ThrowIfDisposed();
+            await StopSessionAsync(cancellationToken);
+            if (Directory.Exists(_rootDirectory))
+            {
+                Directory.Delete(_rootDirectory, recursive: true);
+            }
 
-        lock (_gate)
+            lock (_gate)
+            {
+                _lastSessionDirectory = null;
+                _lastError = null;
+            }
+        }
+        finally
         {
-            _lastSessionDirectory = null;
-            _lastError = null;
+            _operationGate.Release();
         }
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        await StopAsync(CancellationToken.None);
+        lock (_gate)
+        {
+            _disposeTask ??= StopAsync(CancellationToken.None);
+            return new ValueTask(_disposeTask);
+        }
+    }
+
+    private void ThrowIfDisposed()
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposeTask is not null, this);
+        }
     }
 
     internal static string SanitizeUri(Uri uri)

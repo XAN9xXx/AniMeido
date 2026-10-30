@@ -1,11 +1,118 @@
-using AniMeido.Plugin.Player.Models;
+﻿using AniMeido.Plugin.Player.Models;
 using AniMeido.Plugin.Player.Playback;
 using AniMeido.Plugin.Player.Sources;
+using System.Reflection;
 
 namespace AniMeido.Tests;
 
 public sealed class PlayerExperienceTests
 {
+    [Theory]
+    [InlineData("read")]
+    [InlineData("apply")]
+    [InlineData("preferences")]
+    [InlineData("route")]
+    [Trait("Category", "Mechanism")]
+    public async Task CompleteSettingsOperationDoesNotRequireTheCallingUiContext(string action)
+    {
+        using var paths = new MockAppDataPaths();
+        var store = new PlayerExperienceSettingsStore(Path.Combine(paths.RootDirectory, "experience.json"));
+        var gate = (SemaphoreSlim)typeof(PlayerExperienceSettingsStore)
+            .GetField("_gate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(store)!;
+        var ui = new PausedUiContext();
+        var previousContext = SynchronizationContext.Current;
+        Task operation;
+        await gate.WaitAsync();
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(ui);
+            operation = action switch
+            {
+                "read" => store.ReadAsync(default),
+                "apply" => store.ReadAndApplyPublicIdsAsync(default),
+                "preferences" => store.UpdatePreferencesAsync(65, true, 1.25, true, 1280, 720, default),
+                "route" => store.RecordRouteResultAsync(42, "source\u001froute", true, TimeSpan.FromMilliseconds(450), default),
+                _ => throw new ArgumentOutOfRangeException(nameof(action)),
+            };
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previousContext);
+            gate.Release();
+        }
+
+        try
+        {
+            await operation.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.Equal(0, ui.PostCount);
+        }
+        finally
+        {
+            ui.Resume();
+            await Task.WhenAny(operation).WaitAsync(TimeSpan.FromSeconds(5));
+            await operation.ConfigureAwait(
+                ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
+        }
+
+        var settings = (await store.ReadAsync(default)).Settings;
+        if (action == "preferences")
+            Assert.Equal(65, settings.Volume);
+        if (action == "route")
+            Assert.Equal("source\u001froute", settings.PreferredRouteByAnime["42"]);
+    }
+
+    [Fact]
+    public async Task PrecancelledSettingsWriteDoesNotCreateAFile()
+    {
+        using var paths = new MockAppDataPaths();
+        var path = Path.Combine(paths.RootDirectory, "experience.json");
+        var store = new PlayerExperienceSettingsStore(path);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.UpdatePreferencesAsync(
+            65, true, 1.25, true, 1280, 720, cancellation.Token));
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    [Trait("Category", "Mechanism")]
+    public async Task QueuedPreferenceWritesKeepTheLatestChoiceAndBothRouteResults()
+    {
+        using var paths = new MockAppDataPaths();
+        var store = new PlayerExperienceSettingsStore(Path.Combine(paths.RootDirectory, "experience.json"));
+        var gate = (SemaphoreSlim)typeof(PlayerExperienceSettingsStore)
+            .GetField("_gate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(store)!;
+        await gate.WaitAsync();
+        Task[] operations;
+        try
+        {
+            operations =
+            [
+                store.UpdatePreferencesAsync(40, false, 1, false, 1200, 780, default),
+                store.RecordRouteResultAsync(42, "source\u001froute", true, TimeSpan.FromMilliseconds(450), default),
+                store.RecordRouteResultAsync(42, "source\u001froute", false, TimeSpan.FromMilliseconds(900), default),
+                store.UpdatePreferencesAsync(65, true, 1.25, true, 1280, 720, default),
+            ];
+        }
+        finally
+        {
+            gate.Release();
+        }
+
+        await Task.WhenAll(operations).WaitAsync(TimeSpan.FromSeconds(5));
+        var settings = (await store.ReadAsync(default)).Settings;
+        Assert.Equal(65, settings.Volume);
+        Assert.True(settings.IsMuted);
+        Assert.Equal(1.25, settings.Speed);
+        Assert.True(settings.AutoFallbackEnabled);
+        var health = settings.RouteHealth["source\u001froute"];
+        Assert.Equal(1, health.SuccessCount);
+        Assert.Equal(1, health.FailureCount);
+        Assert.Equal(1, health.ConsecutiveFailures);
+        Assert.Equal("source\u001froute", settings.PreferredRouteByAnime["42"]);
+    }
+
     [Fact]
     public void EpisodeGroups_CollapseEquivalentEpisodesAndOrderNumerically()
     {
@@ -66,14 +173,23 @@ public sealed class PlayerExperienceTests
                 windowWidth: 1280,
                 windowHeight: 720,
                 cancellationToken: CancellationToken.None);
-            await store.RecordRouteResultAsync(
+            var committed = await store.RecordRouteResultAsync(
                 42,
                 "source\u001froute",
                 succeeded: true,
                 TimeSpan.FromMilliseconds(450),
                 CancellationToken.None);
 
-            var settings = await store.ReadAsync(CancellationToken.None);
+            var settings = (await store.ReadAsync(CancellationToken.None)).Settings;
+
+            Assert.Equal(settings.Volume, committed.Volume);
+            Assert.Equal(settings.IsMuted, committed.IsMuted);
+            Assert.Equal(settings.Speed, committed.Speed);
+            Assert.Equal(settings.AutoFallbackEnabled, committed.AutoFallbackEnabled);
+            Assert.Equal(settings.PreferredRouteByAnime, committed.PreferredRouteByAnime);
+            Assert.Equal(settings.RouteHealth, committed.RouteHealth);
+            committed.PreferredRouteByAnime.Clear();
+            Assert.Single((await store.ReadAsync(CancellationToken.None)).Settings.PreferredRouteByAnime);
 
             Assert.Equal(65, settings.Volume);
             Assert.True(settings.IsMuted);

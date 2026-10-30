@@ -154,6 +154,53 @@ public sealed class WebMediaResolverFlowTests
         Assert.False(Directory.Exists(Path.Combine(fixture.Root, "WebView2")));
     }
 
+    [Fact]
+    public async Task Dispose_CancelsResolutionAndWaitsForItsActualCompletion()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var handler = new ControlledHandler(async (_, token) =>
+        {
+            using var registration = token.Register(() => cancelled.TrySetResult());
+            entered.SetResult();
+            await finish.Task;
+            token.ThrowIfCancellationRequested();
+            return Response("", "text/html", Page);
+        });
+        await using var fixture = new ResolverFixture(handler);
+        var resolving = fixture.Resolver.ResolveAsync(Request(), CancellationToken.None);
+        Task? stopping = null;
+        try
+        {
+            await entered.Task.WaitAsync(Budget);
+            stopping = fixture.Resolver.DisposeAsync().AsTask();
+            Assert.False(stopping.IsCompleted);
+            await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+                fixture.Resolver.ResolveAsync(Request(), CancellationToken.None));
+
+            await cancelled.Task.WaitAsync(Budget);
+            finish.SetResult();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => resolving.WaitAsync(Budget));
+            await stopping.WaitAsync(Budget);
+        }
+        finally
+        {
+            finish.TrySetResult();
+            try
+            {
+                await resolving.WaitAsync(Budget);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            if (stopping is not null)
+            {
+                await stopping.WaitAsync(Budget);
+            }
+        }
+    }
+
     private static WebResolutionRequest Request(bool nested = false) => new(
         "offline-fixture", Page, MediaPattern, nested, nested ? ".*" : null,
         true, true, new Dictionary<string, string> { ["User-Agent"] = "fixture-agent" },
@@ -192,7 +239,7 @@ public sealed class WebMediaResolverFlowTests
         }
         public async ValueTask DisposeAsync()
         {
-            Resolver.Dispose();
+            await Resolver.DisposeAsync();
             _http.Dispose();
             await _diagnostics.DisposeAsync();
             if (Directory.Exists(Root)) Directory.Delete(Root, recursive: true);

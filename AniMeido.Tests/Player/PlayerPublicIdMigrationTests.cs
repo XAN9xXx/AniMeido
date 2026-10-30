@@ -17,7 +17,7 @@ public sealed class PlayerPublicIdMigrationTests : DbTestBase
         Assert.Equal("unmapped", await source.GetAsync(-4, "site", default));
         Assert.Equal("player-only", await source.GetAsync(-99, "site", default));
         var experience = new PlayerExperienceSettingsStore(settings, map);
-        var value = await experience.ReadAsync(default);
+        var value = (await experience.ReadAndApplyPublicIdsAsync(default)).Settings;
         Assert.Equal(9, value.IdMigrationVersion);
         Assert.Equal(65, value.Volume);
         Assert.Equal("route-first", value.PreferredRouteByAnime["2"]);
@@ -27,7 +27,7 @@ public sealed class PlayerPublicIdMigrationTests : DbTestBase
         var sourceBefore = await File.ReadAllTextAsync(sources);
         var settingsBefore = await File.ReadAllTextAsync(settings);
         await new SourceMappingStore(sources, map).EnsurePublicIdsAsync(default);
-        await new PlayerExperienceSettingsStore(settings, map).ReadAsync(default);
+        await new PlayerExperienceSettingsStore(settings, map).ReadAndApplyPublicIdsAsync(default);
         Assert.Equal(sourceBefore, await File.ReadAllTextAsync(sources));
         Assert.Equal(settingsBefore, await File.ReadAllTextAsync(settings));
         Assert.True(File.Exists(map));
@@ -52,7 +52,7 @@ public sealed class PlayerPublicIdMigrationTests : DbTestBase
         var beforeSources = await File.ReadAllTextAsync(sources); var beforeSettings = await File.ReadAllTextAsync(settings);
         await File.WriteAllTextAsync(map, "broken-json");
         await Assert.ThrowsAsync<JsonException>(() => new SourceMappingStore(sources, map).EnsurePublicIdsAsync(default));
-        await Assert.ThrowsAsync<JsonException>(() => new PlayerExperienceSettingsStore(settings, map).ReadAsync(default));
+        await Assert.ThrowsAsync<JsonException>(() => new PlayerExperienceSettingsStore(settings, map).ReadAndApplyPublicIdsAsync(default));
         Assert.Equal(beforeSources, await File.ReadAllTextAsync(sources));
         Assert.Equal(beforeSettings, await File.ReadAllTextAsync(settings));
     }
@@ -64,7 +64,7 @@ public sealed class PlayerPublicIdMigrationTests : DbTestBase
         await new SourceMappingStore(sources, map).EnsurePublicIdsAsync(default);
         var migratedSources = await File.ReadAllTextAsync(sources);
         // 模拟在第一个 store 提交后退出，第二个 store 仍是旧格式。
-        var result = await new PlayerExperienceSettingsStore(settings, map).ReadAsync(default);
+        var result = (await new PlayerExperienceSettingsStore(settings, map).ReadAndApplyPublicIdsAsync(default)).Settings;
         await new SourceMappingStore(sources, map).EnsurePublicIdsAsync(default);
         Assert.Equal(9, result.IdMigrationVersion);
         Assert.Equal(migratedSources, await File.ReadAllTextAsync(sources));

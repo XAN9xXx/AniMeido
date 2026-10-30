@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AniMeido.Plugin.Player.Sources.Packages;
+using Microsoft.Extensions.Logging;
 
 namespace AniMeido.Plugin.Player.Sources.Rules;
 
@@ -12,10 +13,14 @@ internal static class SourceRuleLoader
         PropertyNameCaseInsensitive = true,
     };
 
-    public static IEnumerable<IOnlineAnimeSource> Load(HttpClient httpClient)
+    public static IEnumerable<IOnlineAnimeSource> Load(HttpClient httpClient, ILogger? logger = null)
+        => Load(httpClient, SourcesDirectory, logger);
+
+    internal static IEnumerable<IOnlineAnimeSource> Load(
+        HttpClient httpClient, string sourcesDirectory, ILogger? logger)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
-        foreach (var path in GetRulePaths())
+        foreach (var path in GetRulePaths(sourcesDirectory, logger))
         {
             IOnlineAnimeSource? provider;
             try
@@ -35,8 +40,9 @@ internal static class SourceRuleLoader
                     : CreateApiProvider(httpClient, json);
             }
 #pragma warning disable CA1031 // One malformed rule must not disable other sources.
-            catch (Exception)
+            catch (Exception ex)
             {
+                logger?.LogWarning(ex, "无法加载播放源规则，已跳过：{Path}", path);
                 continue;
             }
 #pragma warning restore CA1031
@@ -70,11 +76,10 @@ internal static class SourceRuleLoader
         return rule is null ? null : new StaticSourceProvider(rule);
     }
 
-    private static IReadOnlyList<string> GetRulePaths()
+    private static IReadOnlyList<string> GetRulePaths(string sourceDirectory, ILogger? logger)
     {
         try
         {
-            var sourceDirectory = SourcesDirectory;
             Directory.CreateDirectory(sourceDirectory);
             var looseRules = Directory.EnumerateFiles(
                 sourceDirectory,
@@ -89,8 +94,9 @@ internal static class SourceRuleLoader
             return looseRules.Concat(packagedRules).ToArray();
         }
 #pragma warning disable CA1031 // Source discovery failure must not break PlayerPlugin.
-        catch (Exception)
+        catch (Exception ex)
         {
+            logger?.LogWarning(ex, "无法扫描播放源规则，本次按空目录处理：{Directory}", sourceDirectory);
             return [];
         }
 #pragma warning restore CA1031

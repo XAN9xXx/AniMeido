@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.Web.WebView2.Core;
 using AniMeido.Plugin.Player.Sources.Web;
 using System.Text.Json;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using Windows.Foundation;
 using Windows.Graphics;
@@ -34,11 +35,15 @@ internal sealed class SourceVerificationWindow : Window
         VerticalAlignment = VerticalAlignment.Center,
     };
     private readonly CancellationTokenSource _lifetimeCancellation = new();
+    private readonly WebNavigationCallbackScope _navigationCallbacks = new();
     private CoreWebView2Controller? _controller;
     private CoreWebView2? _webView;
     private XamlRoot? _trackedXamlRoot;
     private bool _checking;
+    private Task? _verificationTask;
+    private Exception? _callbackFailure;
     private bool _closed;
+    private ulong _navigationId;
 
     public SourceVerificationWindow(
         CoreWebView2Environment environment,
@@ -66,14 +71,52 @@ internal sealed class SourceVerificationWindow : Window
         TrackDpiChanges();
         try
         {
-            await InitializeBrowserAsync();
             using var registration = cancellationToken.Register(CancelAndClose);
-            return await _completion.Task.WaitAsync(cancellationToken);
+            await InitializeBrowserAsync();
+            return await _completion.Task;
         }
         catch
         {
             CancelAndClose();
             throw;
+        }
+        finally
+        {
+            PrepareClose();
+            try
+            {
+                try
+                {
+                    _lifetimeCancellation.Cancel();
+                }
+                finally
+                {
+                    // 原生脚本不能被取消；回调和验证真正返回前，继续持有控制器。
+                    await Task.WhenAll(
+                        _navigationCallbacks.WaitForDrainAsync(),
+                        _verificationTask ?? Task.CompletedTask);
+                    if (_callbackFailure is { } failure)
+                    {
+                        ExceptionDispatchInfo.Capture(failure).Throw();
+                    }
+                }
+            }
+            finally
+            {
+                var controller = _controller;
+                _controller = null;
+                try
+                {
+                    if (controller is not null)
+                    {
+                        TryCloseController(controller);
+                    }
+                }
+                finally
+                {
+                    _lifetimeCancellation.Dispose();
+                }
+            }
         }
     }
 
@@ -241,6 +284,12 @@ internal sealed class SourceVerificationWindow : Window
         CoreWebView2 sender,
         CoreWebView2NavigationStartingEventArgs args)
     {
+        if (_closed)
+        {
+            return;
+        }
+
+        _navigationId = args.NavigationId;
         if (Uri.TryCreate(args.Uri, UriKind.Absolute, out var uri))
         {
             _address.Text = uri.Host;
@@ -253,19 +302,37 @@ internal sealed class SourceVerificationWindow : Window
         CoreWebView2 sender,
         CoreWebView2NavigationCompletedEventArgs args)
     {
-        if (!args.IsSuccess)
+        using var registration = _navigationCallbacks.TryEnter();
+        var navigationId = args.NavigationId;
+        if (registration is null || _closed || navigationId != _navigationId)
         {
-            _status.Text = $"页面加载失败：{args.WebErrorStatus}";
             return;
         }
 
-        _status.Text = "页面已加载；AniMeido 正在检查登录状态。";
         try
         {
+            if (!args.IsSuccess)
+            {
+                _status.Text = $"页面加载失败：{args.WebErrorStatus}";
+                return;
+            }
+
+            _status.Text = "页面已加载；AniMeido 正在检查登录状态。";
             await Task.Delay(
                 TimeSpan.FromMilliseconds(750),
                 _lifetimeCancellation.Token);
-            if (!await PageStillNeedsInteractionAsync(sender))
+            if (_closed || navigationId != _navigationId)
+            {
+                return;
+            }
+
+            var needsInteraction = await PageStillNeedsInteractionAsync(sender);
+            if (_closed || navigationId != _navigationId)
+            {
+                return;
+            }
+
+            if (!needsInteraction)
             {
                 await CheckAndContinueAsync();
             }
@@ -275,14 +342,26 @@ internal sealed class SourceVerificationWindow : Window
             }
         }
         catch (OperationCanceledException)
+            when (_lifetimeCancellation.IsCancellationRequested)
         {
         }
+#pragma warning disable CA1031 // async void 的失败交还 ShowAsync 所有者，不让异常越过事件边界。
+        catch (Exception ex)
+        {
+            ReportCallbackFailure(ex);
+        }
+#pragma warning restore CA1031
     }
 
     private void OnDocumentTitleChanged(
         CoreWebView2 sender,
         object args)
     {
+        if (_closed)
+        {
+            return;
+        }
+
         var title = sender.DocumentTitle;
         Title = string.IsNullOrWhiteSpace(title)
             ? "AniMeido 源站验证"
@@ -294,6 +373,11 @@ internal sealed class SourceVerificationWindow : Window
         CoreWebView2NewWindowRequestedEventArgs args)
     {
         args.Handled = true;
+        if (_closed)
+        {
+            return;
+        }
+
         if (Uri.TryCreate(args.Uri, UriKind.Absolute, out var uri)
             && uri.Scheme is "http" or "https")
         {
@@ -303,7 +387,16 @@ internal sealed class SourceVerificationWindow : Window
 
     private async void OnCompleteClick(object sender, RoutedEventArgs args)
     {
-        await CheckAndContinueAsync();
+        try
+        {
+            await CheckAndContinueAsync();
+        }
+#pragma warning disable CA1031 // 按钮事件把未知失败交还 ShowAsync，由现有调用方处理。
+        catch (Exception ex)
+        {
+            ReportCallbackFailure(ex);
+        }
+#pragma warning restore CA1031
     }
 
     private void OnCancelClick(object sender, RoutedEventArgs args)
@@ -311,6 +404,11 @@ internal sealed class SourceVerificationWindow : Window
 
     private void OnRootSizeChanged(object sender, SizeChangedEventArgs args)
     {
+        if (_closed)
+        {
+            return;
+        }
+
         TrackDpiChanges();
         UpdateBrowserBounds();
     }
@@ -332,7 +430,7 @@ internal sealed class SourceVerificationWindow : Window
 
     private void UpdateBrowserBounds()
     {
-        if (_controller is null)
+        if (_closed || _controller is null)
         {
             return;
         }
@@ -348,6 +446,9 @@ internal sealed class SourceVerificationWindow : Window
     }
 
     private void OnClosed(object sender, WindowEventArgs args)
+        => PrepareClose();
+
+    private void PrepareClose()
     {
         if (_closed)
         {
@@ -355,15 +456,15 @@ internal sealed class SourceVerificationWindow : Window
         }
 
         _closed = true;
-        _lifetimeCancellation.Cancel();
+        _navigationCallbacks.StopAccepting();
         Closed -= OnClosed;
         _root.SizeChanged -= OnRootSizeChanged;
+        _retryButton.Click -= OnCompleteClick;
         if (_trackedXamlRoot is not null)
         {
             _trackedXamlRoot.Changed -= OnXamlRootChanged;
             _trackedXamlRoot = null;
         }
-        _completion.TrySetResult(false);
         if (_webView is not null)
         {
             _webView.DocumentTitleChanged -= OnDocumentTitleChanged;
@@ -373,15 +474,23 @@ internal sealed class SourceVerificationWindow : Window
             _webView = null;
         }
 
-        var controller = _controller;
-        _controller = null;
-        if (controller is not null)
-        {
-            TryCloseController(controller);
-        }
+        _completion.TrySetResult(false);
     }
 
-    private async Task CheckAndContinueAsync()
+    private void ReportCallbackFailure(Exception exception)
+    {
+        // 关闭结果可能已完成；晚到的未知失败仍须在排空后交回调用方。
+        _callbackFailure ??= exception;
+        _completion.TrySetException(exception);
+        CloseWindow();
+    }
+
+    private Task CheckAndContinueAsync()
+        => _checking || _closed
+            ? Task.CompletedTask
+            : _verificationTask = CheckAndContinueCoreAsync();
+
+    private async Task CheckAndContinueCoreAsync()
     {
         if (_checking || _closed)
         {
@@ -393,7 +502,12 @@ internal sealed class SourceVerificationWindow : Window
         _status.Text = "正在重试原播放请求…";
         try
         {
-            if (await _verifyAsync(_lifetimeCancellation.Token))
+            var verified = await _verifyAsync(_lifetimeCancellation.Token);
+            if (_closed)
+            {
+                return;
+            }
+            if (verified)
             {
                 _completion.TrySetResult(true);
                 CloseWindow();
@@ -406,8 +520,11 @@ internal sealed class SourceVerificationWindow : Window
         catch (SourceResolutionException ex)
             when (ex.Kind == SourceResolutionFailureKind.Timeout)
         {
-            _status.Text =
-                "验证后的后台重试超时；请检查页面状态后再次尝试。";
+            if (!_closed)
+            {
+                _status.Text =
+                    "验证后的后台重试超时；请检查页面状态后再次尝试。";
+            }
         }
         catch (OperationCanceledException)
             when (_lifetimeCancellation.IsCancellationRequested)
@@ -418,7 +535,10 @@ internal sealed class SourceVerificationWindow : Window
                 or InvalidOperationException
                 or JsonException)
         {
-            _status.Text = $"尚未检测到登录成功：{ex.Message}";
+            if (!_closed)
+            {
+                _status.Text = $"尚未检测到登录成功：{ex.Message}";
+            }
         }
         finally
         {
@@ -478,14 +598,7 @@ internal sealed class SourceVerificationWindow : Window
         catch (Exception ex)
             when (ex is COMException or InvalidOperationException)
         {
-            _closed = true;
-            _completion.TrySetResult(false);
-            var controller = _controller;
-            _controller = null;
-            if (controller is not null)
-            {
-                TryCloseController(controller);
-            }
+            PrepareClose();
         }
     }
 

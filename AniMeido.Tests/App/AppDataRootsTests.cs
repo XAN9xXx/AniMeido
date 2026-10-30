@@ -80,7 +80,7 @@ public sealed class AppDataRootsTests : IDisposable
         }
         await new PersonalIdRemapService(factory, NullLogger<PersonalIdRemapService>.Instance).FlushLogAsync();
         Assert.Equal(Path.Combine(Path.GetDirectoryName(paths.DatabasePath)!, "id-remap-log.json"), PlayerPublicIds.SharedRemapPath);
-        var entry = Assert.Single(await PlayerPublicIds.ReadRemapsAsync(PlayerPublicIds.SharedRemapPath, default));
+        var entry = Assert.Single(await PlayerPublicIds.ReadRemapsAsync(PlayerPublicIds.SharedRemapPath, 0, default));
         Assert.Equal(-7, entry.From);
         Assert.Equal(8, entry.To);
     }
@@ -235,14 +235,13 @@ public sealed class AppDataRootsTests : IDisposable
         }
     }
 
-    internal static string BuildOutput(string project)
+    internal static string BuildOutput(string assemblyName)
     {
-#if DEBUG
-        const string Configuration = "Debug";
-#else
-        const string Configuration = "Release";
-#endif
-        return Path.Combine(RepositoryRoot, project, "bin", "x64", Configuration);
+        var metadata = typeof(AppDataRootsTests).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>();
+        var path = Assert.Single(metadata, item => item.Key == "TestBuildOutput." + assemblyName).Value;
+        Assert.NotNull(path);
+        Assert.True(File.Exists(path), $"本次构建产物不存在：{path}");
+        return path;
     }
 
     internal static string RepositoryRoot
@@ -259,13 +258,7 @@ public sealed class AppDataRootsTests : IDisposable
 
     private static Assembly BuildAssembly(string project, string? name = null)
     {
-        var output = BuildOutput(project);
-        // 本机发布过的 RID 子目录会留下同名旧文件，取最近一次构建写出的那个。
-        var file = Directory.GetFiles(output, (name ?? Path.GetFileName(project)) + ".dll", SearchOption.AllDirectories)
-            .OrderByDescending(File.GetLastWriteTimeUtc)
-            .FirstOrDefault();
-        Assert.NotNull(file);
-        return Assembly.LoadFrom(file);
+        return Assembly.LoadFrom(BuildOutput(name ?? Path.GetFileName(project)));
     }
 
     private static string Original(Environment.SpecialFolder folder)
@@ -285,8 +278,19 @@ public sealed class AppDataRootsTests : IDisposable
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         })!;
-        Assert.True(process.WaitForExit(5000));
-        Assert.Equal(0, process.ExitCode);
+        try
+        {
+            Assert.True(process.WaitForExit(5000));
+            Assert.Equal(0, process.ExitCode);
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                Assert.True(process.WaitForExit(5000), "The junction command did not exit after termination.");
+            }
+        }
     }
 
     public void Dispose() => _temporary.Dispose();
