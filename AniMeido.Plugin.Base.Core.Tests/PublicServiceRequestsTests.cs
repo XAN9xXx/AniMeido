@@ -200,6 +200,42 @@ public sealed class PublicServiceRequestsTests
         finally { time.Advance(TimeSpan.FromDays(1)); await Observe(reading); }
     }
 
+    [Fact]
+    public async Task QueuedSendRechecksTheCooldownAfterThe429ResponseHasBeenReleased()
+    {
+        var time = new ServiceTestTime();
+        var responseReady = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var content = new TrackedContent();
+        using var handler = new AsyncHandler(call => call == 1 ? responseReady.Task : Task.FromResult(Ok()));
+        using var http = Client(handler);
+        var requests = new PublicServiceRequests(http, time: time, maxConcurrency: 1);
+        var first = Read(requests);
+        var queued = Read(requests);
+        try
+        {
+            Assert.Equal(1, handler.Calls);
+            var limited = Limited(20);
+            limited.Content = content;
+            responseReady.SetResult(limited);
+            await time.WaitForDelayAsync(TimeSpan.FromSeconds(20), count: 2).WaitAsync(Budget);
+            Assert.True(content.IsDisposed);
+            Assert.Equal(1, handler.Calls);
+            Assert.False(first.IsCompleted);
+            Assert.False(queued.IsCompleted);
+
+            time.Advance(TimeSpan.FromSeconds(20));
+            Assert.Equal(new[] { "ok", "ok" }, await Task.WhenAll(first, queued).WaitAsync(Budget));
+            Assert.Equal(3, handler.Calls);
+        }
+        finally
+        {
+            if (!responseReady.Task.IsCompleted)
+                responseReady.TrySetResult(Ok());
+            time.Advance(TimeSpan.FromDays(1));
+            await Observe(first, queued);
+        }
+    }
+
     private static Task<string> Read(PublicServiceRequests requests, ServiceReadBudget? budget = null, CancellationToken ct = default)
         => requests.ReadAsync("/", Content, ct, budget);
     private static Task<string> Content(HttpResponseMessage response, CancellationToken ct)
@@ -219,6 +255,24 @@ public sealed class PublicServiceRequestsTests
         foreach (var task in tasks)
             if (task is not null) await task.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
     }
+    private sealed class TrackedContent() : ByteArrayContent([])
+    {
+        internal bool IsDisposed { get; private set; }
+        protected override void Dispose(bool disposing)
+        {
+            IsDisposed = true;
+            base.Dispose(disposing);
+        }
+    }
+
+    private sealed class AsyncHandler(Func<int, Task<HttpResponseMessage>> respond) : HttpMessageHandler
+    {
+        private int _calls;
+        internal int Calls => Volatile.Read(ref _calls);
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => respond(Interlocked.Increment(ref _calls));
+    }
+
     private sealed class Handler(Func<int, HttpResponseMessage> respond) : HttpMessageHandler
     {
         private int _calls;

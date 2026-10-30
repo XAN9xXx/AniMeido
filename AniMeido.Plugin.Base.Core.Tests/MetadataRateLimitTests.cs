@@ -75,6 +75,43 @@ public sealed class MetadataRateLimitTests : IAsyncLifetime
         Assert.Equal(0, logger.Count(Microsoft.Extensions.Logging.LogLevel.Error));
     }
 
+    [Fact]
+    public async Task RateLimitedSecondPageRetriesOnlyThatPageAndSavesTheCompleteSeason()
+    {
+        var time = new ServiceTestTime();
+        var firstPage = 0;
+        var secondPage = 0;
+        using var http = Client(request =>
+        {
+            if (request.Method == HttpMethod.Head) return Json("");
+            if (request.RequestUri!.Query.Contains("offset=0", StringComparison.Ordinal))
+            {
+                firstPage++;
+                return Json("{\"items\":[{\"id\":42}],\"total\":2}");
+            }
+            return ++secondPage == 1 ? Limited(20) : Json("{\"items\":[{\"id\":43}],\"total\":2}");
+        });
+        var cache = new CacheService(_database.Factory);
+        var source = new MetadataDataSource(NullLogger<MetadataDataSource>.Instance, http, cache, time);
+        var loading = source.GetAnimeBySeasonAsync(2026, Season.Fall, default);
+        try
+        {
+            await time.WaitForDelayAsync(TimeSpan.FromSeconds(20)).WaitAsync(Budget);
+            Assert.Null(await cache.GetCacheAsync(MetadataDataSource.GetSeasonCacheKey(2026, Season.Fall, Version)));
+            time.Advance(TimeSpan.FromSeconds(20));
+            Assert.Equal(new[] { 42, 43 }, (await loading.WaitAsync(Budget)).Select(anime => anime.ID));
+            Assert.NotNull(await cache.GetCacheAsync(MetadataDataSource.GetSeasonCacheKey(2026, Season.Fall, Version)));
+            Assert.Equal(new[] { 42, 43 }, (await source.GetAnimeBySeasonAsync(2026, Season.Fall, default)).Select(anime => anime.ID));
+            Assert.Equal(1, firstPage);
+            Assert.Equal(2, secondPage);
+        }
+        finally
+        {
+            time.Advance(TimeSpan.FromDays(1));
+            await ((Task)loading).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
+        }
+    }
+
     private static HttpClient Client(Func<HttpRequestMessage, HttpResponseMessage> respond)
         => new(new Handler(respond)) { BaseAddress = new Uri("https://api.example.test") };
     private static HttpResponseMessage Json(string content)

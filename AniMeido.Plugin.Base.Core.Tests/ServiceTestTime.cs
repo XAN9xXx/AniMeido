@@ -21,12 +21,12 @@ internal sealed class ServiceTestTime : TimeProvider
         return timer;
     }
 
-    internal async Task WaitForDelayAsync(TimeSpan delay)
+    internal async Task WaitForDelayAsync(TimeSpan delay, int count = 1)
     {
         while (true)
         {
             lock (_sync)
-                if (_timers.Any(timer => !timer.Disposed && timer.Due - _ticks == delay.Ticks))
+                if (_timers.Count(timer => !timer.Disposed && timer.Due - _ticks == delay.Ticks) >= count)
                     return;
             if (!await _changed.WaitAsync(TimeSpan.FromSeconds(10)))
                 throw new TimeoutException("Expected test timer was not created.");
