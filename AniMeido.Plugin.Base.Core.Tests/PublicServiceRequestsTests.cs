@@ -26,7 +26,11 @@ public sealed class PublicServiceRequestsTests
             Assert.Equal("ok", await reading.WaitAsync(Budget));
             Assert.Equal(2, handler.Calls);
         }
-        finally { time.Advance(TimeSpan.FromDays(1)); await Observe(reading); }
+        finally
+        {
+            time.Advance(TimeSpan.FromDays(1));
+            await Observe(reading);
+        }
     }
 
     [Fact]
@@ -49,7 +53,11 @@ public sealed class PublicServiceRequestsTests
             time.Advance(TimeSpan.FromSeconds(15));
             Assert.Equal("ok", await Read(requests).WaitAsync(Budget));
         }
-        finally { time.Advance(TimeSpan.FromDays(1)); await Observe(first); }
+        finally
+        {
+            time.Advance(TimeSpan.FromDays(1));
+            await Observe(first);
+        }
     }
 
     [Fact]
@@ -95,7 +103,12 @@ public sealed class PublicServiceRequestsTests
             time.Advance(TimeSpan.FromSeconds(5));
             Assert.Equal("ok", await second.WaitAsync(Budget));
         }
-        finally { cancelled.Cancel(); time.Advance(TimeSpan.FromDays(1)); await Observe(first, second); }
+        finally
+        {
+            cancelled.Cancel();
+            time.Advance(TimeSpan.FromDays(1));
+            await Observe(first, second);
+        }
     }
 
     [Fact]
@@ -114,14 +127,20 @@ public sealed class PublicServiceRequestsTests
         }, default)).ToArray();
         try
         {
-            for (var i = 0; i < 4; i++) Assert.True(await entered.WaitAsync(Budget));
+            for (var i = 0; i < 4; i++)
+                Assert.True(await entered.WaitAsync(Budget));
             Assert.Equal(4, handler.Calls);
             Assert.False(reads[4].IsCompleted);
             release.TrySetResult();
             await Task.WhenAll(reads).WaitAsync(Budget);
             Assert.Equal(5, handler.Calls);
         }
-        finally { release.TrySetResult(); await Observe(reads); entered.Dispose(); }
+        finally
+        {
+            release.TrySetResult();
+            await Observe(reads);
+            entered.Dispose();
+        }
     }
 
     [Fact]
@@ -133,7 +152,12 @@ public sealed class PublicServiceRequestsTests
         using var handler = new Handler(_ => Ok());
         using var http = Client(handler);
         var requests = new PublicServiceRequests(http, time: time, maxConcurrency: 1);
-        var first = requests.ReadAsync("/", async (_, _) => { entered.TrySetResult(); await release.Task; return "late"; }, default);
+        var first = requests.ReadAsync("/", async (_, _) =>
+        {
+            entered.TrySetResult();
+            await release.Task;
+            return "late";
+        }, default);
         Task<string>? second = null;
         try
         {
@@ -147,7 +171,12 @@ public sealed class PublicServiceRequestsTests
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first.WaitAsync(Budget));
             Assert.Equal("ok", await second.WaitAsync(Budget));
         }
-        finally { release.TrySetResult(); time.Advance(TimeSpan.FromDays(1)); await Observe(first, second); }
+        finally
+        {
+            release.TrySetResult();
+            time.Advance(TimeSpan.FromDays(1));
+            await Observe(first, second);
+        }
     }
 
     [Theory]
@@ -174,7 +203,11 @@ public sealed class PublicServiceRequestsTests
             Assert.Equal("ok", await reading.WaitAsync(Budget));
             Assert.Equal(2, handler.Calls);
         }
-        finally { time.Advance(TimeSpan.FromDays(1)); await Observe(reading); }
+        finally
+        {
+            time.Advance(TimeSpan.FromDays(1));
+            await Observe(reading);
+        }
     }
 
     [Fact]
@@ -197,7 +230,11 @@ public sealed class PublicServiceRequestsTests
             Assert.True(error.IsRateLimited);
             Assert.Equal(1, handler.Calls);
         }
-        finally { time.Advance(TimeSpan.FromDays(1)); await Observe(reading); }
+        finally
+        {
+            time.Advance(TimeSpan.FromDays(1));
+            await Observe(reading);
+        }
     }
 
     [Fact]

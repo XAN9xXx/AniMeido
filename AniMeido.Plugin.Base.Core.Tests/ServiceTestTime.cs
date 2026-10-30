@@ -10,8 +10,14 @@ internal sealed class ServiceTestTime : TimeProvider
     private static readonly DateTimeOffset Origin = new(2026, 10, 30, 0, 0, 0, TimeSpan.Zero);
 
     public override long TimestampFrequency => TimeSpan.TicksPerSecond;
-    public override long GetTimestamp() { lock (_sync) return _ticks; }
-    public override DateTimeOffset GetUtcNow() { lock (_sync) return Origin.AddTicks(_ticks); }
+    public override long GetTimestamp()
+    {
+        lock (_sync) return _ticks;
+    }
+    public override DateTimeOffset GetUtcNow()
+    {
+        lock (_sync) return Origin.AddTicks(_ticks);
+    }
 
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {
@@ -67,7 +73,14 @@ internal sealed class ServiceTestTime : TimeProvider
             return true;
         }
 
-        public void Dispose() { lock (owner._sync) Disposed = true; }
-        public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
+        public void Dispose()
+        {
+            lock (owner._sync) Disposed = true;
+        }
+        public ValueTask DisposeAsync()
+        {
+            Dispose();
+            return ValueTask.CompletedTask;
+        }
     }
 }

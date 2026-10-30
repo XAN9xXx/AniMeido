@@ -28,6 +28,9 @@ public sealed partial class GlobalSearchViewModelTests
             Assert.Equal("请求较多，请稍后重试。", vm.ErrorMessage);
             Assert.Empty(logger.Entries);
         }
-        finally { vm.CancelPendingSearch(); }
+        finally
+        {
+            vm.CancelPendingSearch();
+        }
     }
 }

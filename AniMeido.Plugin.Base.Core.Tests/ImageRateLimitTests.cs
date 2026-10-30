@@ -97,7 +97,11 @@ public sealed class ImageRateLimitTests
             _entered = entered;
             Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
         }
-        protected override bool TryComputeLength(out long length) { length = 0; return false; }
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
         protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) => throw new NotSupportedException();
         protected override Task<Stream> CreateContentReadStreamAsync() => Task.FromResult<Stream>(new StalledStream(_entered));
     }
@@ -108,7 +112,11 @@ public sealed class ImageRateLimitTests
         public override bool CanSeek => false;
         public override bool CanWrite => false;
         public override long Length => throw new NotSupportedException();
-        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
         public override void Flush() { }
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();

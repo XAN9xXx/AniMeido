@@ -59,7 +59,11 @@ public sealed class MetadataRateLimitTests : IAsyncLifetime
             Assert.Equal(1, secondPage);
             Assert.Null(await cache.GetCacheAsync(MetadataDataSource.GetSeasonCacheKey(2026, Season.Fall, Version)));
         }
-        finally { time.Advance(TimeSpan.FromDays(1)); await ((Task)loading).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext); }
+        finally
+        {
+            time.Advance(TimeSpan.FromDays(1));
+            await ((Task)loading).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
+        }
     }
 
     [Fact]
