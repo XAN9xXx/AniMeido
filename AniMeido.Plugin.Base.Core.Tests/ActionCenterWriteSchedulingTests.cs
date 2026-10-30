@@ -42,9 +42,10 @@ public sealed class ActionCenterWriteSchedulingTests : IAsyncLifetime
         var (service, originalPlan) = await SeedAsync();
         using var blocker = await _database.LockExclusiveAsync();
         var context = new PausedUiContext();
+        // 时间戳可以在等待 SQLite 锁前生成，下界覆盖整个业务调用。
+        var notBefore = DateTimeOffset.UtcNow;
         var invocation = SchedulingTestThread.InvokeAsync<Task>(() => RunAsync(service, kind), context);
         PersonalDataAccess.Operation? import = null;
-        var notBefore = DateTimeOffset.MinValue;
 
         try
         {
@@ -54,7 +55,6 @@ public sealed class ActionCenterWriteSchedulingTests : IAsyncLifetime
             var drained = import.WaitForDrainAsync(CancellationToken.None);
             Assert.False(drained.IsCompleted);
 
-            notBefore = DateTimeOffset.UtcNow;
             blocker.Dispose();
             await pending.WaitAsync(CompletionBudget);
             if (kind == WriteKind.HandleReminder)
