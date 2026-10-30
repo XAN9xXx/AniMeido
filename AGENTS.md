@@ -10,7 +10,7 @@ AniMeido 是本地优先的个人追番管理应用：Windows x64 桌面程序�
 - `Directory.Build.props` — 所有项目共用的可空性、分析器、x64 平台和产品版本 `AniMeidoVersion`
 - `Directory.Packages.props` — 中央包管理：NuGet 版本只写在这里，csproj 里的 `PackageReference` 不写版本
 
-只能在 Windows 上构建和测试：WinUI 项目和 `AniMeido.Tests` 的目标框架都是 Windows 专用的。
+完整解决方案和 WinUI 相关项目（含 `AniMeido.Tests`）只能在 Windows 上构建和测试。纯 `net10.0` 的业务核心 `AniMeido.Plugin.Base.Core` 及其测试 `AniMeido.Plugin.Base.Core.Tests` 可以在其他平台单独构建和测试。
 
 ## 常用命令
 
@@ -43,7 +43,7 @@ dotnet test AniMeido.slnx
 
 手动试改动时一定设置 `ANIMEIDO_DATA_ROOT`。不设置时，应用直接使用真实的 `%APPDATA%\AniMeido`，启动时还会就地升级数据库结构，可能改掉你自己的追番记录。
 
-CI（`.github/workflows/ci.yml`）在 `windows-latest` 上做 Release 构建并运行全部测试。
+CI（`.github/workflows/ci.yml`）在 `windows-latest` 上做 Release 构建并运行全部测试；另在 `ubuntu-latest` 上运行业务核心测试，并用 CA1416 检查业务核心没有调用平台专用 API。
 
 ## 边界
 
@@ -51,7 +51,8 @@ CI（`.github/workflows/ci.yml`）在 `windows-latest` 上做 Release 构建并�
 
 | 内容 | 原因与做法 |
 |------|------------|
-| `DatabaseSchema` 里已有的迁移步骤 | 已经升级过的数据库不会再执行它们。结构变化一律新增一个版本号的迁移 |
+| `PersonalDatabaseSchema` 里已有的迁移步骤 | 已经升级过的数据库不会再执行它们。结构变化一律新增一个版本号的迁移 |
+| Base 里 `DatabaseSchema` 的常量和转发方法 | 旧版启动器直接读取这个 DLL 里的常量，删掉或改成类型转发会让它读不到。迁移只写在 `PersonalDatabaseSchema`，这里不加逻辑 |
 | `AniMeido.Updates/UpdateTrustedKeys.cs` 里的公钥 | 与发布用的签名私钥配对，改动会导致更新清单验签失败。由维护者更换 |
 
 ### 不要提交密钥和个人数据
@@ -68,27 +69,29 @@ CI（`.github/workflows/ci.yml`）在 `windows-latest` 上做 Release 构建并�
 ## 仓库结构
 
 ```
-AniMeido.App/                    # WinUI 外壳：窗口、导航、根 DI、数据库生命周期、插件监督
-AniMeido.Contracts/              # 跨边界的共享模型与能力契约（纯 net10.0）
-AniMeido.PluginProtocol/         # 插件清单与 JSON 管道 RPC 协议
-AniMeido.PluginHost/             # 可选插件的独立宿主进程
-AniMeido.Updates/                # 应用更新核心：验签、下载、安装状态与回滚（纯 net10.0）
-AniMeido.Launcher/               # Native AOT 启动器：选择版本、失败回退
-Plugins/AniMeido.Plugin.Base/    # 必需插件：番剧资料、追番、计划、档案、推荐、个人数据库
-Plugins/AniMeido.Plugin.Player/  # 可选的播放插件
-Plugins/AniMeido.Plugin.AI/      # 实验源码，未启用
-Shared/                          # 多个项目链接的共享源码，如数据目录 AppDataRoots
-AniMeido.Tests/                  # 应用与插件测试（Windows 专用）
-AniMeido.PluginProtocol.Tests/   # 插件协议测试
-AniMeido.Updates.Tests/          # 更新核心测试
-Installer/                       # Inno Setup 安装脚本
-Tools/                           # 更新签名工具，打包、发布与开发安装脚本
-docs-public/                     # 公开文档，如数据与隐私说明
+AniMeido.App/                       # WinUI 外壳：窗口、导航、根 DI、数据库生命周期、插件监督
+AniMeido.Contracts/                 # 跨边界的共享模型与能力契约（纯 net10.0）
+AniMeido.PluginProtocol/            # 插件清单与 JSON 管道 RPC 协议
+AniMeido.PluginHost/                # 可选插件的独立宿主进程
+AniMeido.Updates/                   # 应用更新核心：验签、下载、安装状态与回滚（纯 net10.0）
+AniMeido.Launcher/                  # Native AOT 启动器：选择版本、失败回退
+Plugins/AniMeido.Plugin.Base/       # 必需插件的 WinUI 部分：页面、视图模型、平台适配、插件装配
+Plugins/AniMeido.Plugin.Base.Core/  # Base 的业务核心（纯 net10.0）：番剧资料、追番、计划、档案、推荐、个人数据库
+Plugins/AniMeido.Plugin.Player/     # 可选的播放插件
+Plugins/AniMeido.Plugin.AI/         # 实验源码，未启用
+Shared/                             # 多个项目链接的共享源码，如数据目录 AppDataRoots
+AniMeido.Tests/                     # 应用与插件测试（Windows 专用）
+AniMeido.Plugin.Base.Core.Tests/    # 业务核心测试（不依赖 Windows）
+AniMeido.PluginProtocol.Tests/      # 插件协议测试
+AniMeido.Updates.Tests/             # 更新核心测试
+Installer/                          # Inno Setup 安装脚本
+Tools/                              # 更新签名工具，打包、发布与开发安装脚本
+docs-public/                        # 公开文档，如数据与隐私说明
 ```
 
 ## 关键约定
 
-- 业务功能写在 Base 插件里；App 只负责窗口、导航和设置这类外壳功能。
+- 业务功能写在 Base 插件里：业务逻辑和存储放 `Base.Core`，不引用 WinUI 和 Windows API；`Base` 只放页面、视图模型、平台适配和插件装配。App 只负责窗口、导航和设置这类外壳功能。
 - App 只引用 Base。可选插件在 PluginHost 进程里运行、经插件协议通信，App 不直接引用它们；宿主提供给插件的接口保持窄，不暴露具体服务或 SQLite 连接。
 - Contracts 只放跨边界的稳定契约；只在一个插件里用到的接口和服务留在插件内。
 - 基础功能不能依赖 Player；不要启用 AI 插件。

@@ -118,6 +118,7 @@ manifest 的输出文件也拒绝覆盖。退出码：0 成功、1 校验/签名
 ## U2 开发安装与版本回滚验收（New-DevInstall.ps1）
 
 这是供维护者**手动验收**的安装结构，不是 Inno 安装包，也不创建快捷方式/卸载登记。
+启动器是 Native AOT 程序，安装根同时放置 AniMeido.exe 与 e_sqlite3.dll；后者用于读取恢复数据的实际 SQLite 版本，不从 app-* 目录借用。
 需要本机缓存中已有 App 和 win-x64 Native AOT 发布依赖，以及 Native AOT 所需的 C++ 工具链。
 若启动器发布报 `'vswhere.exe' 不是内部或外部命令`（本机 VS 18 的环境脚本按 PATH 查找 vswhere），先执行 `$env:PATH = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;" + $env:PATH` 再运行脚本。
 脚本只从本机 NuGet 缓存还原，不下载缺失依赖；缺失时停止，不替换 `state.json`。
@@ -324,7 +325,8 @@ $env:ANIMEIDO_UPDATE_TEST_ROOT = $source
 ### 生成一次发布产物
 
 需要 PowerShell 7.6 或更高版本、.NET 10 SDK、Native AOT C++ 工具链和 Inno Setup 6。
-`-IsccPath` 默认 `D:\Inno Setup 6\ISCC.exe`，可指定其他安装位置。
+可用 `-IsccPath` 指定 Inno 编译器。未指定时，先查找 PATH 中的 `ISCC.exe`，
+再使用 `%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe`。
 PATH 找不到 `vswhere.exe` 时，脚本会自动补上 `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer`，
 结束时恢复原 PATH；如果那里也没有该程序则停止。
 
