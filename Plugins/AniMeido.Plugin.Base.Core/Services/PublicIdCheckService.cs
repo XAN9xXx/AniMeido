@@ -1,4 +1,5 @@
-﻿using AniMeido.Plugin.Base.Models;
+﻿using AniMeido.Plugin.Base.Exceptions;
+using AniMeido.Plugin.Base.Models;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
@@ -11,7 +12,7 @@ public sealed class PublicIdCheckService : IAsyncDisposable
 {
     internal const string VersionConfigKey = "public-id-check-version";
     private readonly SqliteConnectionFactory _db;
-    private readonly HttpClient _http;
+    private readonly PublicServiceRequests _requests;
     private readonly MetadataDataSource _metadata;
     private readonly PersonalIdRemapService _remap;
     private readonly ILogger<PublicIdCheckService> _logger;
@@ -29,9 +30,15 @@ public sealed class PublicIdCheckService : IAsyncDisposable
         MetadataDataSource metadata,
         PersonalIdRemapService remap,
         ILogger<PublicIdCheckService> logger)
+        : this(db, new PublicServiceRequests(http, logger: logger), metadata, remap, logger)
+    {
+    }
+
+    public PublicIdCheckService(SqliteConnectionFactory db, PublicServiceRequests requests,
+        MetadataDataSource metadata, PersonalIdRemapService remap, ILogger<PublicIdCheckService> logger)
     {
         _db = db;
-        _http = http;
+        _requests = requests;
         _metadata = metadata;
         _remap = remap;
         _logger = logger;
@@ -74,13 +81,14 @@ public sealed class PublicIdCheckService : IAsyncDisposable
             {
                 try
                 {
+                    var budget = new ServiceReadBudget();
                     var version = request.Version
-                        ?? await _metadata.GetCurrentDataVersionAsync(_lifetime.Token).ConfigureAwait(false);
+                        ?? await _metadata.GetCurrentDataVersionAsync(_lifetime.Token, budget).ConfigureAwait(false);
                     if (request.Id is null && !attempted.Add(version))
                     {
                         continue;
                     }
-                    await CheckAsync(version, request.Id, _lifetime.Token).ConfigureAwait(false);
+                    await CheckAsync(version, request.Id, _lifetime.Token, budget).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
                 {
@@ -89,7 +97,8 @@ public sealed class PublicIdCheckService : IAsyncDisposable
 #pragma warning disable CA1031 // 后台检查失败不影响个人页面；下次启动或新版本再试。
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Public ID background check failed");
+                    if (ex is not MetadataServiceException { IsRateLimited: true })
+                        _logger.LogWarning(ex, "Public ID background check failed");
                 }
 #pragma warning restore CA1031
                 finally
@@ -115,8 +124,9 @@ public sealed class PublicIdCheckService : IAsyncDisposable
     internal async Task CheckAsync(
         string version,
         int? requestedId = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default, ServiceReadBudget? budget = null)
     {
+        budget ??= new();
         await _checkGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -307,16 +317,18 @@ public sealed class PublicIdCheckService : IAsyncDisposable
                 var result = new List<T>();
                 foreach (var batch in ids.Distinct().Order().Chunk(100))
                 {
-                    using var response = await _http.GetAsync(prefix + string.Join(',', batch), token).ConfigureAwait(false);
-                    response.EnsureSuccessStatusCode();
-                    if (!response.Headers.TryGetValues("X-Data-Version", out var values)
-                        || values.SingleOrDefault() != version)
+                    var page = await _requests.ReadAsync(prefix + string.Join(',', batch), async (response, attemptToken) =>
                     {
-                        throw new InvalidDataException("资料版本在检查期间变化，请在下个版本或启动时重试。");
-                    }
-                    var page = JsonSerializer.Deserialize<StatusPage<T>>(
-                        await response.Content.ReadAsStringAsync(token).ConfigureAwait(false),
-                        PublicIdMigrationService.JsonOptions);
+                        response.EnsureSuccessStatusCode();
+                        if (!response.Headers.TryGetValues("X-Data-Version", out var values)
+                            || values.SingleOrDefault() != version)
+                        {
+                            throw new InvalidDataException("资料版本在检查期间变化，请在下个版本或启动时重试。");
+                        }
+                        return JsonSerializer.Deserialize<StatusPage<T>>(
+                            await response.Content.ReadAsStringAsync(attemptToken).ConfigureAwait(false),
+                            PublicIdMigrationService.JsonOptions);
+                    }, token, budget).ConfigureAwait(false);
                     if (page is null
                         || page.Items.Count != batch.Length
                         || page.Items.Select(identity).Distinct().Count() != batch.Length

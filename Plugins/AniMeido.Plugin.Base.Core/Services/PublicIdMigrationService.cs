@@ -1,4 +1,5 @@
-﻿using AniMeido.Plugin.Base.Models;
+﻿using AniMeido.Plugin.Base.Exceptions;
+using AniMeido.Plugin.Base.Models;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
@@ -30,7 +31,7 @@ public sealed partial class PublicIdMigrationService
     internal const string VocabConfigKey = "metadata-tag-names";
     internal static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly SqliteConnectionFactory _db;
-    private readonly HttpClient _http;
+    private readonly PublicServiceRequests _requests;
     private readonly ILogger<PublicIdMigrationService> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -38,9 +39,15 @@ public sealed partial class PublicIdMigrationService
         SqliteConnectionFactory db,
         HttpClient http,
         ILogger<PublicIdMigrationService> logger)
+        : this(db, new PublicServiceRequests(http, logger: logger), logger)
+    {
+    }
+
+    public PublicIdMigrationService(SqliteConnectionFactory db, PublicServiceRequests requests,
+        ILogger<PublicIdMigrationService> logger)
     {
         _db = db;
-        _http = http;
+        _requests = requests;
         _logger = logger;
     }
 
@@ -68,7 +75,8 @@ public sealed partial class PublicIdMigrationService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Public ID migration failed; retaining records for retry");
+            if (ex is not MetadataServiceException { IsRateLimited: true })
+                _logger.LogError(ex, "Public ID migration failed; retaining records for retry");
             throw;
         }
     }
@@ -144,6 +152,7 @@ public sealed partial class PublicIdMigrationService
 
     internal async Task<PublicIdMigrationPlan> PrepareAsync(MigrationInput input, CancellationToken ct)
     {
+        var budget = new ServiceReadBudget();
         string? dataVersion = null;
         var works = await MapAsync("work", input.Counts.Keys).ConfigureAwait(false);
         var plan = PublicIdMigrationPlan.ResolveWorks(input, works);
@@ -286,20 +295,22 @@ public sealed partial class PublicIdMigrationService
 
         async Task<T> GetAsync<T>(string url)
         {
-            using var response = await _http.GetAsync(url, ct).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-            var version = response.Headers.TryGetValues("X-Data-Version", out var values)
-                ? values.SingleOrDefault()
-                : null;
-            if (string.IsNullOrWhiteSpace(version) || (dataVersion is not null && dataVersion != version))
+            return await _requests.ReadAsync(url, async (response, token) =>
             {
-                throw new InvalidDataException("资料版本在换算期间变化或响应缺少数据版本，请重试。");
-            }
-            dataVersion = version;
-            return JsonSerializer.Deserialize<T>(
-                await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false),
-                JsonOptions)
-                ?? throw new InvalidDataException("资料服务返回空响应。");
+                response.EnsureSuccessStatusCode();
+                var version = response.Headers.TryGetValues("X-Data-Version", out var values)
+                    ? values.SingleOrDefault()
+                    : null;
+                if (string.IsNullOrWhiteSpace(version) || (dataVersion is not null && dataVersion != version))
+                {
+                    throw new InvalidDataException("资料版本在换算期间变化或响应缺少数据版本，请重试。");
+                }
+                dataVersion = version;
+                return JsonSerializer.Deserialize<T>(
+                    await response.Content.ReadAsStringAsync(token).ConfigureAwait(false),
+                    JsonOptions)
+                    ?? throw new InvalidDataException("资料服务返回空响应。");
+            }, ct, budget).ConfigureAwait(false);
         }
     }
 

@@ -20,9 +20,9 @@ public sealed partial class MetadataDataSource
 
     internal void QueueMergedCheck(int id) => MergedDetailObserved?.Invoke(id);
 
-    internal async Task<string> GetCurrentDataVersionAsync(CancellationToken ct)
+    internal async Task<string> GetCurrentDataVersionAsync(CancellationToken ct, ServiceReadBudget? budget = null)
     {
-        await EnsureVersionAsync(ct).ConfigureAwait(false);
+        await EnsureVersionAsync(ct, budget).ConfigureAwait(false);
         return _dataVersion!;
     }
 
@@ -35,7 +35,7 @@ public sealed partial class MetadataDataSource
     private static string VersionedKey(string key, string version) => $"{key}:data:{version}";
 
     // HEAD 只核对响应头，最多每五分钟一次；持久化版本供重启后离线定位同一组缓存。
-    private async Task EnsureVersionAsync(CancellationToken ct)
+    private async Task EnsureVersionAsync(CancellationToken ct, ServiceReadBudget? budget = null)
     {
         await _versionGate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -45,18 +45,22 @@ public sealed partial class MetadataDataSource
             try
             {
                 var generation = _cacheService.CaptureGeneration();
-                using var request = new HttpRequestMessage(HttpMethod.Head, "/v1/works?limit=1");
-                using var response = await _httpClient.SendAsync(request, ct).ConfigureAwait(false);
-                response.EnsureSuccessStatusCode();
-                await ObserveVersionAsync(response, generation).ConfigureAwait(false);
+                await _requests.ReadAsync("/v1/works?limit=1", async (response, token) =>
+                {
+                    response.EnsureSuccessStatusCode();
+                    await ObserveVersionAsync(response, generation).ConfigureAwait(false);
+                    return true;
+                }, ct, budget, HttpMethod.Head).ConfigureAwait(false);
                 _nextVersionCheck = _time.GetUtcNow().AddMinutes(5);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested && IsServiceFailure(ex))
             {
+                if (_dataVersion is null && ex is MetadataServiceException { IsRateLimited: true }) throw;
                 if (_dataVersion is null)
                     throw new MetadataServiceException("无法取得资料服务数据版本。", ex);
                 _nextVersionCheck = _time.GetUtcNow().AddMinutes(1);
-                _logger.LogWarning(ex, "Version check failed; using cached metadata version {Version}", _dataVersion);
+                if (ex is not MetadataServiceException { IsRateLimited: true })
+                    _logger.LogWarning(ex, "Version check failed; using cached metadata version {Version}", _dataVersion);
             }
         }
         finally { _versionGate.Release(); }
@@ -77,23 +81,25 @@ public sealed partial class MetadataDataSource
         return version;
     }
 
-    private async Task<T> SendJsonAsync<T>(string path, CancellationToken ct,
+    private async Task<T> SendJsonAsync<T>(string path, CancellationToken ct, ServiceReadBudget budget,
         Func<string, string, T>? notFound = null) where T : MetadataResponse
     {
         try
         {
             var generation = _cacheService.CaptureGeneration();
-            using var response = await _httpClient.GetAsync(path, ct).ConfigureAwait(false);
-            var version = await ObserveVersionAsync(response, generation).ConfigureAwait(false);
-            var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            if (response.StatusCode == HttpStatusCode.NotFound && notFound is not null)
-                return notFound(json, version);
-            response.EnsureSuccessStatusCode();
-            var result = JsonSerializer.Deserialize<T>(json, JsonOptions)
-                ?? throw new JsonException("资料服务返回空 JSON。");
-            // 缓存键的版本只来自响应头，不从请求前推测或信任正文中的版本。
-            result.DataVersion = version;
-            return result;
+            return await _requests.ReadAsync(path, async (response, token) =>
+            {
+                var version = await ObserveVersionAsync(response, generation).ConfigureAwait(false);
+                var json = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+                if (response.StatusCode == HttpStatusCode.NotFound && notFound is not null)
+                    return notFound(json, version);
+                response.EnsureSuccessStatusCode();
+                var result = JsonSerializer.Deserialize<T>(json, JsonOptions)
+                    ?? throw new JsonException("资料服务返回空 JSON。");
+                // 缓存键的版本只来自响应头，不从请求前推测或信任正文中的版本。
+                result.DataVersion = version;
+                return result;
+            }, ct, budget).ConfigureAwait(false);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested && ex is HttpRequestException
             or OperationCanceledException or IOException or JsonException)
@@ -120,10 +126,11 @@ public sealed partial class MetadataDataSource
     }
 
     private async Task<T> CachedAsync<T>(string key, TimeSpan expiration, bool versioned,
-        Func<Task<T>> fetch, CancellationToken ct) where T : MetadataResponse
+        Func<ServiceReadBudget, Task<T>> fetch, CancellationToken ct, ServiceReadBudget? budget = null) where T : MetadataResponse
     {
         ct.ThrowIfCancellationRequested();
-        if (versioned) await EnsureVersionAsync(ct).ConfigureAwait(false);
+        budget ??= new();
+        if (versioned) await EnsureVersionAsync(ct, budget).ConfigureAwait(false);
         string CacheKey() => versioned ? VersionedKey(key, _dataVersion!) : key;
         var cached = await ReadCacheAsync<T>(CacheKey()).ConfigureAwait(false);
         if (cached is not null) return cached;
@@ -145,7 +152,7 @@ public sealed partial class MetadataDataSource
             if (cached is not null) return cached;
             var generation = _cacheService.CaptureGeneration();
             T data;
-            try { data = await fetch().ConfigureAwait(false); }
+            try { data = await fetch(budget).ConfigureAwait(false); }
             catch (Exception ex) when (!ct.IsCancellationRequested && IsServiceFailure(ex))
             {
                 cached = await ReadCacheAsync<T>(lookupKey, expired: true).ConfigureAwait(false);
@@ -156,7 +163,8 @@ public sealed partial class MetadataDataSource
                         cached = await ReadCacheAsync<T>(lastKey, expired: true).ConfigureAwait(false);
                 }
                 if (cached is null) throw;
-                _logger.LogWarning(ex, "Using stale metadata cache {Key}", key);
+                if (ex is not MetadataServiceException { IsRateLimited: true })
+                    _logger.LogWarning(ex, "Using stale metadata cache {Key}", key);
                 return cached;
             }
             // 404 不缓存七天，避免刚公布的作品长期不可见。

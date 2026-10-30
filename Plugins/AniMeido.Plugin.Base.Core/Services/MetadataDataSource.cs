@@ -12,7 +12,7 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
         Volatile.Read(ref _dataVersion), _cacheService.CaptureGeneration());
 
     private const int PageSize = 20;
-    private readonly HttpClient _httpClient;
+    private readonly PublicServiceRequests _requests;
     private readonly ILogger<MetadataDataSource> _logger;
     private readonly CacheService _cacheService;
     private readonly TimeProvider _time;
@@ -20,21 +20,27 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
 
     internal MetadataDataSource(ILogger<MetadataDataSource> logger, HttpClient httpClient,
         CacheService cacheService, TimeProvider? time = null)
+        : this(logger, new PublicServiceRequests(httpClient, time: time, logger: logger), cacheService, time)
+    {
+    }
+
+    internal MetadataDataSource(ILogger<MetadataDataSource> logger, PublicServiceRequests requests,
+        CacheService cacheService, TimeProvider? time = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        _requests = requests;
         _cacheService = cacheService ?? throw new ArgumentNullException(nameof(cacheService));
         _time = time ?? TimeProvider.System;
     }
 
-    private async Task<MetadataPage<T>> FetchPagesAsync<T>(string path, CancellationToken ct)
+    private async Task<MetadataPage<T>> FetchPagesAsync<T>(string path, CancellationToken ct, ServiceReadBudget budget)
     {
         var all = new MetadataPage<T>();
         var offset = 0;
         while (true)
         {
             var separator = path.Contains('?') ? '&' : '?';
-            var page = await SendJsonAsync<MetadataPage<T>>($"{path}{separator}offset={offset}&limit=100", ct)
+            var page = await SendJsonAsync<MetadataPage<T>>($"{path}{separator}offset={offset}&limit=100", ct, budget)
                 .ConfigureAwait(false);
             if (offset == 0) all.DataVersion = page.DataVersion;
             else if (all.DataVersion != page.DataVersion)
@@ -52,7 +58,7 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
     {
         if (!Enum.IsDefined(season)) throw new ArgumentOutOfRangeException(nameof(season));
         var result = await CachedAsync($"metadata:season:{year}:{season}", TimeSpan.FromHours(12), true,
-            () => FetchPagesAsync<MetadataWork>($"/v1/works?season={year:D4}-{SeasonHelper.ToMonth(season):D2}", ct), ct)
+            readBudget => FetchPagesAsync<MetadataWork>($"/v1/works?season={year:D4}-{SeasonHelper.ToMonth(season):D2}", ct, readBudget), ct)
             .ConfigureAwait(false);
         return result.Items.Where(w => w.Id > 0).DistinctBy(w => w.Id).Select(w => MapAnime(w)).ToList();
     }
@@ -61,14 +67,14 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
     {
         var date = DateOnly.FromDateTime(_time.GetLocalNow().DateTime).ToString("yyyy-MM-dd");
         var result = await CachedAsync($"metadata:airing:{date}", TimeSpan.FromHours(12), true,
-            () => SendJsonAsync<MetadataPage<MetadataWork>>($"/v1/works/airing?date={date}", ct), ct)
+            readBudget => SendJsonAsync<MetadataPage<MetadataWork>>($"/v1/works/airing?date={date}", ct, readBudget), ct)
             .ConfigureAwait(false);
         return result.Items.Where(w => w.Id > 0).DistinctBy(w => w.Id).Select(w => MapAnime(w)).ToList();
     }
 
-    private async Task<MetadataDetail> FetchDetailAsync(int id, CancellationToken ct, bool followMerge = true)
+    private async Task<MetadataDetail> FetchDetailAsync(int id, CancellationToken ct, ServiceReadBudget budget, bool followMerge = true)
     {
-        var result = await SendJsonAsync<MetadataDetail>($"/v1/works/{id}", ct,
+        var result = await SendJsonAsync<MetadataDetail>($"/v1/works/{id}", ct, budget,
             static (json, version) => new MetadataDetail
             {
                 DataVersion = version,
@@ -78,19 +84,19 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
         if (result.Problem is { Code: "merged", MergedInto: > 0 } problem && followMerge && problem.MergedInto != id)
         {
             QueueMergedCheck(id);
-            return await FetchDetailAsync(problem.MergedInto.Value, ct, followMerge: false).ConfigureAwait(false);
+            return await FetchDetailAsync(problem.MergedInto.Value, ct, budget, followMerge: false).ConfigureAwait(false);
         }
         if (result.Problem is { Code: not ("merged" or "not_found" or "deactivated") })
             throw new MetadataServiceException("资料服务返回未知的 404 错误。");
         return result;
     }
 
-    private async Task<MetadataWork?> DetailAsync(int id, CancellationToken ct)
+    private async Task<MetadataWork?> DetailAsync(int id, CancellationToken ct, ServiceReadBudget? budget = null)
     {
         ct.ThrowIfCancellationRequested();
         if (id <= 0) return null;
         var detail = await CachedAsync($"metadata:detail:{id}", TimeSpan.FromDays(7), false,
-            () => FetchDetailAsync(id, ct), ct).ConfigureAwait(false);
+            readBudget => FetchDetailAsync(id, ct, readBudget), ct, budget).ConfigureAwait(false);
         return detail.Data;
     }
 
@@ -106,7 +112,8 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
         }
         catch (Exception ex) when (!ct.IsCancellationRequested && IsServiceFailure(ex))
         {
-            _logger.LogWarning(ex, "Rating details unavailable for work {AnimeId}; leaving rating block hidden", animeId);
+            if (ex is not MetadataServiceException { IsRateLimited: true })
+                _logger.LogWarning(ex, "Rating details unavailable for work {AnimeId}; leaving rating block hidden", animeId);
             return null;
         }
     }
@@ -126,17 +133,18 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
                 c.Cv.Where(v => v.Id > 0).DistinctBy(v => v.Id).Select(VoiceActor).ToList())).ToList();
     }
 
-    private Task<MetadataPage<MetadataVocab>> VocabAsync(string category, CancellationToken ct) =>
+    private Task<MetadataPage<MetadataVocab>> VocabAsync(string category, CancellationToken ct, ServiceReadBudget? budget = null) =>
         CachedAsync($"metadata:vocab:{category}", TimeSpan.FromDays(7), true,
-            () => SendJsonAsync<MetadataPage<MetadataVocab>>($"/v1/vocab?category={category}", ct), ct);
+            readBudget => SendJsonAsync<MetadataPage<MetadataVocab>>($"/v1/vocab?category={category}", ct, readBudget), ct, budget);
 
-    private async Task<List<MetadataVocab>> TagVocabAsync(CancellationToken ct)
+    private async Task<List<MetadataVocab>> TagVocabAsync(CancellationToken ct, ServiceReadBudget? budget = null)
     {
+        budget ??= new();
         for (var attempt = 0; attempt < 2; attempt++)
         {
             var pages = new List<MetadataPage<MetadataVocab>>();
             foreach (var category in new[] { "tag", "format", "country", "source_type" })
-                pages.Add(await VocabAsync(category, ct).ConfigureAwait(false));
+                pages.Add(await VocabAsync(category, ct, budget).ConfigureAwait(false));
             if (pages.Select(p => p.DataVersion).Distinct().Count() == 1)
                 return pages.SelectMany(p => p.Items).ToList();
             if (attempt == 0)
@@ -147,15 +155,17 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
 
     public async Task<List<Tag>> GetTagsAsync(int animeID, CancellationToken ct)
     {
-        var work = await DetailAsync(animeID, ct).ConfigureAwait(false);
+        var budget = new ServiceReadBudget();
+        var work = await DetailAsync(animeID, ct, budget).ConfigureAwait(false);
         if (work is null) return [];
-        var vocab = await TagVocabAsync(ct).ConfigureAwait(false);
+        var vocab = await TagVocabAsync(ct, budget).ConfigureAwait(false);
         return TagCodes(work).Select(code => vocab.FirstOrDefault(v => v.Category == code.Category && v.Code == code.Code))
             .Where(v => v is not null).Select(v => new Tag(v!.NameZh)).DistinctBy(t => t.Name).ToList();
     }
 
-    private async Task<List<Anime>> WorksByIdsAsync(IEnumerable<int> ids, CancellationToken ct)
+    private async Task<List<Anime>> WorksByIdsAsync(IEnumerable<int> ids, CancellationToken ct, ServiceReadBudget? budget = null)
     {
+        budget ??= new();
         var requested = ids.Where(id => id > 0).Distinct().ToList();
         if (requested.Count == 0) return [];
         var items = new Dictionary<int, Anime>();
@@ -163,7 +173,7 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
         {
             var query = string.Join(',', batch);
             var response = await CachedAsync($"metadata:works:{query}", TimeSpan.FromHours(12), true,
-                () => SendJsonAsync<MetadataPage<MetadataWork>>($"/v1/works?ids={query}", ct), ct)
+                readBudget => SendJsonAsync<MetadataPage<MetadataWork>>($"/v1/works?ids={query}", ct, readBudget), ct, budget)
                 .ConfigureAwait(false);
             foreach (var work in response.Items.Where(w => w.Id > 0 && w.Status is not ("merged" or "deactivated" or "not_found")))
                 items[work.Id] = MapAnime(work);
@@ -176,13 +186,14 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
     {
         ArgumentOutOfRangeException.ThrowIfNegative(offset);
         if (string.IsNullOrWhiteSpace(keyword)) return ([], 0, offset);
+        var budget = new ServiceReadBudget();
         var query = Uri.EscapeDataString(keyword);
         var response = await CachedAsync($"metadata:search:{query}:{offset}", TimeSpan.FromMinutes(5), true,
-            () => SendJsonAsync<MetadataPage<MetadataSearchItem>>($"/v1/search?q={query}&type=work&offset={offset}&limit={PageSize}", ct), ct)
+            readBudget => SendJsonAsync<MetadataPage<MetadataSearchItem>>($"/v1/search?q={query}&type=work&offset={offset}&limit={PageSize}", ct, readBudget), ct, budget)
             .ConfigureAwait(false);
         if (response.Items.Count == 0 && offset < response.Total)
             throw new MetadataServiceException("资料服务在完整读取搜索分页前返回了空页。");
-        return (await WorksByIdsAsync(response.Items.Select(i => i.Id), ct).ConfigureAwait(false),
+        return (await WorksByIdsAsync(response.Items.Select(i => i.Id), ct, budget).ConfigureAwait(false),
             response.Total, offset + response.Items.Count);
     }
 
@@ -190,22 +201,24 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
         CancellationToken ct, string? airDateFrom = null, string? airDateTo = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(offset);
-        var ids = await FindTagIdsAsync(tag, sort, airDateFrom, airDateTo, ct).ConfigureAwait(false);
-        var results = await WorksByIdsAsync(ids.Skip(offset).Take(PageSize), ct).ConfigureAwait(false);
+        var budget = new ServiceReadBudget();
+        var ids = await FindTagIdsAsync(tag, sort, airDateFrom, airDateTo, ct, budget).ConfigureAwait(false);
+        var results = await WorksByIdsAsync(ids.Skip(offset).Take(PageSize), ct, budget).ConfigureAwait(false);
         return (results, ids.Count);
     }
 
     internal async Task<List<Anime>> SearchAllByTagAsync(
         string tag, string sort, string? airDateFrom, string? airDateTo, CancellationToken ct)
     {
-        var ids = await FindTagIdsAsync(tag, sort, airDateFrom, airDateTo, ct).ConfigureAwait(false);
-        return await WorksByIdsAsync(ids, ct).ConfigureAwait(false);
+        var budget = new ServiceReadBudget();
+        var ids = await FindTagIdsAsync(tag, sort, airDateFrom, airDateTo, ct, budget).ConfigureAwait(false);
+        return await WorksByIdsAsync(ids, ct, budget).ConfigureAwait(false);
     }
 
     private async Task<List<int>> FindTagIdsAsync(
-        string tag, string sort, string? airDateFrom, string? airDateTo, CancellationToken ct)
+        string tag, string sort, string? airDateFrom, string? airDateTo, CancellationToken ct, ServiceReadBudget budget)
     {
-        var vocab = await TagVocabAsync(ct).ConfigureAwait(false);
+        var vocab = await TagVocabAsync(ct, budget).ConfigureAwait(false);
         var entry = vocab.FirstOrDefault(v => v.NameZh == tag);
         if (entry is null)
         {
@@ -214,7 +227,7 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
         }
         var filter = $"{TagParameter(entry.Category)}={Uri.EscapeDataString(entry.Code)}";
         var response = await CachedAsync($"metadata:brief:{filter}", TimeSpan.FromHours(12), true,
-            () => SendJsonAsync<MetadataPage<MetadataBrief>>($"/v1/brief?{filter}", ct), ct).ConfigureAwait(false);
+            readBudget => SendJsonAsync<MetadataPage<MetadataBrief>>($"/v1/brief?{filter}", ct, readBudget), ct, budget).ConfigureAwait(false);
         var from = FullDate(airDateFrom);
         var to = FullDate(airDateTo);
         IEnumerable<MetadataBrief> items = response.Items.Where(i => i.Id > 0).DistinctBy(i => i.Id);
@@ -242,7 +255,7 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
         ct.ThrowIfCancellationRequested();
         if (personId <= 0) return [];
         var response = await CachedAsync($"metadata:person-works:{personId}", TimeSpan.FromDays(7), false,
-            () => FetchPagesAsync<MetadataPersonWork>($"/v1/participants/{personId}/works", ct), ct).ConfigureAwait(false);
+            readBudget => FetchPagesAsync<MetadataPersonWork>($"/v1/participants/{personId}/works", ct, readBudget), ct).ConfigureAwait(false);
         var roles = response.Items.Any(i => i.Role is not null)
             ? (await VocabAsync("staff_role", ct).ConfigureAwait(false)).Items : [];
         return response.Items.Where(i => i.Work.Id > 0).GroupBy(i => i.Work.Id).Select(group =>
