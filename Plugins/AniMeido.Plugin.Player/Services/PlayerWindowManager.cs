@@ -227,6 +227,7 @@ internal sealed class PlayerWindowManager :
             _preferenceStore,
             _runtimeSettings,
             _webResolver,
+            EndSessionFromWindowAsync,
             _logger);
         _settingsWindow.SourcesChanged += OnSourcesChanged;
         _settingsWindow.Closed += OnSettingsWindowClosed;

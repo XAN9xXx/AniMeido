@@ -30,6 +30,7 @@ internal sealed class SourceManagementWindow : Window
     private readonly WebMediaResolver _webResolver;
     private readonly WebViewHostBinding _webBinding;
     private readonly ILogger _logger;
+    private readonly Func<Task> _requestSessionClose;
     private readonly Grid _root = new();
     private readonly ListView _packageList = new();
     private readonly ListView _subscriptionList = new();
@@ -64,6 +65,7 @@ internal sealed class SourceManagementWindow : Window
         EasyPreferenceStore preferenceStore,
         PlayerRuntimeSettingsStore runtimeSettings,
         WebMediaResolver webResolver,
+        Func<Task> requestSessionClose,
         ILogger? logger = null)
     {
         _sourceCatalog = sourceCatalog;
@@ -72,6 +74,7 @@ internal sealed class SourceManagementWindow : Window
         _preferenceStore = preferenceStore;
         _runtimeSettings = runtimeSettings;
         _webResolver = webResolver;
+        _requestSessionClose = requestSessionClose;
         _webBinding = WebViewHostBinding.FromWindow(this);
         _logger = logger ?? NullLogger.Instance;
         Title = "AniMeido 播放源管理";
@@ -972,7 +975,8 @@ internal sealed class SourceManagementWindow : Window
         args.Cancel = true;
         try
         {
-            await CloseAsync();
+            // 先让会话所有者取消播放器，窗口收尾才有机会取得共享解析器。
+            await _requestSessionClose();
         }
 #pragma warning disable CA1031 // 共享关闭流程已报告故障；事件只观察同一任务，不重复记录。
         catch (Exception)
