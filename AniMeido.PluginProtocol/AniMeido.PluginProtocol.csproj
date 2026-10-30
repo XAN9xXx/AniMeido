@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="AniMeido.PluginProtocol.Tests" />
     <ProjectReference Include="..\AniMeido.Contracts\AniMeido.Contracts.csproj" />
   </ItemGroup>
 

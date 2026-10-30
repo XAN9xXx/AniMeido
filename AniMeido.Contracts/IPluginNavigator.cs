@@ -6,5 +6,6 @@ namespace AniMeido.Contracts;
 /// </summary>
 public interface IPluginNavigator
 {
+    /// <summary>在界面线程请求进入新页面，并将当前页面保留在返回栈。</summary>
     void Navigate(Type pageType, object? parameter = null);
 }

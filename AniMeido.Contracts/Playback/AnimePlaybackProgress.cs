@@ -23,7 +23,8 @@ public interface IAnimePlaybackProgressSink
 }
 
 /// <summary>
-/// Optional-player capability for reporting source-neutral playback facts.
+/// 可选播放器上报播放事实的能力。允许多个线程并发调用；接收端按接纳顺序赋序并入队。
+/// 确认某批上报时，不得丢弃尚未交付的事件。
 /// </summary>
 public interface IAnimePlaybackProgressReporter
 {

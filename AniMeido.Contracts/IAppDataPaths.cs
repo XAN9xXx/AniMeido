@@ -6,7 +6,10 @@ namespace AniMeido.Contracts;
 /// </summary>
 public interface IAppDataPaths
 {
+    /// <summary>当前数据根下的个人 SQLite 数据库文件路径。</summary>
     string DatabasePath { get; }
+    /// <summary>当前数据根下的备份目录；读取属性不代表目录已经创建。</summary>
     string BackupDirectory { get; }
+    /// <summary>当前数据根下的日志目录；读取属性不代表目录已经创建。</summary>
     string LogDirectory { get; }
 }

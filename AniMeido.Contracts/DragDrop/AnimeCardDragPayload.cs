@@ -28,7 +28,7 @@ public sealed class AnimeCardDragPayload
     [JsonPropertyName("schemaVersion")]
     public int SchemaVersion { get; init; } = 1;
 
-    /// <summary>番剧 ID（资料服务公共 ID）。</summary>
+    /// <summary>应用当前引用的作品身份：正数为公共 ID，负数为本地保留 ID；0 不是有效身份。</summary>
     [JsonPropertyName("animeId")]
     public int AnimeId { get; init; }
 

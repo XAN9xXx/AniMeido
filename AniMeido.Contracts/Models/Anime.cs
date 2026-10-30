@@ -1,5 +1,6 @@
 ﻿namespace AniMeido.Contracts.Models
 {
+    /// <summary>作品的资料快照；个人追番状态与档案内容由相应能力另行读取。</summary>
     /// <param name="ID">应用当前引用的作品身份：正数为资料服务的公共 ID，负数为本地保留 ID（资料服务查不到、已停用或映射冲突）；远端合并时可能仍是个人记录引用的旧 ID，直到本地改写完成。</param>
     /// <param name="Studio">动漫的出版社/企划。</param>
     /// <param name="CVs">参与配音的声优列表。</param>

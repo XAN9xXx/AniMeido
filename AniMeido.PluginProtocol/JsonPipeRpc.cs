@@ -3,9 +3,14 @@ using System.Text.Json;
 
 namespace AniMeido.PluginProtocol;
 
+/// <summary>在单条双向流上串行完成请求与响应的 JSON RPC 客户端。</summary>
+/// <remarks>
+/// <para>客户端拥有传入流，关闭或连接失效时会关闭流。并发调用共享连接，不交错读写各自的响应。</para>
+/// <para>写帧步骤开始前取消不会使连接失效；开始后取消会终止连接，但不能保证远端尚未执行操作。</para>
+/// <para>远端业务错误不会自动终止连接；断帧、响应 ID 不符或无效结果会使连接失效。</para>
+/// </remarks>
 public sealed class JsonPipeRpcClient : IDisposable, IAsyncDisposable
 {
-    private const int MaximumMessageSize = 4 * 1024 * 1024;
     private readonly Stream _stream;
     // These synchronization objects intentionally remain undisposed until GC. No WaitHandle is
     // acquired, and a late WaitAsync continuation may still call Release after Dispose/Poison.
@@ -18,16 +23,22 @@ public sealed class JsonPipeRpcClient : IDisposable, IAsyncDisposable
     private int _disposed;
     private int _terminalFault;
 
+    /// <summary>接管用于请求和响应的双向流。</summary>
+    /// <param name="stream">由客户端负责关闭的流。</param>
     public JsonPipeRpcClient(Stream stream)
     {
         _stream = stream;
         _lifetimeToken = _lifetimeCancellation.Token;
     }
 
+    /// <summary>客户端尚未关闭，且尚未判定连接失效。</summary>
+    /// <remarks>这是本地已知状态，不会向远端发起健康检查。</remarks>
     public bool IsUsable
         => Volatile.Read(ref _terminalFault) == 0
             && Volatile.Read(ref _disposed) == 0;
 
+    /// <summary>调用 RPC 方法，不向调用方返回业务结果。</summary>
+    /// <remarks>仍会等待并校验响应；取消遵循客户端的连接生命周期规则。</remarks>
     public async Task InvokeAsync(
         string method,
         object?[] arguments,
@@ -37,12 +48,16 @@ public sealed class JsonPipeRpcClient : IDisposable, IAsyncDisposable
             arguments,
             cancellationToken);
 
+    /// <summary>调用允许空引用结果的 RPC 方法。</summary>
+    /// <remarks>缺少结果字段或结果为 JSON null 时返回 null，不因此使连接失效；业务错误仍会抛出。</remarks>
     public async Task<T?> InvokeNullableAsync<T>(
         string method,
         object?[] arguments,
         CancellationToken cancellationToken = default) where T : class
         => await InvokeCoreAsync<T>(method, arguments, cancellationToken, allowNull: true);
 
+    /// <summary>调用 RPC 方法并反序列化必需的结果。</summary>
+    /// <remarks>需要可空引用结果时使用 <see cref="InvokeNullableAsync{T}"/>。</remarks>
     public async Task<T> InvokeAsync<T>(
         string method,
         object?[] arguments,
@@ -80,11 +95,10 @@ public sealed class JsonPipeRpcClient : IDisposable, IAsyncDisposable
             }
 
             ThrowIfTerminalFault();
-            var request = new JsonPipeRpcRequest(
+            var request = new OutgoingJsonPipeRpcRequest(
                 Interlocked.Increment(ref _nextRequestId),
                 method,
-                arguments.Select(argument =>
-                    JsonSerializer.SerializeToElement(argument)).ToArray());
+                arguments);
             await JsonPipeRpcFraming.WriteAsync(
                 _stream,
                 request,
@@ -95,7 +109,7 @@ public sealed class JsonPipeRpcClient : IDisposable, IAsyncDisposable
             {
                 response = await JsonPipeRpcFraming.ReadAsync<JsonPipeRpcResponse>(
                     _stream,
-                    MaximumMessageSize,
+                    JsonPipeRpcFraming.MaximumMessageSize,
                     operationToken);
             }
             catch (Exception ex) when (
@@ -117,7 +131,7 @@ public sealed class JsonPipeRpcClient : IDisposable, IAsyncDisposable
 
             if (!string.IsNullOrWhiteSpace(response.Error))
             {
-                throw new JsonPipeRpcException(response.Error);
+                throw new JsonPipeRpcException(response.Error, isRemoteError: true);
             }
 
             if (allowNull && (response.Result is null
@@ -174,7 +188,8 @@ public sealed class JsonPipeRpcClient : IDisposable, IAsyncDisposable
         }
         catch (IOException)
         {
-            Poison();
+            if (frameWriteStarted)
+                Poison();
             throw;
         }
         finally
@@ -186,12 +201,15 @@ public sealed class JsonPipeRpcClient : IDisposable, IAsyncDisposable
         }
     }
 
+    /// <summary>执行与 <see cref="Dispose"/> 相同的关闭操作。</summary>
+    /// <remarks>当前同步关闭流并发出取消，不等待所有活动调用返回。</remarks>
     public ValueTask DisposeAsync()
     {
         Dispose();
         return ValueTask.CompletedTask;
     }
 
+    /// <summary>取消活动和排队调用，并关闭所拥有的流；重复调用无效。</summary>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -241,37 +259,54 @@ public sealed class JsonPipeRpcClient : IDisposable, IAsyncDisposable
     }
 }
 
+/// <summary>借用双向流，逐个分派请求并返回响应的 JSON RPC 服务端。</summary>
+/// <remarks>
+/// <para>流由调用方关闭和释放。每帧使用 4 字节小端长度头和 UTF-8 JSON 正文，正文上限为 4 MiB，不含帧头。</para>
+/// <para>分派失败转换为错误响应；无效帧长度或 JSON 错误向调用方传播。超大业务结果可返回错误后继续下一请求。</para>
+/// </remarks>
 public sealed class JsonPipeRpcServer
 {
-    private const int MaximumMessageSize = 4 * 1024 * 1024;
     private readonly Stream _stream;
     private readonly Func<
         JsonPipeRpcRequest,
         CancellationToken,
         Task<object?>> _dispatcher;
     private readonly Func<bool>? _shouldStopAfterResponse;
+    private readonly Action<string, Exception>? _reportDispatchFailure;
 
+    /// <summary>使用不接收取消令牌的便利分派入口；运行令牌仍控制流的读写。</summary>
     public JsonPipeRpcServer(
         Stream stream,
         Func<JsonPipeRpcRequest, Task<object?>> dispatcher,
-        Func<bool>? shouldStopAfterResponse = null)
+        Func<bool>? shouldStopAfterResponse = null,
+        Action<string, Exception>? reportDispatchFailure = null)
         : this(
             stream,
             (request, _) => dispatcher(request),
-            shouldStopAfterResponse)
+            shouldStopAfterResponse,
+            reportDispatchFailure)
     {
     }
 
+    /// <summary>使用接收运行取消令牌的分派入口。</summary>
+    /// <param name="stream">借用的双向流，由调用方负责关闭和释放。</param>
+    /// <param name="dispatcher">处理一条请求的业务入口。</param>
+    /// <param name="shouldStopAfterResponse">响应写完后检查；返回 true 时结束循环。</param>
+    /// <param name="reportDispatchFailure">接收原始分派异常供宿主诊断，不将异常堆栈写入响应。</param>
     public JsonPipeRpcServer(
         Stream stream,
         Func<JsonPipeRpcRequest, CancellationToken, Task<object?>> dispatcher,
-        Func<bool>? shouldStopAfterResponse = null)
+        Func<bool>? shouldStopAfterResponse = null,
+        Action<string, Exception>? reportDispatchFailure = null)
     {
         _stream = stream;
         _dispatcher = dispatcher;
         _shouldStopAfterResponse = shouldStopAfterResponse;
+        _reportDispatchFailure = reportDispatchFailure;
     }
 
+    /// <summary>处理请求直到流结束、响应后的停止条件满足，或运行被取消。</summary>
+    /// <remarks>取消控制读写，并传给支持令牌的分派函数；分派中的运行取消不写业务错误响应。</remarks>
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -281,7 +316,7 @@ public sealed class JsonPipeRpcServer
             {
                 request = await JsonPipeRpcFraming.ReadAsync<JsonPipeRpcRequest>(
                     _stream,
-                    MaximumMessageSize,
+                    JsonPipeRpcFraming.MaximumMessageSize,
                     cancellationToken);
             }
             catch (EndOfStreamException)
@@ -289,15 +324,13 @@ public sealed class JsonPipeRpcServer
                 return;
             }
 
-            JsonPipeRpcResponse response;
+            OutgoingJsonPipeRpcResponse response;
             try
             {
                 var result = await _dispatcher(request, cancellationToken);
-                response = new JsonPipeRpcResponse(
+                response = new OutgoingJsonPipeRpcResponse(
                     request.Id,
-                    result is null
-                        ? null
-                        : JsonSerializer.SerializeToElement(result),
+                    result,
                     null);
             }
             catch (OperationCanceledException)
@@ -308,16 +341,27 @@ public sealed class JsonPipeRpcServer
 #pragma warning disable CA1031 // RPC must return structured plugin failures to the App.
             catch (Exception ex)
             {
-                response = new JsonPipeRpcResponse(
+                _reportDispatchFailure?.Invoke(request.Method, ex);
+                response = new OutgoingJsonPipeRpcResponse(
                     request.Id,
                     null,
                     ex.Message);
             }
 #pragma warning restore CA1031
-            await JsonPipeRpcFraming.WriteAsync(
-                _stream,
-                response,
-                cancellationToken);
+            var writeStarted = false;
+            try
+            {
+                await JsonPipeRpcFraming.WriteAsync(
+                    _stream, response, cancellationToken, () => writeStarted = true);
+            }
+            catch (InvalidDataException ex) when (!writeStarted)
+            {
+                // Too-large results are business failures; no partial frame has been sent.
+                await JsonPipeRpcFraming.WriteAsync(
+                    _stream,
+                    new OutgoingJsonPipeRpcResponse(request.Id, null, ex.Message),
+                    cancellationToken);
+            }
             if (_shouldStopAfterResponse?.Invoke() == true)
             {
                 return;
@@ -326,14 +370,31 @@ public sealed class JsonPipeRpcServer
     }
 }
 
+/// <summary>远端业务错误，或客户端识别的协议及连接失效错误。</summary>
+/// <remarks>此异常不必然使连接失效；是否仍可调用由 <see cref="JsonPipeRpcClient.IsUsable"/> 表达。</remarks>
 public sealed class JsonPipeRpcException : Exception
 {
+    /// <summary>创建客户端本机识别的协议或连接错误。</summary>
     public JsonPipeRpcException(string message)
-        : base(message)
+        : this(message, isRemoteError: false)
     {
     }
+
+    /// <summary>创建错误，并标明它是否来自远端业务响应。</summary>
+    public JsonPipeRpcException(string message, bool isRemoteError)
+        : base(message)
+    {
+        IsRemoteError = isRemoteError;
+    }
+
+    /// <summary>远端以 Error 响应返回的业务错误为 true。</summary>
+    public bool IsRemoteError { get; }
 }
 
+/// <summary>反序列化后的请求；公开成员名也是默认 JSON 传输字段名。</summary>
+/// <param name="Id">用于关联请求与响应的 ID，不是业务去重标识。</param>
+/// <param name="Method">稳定的方法路由名。</param>
+/// <param name="Arguments">按业务方法参数位置排列的 JSON 值。</param>
 public sealed record JsonPipeRpcRequest(
     int Id,
     string Method,
@@ -344,21 +405,30 @@ internal sealed record JsonPipeRpcResponse(
     JsonElement? Result,
     string? Error);
 
+internal sealed record OutgoingJsonPipeRpcRequest(int Id, string Method, object?[] Arguments);
+internal sealed record OutgoingJsonPipeRpcResponse(int Id, object? Result, string? Error);
+
+/// <summary>既有帧格式：4 字节小端正文长度，后接不超过 4 MiB 的 UTF-8 JSON 正文。</summary>
+/// <remarks>写入前完成有界序列化；超限请求不会先向管道写出部分帧。</remarks>
 internal static class JsonPipeRpcFraming
 {
+    internal const int MaximumMessageSize = 4 * 1024 * 1024;
+
     public static async Task WriteAsync<T>(
         Stream stream,
         T value,
         CancellationToken cancellationToken,
         Action? onWriteStarted = null)
     {
-        var payload = JsonSerializer.SerializeToUtf8Bytes(value);
+        using var payload = new BoundedPayloadStream();
+        await JsonSerializer.SerializeAsync(payload, value, cancellationToken: cancellationToken);
+        var length = checked((int)payload.Length);
         var header = new byte[sizeof(int)];
-        BinaryPrimitives.WriteInt32LittleEndian(header, payload.Length);
+        BinaryPrimitives.WriteInt32LittleEndian(header, length);
         cancellationToken.ThrowIfCancellationRequested();
         onWriteStarted?.Invoke();
         await stream.WriteAsync(header, cancellationToken);
-        await stream.WriteAsync(payload, cancellationToken);
+        await stream.WriteAsync(payload.GetBuffer().AsMemory(0, length), cancellationToken);
         await stream.FlushAsync(cancellationToken);
     }
 
@@ -379,6 +449,37 @@ internal static class JsonPipeRpcFraming
         await ReadExactlyAsync(stream, payload, cancellationToken);
         return JsonSerializer.Deserialize<T>(payload)
             ?? throw new InvalidDataException("IPC 消息 JSON 无效。");
+    }
+
+    private sealed class BoundedPayloadStream : MemoryStream
+    {
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            if (Position + count > MaximumMessageSize)
+                throw new InvalidDataException("IPC 消息超过 4 MiB 上限。");
+
+            base.Write(buffer, offset, count);
+        }
+
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            if (Position + buffer.Length > MaximumMessageSize)
+                throw new InvalidDataException("IPC 消息超过 4 MiB 上限。");
+
+            base.Write(buffer);
+        }
+
+        public override ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Write(buffer.Span);
+            return ValueTask.CompletedTask;
+        }
+
+        public override Task WriteAsync(
+            byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            => WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
     }
 
     private static async Task ReadExactlyAsync(

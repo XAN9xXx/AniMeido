@@ -1,12 +1,13 @@
 ﻿using AniMeido.PluginProtocol;
 using System.Buffers.Binary;
 using System.IO.Pipes;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
 
 namespace AniMeido.PluginProtocol.Tests;
 
-public sealed class JsonPipeRpcBoundaryTests
+public sealed partial class JsonPipeRpcBoundaryTests
 {
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(5);
 
@@ -58,10 +59,30 @@ public sealed class JsonPipeRpcBoundaryTests
             Task.FromResult<object?>(request.Arguments[0].GetInt32() * 10));
         var serving = server.RunAsync();
         using var client = new JsonPipeRpcClient(pair.Client);
-        for (var value = 1; value <= 12; value++)
-            Assert.Equal(value * 10, await client.InvokeAsync<int>("scale", [value]).WaitAsync(Budget));
-        client.Dispose();
-        await serving.WaitAsync(Budget);
+        var calls = new List<Task>();
+        Exception? testFailure = null;
+        try
+        {
+            for (var value = 1; value <= 12; value++)
+            {
+                var call = client.InvokeAsync<int>("scale", [value]);
+                calls.Add(call);
+                Assert.Equal(value * 10, await call.WaitAsync(Budget));
+            }
+
+            client.Dispose();
+            await serving.WaitAsync(Budget);
+        }
+#pragma warning disable CA1031 // 先保存主失败，清理后与清理失败一并报告。
+        catch (Exception ex)
+        {
+            testFailure = ex;
+        }
+#pragma warning restore CA1031
+        finally
+        {
+            await FinishPipeTestAsync(client, serving, calls, testFailure);
+        }
     }
 
     [Fact]
@@ -75,29 +96,51 @@ public sealed class JsonPipeRpcBoundaryTests
         {
             var value = request.Arguments[0].GetInt32();
             seen.Add(request.Id);
-            if (value == 1) { entered.SetResult(); await release.Task.WaitAsync(Budget); }
+            if (value == 1)
+            {
+                entered.SetResult();
+                await release.Task.WaitAsync(Budget);
+            }
+
             return $"response-{value}";
         });
         var serving = server.RunAsync();
         using var client = new JsonPipeRpcClient(pair.Client);
+        var calls = new List<Task>();
+        Exception? testFailure = null;
         try
         {
             var first = client.InvokeAsync<string>("echo", [1]);
+            calls.Add(first);
             await entered.Task.WaitAsync(Budget);
-            var pending = Enumerable.Range(2, 12).Select(value =>
-                (Value: value, Call: client.InvokeAsync<string>("echo", [value]))).ToArray();
+            var pending = new List<(int Value, Task<string> Call)>();
+            for (var value = 2; value <= 13; value++)
+            {
+                var call = client.InvokeAsync<string>("echo", [value]);
+                calls.Add(call);
+                pending.Add((value, call));
+            }
+
             Assert.All(pending, item => Assert.False(item.Call.IsCompleted));
             release.TrySetResult();
             Assert.Equal("response-1", await first.WaitAsync(Budget));
             foreach (var item in pending)
                 Assert.Equal($"response-{item.Value}", await item.Call.WaitAsync(Budget));
             Assert.Equal(Enumerable.Range(1, 13), seen);
+
+            client.Dispose();
+            await serving.WaitAsync(Budget);
         }
+#pragma warning disable CA1031 // 先保存主失败，清理后与清理失败一并报告。
+        catch (Exception ex)
+        {
+            testFailure = ex;
+        }
+#pragma warning restore CA1031
         finally
         {
             release.TrySetResult();
-            client.Dispose();
-            await serving.WaitAsync(Budget);
+            await FinishPipeTestAsync(client, serving, calls, testFailure);
         }
     }
 
@@ -142,21 +185,89 @@ public sealed class JsonPipeRpcBoundaryTests
     {
         await using var pair = await PipePair.OpenAsync();
         using var client = new JsonPipeRpcClient(pair.Client);
-        var pending = client.InvokeAsync<int>("pending", []);
         using var budget = new CancellationTokenSource(Budget);
-        var header = new byte[4];
-        await pair.Server.ReadExactlyAsync(header, budget.Token);
-        var body = new byte[BinaryPrimitives.ReadInt32LittleEndian(header)];
-        await pair.Server.ReadExactlyAsync(body, budget.Token);
-        Assert.False(pending.IsCompleted);
-        await pair.Server.DisposeAsync();
-        await Assert.ThrowsAsync<EndOfStreamException>(() => pending.WaitAsync(Budget));
-        Assert.False(client.IsUsable);
-        var next = client.InvokeAsync<int>("later", []);
-        Assert.True(next.IsCompleted);
-        var error = await Assert.ThrowsAsync<JsonPipeRpcException>(() => next.WaitAsync(Budget));
-        Assert.Equal("IPC 连接已失效。", error.Message);
+        var calls = new List<Task>();
+        Exception? testFailure = null;
+        try
+        {
+            var pending = client.InvokeAsync<int>("pending", []);
+            calls.Add(pending);
+            var header = new byte[4];
+            var readHeader = pair.Server.ReadExactlyAsync(header, budget.Token).AsTask();
+            calls.Add(readHeader);
+            await readHeader;
+            var body = new byte[BinaryPrimitives.ReadInt32LittleEndian(header)];
+            var readBody = pair.Server.ReadExactlyAsync(body, budget.Token).AsTask();
+            calls.Add(readBody);
+            await readBody;
+            Assert.False(pending.IsCompleted);
+            await pair.Server.DisposeAsync();
+            await Assert.ThrowsAsync<EndOfStreamException>(() => pending.WaitAsync(Budget));
+            Assert.False(client.IsUsable);
+            var next = client.InvokeAsync<int>("later", []);
+            calls.Add(next);
+            Assert.True(next.IsCompleted);
+            var error = await Assert.ThrowsAsync<JsonPipeRpcException>(() => next.WaitAsync(Budget));
+            Assert.Equal("IPC 连接已失效。", error.Message);
+        }
+#pragma warning disable CA1031 // 保留主失败，再取消读取并等待所有实际管道调用。
+        catch (Exception ex)
+        {
+            testFailure = ex;
+        }
+#pragma warning restore CA1031
+        finally
+        {
+            budget.Cancel();
+            await FinishPipeTestAsync(client, Task.CompletedTask, calls, testFailure);
+        }
     }
+
+    private static async Task FinishPipeTestAsync(
+        JsonPipeRpcClient client,
+        Task serving,
+        IReadOnlyList<Task> calls,
+        Exception? testFailure)
+    {
+        var failures = new List<Exception>();
+        if (testFailure is not null)
+        {
+            failures.Add(testFailure);
+        }
+
+        var disposeFailure = Record.Exception(client.Dispose);
+        if (disposeFailure is not null)
+        {
+            failures.Add(disposeFailure);
+        }
+
+        var drainFailure = await Record.ExceptionAsync(() =>
+            ObservePipeCompletionAsync(Task.WhenAll(calls.Append(serving)))
+                .WaitAsync(Budget));
+        if (drainFailure is not null)
+        {
+            failures.Add(drainFailure);
+        }
+
+        if (failures.Count == 1)
+        {
+            ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        }
+
+        if (failures.Count > 1)
+        {
+            throw new AggregateException(
+                "The pipe test and its cleanup did not both complete successfully.",
+                failures);
+        }
+    }
+
+    private static async Task ObservePipeCompletionAsync(Task completion)
+    {
+        // 只观察实际任务的结束结果；外层清理等待超时仍须使测试失败。
+        await completion.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+    }
+
     private static byte[] Frame<T>(T value)
     {
         var payload = JsonSerializer.SerializeToUtf8Bytes(value);

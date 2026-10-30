@@ -8,6 +8,6 @@ public static class KnownDragDataFormats
     /// <summary>载荷 kind 字段的取值；反序列化时按 Ordinal 比较。</summary>
     public const string AnimeCardKind = "AniMeido.AnimeCard";
 
-    /// <summary>JSON 文本格式名，用于跨进程拖拽。</summary>
+    /// <summary>保留的扩展格式标识；内置拖拽使用标准 Text，不主动写入此格式。</summary>
     public const string TextJson = "AniMeido.Json";
 }

@@ -1,5 +1,6 @@
 using AniMeido.PluginProtocol;
 using System.Buffers.Binary;
+using System.Runtime.ExceptionServices;
 using System.Text.Json;
 
 namespace AniMeido.PluginProtocol.Tests;
@@ -84,6 +85,80 @@ public sealed class JsonPipeRpcTests
         Assert.False(client.IsUsable);
     }
 
+    [Fact]
+    public async Task Framing_ExactLimitIsAcceptedAndLargerPayloadWritesNothing()
+    {
+        using var stream = new MemoryStream();
+        var value = new string('a', JsonPipeRpcFraming.MaximumMessageSize - 2);
+        await JsonPipeRpcFraming.WriteAsync(stream, value, CancellationToken.None);
+        Assert.Equal(JsonPipeRpcFraming.MaximumMessageSize + sizeof(int), stream.Length);
+
+        stream.SetLength(0);
+        stream.Position = 0;
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            JsonPipeRpcFraming.WriteAsync(stream, value + "b", CancellationToken.None));
+        Assert.Equal(0, stream.Length);
+    }
+
+    [Fact]
+    public async Task Client_OversizedArgumentsDoNotWriteOrPoison()
+    {
+        using var stream = new ScriptedDuplexStream();
+        stream.EnqueueResponse(2, 9, null);
+        using var client = new JsonPipeRpcClient(stream);
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            client.InvokeAsync<int>("large", [new string('x', JsonPipeRpcFraming.MaximumMessageSize)]));
+
+        Assert.Equal(0, stream.WriteCount);
+        Assert.True(client.IsUsable);
+        Assert.Equal(9, await client.InvokeAsync<int>("next", []));
+    }
+
+    [Fact]
+    public async Task Server_OversizedResultReturnsErrorAndKeepsNextRequestUsable()
+    {
+        using var stream = new ScriptedDuplexStream();
+        stream.EnqueueRequest(1, "large");
+        stream.EnqueueRequest(2, "next");
+        var server = new JsonPipeRpcServer(stream, request => Task.FromResult<object?>(
+            request.Id == 1 ? new string('x', JsonPipeRpcFraming.MaximumMessageSize) : 9));
+        await server.RunAsync();
+
+        stream.Written.Position = 0;
+        var first = await JsonPipeRpcFraming.ReadAsync<JsonPipeRpcResponse>(
+            stream.Written, JsonPipeRpcFraming.MaximumMessageSize, CancellationToken.None);
+        var second = await JsonPipeRpcFraming.ReadAsync<JsonPipeRpcResponse>(
+            stream.Written, JsonPipeRpcFraming.MaximumMessageSize, CancellationToken.None);
+        Assert.Equal(1, first.Id);
+        Assert.Contains("4 MiB", first.Error);
+        Assert.Null(first.Result);
+        Assert.Equal(2, second.Id);
+        Assert.Equal(9, second.Result!.Value.GetInt32());
+    }
+
+    [Fact]
+    public async Task Server_ReportsOriginalDispatchExceptionOnce()
+    {
+        using var stream = new ScriptedDuplexStream();
+        stream.EnqueueRequest(1, "fails");
+        var error = new InvalidOperationException("operation failed");
+        var observed = new List<(string Method, Exception Error)>();
+        var server = new JsonPipeRpcServer(
+            stream,
+            _ => Task.FromException<object?>(error),
+            reportDispatchFailure: (method, failure) => observed.Add((method, failure)));
+        await server.RunAsync();
+
+        var report = Assert.Single(observed);
+        Assert.Equal("fails", report.Method);
+        Assert.Same(error, report.Error);
+        Assert.NotNull(report.Error.StackTrace);
+        stream.Written.Position = 0;
+        var response = await JsonPipeRpcFraming.ReadAsync<JsonPipeRpcResponse>(
+            stream.Written, JsonPipeRpcFraming.MaximumMessageSize, CancellationToken.None);
+        Assert.Equal(error.Message, response.Error);
+    }
+
     private sealed record NullableResult(string Name);
 
     [Fact]
@@ -147,24 +222,38 @@ public sealed class JsonPipeRpcTests
         stream.BlockNextRead();
         using var client = new JsonPipeRpcClient(stream);
 
-        var first = client.InvokeAsync<int>("first", []);
-        await stream.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
         using var cancellation = new CancellationTokenSource();
-        var queued = client.InvokeAsync<int>(
-            "queued",
-            [],
-            cancellation.Token);
-        cancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            queued.WaitAsync(TimeSpan.FromSeconds(5)));
-        stream.ReleaseRead();
+        var calls = new List<Task>();
+        Exception? testFailure = null;
+        try
+        {
+            var first = client.InvokeAsync<int>("first", []);
+            calls.Add(first);
+            await stream.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var queued = client.InvokeAsync<int>("queued", [], cancellation.Token);
+            calls.Add(queued);
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                queued.WaitAsync(TimeSpan.FromSeconds(5)));
+            stream.ReleaseRead();
 
-        Assert.Equal(1, await first.WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.Equal(
-            2,
-            await client.InvokeAsync<int>("third", [])
-                .WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.True(client.IsUsable);
+            Assert.Equal(1, await first.WaitAsync(TimeSpan.FromSeconds(5)));
+            var third = client.InvokeAsync<int>("third", []);
+            calls.Add(third);
+            Assert.Equal(2, await third.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.True(client.IsUsable);
+        }
+#pragma warning disable CA1031 // 主失败保留到真实调用排空后再交还。
+        catch (Exception ex)
+        {
+            testFailure = ex;
+        }
+#pragma warning restore CA1031
+        finally
+        {
+            stream.ReleaseRead();
+            await FinishRpcTestAsync(client.Dispose, calls, testFailure);
+        }
     }
 
     [Fact]
@@ -175,17 +264,30 @@ public sealed class JsonPipeRpcTests
         using var client = new JsonPipeRpcClient(stream);
         using var cancellation = new CancellationTokenSource();
 
-        var request = client.InvokeAsync<int>(
-            "partial",
-            [],
-            cancellation.Token);
-        await stream.WriteStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        cancellation.Cancel();
+        var calls = new List<Task>();
+        Exception? testFailure = null;
+        try
+        {
+            var request = client.InvokeAsync<int>("partial", [], cancellation.Token);
+            calls.Add(request);
+            await stream.WriteStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            cancellation.Cancel();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            request.WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.False(client.IsUsable);
-        Assert.Equal(1, stream.WriteCount);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                request.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.False(client.IsUsable);
+            Assert.Equal(1, stream.WriteCount);
+        }
+#pragma warning disable CA1031 // 主失败保留到真实调用排空后再交还。
+        catch (Exception ex)
+        {
+            testFailure = ex;
+        }
+#pragma warning restore CA1031
+        finally
+        {
+            await FinishRpcTestAsync(client.Dispose, calls, testFailure);
+        }
     }
 
     [Fact]
@@ -197,20 +299,35 @@ public sealed class JsonPipeRpcTests
         using var client = new JsonPipeRpcClient(stream);
         using var cancellation = new CancellationTokenSource();
 
-        var request = client.InvokeAsync<int>(
-            "read",
-            [],
-            cancellation.Token);
-        await stream.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        cancellation.Cancel();
-        stream.ReleaseRead();
+        var calls = new List<Task>();
+        Exception? testFailure = null;
+        try
+        {
+            var request = client.InvokeAsync<int>("read", [], cancellation.Token);
+            calls.Add(request);
+            await stream.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            cancellation.Cancel();
+            stream.ReleaseRead();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            request.WaitAsync(TimeSpan.FromSeconds(5)));
-        stream.EnqueueResponse(2, 2, null);
-        Assert.False(client.IsUsable);
-        await Assert.ThrowsAsync<JsonPipeRpcException>(() =>
-            client.InvokeAsync<int>("after-read-fault", []));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                request.WaitAsync(TimeSpan.FromSeconds(5)));
+            stream.EnqueueResponse(2, 2, null);
+            Assert.False(client.IsUsable);
+            var afterFault = client.InvokeAsync<int>("after-read-fault", []);
+            calls.Add(afterFault);
+            await Assert.ThrowsAsync<JsonPipeRpcException>(() => afterFault);
+        }
+#pragma warning disable CA1031 // 主失败保留到真实调用排空后再交还。
+        catch (Exception ex)
+        {
+            testFailure = ex;
+        }
+#pragma warning restore CA1031
+        finally
+        {
+            stream.ReleaseRead();
+            await FinishRpcTestAsync(client.Dispose, calls, testFailure);
+        }
     }
 
     [Fact]
@@ -220,17 +337,34 @@ public sealed class JsonPipeRpcTests
         stream.EnqueueResponse(1, 1, null);
         stream.BlockNextRead();
         var client = new JsonPipeRpcClient(stream);
-        var active = client.InvokeAsync<int>("active", []);
-        await stream.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var queued = client.InvokeAsync<int>("queued", []);
+        var calls = new List<Task>();
+        Exception? testFailure = null;
+        try
+        {
+            var active = client.InvokeAsync<int>("active", []);
+            calls.Add(active);
+            await stream.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var queued = client.InvokeAsync<int>("queued", []);
+            calls.Add(queued);
 
-        client.Dispose();
+            client.Dispose();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            active.WaitAsync(TimeSpan.FromSeconds(5)));
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            queued.WaitAsync(TimeSpan.FromSeconds(5)));
-        client.Dispose();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                active.WaitAsync(TimeSpan.FromSeconds(5)));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                queued.WaitAsync(TimeSpan.FromSeconds(5)));
+            client.Dispose();
+        }
+#pragma warning disable CA1031 // 主失败保留到真实调用排空后再交还。
+        catch (Exception ex)
+        {
+            testFailure = ex;
+        }
+#pragma warning restore CA1031
+        finally
+        {
+            await FinishRpcTestAsync(client.Dispose, calls, testFailure);
+        }
     }
 
     [Fact]
@@ -301,11 +435,25 @@ public sealed class JsonPipeRpcTests
             });
 
         var running = server.RunAsync(cancellation.Token);
-        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        cancellation.Cancel();
-        await running.WaitAsync(TimeSpan.FromSeconds(5));
+        Exception? testFailure = null;
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            cancellation.Cancel();
+            await running.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Equal(0, stream.WriteCount);
+            Assert.Equal(0, stream.WriteCount);
+        }
+#pragma warning disable CA1031 // 主失败保留到服务端取消并排空后再交还。
+        catch (Exception ex)
+        {
+            testFailure = ex;
+        }
+#pragma warning restore CA1031
+        finally
+        {
+            await FinishRpcTestAsync(cancellation.Cancel, [running], testFailure);
+        }
     }
 
     [Fact]
@@ -319,16 +467,33 @@ public sealed class JsonPipeRpcTests
             stream.EnqueueResponse(1, 1, null);
             stream.BlockNextRead();
             var client = new JsonPipeRpcClient(stream);
-            var active = client.InvokeAsync<int>("active", []);
-            await stream.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            var queued = client.InvokeAsync<int>("queued", []);
+            var calls = new List<Task>();
+            Exception? testFailure = null;
+            try
+            {
+                var active = client.InvokeAsync<int>("active", []);
+                calls.Add(active);
+                await stream.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                var queued = client.InvokeAsync<int>("queued", []);
+                calls.Add(queued);
 
-            client.Dispose();
+                client.Dispose();
 
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-                active.WaitAsync(TimeSpan.FromSeconds(5)));
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-                queued.WaitAsync(TimeSpan.FromSeconds(5)));
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                    active.WaitAsync(TimeSpan.FromSeconds(5)));
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                    queued.WaitAsync(TimeSpan.FromSeconds(5)));
+            }
+#pragma warning disable CA1031 // 每一轮都交还资源并观察实际调用，再报告主失败。
+            catch (Exception ex)
+            {
+                testFailure = ex;
+            }
+#pragma warning restore CA1031
+            finally
+            {
+                await FinishRpcTestAsync(client.Dispose, calls, testFailure);
+            }
         }
     }
 
@@ -357,8 +522,37 @@ public sealed class JsonPipeRpcTests
         Assert.False(client.IsUsable);
     }
 
+    private static async Task FinishRpcTestAsync(
+        Action stop,
+        IReadOnlyList<Task> operations,
+        Exception? testFailure)
+    {
+        var failures = new List<Exception>();
+        if (testFailure is not null)
+            failures.Add(testFailure);
+
+        var stopFailure = Record.Exception(stop);
+        if (stopFailure is not null)
+            failures.Add(stopFailure);
+
+        var drainFailure = await Record.ExceptionAsync(() =>
+            ObserveCompletionAsync(Task.WhenAll(operations)).WaitAsync(TimeSpan.FromSeconds(5)));
+        if (drainFailure is not null)
+            failures.Add(drainFailure);
+
+        if (failures.Count == 1)
+            ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        if (failures.Count > 1)
+            throw new AggregateException("The RPC test and its cleanup did not both complete successfully.", failures);
+    }
+
+    private static async Task ObserveCompletionAsync(Task completion)
+        => await completion.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+
     private sealed class ScriptedDuplexStream : Stream
     {
+        public MemoryStream Written { get; } = new();
+
         private readonly Queue<byte> _readBytes = new();
         private bool _disposed;
         private bool _blockNextRead;
@@ -380,7 +574,7 @@ public sealed class JsonPipeRpcTests
 
         public void BlockNextRead() => _blockNextRead = true;
 
-        public void ReleaseRead() => ReadReleaseSource.SetResult();
+        public void ReleaseRead() => ReadReleaseSource.TrySetResult();
 
         public void BlockNextWrite() => _blockNextWrite = true;
 
@@ -462,6 +656,7 @@ public sealed class JsonPipeRpcTests
                 WriteStarted.SetResult();
                 await WriteReleaseSource.Task.WaitAsync(cancellationToken);
             }
+            await Written.WriteAsync(buffer, cancellationToken);
         }
 
         public override void Flush() { }
@@ -473,6 +668,8 @@ public sealed class JsonPipeRpcTests
         protected override void Dispose(bool disposing)
         {
             _disposed = true;
+            if (disposing)
+                Written.Dispose();
             base.Dispose(disposing);
         }
 

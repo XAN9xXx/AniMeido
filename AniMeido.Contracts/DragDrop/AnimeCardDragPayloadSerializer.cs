@@ -21,8 +21,25 @@ public static class AnimeCardDragPayloadSerializer
     {
         try
         {
-            var payload = JsonSerializer.Deserialize<AnimeCardDragPayload>(json, Options);
-            if (payload == null)
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return null;
+
+            var hasKind = false;
+            var hasSchemaVersion = false;
+            foreach (var property in root.EnumerateObject())
+            {
+                hasKind |= property.Name.Equals("kind", StringComparison.OrdinalIgnoreCase);
+                hasSchemaVersion |= property.Name.Equals("schemaVersion", StringComparison.OrdinalIgnoreCase);
+            }
+
+            // 出站默认值不能替代入站载荷明确声明的卡片身份。
+            if (!hasKind || !hasSchemaVersion)
+                return null;
+
+            var payload = root.Deserialize<AnimeCardDragPayload>(Options);
+            if (payload == null || payload.AnimeId == 0)
                 return null;
 
             if (!string.Equals(payload.Kind, KnownDragDataFormats.AnimeCardKind, StringComparison.Ordinal))
