@@ -6,6 +6,8 @@ namespace AniMeido.Tests;
 
 public sealed class SourceMappingStoreTests
 {
+    private static readonly TimeSpan CompletionBudget = TimeSpan.FromSeconds(30);
+
     [Theory]
     [InlineData("ensure")]
     [InlineData("get")]
@@ -44,13 +46,16 @@ public sealed class SourceMappingStoreTests
 
         try
         {
-            await operation.WaitAsync(TimeSpan.FromSeconds(2));
+            // 直接观察 UI 依赖，文件操作的完成预算允许 CI 调度和磁盘耗时波动。
+            var completed = await Task.WhenAny(operation, ui.FirstPost).WaitAsync(CompletionBudget);
+            Assert.Same(operation, completed);
+            await operation;
             Assert.Equal(0, ui.PostCount);
         }
         finally
         {
             ui.Resume();
-            await Task.WhenAny(operation).WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.WhenAny(operation).WaitAsync(CompletionBudget);
             await operation.ConfigureAwait(
                 ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
         }
