@@ -19,7 +19,7 @@
 ## 提交代码
 
 1. 小修复可以直接提 PR。新功能或跨模块的改动，请先开 Issue 讨论范围。
-2. 业务功能写在 Base 插件（`Plugins/AniMeido.Plugin.Base`）里，App 只负责窗口、导航和设置这类外壳功能。
+2. 业务逻辑与存储写在 `Plugins/AniMeido.Plugin.Base.Core`；WinUI 页面、ViewModel 和平台接线写在 `Plugins/AniMeido.Plugin.Base`。App 负责窗口、导航、应用设置和插件宿主。
 3. 如果改动涉及插件协议、数据库结构或 Contracts，请在 PR 里说明兼容性和数据迁移的影响。
 4. PR 描述写清楚：改了什么、为什么改、你实际测试了哪些场景。
 
@@ -27,12 +27,20 @@
 
 ```powershell
 dotnet build AniMeido.slnx
+dotnet test AniMeido.Plugin.Base.Core.Tests
 dotnet test AniMeido.PluginProtocol.Tests
 dotnet test AniMeido.Updates.Tests
 dotnet test AniMeido.Tests
 ```
 
-`AniMeido.Tests` 的目标框架是 Windows 专用的，需要在 Windows 上运行。
+完整解决方案构建和 `AniMeido.Tests` 需要 Windows。业务核心 `AniMeido.Plugin.Base.Core` 及其测试使用纯 `net10.0`，可以在 Linux 上单独构建和测试。
+
+需要运行应用时，先设置独立数据目录：
+
+```powershell
+$env:ANIMEIDO_DATA_ROOT = 'D:\AniMeidoDev\sandbox'
+dotnet run --project AniMeido.App/AniMeido.App.csproj
+```
 
 ## 许可
 

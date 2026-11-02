@@ -25,13 +25,13 @@
 
 ## 下载
 
-当前版本为 2.1.1，请到 [官网](https://animeido.com/) 下载，有含运行环境的完整版和精简版两种。
+已发布版本请到 [官网](https://animeido.com/) 查看和下载。2.x 提供含运行环境的完整版和精简版。
 
 2.x 版本只在官网发布，GitHub Releases 里只有早期的 1.x 版本。从 3.0 开始，安装包会同时发布到 GitHub Releases。
 
 ## 开发路线
 
-近期在做三件事：新的安装方式与应用内一键更新、自有的多来源番剧资料服务，以及迁移到 Uno 平台以支持 Android。完整内容见 [ROADMAP](ROADMAP.md)。
+源码主线已完成业务核心重构、自有多来源资料服务接入，以及新的安装方式和应用内更新。下一步先验证 Uno，再迁移界面并支持 Android。这些主线能力随 3.0 发布，完整路线见 [ROADMAP](ROADMAP.md)。
 
 路线的一部分依据来自 [2026 年 9 月用户问卷](docs-public/user-feedback-2026-09.md)：呼声最高的是电脑与手机同步。
 
@@ -43,6 +43,7 @@
 
 ```powershell
 dotnet build AniMeido.slnx
+$env:ANIMEIDO_DATA_ROOT = 'D:\AniMeidoDev\sandbox'
 dotnet run --project AniMeido.App/AniMeido.App.csproj
 ```
 
