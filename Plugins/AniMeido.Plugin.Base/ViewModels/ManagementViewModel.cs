@@ -45,6 +45,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         private int _viewVersion;
         // 切换筛选只更换读取；开始新加载或离页才使旧写入的展示回写失效。
         private int _loadVersion;
+        private Task _statusChangeTail = Task.CompletedTask;
 
         public ObservableCollection<TrackingStatusSection> StatusSections { get; }
 
@@ -243,6 +244,26 @@ namespace AniMeido.Plugin.Base.ViewModels
             AnimeTrackingStatus? target)
         {
             var loadVersion = _loadVersion;
+            var requested = entries.ToArray();
+            var previous = _statusChangeTail;
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _statusChangeTail = completion.Task;
+            try
+            {
+                await previous;
+                return await ChangeStatusCoreAsync(requested, target, loadVersion);
+            }
+            finally
+            {
+                completion.TrySetResult();
+            }
+        }
+
+        private async Task<StatusChangeResult> ChangeStatusCoreAsync(
+            IReadOnlyList<MineEntry> entries,
+            AnimeTrackingStatus? target,
+            int loadVersion)
+        {
             var succeeded = 0;
             var failed = 0;
             foreach (var entry in entries)
@@ -251,7 +272,8 @@ namespace AniMeido.Plugin.Base.ViewModels
                 {
                     if (target is { } status)
                     {
-                        if (_tracking.TryGetValue(entry.Anime.ID, out var current) && current.Status == status)
+                        // 页面可能在排队期间重新加载，按已提交状态去重。
+                        if (await _trackingService.GetStatusAsync(entry.Anime.ID) == status)
                             continue;
 
                         await _trackingService.SetStatusAsync(entry.Anime.ID, status);
