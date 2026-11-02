@@ -10,7 +10,7 @@ namespace AniMeido.Tests;
 public sealed partial class TrackingServiceSchedulingTests : IAsyncLifetime
 {
     private static readonly TimeSpan ReturnBudget = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan CompletionBudget = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan CompletionBudget = TimeSpan.FromSeconds(30);
 
     private readonly PersonalDatabaseFixture _database = new();
     private readonly SqliteConnectionFactory _dbFactory;
@@ -66,7 +66,7 @@ public sealed partial class TrackingServiceSchedulingTests : IAsyncLifetime
         Task operation;
         try
         {
-            operation = await invocation.Returned.WaitAsync(ReturnBudget);
+            operation = await invocation.WaitForReturnAsync();
             Assert.False(operation.IsCompleted);
         }
         finally
@@ -96,7 +96,7 @@ public sealed partial class TrackingServiceSchedulingTests : IAsyncLifetime
         Task operation;
         try
         {
-            operation = await invocation.Returned.WaitAsync(ReturnBudget);
+            operation = await invocation.WaitForReturnAsync();
             Assert.False(operation.IsCompleted);
             Assert.Empty(notifications.CancelledGroups);
 
@@ -237,7 +237,7 @@ public sealed partial class TrackingServiceSchedulingTests : IAsyncLifetime
         Task operation;
         try
         {
-            operation = await invocation.Returned.WaitAsync(ReturnBudget);
+            operation = await invocation.WaitForReturnAsync();
             Assert.False(operation.IsCompleted);
             Assert.Empty(notifications.CancelledGroups);
 
@@ -440,7 +440,7 @@ public sealed partial class TrackingServiceSchedulingTests : IAsyncLifetime
         Task operation;
         try
         {
-            operation = await invocation.Returned.WaitAsync(ReturnBudget);
+            operation = await invocation.WaitForReturnAsync();
             Assert.False(operation.IsCompleted);
         }
         finally
@@ -457,6 +457,7 @@ public sealed partial class TrackingServiceSchedulingTests : IAsyncLifetime
 
     private static ContextInvocation CallFromPausedContextThread(Func<Task> call, SynchronizationContext context)
     {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var returned = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
         var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(() =>
@@ -464,6 +465,7 @@ public sealed partial class TrackingServiceSchedulingTests : IAsyncLifetime
             SynchronizationContext.SetSynchronizationContext(context);
             try
             {
+                started.SetResult();
                 returned.SetResult(call());
             }
 #pragma warning disable CA1031 // 专用调用线程把原始失败交还测试，不允许未观察异常退出进程。
@@ -479,7 +481,7 @@ public sealed partial class TrackingServiceSchedulingTests : IAsyncLifetime
             }
         }) { IsBackground = true };
         thread.Start();
-        return new ContextInvocation(returned.Task, exited.Task);
+        return new ContextInvocation(started.Task, returned.Task, exited.Task);
     }
 
     private static async Task FinishInvocationAsync(ContextInvocation invocation)
@@ -491,7 +493,15 @@ public sealed partial class TrackingServiceSchedulingTests : IAsyncLifetime
         await invocation.Exited.WaitAsync(CompletionBudget);
     }
 
-    private sealed record ContextInvocation(Task<Task> Returned, Task Exited);
+    private sealed record ContextInvocation(Task Started, Task<Task> Returned, Task Exited)
+    {
+        internal async Task<Task> WaitForReturnAsync()
+        {
+            // CI 的线程启动与磁盘完成可稍慢；方法返回仍单独保留短期限。
+            await Started.WaitAsync(CompletionBudget);
+            return await Returned.WaitAsync(ReturnBudget);
+        }
+    }
 
     private sealed class ObservedPausedUiContext : SynchronizationContext
     {

@@ -39,7 +39,7 @@ public sealed partial class TrackingServiceSchedulingTests
         Task operation;
         try
         {
-            operation = await invocation.Returned.WaitAsync(ReturnBudget);
+            operation = await invocation.WaitForReturnAsync();
             Assert.False(operation.IsCompleted);
             fixture.Mutate();
         }
@@ -63,7 +63,7 @@ public sealed partial class TrackingServiceSchedulingTests
         Task operation;
         try
         {
-            operation = await batch.Invocation.Returned.WaitAsync(ReturnBudget);
+            operation = await batch.Invocation.WaitForReturnAsync();
             Assert.All(await batch.Writes, write => Assert.False(write.IsCompleted));
         }
         finally
@@ -85,7 +85,7 @@ public sealed partial class TrackingServiceSchedulingTests
         var batch = QueueRecentSearchSaves(stateStore, ["first"], ["second"], ["last"]);
         try
         {
-            var operation = await batch.Invocation.Returned.WaitAsync(ReturnBudget);
+            var operation = await batch.Invocation.WaitForReturnAsync();
             using var import = _dbFactory.Access.BeginExclusive();
             var drained = import.WaitForDrainAsync(CancellationToken.None);
 
@@ -115,7 +115,7 @@ public sealed partial class TrackingServiceSchedulingTests
         Task? stopping = null;
         try
         {
-            var operation = await batch.Invocation.Returned.WaitAsync(ReturnBudget);
+            var operation = await batch.Invocation.WaitForReturnAsync();
             stopping = _dbFactory.StopAsync();
 
             Assert.False(stopping.IsCompleted);
@@ -170,7 +170,7 @@ public sealed partial class TrackingServiceSchedulingTests
         Task[] writes;
         try
         {
-            await batch.Invocation.Returned.WaitAsync(ReturnBudget);
+            await batch.Invocation.WaitForReturnAsync();
             writes = await batch.Writes;
             Assert.All(writes, write => Assert.False(write.IsCompleted));
         }

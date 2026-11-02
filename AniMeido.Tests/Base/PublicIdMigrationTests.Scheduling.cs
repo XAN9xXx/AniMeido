@@ -7,7 +7,7 @@ namespace AniMeido.Tests;
 public sealed partial class PublicIdMigrationTests
 {
     private static readonly TimeSpan SchedulingReturnBudget = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan SchedulingCompletionBudget = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan SchedulingCompletionBudget = TimeSpan.FromSeconds(30);
 
     [Fact]
     public async Task Migration_ReturnsWhileSqliteIsLocked_AndFinishesWithoutTheCallingUiContext()
@@ -21,12 +21,16 @@ public sealed partial class PublicIdMigrationTests
         var invocation = InvokeMigrationFromPausedUi(Service(client), context);
         try
         {
+            // 先等调用线程就绪，再计量方法返回，避免把线程启动延迟算成同步阻塞。
+            await invocation.Started.WaitAsync(SchedulingCompletionBudget);
             var migrating = await invocation.Returned.WaitAsync(SchedulingReturnBudget);
             Assert.False(migrating.IsCompleted);
             Assert.Empty(handler.Paths);
 
             blocker.Dispose();
-            await migrating.WaitAsync(SchedulingCompletionBudget);
+            var completed = await Task.WhenAny(migrating, context.FirstPost).WaitAsync(SchedulingCompletionBudget);
+            Assert.Same(migrating, completed);
+            await migrating;
 
             Assert.Equal(0, context.PostCount);
             await AssertSchedulingMigrationResultAsync();
@@ -131,6 +135,7 @@ public sealed partial class PublicIdMigrationTests
     private static MigrationInvocation InvokeMigrationFromPausedUi(
         PublicIdMigrationService service, PausedUiContext context)
     {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var returned = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
         var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(() =>
@@ -138,6 +143,7 @@ public sealed partial class PublicIdMigrationTests
             SynchronizationContext.SetSynchronizationContext(context);
             try
             {
+                started.SetResult();
                 returned.SetResult(service.MigrateAsync());
             }
 #pragma warning disable CA1031 // 专用调用线程把同步失败交还测试，不让未观察异常退出进程。
@@ -153,7 +159,7 @@ public sealed partial class PublicIdMigrationTests
             }
         }) { IsBackground = true };
         thread.Start();
-        return new MigrationInvocation(returned.Task, exited.Task);
+        return new MigrationInvocation(started.Task, returned.Task, exited.Task);
     }
 
     private static async Task FinishMigrationInvocationAsync(MigrationInvocation invocation)
@@ -171,7 +177,7 @@ public sealed partial class PublicIdMigrationTests
         }
     }
 
-    private sealed record MigrationInvocation(Task<Task> Returned, Task Exited);
+    private sealed record MigrationInvocation(Task Started, Task<Task> Returned, Task Exited);
 
     private sealed class GatedMigrationHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
     {
