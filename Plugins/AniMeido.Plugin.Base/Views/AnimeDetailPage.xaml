@@ -65,8 +65,9 @@
                             </StackPanel>
                         </Button>
 
-                        <Button Click="OnPersonalArchiveClick"
-                                IsEnabled="{Binding HasData}"
+                        <Button x:Name="PersonalArchiveButton"
+                                Click="OnPersonalArchiveClick"
+                                IsEnabled="False"
                                 Padding="16,8">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <FontIcon Glyph="&#xE8F1;"/>

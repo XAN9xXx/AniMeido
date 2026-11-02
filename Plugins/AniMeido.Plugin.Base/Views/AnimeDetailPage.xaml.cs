@@ -2,6 +2,7 @@
 using AniMeido.Contracts.Models;
 using AniMeido.Contracts.Playback;
 using AniMeido.Plugin.Base.Exceptions;
+using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
 using CommunityToolkit.Mvvm.Input;
@@ -25,6 +26,9 @@ namespace AniMeido.Plugin.Base.Views
         private readonly IPluginNavigator _pluginNavigator;
         private readonly IAnimePlaybackLauncher? _playbackLauncher;
         private readonly ArchiveService _archive;
+        private readonly PersonalArchiveEditViewModel _personalArchiveEdit;
+        private CancellationTokenSource? _personalArchiveCancellation;
+        private ContentDialog? _personalArchiveDialog;
         private int _currentAnimeId;
         private readonly HashSet<string> _savedTagNames = new();
         private readonly SemaphoreSlim _tagStateGate = new(1, 1);
@@ -51,6 +55,7 @@ namespace AniMeido.Plugin.Base.Views
             _browseHistory = browseHistory;
             _pluginNavigator = pluginNavigator;
             _archive = archive;
+            _personalArchiveEdit = new PersonalArchiveEditViewModel(archive);
             _savedTagService = savedTagService;
             _playbackLauncher = playbackLaunchers.FirstOrDefault();
             ViewModel = new AnimeDetailViewModel(dataSource, trackingService, ratingSource, logger);
@@ -68,6 +73,7 @@ namespace AniMeido.Plugin.Base.Views
                     case nameof(AnimeDetailViewModel.IsError):
                     case nameof(AnimeDetailViewModel.HasData):
                         UpdateOverlayState();
+                        UpdatePersonalArchiveAvailability();
                         if (ViewModel.HasData)
                         {
                             UpdateCoverImage();
@@ -100,13 +106,76 @@ namespace AniMeido.Plugin.Base.Views
             object sender,
             RoutedEventArgs e)
         {
-            if (_currentAnimeId <= 0
+            if (!IsLoaded || _personalArchiveEdit.IsEditing || _currentAnimeId <= 0
                 || ViewModel.AnimeDetail is not { } anime)
             {
                 return;
             }
 
-            var existing = await _archive.GetArchiveAsync(_currentAnimeId);
+            var animeId = _currentAnimeId;
+            var version = _navigationVersion;
+            using var cancellation = new CancellationTokenSource();
+            _personalArchiveCancellation = cancellation;
+            PersonalArchiveButton.IsEnabled = false;
+            bool IsCurrent() => !cancellation.IsCancellationRequested
+                && IsLoaded && IsCurrentNavigation(version, animeId);
+            try
+            {
+                await _personalArchiveEdit.EditAsync(
+                    animeId,
+                    (existing, tags) => ShowPersonalArchiveAsync(animeId, anime, existing, tags, IsCurrent),
+                    IsCurrent,
+                    cancellation.Token);
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+            {
+            }
+            catch (ArgumentOutOfRangeException error)
+            {
+                if (IsCurrent())
+                {
+                    ErrorInfoBar.Message = error.Message;
+                    ErrorInfoBar.IsOpen = true;
+                }
+            }
+#pragma warning disable CA1031 // 页面负责报告本次编辑失败，并恢复入口。
+            catch (Exception error)
+            {
+                _logger.LogError(error, "Personal archive edit failed for {AnimeId}", animeId);
+                if (IsCurrent())
+                {
+                    ErrorInfoBar.Message = "个人档案操作未完成，请重试。";
+                    ErrorInfoBar.IsOpen = true;
+                }
+            }
+#pragma warning restore CA1031
+            finally
+            {
+                if (ReferenceEquals(_personalArchiveCancellation, cancellation))
+                    _personalArchiveCancellation = null;
+                UpdatePersonalArchiveAvailability();
+            }
+        }
+
+        private void UpdatePersonalArchiveAvailability()
+            => PersonalArchiveButton.IsEnabled = IsLoaded && ViewModel.HasData && !_personalArchiveEdit.IsEditing;
+
+        private void CancelPersonalArchiveEdit()
+        {
+            _personalArchiveCancellation?.Cancel();
+            _personalArchiveDialog?.Hide();
+        }
+
+        private async Task ShowPersonalArchiveAsync(
+            int animeId,
+            Anime anime,
+            AnimeArchive? existing,
+            IReadOnlyList<string> existingTags,
+            Func<bool> isCurrent)
+        {
+            if (!isCurrent())
+                return;
+
             var rating = new NumberBox
             {
                 Header = "个人评分（0.5–10，可留空）",
@@ -123,7 +192,7 @@ namespace AniMeido.Plugin.Base.Views
                 PlaceholderText = "使用逗号分隔",
                 Text = string.Join(
                     ", ",
-                    await _archive.GetAnimeTagsAsync(_currentAnimeId)),
+                    existingTags),
             };
             var summary = new TextBox
             {
@@ -147,48 +216,46 @@ namespace AniMeido.Plugin.Base.Views
                 CloseButtonText = "取消",
                 DefaultButton = ContentDialogButton.Primary,
             };
-            var result = await dialog.ShowAsync();
-            if (result == ContentDialogResult.Secondary)
-            {
-                if (existing is null)
-                {
-                    await _archive.UpsertArchiveAsync(
-                        _currentAnimeId,
-                        anime.Title,
-                        null,
-                        string.Empty);
-                }
-                _pluginNavigator.Navigate(
-                    typeof(ArchivePage),
-                    _currentAnimeId);
-                return;
-            }
-
-            if (result != ContentDialogResult.Primary)
-            {
-                return;
-            }
-
+            _personalArchiveDialog = dialog;
             try
             {
+                var result = await dialog.ShowAsync();
+                if (!isCurrent())
+                    return;
+
+                if (result == ContentDialogResult.Secondary)
+                {
+                    if (existing is null)
+                    {
+                        await _archive.UpsertArchiveAsync(
+                            animeId,
+                            anime.Title,
+                            null,
+                            string.Empty);
+                    }
+                    if (isCurrent())
+                        _pluginNavigator.Navigate(typeof(ArchivePage), animeId);
+                    return;
+                }
+
+                if (result != ContentDialogResult.Primary)
+                    return;
+
                 await _archive.UpsertArchiveAsync(
-                    _currentAnimeId,
+                    animeId,
                     anime.Title,
-                    double.IsNaN(rating.Value)
-                        ? null
-                        : rating.Value,
+                    double.IsNaN(rating.Value) ? null : rating.Value,
                     summary.Text);
                 await _archive.SetAnimeTagsAsync(
-                    _currentAnimeId,
+                    animeId,
                     tags.Text.Split(
                         [',', '，'],
-                        StringSplitOptions.RemoveEmptyEntries
-                            | StringSplitOptions.TrimEntries));
+                        StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
             }
-            catch (ArgumentOutOfRangeException ex)
+            finally
             {
-                ErrorInfoBar.Message = ex.Message;
-                ErrorInfoBar.IsOpen = true;
+                if (ReferenceEquals(_personalArchiveDialog, dialog))
+                    _personalArchiveDialog = null;
             }
         }
 
@@ -224,6 +291,7 @@ namespace AniMeido.Plugin.Base.Views
 
         private void OnPageLoaded(object sender, RoutedEventArgs e)
         {
+            UpdatePersonalArchiveAvailability();
             if (_wasLoaded)
             {
                 _ = ResumePageAsync();
@@ -245,6 +313,7 @@ namespace AniMeido.Plugin.Base.Views
         private void OnPageUnloaded(object sender, RoutedEventArgs e)
         {
             _navigationVersion++;
+            CancelPersonalArchiveEdit();
             _navigationInterrupted |= _navigationTask is { IsCompleted: false }
                 || ViewModel.LoadDetailCommand.IsRunning;
             _navigationLoadCancellation?.Cancel();
@@ -268,6 +337,7 @@ namespace AniMeido.Plugin.Base.Views
             if (parameter is int animeID && animeID > 0)
             {
                 var version = ++_navigationVersion;
+                CancelPersonalArchiveEdit();
                 _currentAnimeId = animeID;
                 _browseRecorded = false;
                 _savedTagNames.Clear();
