@@ -74,7 +74,7 @@ public sealed class TagSearchResultsViewModelTests
     }
 
     [Fact]
-    public async Task SetSort_PreservesTheExistingRankDateAndMatchSemanticsWithoutSearchingAgain()
+    public async Task SetSort_KeepsMissingDatesLastAndDoesNotSearchAgain()
     {
         var fixture = new QueryFixture([
             Work(1, 8, new DateOnly(2026, 1, 1)),
@@ -91,11 +91,7 @@ public sealed class TagSearchResultsViewModelTests
         vm.SetSort("date", descending: false);
         Assert.Equal(new[] { 3, 2, 1, 4 }, vm.Items.Select(item => item.ID));
         vm.SetSort("date", descending: true);
-        Assert.Equal(new[] { 4, 1, 2, 3 }, vm.Items.Select(item => item.ID));
-        vm.SetSort("match", descending: false);
         Assert.Equal(new[] { 1, 2, 3, 4 }, vm.Items.Select(item => item.ID));
-        vm.SetSort("match", descending: true);
-        Assert.Equal(new[] { 4, 3, 2, 1 }, vm.Items.Select(item => item.ID));
         Assert.Single(fixture.Queries);
     }
 

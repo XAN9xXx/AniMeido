@@ -11,7 +11,7 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 namespace AniMeido.Plugin.Base.Views
 {
     /// <summary>
-    /// 搜索：先列出“我的番剧”里匹配的作品，再列 Bangumi 结果；未搜索时显示最近搜索与收藏的标签。
+    /// 搜索：先列出“我的番剧”里匹配的作品，再列搜索结果；未搜索时显示最近搜索与收藏的标签。
     /// </summary>
     public sealed partial class GlobalSearchPage : Page
     {
@@ -20,6 +20,7 @@ namespace AniMeido.Plugin.Base.Views
         private readonly ILogger<GlobalSearchPage> _logger;
         private IDisposable? _dropHostRegistration;
         private int _loadVersion;
+        private bool _syncingControls;
 
         public GlobalSearchViewModel ViewModel { get; }
 
@@ -88,6 +89,7 @@ namespace AniMeido.Plugin.Base.Views
             try
             {
                 await action();
+                SyncSearchControls();
             }
             catch (OperationCanceledException)
             {
@@ -148,7 +150,7 @@ namespace AniMeido.Plugin.Base.Views
         {
             foreach (var (key, label) in new[]
             {
-                (SearchSortKey.Match, "匹配度"),
+                (SearchSortKey.Match, "相关性"),
                 (SearchSortKey.Score, "评分"),
                 (SearchSortKey.AirDate, "开播日期"),
             })
@@ -157,14 +159,14 @@ namespace AniMeido.Plugin.Base.Views
             }
 
             SortComboBox.SelectedIndex = 0;
-            SortComboBox.SelectionChanged += (_, _) =>
+            SortComboBox.SelectionChanged += async (_, _) =>
             {
-                if (SortComboBox.SelectedItem is ComboBoxItem { Tag: SearchSortKey key })
-                    ViewModel.SetSortKey(key);
+                if (!_syncingControls && SortComboBox.SelectedItem is ComboBoxItem { Tag: SearchSortKey key })
+                    await RunSafelyAsync(() => ViewModel.SetSortAsync(key), "sort search");
             };
         }
 
-        private void OnFormatChipClick(object sender, RoutedEventArgs e)
+        private async void OnFormatChipClick(object sender, RoutedEventArgs e)
         {
             if (sender is not ToggleButton { Tag: PastSeasonFormatChip chip } button)
                 return;
@@ -176,7 +178,25 @@ namespace AniMeido.Plugin.Base.Views
                 return;
             }
 
-            ViewModel.SelectFormat(chip.Format);
+            await RunSafelyAsync(() => ViewModel.SelectFormatAsync(chip.Format), "filter search");
+        }
+
+        private async void OnIncludeLowVotesChanged(object sender, RoutedEventArgs e)
+        {
+            if (!_syncingControls)
+                await RunSafelyAsync(() => ViewModel.SetIncludeLowVotesAsync(IncludeLowVotes.IsChecked == true), "change rating range");
+        }
+
+        private void SyncSearchControls()
+        {
+            _syncingControls = true;
+            try
+            {
+                SortComboBox.SelectedItem = SortComboBox.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (SearchSortKey)i.Tag == ViewModel.SortKey);
+                IncludeLowVotes.IsChecked = ViewModel.IncludeLowVotes;
+                IncludeLowVotes.IsEnabled = ViewModel.SortKey == SearchSortKey.Score;
+            }
+            finally { _syncingControls = false; }
         }
 
         private void OnOpenMineClick(object sender, RoutedEventArgs e)

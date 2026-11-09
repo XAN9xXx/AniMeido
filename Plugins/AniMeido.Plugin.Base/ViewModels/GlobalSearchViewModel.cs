@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging;
 namespace AniMeido.Plugin.Base.ViewModels
 {
     /// <summary>
-    /// 搜索页：先列出“我的番剧”里匹配的作品，再列 Bangumi 结果（加载更多、形态筛选、排序）；
+    /// 搜索页：先列出“我的番剧”里匹配的作品，再列搜索结果（加载更多、形态筛选、排序）；
     /// 未搜索时显示最近搜索与收藏的标签。
     /// </summary>
     public partial class GlobalSearchViewModel : ObservableObject
@@ -24,6 +24,10 @@ namespace AniMeido.Plugin.Base.ViewModels
         private readonly ILogger _logger;
         private IReadOnlyList<Anime> _loaded = [];
         private IReadOnlyDictionary<int, AnimeTrackingStatus> _statuses = new Dictionary<int, AnimeTrackingStatus>();
+        private MetadataSearchPage? _searchPage;
+        private int _visibleLimit = 20;
+        private readonly Dictionary<int, string> _matchedNames = [];
+        public bool IncludeLowVotes { get; private set; }
         private int _total;
         private int _nextOffset;
         private CancellationTokenSource? _searchCancellation;
@@ -32,7 +36,7 @@ namespace AniMeido.Plugin.Base.ViewModels
         private bool _localSearchPending;
         private bool _remoteSearchPending;
 
-        /// <summary>Bangumi 结果：已去掉屏蔽，已按形态筛选和排序。</summary>
+        /// <summary>搜索结果：已去掉屏蔽，已按形态筛选和排序。</summary>
         public ObservableCollection<PastSeasonEntry> Results { get; } = [];
 
         /// <summary>“我的番剧”里匹配的作品。</summary>
@@ -175,6 +179,11 @@ namespace AniMeido.Plugin.Base.ViewModels
             _remoteSearchPending = true;
             ClearError();
             _loaded = [];
+            _searchPage = null;
+            _matchedNames.Clear();
+            _visibleLimit = 20;
+            IncludeLowVotes = false;
+            SortKey = SearchSortKey.Match;
             _total = 0;
             _nextOffset = 0;
             SelectedFormat = null;
@@ -195,6 +204,8 @@ namespace AniMeido.Plugin.Base.ViewModels
             var version = BeginSearch(out var token);
             if (!_localSearchPending && !_remoteSearchPending)
             {
+                if (_searchPage?.Complete == true && _dataSource is MetadataDataSource)
+                    return ReloadPresentationAsync(SortKey, SelectedFormat, preservePosition: true);
                 UpdateCanLoadMore();
                 return Task.CompletedTask;
             }
@@ -246,13 +257,32 @@ namespace AniMeido.Plugin.Base.ViewModels
             ClearError();
             try
             {
-                var (results, total, nextOffset) = await _dataSource.SearchByKeywordAsync(Query, _nextOffset, token);
-                if (!IsCurrent(version, token))
+                if (_searchPage?.Complete == true)
+                {
+                    _visibleLimit += 20;
                     return;
-
-                _nextOffset = nextOffset;
-                _loaded = SearchBrowse.AppendPage(_loaded, results);
-                _total = total;
+                }
+                if (_dataSource is MetadataDataSource metadata)
+                {
+                    KeywordSearchPage page;
+                    var restarted = false;
+                    try { page = await metadata.SearchPageAsync(Query, _nextOffset, FormatCode(SelectedFormat), false, IncludeLowVotes, _searchPage?.Context, token); }
+                    catch (MetadataServiceException error) when (error.Code == "search_context_changed" && IsCurrent(version, token))
+                    {
+                        page = await metadata.SearchPageAsync(Query, 0, FormatCode(SelectedFormat), false, IncludeLowVotes, null, token, forceRefresh: true);
+                        restarted = true;
+                    }
+                    if (!IsCurrent(version, token)) return;
+                    AcceptPage(page, append: !restarted);
+                }
+                else
+                {
+                    var (results, total, nextOffset) = await _dataSource.SearchByKeywordAsync(Query, _nextOffset, token);
+                    if (!IsCurrent(version, token)) return;
+                    _nextOffset = nextOffset;
+                    _loaded = SearchBrowse.AppendPage(_loaded, results);
+                    _total = total;
+                }
             }
             catch (Exception ex) when (HandleException(ex, version, token))
             {
@@ -321,12 +351,19 @@ namespace AniMeido.Plugin.Base.ViewModels
         {
             var visible = PastSeasonBrowse.Visible(_loaded, _statuses, null, hideCompleted: false);
             FormatChips = PastSeasonBrowse.FormatChips(visible, SelectedFormat);
-            var shown = SearchBrowse.Sort(PastSeasonBrowse.ByFormat(visible, SelectedFormat), SortKey);
+            var candidates = PastSeasonBrowse.ByFormat(visible, SelectedFormat);
+            if (SortKey == SearchSortKey.Score && _searchPage?.Complete == true)
+                candidates = candidates.Where(e => e.Anime.Score.HasValue);
+            var ordered = SearchBrowse.Sort(candidates, SortKey);
+            var shown = (_searchPage?.Complete == true ? ordered.Take(_visibleLimit) : ordered)
+                .Select(e => e with { MatchedName = _matchedNames.GetValueOrDefault(e.Anime.ID) }).ToList();
             if (!CollectionSync.SyncInPlace(Results, shown, entry => entry.Anime.ID))
                 Replace(Results, shown);
 
             SummaryText = HasSearched && !_remoteSearchPending && !IsSearching
-                ? SearchBrowse.Summary(_total, _loaded.Count) : "";
+                ? SearchBrowse.Summary(_searchPage?.Complete == true ? ordered.Count : _total, shown.Count) : "";
+            if (_searchPage?.IsOffline == true)
+                SummaryText += $" · 离线结果（{_searchPage.FetchedAt:yyyy-MM-dd HH:mm}）";
             UpdateCanLoadMore();
             HasNoResults = HasSearched && !_remoteSearchPending && !IsSearching && !IsError && Results.Count == 0;
             EmptyText = _loaded.Count == 0 ? $"没有找到与“{Query}”相关的番剧" : "当前筛选下没有作品";
@@ -334,7 +371,10 @@ namespace AniMeido.Plugin.Base.ViewModels
 
         private void UpdateCanLoadMore()
             => CanLoadMore = HasSearched && _searchCancellation is not null
-                && !IsSearching && !_remoteSearchPending && _nextOffset < _total;
+                && !IsSearching && !_remoteSearchPending && (_searchPage?.Complete == true
+                    ? _visibleLimit < PastSeasonBrowse.ByFormat(PastSeasonBrowse.Visible(_loaded, _statuses, null, false), SelectedFormat)
+                        .Count(e => SortKey != SearchSortKey.Score || e.Anime.Score.HasValue)
+                    : _nextOffset < _total);
 
         private async Task PublishLocalMatchesAsync(string query, int version, CancellationToken token)
         {
@@ -351,13 +391,20 @@ namespace AniMeido.Plugin.Base.ViewModels
         {
             try
             {
-                var (results, total, nextOffset) = await _dataSource.SearchByKeywordAsync(query, 0, token);
-                if (!IsCurrent(version, token))
-                    return;
-
-                _loaded = SearchBrowse.AppendPage([], results);
-                _total = total;
-                _nextOffset = nextOffset;
+                if (_dataSource is MetadataDataSource metadata)
+                {
+                    var page = await ReadFirstPageAsync(metadata, query, null, false, IncludeLowVotes, version, token);
+                    if (!IsCurrent(version, token)) return;
+                    AcceptPage(page, append: false);
+                }
+                else
+                {
+                    var (results, total, nextOffset) = await _dataSource.SearchByKeywordAsync(query, 0, token);
+                    if (!IsCurrent(version, token)) return;
+                    _loaded = SearchBrowse.AppendPage([], results);
+                    _total = total;
+                    _nextOffset = nextOffset;
+                }
             }
             catch (Exception ex) when (HandleException(ex, version, token))
             {
@@ -372,6 +419,80 @@ namespace AniMeido.Plugin.Base.ViewModels
                 }
             }
         }
+
+        private void AcceptPage(KeywordSearchPage page, bool append)
+        {
+            if (!append) { _loaded = []; _matchedNames.Clear(); _nextOffset = 0; _visibleLimit = 20; }
+            _loaded = SearchBrowse.AppendPage(_loaded, page.Items);
+            _searchPage = page.Raw;
+            _total = page.Raw.Total;
+            _nextOffset += page.Raw.Items.Count;
+            foreach (var entry in page.Raw.Items)
+                _matchedNames[entry.Id] = entry.MatchedName;
+        }
+
+        public Task SetSortAsync(SearchSortKey key) => _dataSource is MetadataDataSource && HasSearched
+            ? ReloadPresentationAsync(key, SelectedFormat) : SetLegacySort(key);
+        private Task SetLegacySort(SearchSortKey key) { SetSortKey(key); return Task.CompletedTask; }
+
+        public Task SelectFormatAsync(AnimeMediaFormat? format) => _dataSource is MetadataDataSource && HasSearched
+            ? ReloadPresentationAsync(SortKey, format) : SelectLegacyFormat(format);
+        private Task SelectLegacyFormat(AnimeMediaFormat? format) { SelectFormat(format); return Task.CompletedTask; }
+
+        public Task SetIncludeLowVotesAsync(bool include)
+        {
+            if (HasSearched && _dataSource is MetadataDataSource)
+                return ReloadPresentationAsync(SortKey, SelectedFormat, includeLowVotes: include);
+            IncludeLowVotes = include;
+            return Task.CompletedTask;
+        }
+
+        private async Task ReloadPresentationAsync(SearchSortKey sort, AnimeMediaFormat? format,
+            bool preservePosition = false, bool? includeLowVotes = null)
+        {
+            if (_dataSource is not MetadataDataSource metadata) return;
+            var requestedLowVotes = includeLowVotes ?? IncludeLowVotes;
+            var visibleLimit = _visibleLimit;
+            var version = BeginSearch(out var token);
+            IsSearching = true;
+            IsLoadingMore = false;
+            ClearError();
+            var local = _localSearchPending ? PublishLocalMatchesAsync(Query, version, token) : Task.CompletedTask;
+            try
+            {
+                var complete = sort != SearchSortKey.Match || format == AnimeMediaFormat.Unknown;
+                // 缓存保存原始评分；服务按当天重算，并在跨日或版本变化后重新读取。
+                var page = await ReadFirstPageAsync(metadata, Query, FormatCode(format), complete, requestedLowVotes, version, token);
+                if (!IsCurrent(version, token)) return;
+                SortKey = sort;
+                SelectedFormat = format;
+                IncludeLowVotes = requestedLowVotes;
+                AcceptPage(page, append: false);
+                if (preservePosition) _visibleLimit = visibleLimit;
+            }
+            catch (Exception error) when (HandleException(error, version, token)) { }
+            finally
+            {
+                await local;
+                if (IsCurrent(version, token)) { IsSearching = false; _remoteSearchPending = false; ApplyResults(); }
+            }
+        }
+
+        private async Task<KeywordSearchPage> ReadFirstPageAsync(MetadataDataSource metadata, string query,
+            string? format, bool complete, bool includeLowVotes, int version, CancellationToken token)
+        {
+            try { return await metadata.SearchPageAsync(query, 0, format, complete, includeLowVotes, null, token); }
+            catch (MetadataServiceException error) when (error.Code == "search_context_changed" && IsCurrent(version, token))
+            {
+                return await metadata.SearchPageAsync(query, 0, format, complete, includeLowVotes, null, token, forceRefresh: true);
+            }
+        }
+
+        private static string? FormatCode(AnimeMediaFormat? format) => format switch
+        {
+            AnimeMediaFormat.Television => "tv", AnimeMediaFormat.Ova => "ova",
+            AnimeMediaFormat.Movie => "movie", AnimeMediaFormat.Ona => "web", _ => null,
+        };
 
         private void UpdateLocalSummary()
         {

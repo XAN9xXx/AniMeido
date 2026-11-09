@@ -35,12 +35,12 @@ public static class SearchBrowse
         return loaded.Concat(page.Where(anime => seen.Add(anime.ID))).ToList();
     }
 
-    /// <summary>匹配度保持 Bangumi 返回的顺序；评分从高到低；开播日期从新到旧。缺失的排在最后。</summary>
+    /// <summary>相关性保持搜索服务返回的顺序；评分从高到低；开播日期从新到旧。缺失的排在最后。</summary>
     public static IReadOnlyList<PastSeasonEntry> Sort(IEnumerable<PastSeasonEntry> entries, SearchSortKey key)
         => key switch
         {
             SearchSortKey.Score => PastSeasonBrowse.Sort(entries, PastSeasonSortKey.Score, ascending: false),
-            SearchSortKey.AirDate => PastSeasonBrowse.Sort(entries, PastSeasonSortKey.AirDate, ascending: false),
+            SearchSortKey.AirDate => entries.OrderBy(e => e.Anime.AirDate.HasValue ? 0 : 1).ThenByDescending(e => e.Anime.AirDate).ThenBy(e => e.Anime.ID).ToList(),
             _ => entries.ToList(),
         };
 

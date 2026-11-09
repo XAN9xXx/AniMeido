@@ -27,7 +27,7 @@ public sealed partial class MetadataDataSourceTests
 
             Assert.True(vm.IsError);
             Assert.Empty(vm.Results);
-            Assert.StartsWith("/v1/search?", Assert.Single(handler.GetPaths));
+            Assert.Equal("/v1/version", Assert.Single(handler.GetPaths));
             var entry = Assert.Single(log.Entries);
             Assert.Equal(LogLevel.Error, entry.Level);
             var error = Assert.IsType<MetadataServiceException>(entry.Error);
@@ -116,7 +116,7 @@ public sealed partial class MetadataDataSourceTests
 
             Assert.False(vm.IsError);
             Assert.Empty(log.Entries);
-            Assert.StartsWith("/v1/search?", Assert.Single(handler.GetPaths));
+            Assert.Equal("/v1/version", Assert.Single(handler.GetPaths));
         }
         finally
         {

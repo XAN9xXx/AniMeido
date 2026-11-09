@@ -53,10 +53,13 @@
         </DataTemplate>
 
         <DataTemplate x:Key="ResultCardTemplate" x:DataType="vm:PastSeasonEntry">
+            <StackPanel>
             <controls:AnimeCard DataContext="{x:Bind Anime}"
                                 TrackingStatus="{x:Bind Status}"
                                 ShowMediaFormatBadge="True"
                                 CardClicked="OnAnimeCardClicked"/>
+            <TextBlock Text="{x:Bind MatchedName}" MaxLines="1" TextTrimming="CharacterEllipsis" FontSize="12" Margin="8,2,8,0"/>
+            </StackPanel>
         </DataTemplate>
 
         <DataTemplate x:Key="RecentChipTemplate" x:DataType="x:String">
@@ -97,7 +100,7 @@
           Loaded="OnPageLoaded">
         <StackPanel Orientation="Horizontal" Spacing="14">
             <TextBlock Text="搜索" Style="{StaticResource AniMeidoPageTitleStyle}"/>
-            <TextBlock Text="在 Bangumi 和你标记过的作品里查找"
+            <TextBlock Text="按作品名、别名查找，也会搜索你标记过的作品"
                        Style="{StaticResource AniMeidoPageSubtitleStyle}"
                        VerticalAlignment="Bottom"
                        Margin="0,0,0,4"/>
@@ -184,7 +187,7 @@
             </StackPanel>
         </ScrollViewer>
 
-        <!-- 搜索后：我的番剧中的匹配、Bangumi 结果；页头随结果一起滚动 -->
+        <!-- 搜索后：我的番剧中的匹配、搜索结果；页头随结果一起滚动 -->
         <GridView x:Name="ResultGrid"
                   Grid.Row="2"
                   Padding="0,0,0,24"
@@ -254,7 +257,7 @@
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" Spacing="10">
-                        <TextBlock Text="Bangumi 结果" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                        <TextBlock Text="搜索结果" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
                         <TextBlock VerticalAlignment="Bottom"
                                    Margin="0,0,0,2"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -264,6 +267,8 @@
                                       IsActive="{x:Bind ViewModel.IsSearching, Mode=OneWay}"/>
                     </StackPanel>
 
+                    <CheckBox x:Name="IncludeLowVotes" Content="评分排序包含评分人数较少的作品（至少 50 人）"
+                              Checked="OnIncludeLowVotesChanged" Unchecked="OnIncludeLowVotesChanged"/>
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                         <ScrollViewer HorizontalScrollMode="Auto"
                                       HorizontalScrollBarVisibility="Hidden"

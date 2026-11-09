@@ -16,7 +16,7 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
     private readonly ILogger<MetadataDataSource> _logger;
     private readonly CacheService _cacheService;
     private readonly TimeProvider _time;
-    private DateOnly Today => DateOnly.FromDateTime(_time.GetLocalNow().DateTime);
+    private DateOnly Today => MetadataCalendar.Today(_time);
 
     internal MetadataDataSource(ILogger<MetadataDataSource> logger, HttpClient httpClient,
         CacheService cacheService, TimeProvider? time = null)
@@ -65,7 +65,7 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
 
     public async Task<List<Anime>> GetCurrentBroadcastScheduleAsync(CancellationToken ct)
     {
-        var date = DateOnly.FromDateTime(_time.GetLocalNow().DateTime).ToString("yyyy-MM-dd");
+        var date = MetadataCalendar.Today(_time).ToString("yyyy-MM-dd");
         var result = await CachedAsync($"metadata:airing:{date}", TimeSpan.FromHours(12), true,
             readBudget => SendJsonAsync<MetadataPage<MetadataWork>>($"/v1/works/airing?date={date}", ct, readBudget), ct)
             .ConfigureAwait(false);
@@ -163,7 +163,7 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
             .Where(v => v is not null).Select(v => new Tag(v!.NameZh)).DistinctBy(t => t.Name).ToList();
     }
 
-    private async Task<List<Anime>> WorksByIdsAsync(IEnumerable<int> ids, CancellationToken ct, ServiceReadBudget? budget = null, bool includeLowVotes = false)
+    private async Task<List<Anime>> WorksByIdsAsync(IEnumerable<int> ids, CancellationToken ct, ServiceReadBudget? budget = null, bool includeLowVotes = false, string? expectedVersion = null)
     {
         budget ??= new();
         var requested = ids.Where(id => id > 0).Distinct().ToList();
@@ -176,8 +176,10 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
             var response = await CachedAsync($"metadata:works:{query}", TimeSpan.FromHours(12), true,
                 readBudget => SendJsonAsync<MetadataPage<MetadataWork>>($"/v1/works?ids={query}", ct, readBudget), ct, budget)
                 .ConfigureAwait(false);
+            if (expectedVersion is not null && response.DataVersion != expectedVersion)
+                throw MetadataServiceException.SearchFailure("search_context_changed", "搜索结果已更新，请重新搜索。");
             foreach (var work in response.Items.Where(w => w.Id > 0 && w.Status is not ("merged" or "deactivated" or "not_found")))
-                items[work.Id] = MapAnime(work, includeLowVotes: includeLowVotes);
+                items[work.Id] = MapAnime(work, includeLowVotes: includeLowVotes) with { AirDate = StartDate(work.FirstDate) };
         }
         // 批量响应按服务顺序返回，必须还原搜索/本地排序选出的页内顺序。
         return requested.Where(items.ContainsKey).Select(id => items[id]).ToList();

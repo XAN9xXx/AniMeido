@@ -156,7 +156,7 @@ public sealed partial class TagSearchResultsViewModel : ObservableObject
             return Task.CompletedTask;
 
         _isSuspended = false;
-        return _resumeNeedsReload || (_rawData is not null && _loadedDate != DateOnly.FromDateTime(_time.GetLocalNow().DateTime))
+        return _resumeNeedsReload || (_rawData is not null && _loadedDate != MetadataCalendar.Today(_time))
             ? LoadAsync()
             : TrackRequest(RefreshBlockedIdsAsync(_searchVersion));
     }
@@ -202,7 +202,7 @@ public sealed partial class TagSearchResultsViewModel : ObservableObject
 
             await RefreshBlockedIdsAsync(version);
             token.ThrowIfCancellationRequested();
-            var loadDate = DateOnly.FromDateTime(_time.GetLocalNow().DateTime);
+            var loadDate = MetadataCalendar.Today(_time);
             var results = await _load(_tag, _fromYear, _toYear, IncludeLowVotes, token);
             token.ThrowIfCancellationRequested();
             if (version != _searchVersion)

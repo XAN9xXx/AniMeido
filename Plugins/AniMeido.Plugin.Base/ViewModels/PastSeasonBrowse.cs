@@ -14,7 +14,7 @@ public enum PastSeasonSortKey
 }
 
 /// <summary>番剧库网格里的一项：作品与它的追番状态。</summary>
-public sealed record PastSeasonEntry(Anime Anime, AnimeTrackingStatus Status);
+public sealed record PastSeasonEntry(Anime Anime, AnimeTrackingStatus Status, string? MatchedName = null);
 
 /// <summary>形态筛选标签；<see cref="Format"/> 为空表示“全部”。</summary>
 public sealed record PastSeasonFormatChip(

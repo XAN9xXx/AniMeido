@@ -27,9 +27,12 @@ public sealed class TagSearchResults(MetadataDataSource source) : IAsyncDisposab
             return descending ? scored.OrderByDescending(a => a.Score).ToList()
                 : scored.OrderBy(a => a.Score).ToList();
         }
-        var sorted = sort == "date"
-            ? items.OrderBy(a => a.AirDate.HasValue ? 0 : 1).ThenBy(a => a.AirDate ?? DateOnly.MinValue)
-            : items.OrderBy(a => 0);
-        return descending ? sorted.Reverse().ToList() : sorted.ToList();
+        if (sort == "date")
+        {
+            var dated = items.OrderBy(a => a.AirDate.HasValue ? 0 : 1);
+            return (descending ? dated.ThenByDescending(a => a.AirDate) : dated.ThenBy(a => a.AirDate))
+                .ThenBy(a => a.ID).ToList();
+        }
+        return items.ToList();
     }
 }
