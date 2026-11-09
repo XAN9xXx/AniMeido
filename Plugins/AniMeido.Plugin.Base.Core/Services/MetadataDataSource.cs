@@ -163,20 +163,21 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
             .Where(v => v is not null).Select(v => new Tag(v!.NameZh)).DistinctBy(t => t.Name).ToList();
     }
 
-    private async Task<List<Anime>> WorksByIdsAsync(IEnumerable<int> ids, CancellationToken ct, ServiceReadBudget? budget = null)
+    private async Task<List<Anime>> WorksByIdsAsync(IEnumerable<int> ids, CancellationToken ct, ServiceReadBudget? budget = null, bool includeLowVotes = false)
     {
         budget ??= new();
         var requested = ids.Where(id => id > 0).Distinct().ToList();
         if (requested.Count == 0) return [];
         var items = new Dictionary<int, Anime>();
-        foreach (var batch in requested.Chunk(100))
+        // 按固定 ID 分批，使评分门槛和排序切换复用同一份原始响应缓存。
+        foreach (var batch in requested.Order().Chunk(100))
         {
             var query = string.Join(',', batch);
             var response = await CachedAsync($"metadata:works:{query}", TimeSpan.FromHours(12), true,
                 readBudget => SendJsonAsync<MetadataPage<MetadataWork>>($"/v1/works?ids={query}", ct, readBudget), ct, budget)
                 .ConfigureAwait(false);
             foreach (var work in response.Items.Where(w => w.Id > 0 && w.Status is not ("merged" or "deactivated" or "not_found")))
-                items[work.Id] = MapAnime(work);
+                items[work.Id] = MapAnime(work, includeLowVotes: includeLowVotes);
         }
         // 批量响应按服务顺序返回，必须还原搜索/本地排序选出的页内顺序。
         return requested.Where(items.ContainsKey).Select(id => items[id]).ToList();
@@ -208,15 +209,18 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
     }
 
     internal async Task<List<Anime>> SearchAllByTagAsync(
-        string tag, string sort, string? airDateFrom, string? airDateTo, CancellationToken ct)
+        string tag, string sort, string? airDateFrom, string? airDateTo, CancellationToken ct, bool includeLowVotes = false)
     {
         var budget = new ServiceReadBudget();
-        var ids = await FindTagIdsAsync(tag, sort, airDateFrom, airDateTo, ct, budget).ConfigureAwait(false);
-        return await WorksByIdsAsync(ids, ct, budget).ConfigureAwait(false);
+        // 页面保留全部作品，切换到日期排序时仍能浏览低票和未播作品。
+        var ids = await FindTagIdsAsync(tag, sort, airDateFrom, airDateTo, ct, budget,
+            includeLowVotes, rankedOnly: false).ConfigureAwait(false);
+        return await WorksByIdsAsync(ids, ct, budget, includeLowVotes).ConfigureAwait(false);
     }
 
     private async Task<List<int>> FindTagIdsAsync(
-        string tag, string sort, string? airDateFrom, string? airDateTo, CancellationToken ct, ServiceReadBudget budget)
+        string tag, string sort, string? airDateFrom, string? airDateTo, CancellationToken ct, ServiceReadBudget budget,
+        bool includeLowVotes = false, bool rankedOnly = true)
     {
         var vocab = await TagVocabAsync(ct, budget).ConfigureAwait(false);
         var entry = vocab.FirstOrDefault(v => v.NameZh == tag);
@@ -237,8 +241,9 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
         var today = Today;
         items = sort switch
         {
-            "rank" => items.Select(item => (Work: item, Composite: CompositeRating.Calculate(item.Ratings, item.FirstDate, today)))
-                .OrderByDescending(item => item.Composite?.Score)
+            "rank" => items.Select(item => (Work: item, Score: CompositeRating.ScoreForRanking(item.Ratings, item.FirstDate, today, includeLowVotes)))
+                .Where(item => !rankedOnly || item.Score.HasValue)
+                .OrderByDescending(item => item.Score)
                 .ThenByDescending(item => BangumiRating(item.Work.Ratings)?.Score)
                 .ThenByDescending(item => BangumiRating(item.Work.Ratings)?.Votes)
                 .ThenBy(item => item.Work.Id).Select(item => item.Work),
@@ -264,7 +269,7 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
             var staff = group.Select(i => i.Role is null && i.Character is not null ? "配音"
                 : roles.FirstOrDefault(v => v.Code == i.Role)?.NameZh ?? i.Role).Where(s => s is not null).Distinct();
             return new PersonWork(work.Id, EntityName(work.MainNames), string.Join("、", staff),
-                ImageUrl("work", work.Id, "cover", false), CompositeRating.Calculate(work.Ratings, work.FirstDate, Today)?.Score, FullDate(work.FirstDate));
+                ImageUrl("work", work.Id, "cover", false), CompositeRating.ScoreForRanking(work.Ratings, work.FirstDate, Today), FullDate(work.FirstDate));
         }).ToList();
     }
 }

@@ -188,7 +188,7 @@ public sealed partial class MetadataDataSourceTests(ITestOutputHelper output) : 
                 Assert.Equal("20", Query(r, "offset")); Assert.Equal("20", Query(r, "limit"));
                 return Reply(new { total = 52, items = new[] { new { id = 3 }, new { id = 1 } } });
             }
-            Assert.Equal("3,1", Query(r, "ids"));
+            Assert.Equal("1,3", Query(r, "ids"));
             return Reply(new { total = 2, items = new[] { Work(1), Work(3) } });
         });
         using var client = Client(handler);
@@ -234,18 +234,18 @@ public sealed partial class MetadataDataSourceTests(ITestOutputHelper output) : 
     }
 
     [Fact]
-    public async Task TagRank_PutsCompositeBeforeUnrankedBangumiFallback()
+    public async Task TagRank_ExcludesWorksBelowTheDefaultVoteThreshold()
     {
         await CreateBaseTablesAsync();
         using var handler = TagHandler(new[]
         {
             Brief(1, "2026-04-01", null, 999), Brief(2, "2026-04-02", 8, 10),
-            Brief(3, "2026-04-03", 8, 100), Brief(4, "2026-04-04", 9, 1),
+            Brief(3, "2026-04-03", 8, 300), Brief(4, "2026-04-04", 9, 1),
         });
         using var client = Client(handler);
         var result = await Source(client).SearchByTagAsync("科幻", 0, "rank", default);
-        Assert.Equal(4, result.Total);
-        Assert.Equal(new[] { 3, 4, 2, 1 }, result.Results.Select(a => a.ID));
+        Assert.Equal(1, result.Total);
+        Assert.Equal(new[] { 3 }, result.Results.Select(a => a.ID));
     }
 
     [Fact]
@@ -262,7 +262,7 @@ public sealed partial class MetadataDataSourceTests(ITestOutputHelper output) : 
         // 只有年月的 2026-04 按 4 月 1 日计入范围，按字符串降序排在完整日期之后。
         Assert.Equal(26, result.Total);
         Assert.Equal(new[] { 5, 4, 3, 2, 1, 28 }, result.Results.Select(a => a.ID));
-        Assert.Contains(handler.GetPaths, p => p.Contains("ids=5,4,3,2,1,28"));
+        Assert.Contains(handler.GetPaths, p => p.Contains("ids=1,2,3,4,5,28"));
     }
 
     [Theory]
@@ -300,15 +300,15 @@ public sealed partial class MetadataDataSourceTests(ITestOutputHelper output) : 
             var first = Query(r, "offset") == "0";
             return Reply(new { total = 3, items = first ? new object[]
             {
-                new { work = Brief(1, "2026-04-01", 7, 100), character = new { id = 9, mainNames = new { ja = "角色" } }, role = (string?)null },
+                new { work = Brief(1, "2026-04-01", 7, 300), character = new { id = 9, mainNames = new { ja = "角色" } }, role = (string?)null },
                 new { work = Brief(2, "2026-03-01", null, 0), character = (object?)null, role = "director" },
-            } : new object[] { new { work = Brief(1, "2026-04-01", 7, 100), character = (object?)null, role = "director" } } });
+            } : new object[] { new { work = Brief(1, "2026-04-01", 7, 300), character = (object?)null, role = "director" } } });
         });
         using var client = Client(handler);
         var result = await Source(client).GetPersonWorksAsync(7, default);
         Assert.Equal(new[] { 1, 2 }, result.Select(w => w.ID));
         Assert.Equal("配音、导演", result[0].Staff);
-        Assert.Equal(6.33 + 100.0 / 150 * (7 - 6.33), result[0].Score);
+        Assert.Equal(7, result[0].Score);
         Assert.Null(result[1].Score);
         Assert.Equal(new DateOnly(2026, 4, 1), result[0].AirDate);
         Assert.Equal(Image("work/1/cover", "small"), result[0].CoverURL);
@@ -621,7 +621,7 @@ public sealed partial class MetadataDataSourceTests(ITestOutputHelper output) : 
     public async Task TagPage_LoadsWholeYearRangeInRankOrderAndPreservesVotesOnSorting()
     {
         await CreateBaseTablesAsync();
-        var briefs = Enumerable.Range(1, 25).Select(id => Brief(id, "2026-04-01", 8, id)).ToList();
+        var briefs = Enumerable.Range(1, 25).Select(id => Brief(id, "2026-04-01", 8, 300 + id)).ToList();
         using var handler = TagHandler(briefs);
         using var client = Client(handler);
         await using var search = new TagSearchResults(Source(client));

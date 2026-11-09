@@ -13,7 +13,7 @@ public sealed partial class TagSearchResultsViewModel : ObservableObject
 {
     private const int PageSize = 20;
     private const int MaximumYearSpan = 10;
-    private readonly Func<string, int, int, CancellationToken, Task<List<Anime>>> _load;
+    private readonly Func<string, int, int, bool, CancellationToken, Task<List<Anime>>> _load;
     private readonly Func<Task<HashSet<int>>> _readBlocked;
     private readonly ILogger _logger;
     private string? _tag;
@@ -29,12 +29,15 @@ public sealed partial class TagSearchResultsViewModel : ObservableObject
     private Task? _inflight;
     private bool _isSuspended;
     private bool _resumeNeedsReload;
+    private DateOnly _loadedDate;
+    private readonly TimeProvider _time;
+    public bool IncludeLowVotes { get; private set; }
 
     public TagSearchResultsViewModel(
         TagSearchResults search,
         TrackingService tracking,
         ILogger logger)
-        : this(search.LoadAsync, tracking.GetBlockedAnimeIdsAsync, logger)
+        : this((tag, from, to, lowVotes, ct) => search.LoadAsync(tag, from, to, ct, lowVotes), tracking.GetBlockedAnimeIdsAsync, logger)
     {
     }
 
@@ -42,7 +45,17 @@ public sealed partial class TagSearchResultsViewModel : ObservableObject
         Func<string, int, int, CancellationToken, Task<List<Anime>>> load,
         Func<Task<HashSet<int>>> readBlocked,
         ILogger logger)
+        : this((tag, from, to, _, ct) => load(tag, from, to, ct), readBlocked, logger)
     {
+    }
+
+    internal TagSearchResultsViewModel(
+        Func<string, int, int, bool, CancellationToken, Task<List<Anime>>> load,
+        Func<Task<HashSet<int>>> readBlocked,
+        ILogger logger,
+        TimeProvider? time = null)
+    {
+        _time = time ?? TimeProvider.System;
         _load = load;
         _readBlocked = readBlocked;
         _logger = logger;
@@ -77,6 +90,7 @@ public sealed partial class TagSearchResultsViewModel : ObservableObject
     public Task InitializeAsync(string tag, int fromYear, int toYear)
     {
         _tag = tag;
+        IncludeLowVotes = false;
         _sort = "rank";
         _descending = true;
         return ChangeYearRangeAsync(fromYear, toYear);
@@ -86,6 +100,14 @@ public sealed partial class TagSearchResultsViewModel : ObservableObject
     {
         _fromYear = fromYear;
         _toYear = toYear;
+        CurrentOffset = 0;
+        return LoadAsync();
+    }
+
+    public Task SetIncludeLowVotesAsync(bool include)
+    {
+        if (IncludeLowVotes == include) return Task.CompletedTask;
+        IncludeLowVotes = include;
         CurrentOffset = 0;
         return LoadAsync();
     }
@@ -134,7 +156,7 @@ public sealed partial class TagSearchResultsViewModel : ObservableObject
             return Task.CompletedTask;
 
         _isSuspended = false;
-        return _resumeNeedsReload
+        return _resumeNeedsReload || (_rawData is not null && _loadedDate != DateOnly.FromDateTime(_time.GetLocalNow().DateTime))
             ? LoadAsync()
             : TrackRequest(RefreshBlockedIdsAsync(_searchVersion));
     }
@@ -180,12 +202,14 @@ public sealed partial class TagSearchResultsViewModel : ObservableObject
 
             await RefreshBlockedIdsAsync(version);
             token.ThrowIfCancellationRequested();
-            var results = await _load(_tag, _fromYear, _toYear, token);
+            var loadDate = DateOnly.FromDateTime(_time.GetLocalNow().DateTime);
+            var results = await _load(_tag, _fromYear, _toYear, IncludeLowVotes, token);
             token.ThrowIfCancellationRequested();
             if (version != _searchVersion)
                 return;
 
             _rawData = results;
+            _loadedDate = loadDate;
             ApplyPresentation();
             ShowPage(0);
         }

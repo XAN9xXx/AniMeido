@@ -49,6 +49,17 @@ public sealed partial class RecommendationSnapshotStoreTests(ITestOutputHelper o
         Assert.Equal(snapshot.HasMore, restored.HasMore);
     }
 
+    [Fact]
+    public async Task PreviousCompositeAlgorithmSnapshot_IsIgnoredEvenWhenFresh()
+    {
+        using var store = new RecommendationSnapshotStore(_cache);
+        var snapshot = Snapshot() with { SchemaVersion = 6 };
+        await store.TryWriteAsync(snapshot, _cache.CaptureGeneration(), store.Revision, CancellationToken.None);
+        Assert.Null(await store.ReadAsync(allowExpired: true, CancellationToken.None));
+        Assert.False(await store.MatchesRoundAsync(snapshot.GeneratedAt, CancellationToken.None));
+        Assert.False(RecommendationSnapshotStore.IsFresh(snapshot, DateTimeOffset.UtcNow));
+    }
+
     [Theory]
     [InlineData(23, true)]
     [InlineData(24, true)]

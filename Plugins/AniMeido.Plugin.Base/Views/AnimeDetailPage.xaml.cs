@@ -61,6 +61,7 @@ namespace AniMeido.Plugin.Base.Views
             ViewModel = new AnimeDetailViewModel(dataSource, trackingService, ratingSource, logger);
             DataContext = ViewModel;
             InitializeComponent();
+            ToolTipService.SetToolTip(DetailScore, RatingPresentation.Explanation);
             UpdatePlaybackAvailability();
             Loaded += OnPageLoaded;
             Unloaded += OnPageUnloaded;

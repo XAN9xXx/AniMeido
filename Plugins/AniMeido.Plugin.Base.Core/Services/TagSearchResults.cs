@@ -8,11 +8,11 @@ public sealed class TagSearchResults(MetadataDataSource source) : IAsyncDisposab
     private readonly ServiceOperationLifetime _lifetime = new();
 
     public async Task<List<Anime>> LoadAsync(string tag,
-        int fromYear, int toYear, CancellationToken ct)
+        int fromYear, int toYear, CancellationToken ct, bool includeLowVotes = false)
     {
         using var operation = _lifetime.Begin(ct);
         return await Task.Run(() => source.SearchAllByTagAsync(tag, "rank",
-            $"{fromYear:D4}-01-01", $"{toYear + 1:D4}-01-01", operation.Token), operation.Token)
+            $"{fromYear:D4}-01-01", $"{toYear + 1:D4}-01-01", operation.Token, includeLowVotes), operation.Token)
             .ConfigureAwait(false);
     }
 
@@ -22,10 +22,10 @@ public sealed class TagSearchResults(MetadataDataSource source) : IAsyncDisposab
     {
         if (sort == "rank")
         {
-            var scoredFirst = items.OrderBy(a => a.Score.HasValue ? 0 : 1);
+            var scored = items.Where(a => a.Score.HasValue);
             // 数据源已按分数、人数给出整段日期的顺序，稳定排序保留同分人数次序。
-            return descending ? scoredFirst.ThenByDescending(a => a.Score).ToList()
-                : scoredFirst.ThenBy(a => a.Score).ToList();
+            return descending ? scored.OrderByDescending(a => a.Score).ToList()
+                : scored.OrderBy(a => a.Score).ToList();
         }
         var sorted = sort == "date"
             ? items.OrderBy(a => a.AirDate.HasValue ? 0 : 1).ThenBy(a => a.AirDate ?? DateOnly.MinValue)

@@ -18,6 +18,10 @@
 
         <Border Style="{StaticResource AniMeidoToolbarStyle}">
             <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
@@ -46,8 +50,7 @@
                               SelectedIndex="0"
                               SelectionChanged="OnSortChanged"
                               MinWidth="100">
-                        <ComboBoxItem Tag="rank"
-                                      ToolTipService.ToolTip="综合 Bangumi、MyAnimeList、AniList、Kitsu、Anime News Network 的评分：先把各站分数换算到同一尺度，再按评分人数合成；中文和英文社区评价不一致时，偏向给分更高的一方；评分人数少的作品，分数会往平均分靠拢一些。">评分</ComboBoxItem>
+                        <ComboBoxItem Tag="rank">评分</ComboBoxItem>
                         <ComboBoxItem Tag="date">放映时间</ComboBoxItem>
                         <ComboBoxItem Tag="match">匹配度</ComboBoxItem>
                     </ComboBox>
@@ -79,6 +82,12 @@
                               SelectionChanged="OnYearRangeChanged"
                               MinWidth="85"/>
                 </StackPanel>
+                <CheckBox x:Name="IncludeLowVotesCheckBox"
+                          Grid.Row="1" Grid.ColumnSpan="2"
+                          Content="包含评分人数较少的作品"
+                          ToolTipService.ToolTip="仅影响本页的评分排序。开启后，至少一个平台有 50 人评分即可参与；作品分数保持不变。"
+                          Click="OnIncludeLowVotesChanged"
+                          Margin="0,8,0,0"/>
             </Grid>
         </Border>
 

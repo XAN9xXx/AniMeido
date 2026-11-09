@@ -84,10 +84,10 @@ public sealed class TagSearchResultsViewModelTests
         ]);
         var vm = fixture.CreateViewModel();
         await vm.InitializeAsync("科幻", 2023, 2026);
-        Assert.Equal(new[] { 4, 1, 2, 3 }, vm.Items.Select(item => item.ID));
+        Assert.Equal(new[] { 4, 1, 2 }, vm.Items.Select(item => item.ID));
 
         vm.SetSort("rank", descending: false);
-        Assert.Equal(new[] { 1, 2, 4, 3 }, vm.Items.Select(item => item.ID));
+        Assert.Equal(new[] { 1, 2, 4 }, vm.Items.Select(item => item.ID));
         vm.SetSort("date", descending: false);
         Assert.Equal(new[] { 3, 2, 1, 4 }, vm.Items.Select(item => item.ID));
         vm.SetSort("date", descending: true);
@@ -196,6 +196,66 @@ public sealed class TagSearchResultsViewModelTests
 
     private static Anime Work(int id, double? score, DateOnly? date)
         => new(id, $"合成作品{id}", null, [], date, null, string.Empty, 2026, 1, Score: score);
+
+    [Fact]
+    public async Task LowVoteToggle_ReloadsQualificationAndResetsPaging()
+    {
+        var calls = new List<bool>();
+        var vm = new TagSearchResultsViewModel((_, _, _, low, _) =>
+        {
+            calls.Add(low);
+            return Task.FromResult(new List<Anime> { Work(1, 7, null), Work(2, low ? 8 : null, null) });
+        }, () => Task.FromResult(new HashSet<int>()), NullLogger.Instance);
+        await vm.InitializeAsync("科幻", 2023, 2026);
+        Assert.Equal(new[] { 1 }, vm.Items.Select(a => a.ID));
+        await vm.SetIncludeLowVotesAsync(true);
+        Assert.Equal(new[] { 2, 1 }, vm.Items.Select(a => a.ID));
+        Assert.Equal(0, vm.CurrentOffset);
+        await vm.SetIncludeLowVotesAsync(false);
+        Assert.Equal(new[] { 1 }, vm.Items.Select(a => a.ID));
+        Assert.Equal(new[] { false, true, false }, calls);
+    }
+
+    [Fact]
+    public async Task ReturningOnTheNextLocalDay_RecomputesEligibility()
+    {
+        var time = new RatingClock { Now = new DateTimeOffset(2026, 11, 7, 23, 59, 0, TimeSpan.FromHours(8)) };
+        var calls = 0;
+        var vm = new TagSearchResultsViewModel((_, _, _, _, _) =>
+        {
+            calls++;
+            return Task.FromResult(new List<Anime> { Work(1, calls == 1 ? 8 : null, null) });
+        }, () => Task.FromResult(new HashSet<int>()), NullLogger.Instance, time);
+        await vm.InitializeAsync("科幻", 2023, 2026);
+        Assert.Single(vm.Items);
+        vm.Suspend();
+        time.Now = time.Now.AddMinutes(2);
+        await vm.ResumeAsync();
+        Assert.Empty(vm.Items);
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public async Task NewToggleRequest_PreventsOlderResultsFromReplacingIt()
+    {
+        var pending = new TaskCompletionSource<List<Anime>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var vm = new TagSearchResultsViewModel((_, _, _, low, _) =>
+            low ? Task.FromResult(new List<Anime> { Work(2, 8, null) }) : pending.Task,
+            () => Task.FromResult(new HashSet<int>()), NullLogger.Instance);
+        var first = vm.InitializeAsync("科幻", 2023, 2026);
+        await vm.SetIncludeLowVotesAsync(true);
+        pending.SetResult([Work(1, 7, null)]);
+        await first;
+        Assert.Equal(2, Assert.Single(vm.Items).ID);
+        Assert.False(vm.IsLoading);
+    }
+
+    private sealed class RatingClock : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; }
+        public override DateTimeOffset GetUtcNow() => Now.ToUniversalTime();
+        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.CreateCustomTimeZone("rating-local", TimeSpan.FromHours(8), "rating-local", "rating-local");
+    }
 
     private sealed class QueryFixture(List<Anime> works)
     {

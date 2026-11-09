@@ -8,56 +8,6 @@ public sealed class CompositeRatingTests
     private static readonly DateOnly Today = new(2026, 10, 21);
 
     [Theory]
-    [InlineData("small-bangumi", 7.241, 0.6)]
-    [InlineData("large-bangumi", 7.983, 0.6)]
-    [InlineData("higher-overseas", 7.204, 0.4)]
-    [InlineData("switch-left", 7.912, 0.4)]
-    [InlineData("switch-equal", 7.914, 0.6)]
-    [InlineData("higher-chinese", 7.319, 0.6)]
-    [InlineData("uneven-votes", 7.121, 0.6)]
-    [InlineData("mal-only", 7.705, 0.6)]
-    [InlineData("overseas-only", 7.611, 0.6)]
-    [InlineData("below-threshold", null, null)]
-    [InlineData("swapped-votes", 7.914, 0.6)]
-    [InlineData("bangumi-100", 7.443, 0.6)]
-    [InlineData("anilist-day15", 7.787, 0.6)]
-    [InlineData("anilist-day16", 7.443, 0.6)]
-    [InlineData("anilist-missing-date", 7.443, 0.6)]
-    [InlineData("anilist-future-date", 7.443, 0.6)]
-    public void DesignExamples_MatchWithinOneThousandth(string example, double? expected, double? alpha)
-    {
-        MetadataRating[] ratings = example switch
-        {
-            "switch-left" => [new("bangumi", 7.99, 100), new("mal", 8.657, 100000)],
-            "switch-equal" => [new("bangumi", 8, 100), new("mal", 8.657, 100000)],
-            "swapped-votes" => [new("bangumi", 8, 100000), new("mal", 8.657, 100)],
-            "bangumi-100" => [new("bangumi", 8, 100)],
-            "anilist-day15" => [new("bangumi", 8, 100), new("anilist", 83.53, 1000, "2026-10-06")],
-            "anilist-day16" => [new("bangumi", 8, 100), new("anilist", 83.53, 1000, "2026-10-05")],
-            "anilist-missing-date" => [new("bangumi", 8, 100), new("anilist", 83.53, 1000)],
-            "anilist-future-date" => [new("bangumi", 8, 100), new("anilist", 83.53, 1000, "2026-10-22")],
-            "small-bangumi" => [new("bangumi", 8, 60)],
-            "large-bangumi" => [new("bangumi", 8, 5000)],
-            "higher-overseas" => [new("bangumi", 7, 3000), new("mal", 8, 100000)],
-            "higher-chinese" => [new("bangumi", 8, 3000), new("mal", 7, 100000)],
-            "uneven-votes" => [new("bangumi", 9, 60), new("mal", 7, 50000)],
-            "mal-only" => [new("mal", 8.5, 500)],
-            "overseas-only" => [new("mal", 8.5, 500), new("kitsu", 8.5, 83)],
-            "below-threshold" => [new("bangumi", 7.5, 40), new("anilist", 80, 45, "2026-10-21")],
-            _ => throw new ArgumentOutOfRangeException(nameof(example)),
-        };
-        var result = CompositeRating.Calculate(ratings, null, Today);
-        if (expected is null) Assert.Null(result);
-        else
-        {
-            Assert.NotNull(result);
-            Assert.True(Math.Abs(expected.Value - result.Value.Score) < 0.001);
-            Assert.Equal(alpha, result.Value.NominalChineseShare);
-        }
-        Assert.Equal("2026-10-21", CompositeRating.ParameterVersion);
-    }
-
-    [Theory]
     [InlineData("2026-10-21", true)]
     [InlineData("2026-10-06", true)]
     [InlineData("2026-10-05", false)]
@@ -88,12 +38,6 @@ public sealed class CompositeRatingTests
     public void FirstDate_UsesPartialDateStartOrTreatsUnknownAsAired(string? first, bool eligible) =>
         Assert.Equal(eligible, CompositeRating.Calculate([new("bangumi", 8, 50)], first, Today).HasValue);
 
-    [Theory]
-    [InlineData(49, false)]
-    [InlineData(50, true)]
-    public void Threshold_UsesMaximumNotSum(int votes, bool eligible) =>
-        Assert.Equal(eligible, CompositeRating.Calculate([new("bangumi", 8, votes), new("mal", 8, votes)], null, Today).HasValue);
-
     [Fact]
     public void InvalidOrUnknownRatings_DoNotAffectResult()
     {
@@ -106,82 +50,126 @@ public sealed class CompositeRatingTests
         Assert.Null(CompositeRating.Calculate([], null, Today));
     }
 
-    [Fact]
-    public void EqualShiftedScoresAndEqualVotes_HaveNoJumpAtShareSwitch()
+    [Theory]
+    [InlineData(49, false, false)]
+    [InlineData(50, false, true)]
+    [InlineData(299, false, true)]
+    [InlineData(300, true, true)]
+    public void Qualification_UsesMaximumAndDoesNotChangeScore(int votes, bool normal, bool lowVotes)
     {
-        var equal = CompositeRating.Calculate([new("bangumi", 8, 100), new("mal", 8.657, 100)], null, Today)!.Value;
-        var lower = CompositeRating.Calculate([new("bangumi", 8 - 1e-9, 100), new("mal", 8.657, 100)], null, Today)!.Value;
-        var higher = CompositeRating.Calculate([new("bangumi", 8 + 1e-9, 100), new("mal", 8.657, 100)], null, Today)!.Value;
-        Assert.Equal(0.4, lower.NominalChineseShare);
-        Assert.Equal(0.6, equal.NominalChineseShare);
-        Assert.Equal(0.6, higher.NominalChineseShare);
-        Assert.Equal(6.33 + 100.0 / 150 * (8 - 6.33), equal.Score, 10);
-        Assert.True(Math.Abs(higher.Score - lower.Score) < 1e-8);
+        MetadataRating[] ratings = [new("bangumi", 8, votes), new("mal", 8, votes)];
+        var result = CompositeRating.Calculate(ratings, null, Today)!.Value;
+        Assert.Equal(8, result.Score, 12);
+        Assert.Equal(normal, result.IsEligible());
+        Assert.Equal(lowVotes, result.IsEligible(includeLowVotes: true));
+        Assert.Equal(normal, CompositeRating.ScoreForRanking(ratings, null, Today).HasValue);
+        Assert.Equal(lowVotes, CompositeRating.ScoreForRanking(ratings, null, Today, true).HasValue);
+        Assert.Equal("2026-11-08", CompositeRating.ParameterVersion);
     }
 
-    [Theory]
-    [InlineData(50, true)]
-    [InlineData(10000, true)]
-    [InlineData(100000, true)]
-    [InlineData(50, false)]
-    [InlineData(10000, false)]
-    [InlineData(100000, false)]
-    public void FixedVotes_ScanningEitherPlatformAcrossSwitchIsContinuousAndNondecreasing(int malVotes, bool varyBangumi)
+    [Fact]
+    public void ExpiredLargestSource_RecomputesScoreStrengthAndEligibility()
     {
-        double previous = double.NegativeInfinity;
-        for (var step = -100; step <= 100; step++)
+        MetadataRating[] ratings = [new("bangumi", 6, 299), new("anilist", 90, 300, "2026-10-06"), new("mal", 7, 40)];
+        var before = CompositeRating.Calculate(ratings, null, Today)!.Value;
+        var after = CompositeRating.Calculate(ratings, null, Today.AddDays(1))!.Value;
+        Assert.True(before.IsEligible());
+        Assert.False(after.IsEligible());
+        Assert.True(after.IsEligible(true));
+        Assert.Equal(299, after.MaximumVotes);
+        Assert.Equal("anilist", before.StrongestOverseasPlatform);
+        Assert.Equal("mal", after.StrongestOverseasPlatform);
+        Assert.Equal(CompositeRating.Calculate([ratings[0], ratings[2]], null, Today), after);
+        Assert.NotEqual(before.ChineseShare, after.ChineseShare);
+    }
+
+    [Fact]
+    public void StrongestSource_HandlesTiesCrossoverAndRemoval()
+    {
+        CompositeRatingResult Result(long malVotes) => CompositeRating.Calculate([
+            new("bangumi", 7, 10000), new("mal", 8, malVotes), new("anilist", 60, 10000, "2026-10-21")], null, Today)!.Value;
+        var left = Result(9999);
+        var tie = Result(10000);
+        var right = Result(10001);
+        Assert.Equal("anilist", left.StrongestOverseasPlatform);
+        Assert.Equal("mal", tie.StrongestOverseasPlatform);
+        Assert.Equal("mal", right.StrongestOverseasPlatform);
+        Assert.InRange(Math.Abs(left.Score - right.Score), 0, 0.0001);
+        var remaining = CompositeRating.Calculate([new("bangumi", 7, 10000), new("anilist", 60, 10000, "2026-10-21")], null, Today)!.Value;
+        Assert.Equal("anilist", remaining.StrongestOverseasPlatform);
+        Assert.Equal(tie.ChineseShare, remaining.ChineseShare);
+    }
+
+    [Fact]
+    public void AddedSmallCommunity_EntersWithSmallInfluence()
+    {
+        var before = CompositeRating.Calculate([new("mal", 7, 10000)], null, Today)!.Value;
+        var after = CompositeRating.Calculate([new("mal", 7, 10000), new("bangumi", 10, 1)], null, Today)!.Value;
+        Assert.InRange(after.Score - before.Score, 0, 0.00001);
+    }
+
+    [Fact]
+    public void MoreVotesBelowGroupMean_LowersGroupMeanWithoutChangingGroupShare()
+    {
+        CompositeRatingResult Result(long votes) => CompositeRating.Calculate([
+            new("bangumi", 4, 10000), new("mal", 8, 10000), new("anilist", 60, votes, "2026-10-21")], null, Today)!.Value;
+        var before = Result(1000);
+        var after = Result(2000);
+        Assert.Equal(5.7260334864, before.Score, 10);
+        Assert.Equal(5.6206401313, after.Score, 10);
+        Assert.Equal(before.ChineseShare, after.ChineseShare);
+        Assert.True(after.OverseasScore < before.OverseasScore);
+    }
+
+    [Fact]
+    public void MoreVotesAboveBothMeans_CanLowerTotalByIncreasingLowerGroupShare()
+    {
+        CompositeRatingResult Result(long votes) => CompositeRating.Calculate([
+            new("bangumi", 10, 10000), new("mal", 8, votes), new("anilist", 10, 9000, "2026-10-21")], null, Today)!.Value;
+        var before = Result(10000);
+        var after = Result(20000);
+        Assert.True(8 > before.Score);
+        Assert.True(after.OverseasScore > before.OverseasScore);
+        Assert.True(after.Score < before.Score);
+        var withinGroup = (1 - before.ChineseShare) * (after.OverseasScore!.Value - before.OverseasScore!.Value);
+        var betweenGroups = (before.ChineseShare - after.ChineseShare) * (after.OverseasScore.Value - 10);
+        Assert.True(withinGroup > 0);
+        Assert.True(betweenGroups < 0);
+        Assert.Equal(after.Score - before.Score, withinGroup + betweenGroups, 12);
+    }
+
+    [Fact]
+    public void EverySourceSubset_PreservesRangeMonotonicityAndOrderIndependence()
+    {
+        string[] platforms = ["bangumi", "mal", "anilist", "kitsu", "ann"];
+        var random = new Random(20261108);
+        for (var mask = 1; mask < 32; mask++)
+        for (var trial = 0; trial < 100; trial++)
         {
-            var delta = step * 0.0001;
-            var result = CompositeRating.Calculate([
-                new("bangumi", 8 + (varyBangumi ? delta : 0), 100),
-                new("mal", 8.657 + (varyBangumi ? 0 : delta), malVotes)], null, Today)!.Value;
-            Assert.True(result.Score >= previous);
-            if (step > -100) Assert.InRange(result.Score - previous, 0, 0.000101);
-            previous = result.Score;
+            var ratings = platforms.Where((_, index) => (mask & (1 << index)) != 0)
+                .Select(p => new MetadataRating(p, (1 + random.NextDouble() * 8) * (p == "anilist" ? 10 : 1),
+                    random.Next(1, 100001), "2026-10-21")).ToArray();
+            var score = CompositeRating.Calculate(ratings, null, Today)!.Value.Score;
+            var raw = ratings.Select(r => r.Score!.Value / (r.Platform == "anilist" ? 10 : 1)).ToArray();
+            Assert.InRange(score, raw.Min() - 1e-12, raw.Max() + 1e-12);
+            Assert.Equal(score, CompositeRating.Calculate(ratings.Reverse(), null, Today)!.Value.Score, 10);
+            for (var i = 0; i < ratings.Length; i++)
+            {
+                var raised = ratings.ToArray();
+                raised[i] = ratings[i] with { Score = ratings[i].Score + (ratings[i].Platform == "anilist" ? 1 : 0.1) };
+                Assert.True(CompositeRating.Calculate(raised, null, Today)!.Value.Score > score);
+            }
         }
     }
 
-    [Fact]
-    public void EqualScores_SwappingGroupCountsDoesNotBiasReferenceVotes()
-    {
-        var chineseSmall = CompositeRating.Calculate([new("bangumi", 8, 100), new("mal", 8.657, 100000)], null, Today)!.Value;
-        var overseasSmall = CompositeRating.Calculate([new("bangumi", 8, 100000), new("mal", 8.657, 100)], null, Today)!.Value;
-        Assert.Equal(chineseSmall.Score, overseasSmall.Score, 12);
-    }
-
     [Theory]
-    [InlineData(50)]
-    [InlineData(100)]
-    [InlineData(10000)]
-    public void EqualCounts_MorePlatformsDoNotIncreaseReferenceVotes(int votes)
+    [InlineData("bangumi", 0)]
+    [InlineData("mal", 10.1)]
+    [InlineData("kitsu", -1)]
+    [InlineData("anilist", 101)]
+    public void ScoresOutsidePlatformScale_AreExcluded(string platform, double score)
     {
-        MetadataRating[] ratings = [new("bangumi", 8, votes), new("mal", 8.657, votes),
-            new("anilist", 83.53, votes, "2026-10-21"), new("kitsu", 8.522, votes), new("ann", 8.456, votes)];
-        var expected = 6.33 + votes / (votes + 50.0) * (8 - 6.33);
-        for (var count = 1; count <= ratings.Length; count++)
-            Assert.Equal(expected, CompositeRating.Calculate(ratings.Take(count), null, Today)!.Value.Score, 12);
-    }
-
-    [Fact]
-    public void MoreBangumiVotes_CanDecreaseScoreAsSpecified()
-    {
-        var before = CompositeRating.Calculate([new("bangumi", 8.10, 10), new("mal", 8.660, 1000)], null, Today)!.Value;
-        var after = CompositeRating.Calculate([new("bangumi", 8.10, 50), new("mal", 8.660, 1000)], null, Today)!.Value;
-        Assert.InRange(Math.Abs(before.Score - 7.883), 0, 0.001);
-        Assert.InRange(Math.Abs(after.Score - 7.805), 0, 0.001);
-        Assert.True(after.Score < before.Score);
-    }
-
-    [Fact]
-    public void MoreKitsuVotes_CanDecreaseScoreAsSpecified()
-    {
-        MetadataRating[] fixedRatings = [new("bangumi", 8, 10000), new("mal", 8.660, 50),
-            new("anilist", 84, 50, "2026-10-21"), new("ann", 8.460, 50)];
-        var before = CompositeRating.Calculate([.. fixedRatings, new("kitsu", 8.620, 50)], null, Today)!.Value;
-        var after = CompositeRating.Calculate([.. fixedRatings, new("kitsu", 8.620, 100)], null, Today)!.Value;
-        Assert.InRange(Math.Abs(before.Score - 7.906), 0, 0.001);
-        Assert.InRange(Math.Abs(after.Score - 7.858), 0, 0.001);
-        Assert.True(after.Score < before.Score);
+        Assert.Null(CompositeRating.Calculate([new(platform, score, 1000, "2026-10-21")], null, Today));
     }
 
     [Theory]

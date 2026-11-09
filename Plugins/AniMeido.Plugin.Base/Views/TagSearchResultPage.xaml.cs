@@ -30,6 +30,7 @@ public sealed partial class TagSearchResultPage : Page, INavigationAware
         _logger = logger;
         ViewModel = new TagSearchResultsViewModel(search, trackingService, logger);
         InitializeComponent();
+        ToolTipService.SetToolTip((ComboBoxItem)SortSelector.Items[0], RatingPresentation.Explanation);
         _isInitializing = false;
         ResultGrid.ItemsSource = ViewModel.Items;
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
@@ -47,6 +48,9 @@ public sealed partial class TagSearchResultPage : Page, INavigationAware
         try
         {
             SortOrderToggle.IsChecked = true;
+            SortSelector.SelectedIndex = 0;
+            IncludeLowVotesCheckBox.IsChecked = false;
+            IncludeLowVotesCheckBox.IsEnabled = true;
             years = InitializeYearControls();
         }
         finally
@@ -128,10 +132,21 @@ public sealed partial class TagSearchResultPage : Page, INavigationAware
 #pragma warning restore CA1031
     }
 
+    private async void OnIncludeLowVotesChanged(object sender, RoutedEventArgs e)
+    {
+        if (_isInitializing) return;
+        _activationTask = ObserveAsync(
+            ViewModel.SetIncludeLowVotesAsync(IncludeLowVotesCheckBox.IsChecked == true), "更改评分人数范围");
+        await _activationTask;
+    }
+
     private void OnSortChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!_isInitializing && SortSelector.SelectedItem is ComboBoxItem { Tag: string sort })
+        {
+            IncludeLowVotesCheckBox.IsEnabled = sort == "rank";
             ViewModel.SetSort(sort, SortOrderToggle.IsChecked == true);
+        }
     }
 
     private void OnSortOrderToggle(object sender, RoutedEventArgs e)
