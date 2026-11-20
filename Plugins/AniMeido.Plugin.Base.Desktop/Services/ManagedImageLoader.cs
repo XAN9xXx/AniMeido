@@ -130,6 +130,13 @@ internal static class ManagedImageLoader
             _request = request;
             UpdatePresentationSubscriptions();
             _decodeRetryUsed = false;
+            // 虚拟列表先绑定数据再挂入视口。此时清掉上一项，等 Loaded 区分缓存命中和缺图。
+            if (!_image.IsLoaded && request.Kind is (ImageRequestKind.Cover or ImageRequestKind.Avatar)
+                && !string.IsNullOrWhiteSpace(request.Source))
+            {
+                ClearImage();
+                return;
+            }
             // 已有磁盘缓存时直接挂到 Image，让 WinUI 加载；不先切一遍占位图。
             // 换作品仍立即替换 Source，不把上一部作品的封面留到异步请求完成。
             if (_image.IsLoaded && GetExistingLocalPath(request) is { } path)
@@ -149,12 +156,7 @@ internal static class ManagedImageLoader
             _request = null;
             UpdatePresentationSubscriptions();
             if (clearSource)
-            {
-                _showingManagedImage = false;
-                SetManagedBitmap(null);
-                _imageOpened = false;
-                _image.Source = null;
-            }
+                ClearImage();
         }
 
         public void Retry()
@@ -190,6 +192,11 @@ internal static class ManagedImageLoader
             // 仅保留这个控件已成功显示的同一图片，不新建缓存，也不保留失败/在途图片。
             if (_imageOpened && _showingManagedImage && ReferenceEquals(_image.Source, _managedBitmap))
                 return;
+            ClearImage();
+        }
+
+        private void ClearImage()
+        {
             _showingManagedImage = false;
             SetManagedBitmap(null);
             _imageOpened = false;
@@ -301,14 +308,16 @@ internal static class ManagedImageLoader
             {
                 if (string.IsNullOrWhiteSpace(request.Source))
                 {
+                    if (_image.Source is null) ShowPlaceholder();
                     Report(request, ManagedImageLoadState.Failed);
                     return;
                 }
 
-                Report(request, ManagedImageLoadState.Loading);
                 string? localPath = GetExistingLocalPath(request);
                 if (localPath is null && request.Kind != ImageRequestKind.Local)
                 {
+                    if (_image.Source is null) ShowPlaceholder();
+                    Report(request, ManagedImageLoadState.Loading);
                     var succeeded = request.Kind == ImageRequestKind.Cover
                         ? await ImageCacheHelper.CacheImageAsync(request.AnimeId, request.Source, cancellationToken)
                         : await ImageCacheHelper.CacheAvatarAsync(request.Source, cancellationToken);
@@ -414,7 +423,12 @@ internal static class ManagedImageLoader
             _showingManagedImage = false;
             SetManagedBitmap(null);
             _imageOpened = false;
-            _image.Source = new BitmapImage(ImageCacheHelper.PlaceholderUri);
+            if (_request is { } request)
+                _image.Source = new BitmapImage
+                {
+                    DecodePixelWidth = Math.Min(1024, GetDecodePixelWidth(request)),
+                    UriSource = ImageCacheHelper.PlaceholderUri,
+                };
         }
 
         private string? GetExistingLocalPath(ImageRequest request)

@@ -133,7 +133,11 @@
         <Grid Grid.Row="1" x:Name="LoadingOverlay" Visibility="Collapsed" Background="Transparent" Tapped="OnLoadingOverlayTapped">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
                 <ProgressRing x:Name="LoadingRing" Width="40" Height="40" HorizontalAlignment="Center"/>
-                <Image x:Name="LoadingFailedImage" Source="ms-appx:///Assets/Loading_failed.png" Width="80" Height="80" Stretch="Uniform" HorizontalAlignment="Center" Visibility="Collapsed"/>
+                <Image x:Name="LoadingFailedImage" Width="80" Height="80" Stretch="Uniform" HorizontalAlignment="Center" Visibility="Collapsed">
+                    <Image.Source>
+                        <BitmapImage DecodePixelType="Logical" DecodePixelHeight="80" UriSource="ms-appx:///Assets/Loading_failed.png"/>
+                    </Image.Source>
+                </Image>
                 <TextBlock x:Name="LoadingHint" FontSize="14" Foreground="{ThemeResource AniMeidoMutedTextBrush}" HorizontalAlignment="Center"
                            TextWrapping="Wrap" MaxWidth="300" TextAlignment="Center"/>
             </StackPanel>

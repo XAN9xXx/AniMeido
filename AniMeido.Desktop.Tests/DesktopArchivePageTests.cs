@@ -318,6 +318,38 @@ public sealed class DesktopArchivePageTests
         });
 
     [Fact]
+    public Task GalleryRefreshKeepsUnchangedThumbnailContainersAndReadsUpdatedMetadata()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var archive = new ArchiveService(fixture.Factory);
+            await archive.ImportScreenshotsAsync(Enumerable.Range(0, 8).Select(i => Shot(fixture, i)).ToArray());
+            var page = fixture.Archives(new Source());
+            await page.OnNavigatedToAsync("shot1");
+            try
+            {
+                await AttachAsync(root, page); await page.PendingActivation; await page.PendingRead;
+                var list = (GridView)page.FindName("ScreenshotList");
+                var groups = (Microsoft.UI.Xaml.Data.CollectionViewSource)page.Resources["ScreenshotGroupsSource"];
+                var original = groups.Source;
+                root.UpdateLayout();
+                var container = list.ContainerFromItem(list.SelectedItem);
+                Assert.NotNull(container);
+                await RefreshFromKeyboardAsync(page);
+                root.UpdateLayout();
+                Assert.Same(original, groups.Source);
+                Assert.Same(container, list.ContainerFromItem(list.SelectedItem));
+                await archive.UpdateScreenshotMetadataAsync("shot1", null, null, 3, "更新后的截图备注");
+                await RefreshFromKeyboardAsync(page);
+                var selection = Assert.IsType<AnimeScreenshot>(list.SelectedItem);
+                Assert.Equal("shot1", selection.ScreenshotId);
+                Assert.Equal("更新后的截图备注", selection.ContextNote);
+                Assert.Equal(3, selection.EpisodeNumber);
+            }
+            finally { await DetachAsync(root, page); await page.PendingRead; }
+        });
+
+    [Fact]
     public Task ScreenshotFiltersResetPagingAndBatchSelectionKeepsThePreview()
         => UnoHeadlessTestHost.RunAsync(async root =>
         {

@@ -16,6 +16,30 @@ def rename(path, family):
     font.save(path)
 
 
+def trim_rare_hints(font):
+    # Keep strokes and character coverage; only skip pixel-grid instructions on uncommon ideographs.
+    # Preserve the established small-size rendering for common simplified, traditional and Japanese titles.
+    def keep(code):
+        if not (0x3400 <= code <= 0x9FFF or 0x20000 <= code <= 0x323AF):
+            return True
+        char = chr(code)
+        return any(char.encode(codec, errors="ignore") for codec in ("gb2312", "big5", "shift_jis"))
+
+    rare, protected = set(), set()
+    for code, name in font.getBestCmap().items():
+        (protected if keep(code) else rare).add(name)
+    glyf = font["glyf"]
+    pending = list(set(font.getGlyphOrder()) - (rare - protected))
+    protected = set(pending)
+    while pending:
+        for component in glyf.glyphs[pending.pop()].getComponentNames(glyf):
+            if component not in protected:
+                protected.add(component)
+                pending.append(component)
+    for name in rare - protected:
+        glyf.glyphs[name].removeHinting()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--wenkai", type=Path, required=True)
@@ -31,6 +55,9 @@ def main():
         "--hinting-range-max=50", "--hinting-limit=200",
         str(args.wenkai), str(wenkai),
     ], check=True)
+    with TTFont(wenkai, recalcBBoxes=False) as font:
+        trim_rare_hints(font)
+        font.save(wenkai)
     rename(wenkai, "Desktop WenKai")
     serif = output / "DesktopSerif.ttf"
     shutil.copyfile(args.serif, serif)

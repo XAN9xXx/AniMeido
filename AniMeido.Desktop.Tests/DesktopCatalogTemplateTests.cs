@@ -1,4 +1,4 @@
-﻿using AniMeido.Contracts;
+using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.Models;
@@ -34,7 +34,7 @@ public sealed class DesktopCatalogTemplateTests(ITestOutputHelper output)
         {
             await using var fixture = await Fixture.CreateAsync();
             var store = new AniMeido.App.Services.DesktopSettingsStore(fixture);
-            await store.SaveAsync(new AniMeido.App.Services.DesktopSettings { VisualStyle = "Paper", ThemeSetting = "Dark", FontStyle = "Serif" });
+            await store.SaveAsync(new AniMeido.App.Services.DesktopSettings { VisualStyle = "Paper", ThemeSetting = "Dark", FontStyle = "Serif", CatalogCardStyle = selectOva ? "Cover" : "Detailed" });
             await using var theme = new AniMeido.App.Services.ThemeService(store);
             await theme.InitializeThemeAsync(root);
             var winter = new TaskCompletionSource<List<Anime>>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -81,14 +81,41 @@ public sealed class DesktopCatalogTemplateTests(ITestOutputHelper output)
                 var prev = Assert.IsType<Button>(page.FindName("PrevSeasonButton"));
                 mouse.MoveTo(prev);
                 await UnoVisualEvidence.CaptureAsync(page, "E-acceptance", $"season-chips-{name}-00-spring");
+                var rows = (ItemsRepeater)page.FindName("CatalogRows");
+                var heading = (TextBlock)page.FindName("SeasonSummary");
+                await WaitAsync(root, () => VisibleCards(rows).Length > 0);
+                var springHeading = heading.Text;
+                var oldSource = rows.ItemsSource;
                 mouse.Click(prev);
+                for (var frame = 0; frame < 22; frame++)
+                {
+                    root.UpdateLayout();
+                    Assert.Same(oldSource, rows.ItemsSource);
+                    Assert.Equal(springHeading, heading.Text);
+                    Assert.NotEmpty(VisibleCards(rows));
+                    Assert.All(VisibleCards(rows), card => Assert.Equal(4, card.Anime!.AirDate!.Value.Month));
+                    Assert.Equal(Visibility.Collapsed, ((ItemsRepeater)page.FindName("SkeletonRepeater")).Visibility);
+                    await Task.Delay(16);
+                }
                 await WaitAsync(root, () => page.ViewModel.IsLoading);
                 await UnoVisualEvidence.CaptureAsync(page, "E-acceptance", $"season-chips-{name}-01-loading");
                 AssertStable("spring", "17");
 
                 winter.SetResult(Items(249, 9, 99, 10, 0, 2025, 1));
+                for (var frame = 0; frame < 8; frame++)
+                {
+                    root.UpdateLayout();
+                    var cards = VisibleCards(rows);
+                    Assert.NotEmpty(cards);
+                    int expectedMonth = heading.Text.Contains("冬", StringComparison.Ordinal) ? 1 : 4;
+                    Assert.All(cards, card => Assert.Equal(expectedMonth, card.Anime!.AirDate!.Value.Month));
+                    await Task.Delay(16);
+                }
                 await WaitAsync(root, () => !page.ViewModel.IsLoading && page.ViewModel.LoadedAnime.Count == 249);
                 await UnoVisualEvidence.CaptureAsync(page, "E-acceptance", $"season-chips-{name}-02-winter");
+                await WaitAsync(root, () => VisibleCards(rows).Length > 0 &&
+                    VisibleCards(rows).All(card => card.Anime?.AirDate?.Month == 1));
+                Assert.Contains("冬", heading.Text);
                 AssertStable("winter", "9");
                 Assert.False(movie.IsEnabled);
                 Assert.Equal("0", Count(movie));
@@ -285,9 +312,10 @@ public sealed class DesktopCatalogTemplateTests(ITestOutputHelper output)
         });
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public Task ActualFormatFilterRemovesOnePosterAndKeepsTheSurvivingCoversWhenTheyMove(bool crossRow)
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    public Task ActualFormatFilterRemovesOnePosterAndKeepsTheSurvivingCoversWhenTheyMove(bool crossRow, bool motion)
         => UnoHeadlessTestHost.RunAsync(async root =>
         {
             await using var fixture = await Fixture.CreateAsync();
@@ -320,6 +348,9 @@ public sealed class DesktopCatalogTemplateTests(ITestOutputHelper output)
                 new DragDropService(tracking, new PersonalFeatureStateStore(fixture.Factory), NullLogger<DragDropService>.Instance),
                 tracking, fixture.Navigation, NullLogger<PastSeasonPage>.Instance) { Width = 780, Height = 1010 };
             var previous = DesktopPresentationPreferences.UseDetailedCatalogCards;
+            var resources = Application.Current.Resources;
+            var previousMotion = resources["DesktopMotionEnabled"];
+            resources["DesktopMotionEnabled"] = motion;
             DesktopPresentationPreferences.Apply(false, DesktopPresentationPreferences.ShowPlanReminders);
             await page.OnNavigatedToAsync(new PastSeasonTarget(2025, Season.Spring));
             try
@@ -333,14 +364,21 @@ public sealed class DesktopCatalogTemplateTests(ITestOutputHelper output)
                 var destination = order[crossRow ? 3 : 4].Id;
                 var before = cards[destination].Card.TransformToVisual(rows).TransformPoint(default);
                 var chip = Find<ToggleButton>(page, button => button.Tag is PastSeasonFormatChip { Format: AnimeMediaFormat.Television });
-                var sequence = crossRow ? "catalog-cross-row" : "catalog-format";
+                var sequence = !motion ? "catalog-reduced" : crossRow ? "catalog-cross-row" : "catalog-format";
+                var sampled = new List<double>();
                 await UnoVisualEvidence.CaptureAsync(page, "C-motion", $"{sequence}-00-six-before");
                 typeof(ButtonBase).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(chip, null);
+                Assert.True(chip.IsChecked);
                 for (var i = 0; i < 4; i++)
                 {
                     if (i > 0) await Task.Delay(i == 3 ? 90 : 16);
                     root.UpdateLayout();
                     var visible = VisibleCards(rows);
+                    if (visible.SingleOrDefault(c => c.Anime?.ID == destination) is { } moving)
+                    {
+                        var pos = moving.TransformToVisual(rows).TransformPoint(default);
+                        sampled.Add(crossRow ? pos.Y : pos.X);
+                    }
                     Assert.InRange(visible.Length, 5, 6);
                     Assert.Equal(visible.Length, visible.Select(card => card.Anime!.ID).Distinct().Count());
                     Assert.False(page.ViewModel.IsLoading);
@@ -362,18 +400,96 @@ public sealed class DesktopCatalogTemplateTests(ITestOutputHelper output)
                 var final = VisibleCards(rows);
                 Assert.Equal(5, final.Length);
                 Assert.DoesNotContain(final, card => card.Anime!.ID == order[removedIndex].Id);
+                await Task.Delay(220);
                 var after = final.Single(card => card.Anime!.ID == destination).TransformToVisual(rows).TransformPoint(default);
                 Assert.True(crossRow ? after.Y < before.Y : after.X < before.X);
+                var start = crossRow ? before.Y : before.X;
+                var end = crossRow ? after.Y : after.X;
+                Assert.True(motion == sampled.Any(position => position > end + .1 && position < start - .1),
+                    $"motion={motion}, start={start}, frames=[{string.Join(", ", sampled)}], end={end}");
                 Assert.Equal(1, calls);
             }
             finally
             {
                 await DetachAsync(root, page);
+                resources["DesktopMotionEnabled"] = previousMotion;
                 DesktopPresentationPreferences.Apply(previous, DesktopPresentationPreferences.ShowPlanReminders);
                 foreach (var cover in order) cover.Dispose();
             }
 
             static ImageSource? Cover(AnimeCard card) => ((Image)card.FindName("CoverImage")).Source;
+        });
+
+    [Fact]
+    public Task FilteringOutAMiddlePosterRowKeepsRealizedCardsOnBothSides()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var source = new SeasonSource((year, _, _) => Task.FromResult(Enumerable.Range(1, 9)
+                .Select(i => Item(i, $"{i:D2} {(i is >= 4 and <= 6 ? "短篇" : "长篇")}") with
+                { AirDate = new DateOnly(year, 4, i) }).ToList()));
+            var tracking = new TrackingService(fixture.Factory);
+            var page = new PastSeasonPage(source, new CacheService(fixture.Factory),
+                new DragDropService(tracking, new PersonalFeatureStateStore(fixture.Factory), NullLogger<DragDropService>.Instance),
+                tracking, fixture.Navigation, NullLogger<PastSeasonPage>.Instance) { Width = 780, Height = 1010 };
+            var previous = DesktopPresentationPreferences.UseDetailedCatalogCards;
+            DesktopPresentationPreferences.Apply(false, DesktopPresentationPreferences.ShowPlanReminders);
+            try
+            {
+                await page.OnNavigatedToAsync(new PastSeasonTarget(2025, Season.Spring));
+                await AttachAsync(root, page);
+                var rows = (ItemsRepeater)page.FindName("CatalogRows");
+                await WaitAsync(root, () => VisibleCards(rows).Length == 9);
+                var before = VisibleCards(rows).ToDictionary(card => card.Anime!.ID);
+                Assert.Equal(3, ((System.Collections.ICollection)rows.ItemsSource).Count);
+                page.ViewModel.SetQuery("长篇");
+                await WaitAsync(root, () => VisibleCards(rows).Length == 6);
+                Assert.Equal(new[] { 1, 2, 3, 7, 8, 9 }, VisibleCards(rows).Select(card => card.Anime!.ID).Order());
+                Assert.All(VisibleCards(rows), card => Assert.Same(before[card.Anime!.ID], card));
+            }
+            finally
+            {
+                await DetachAsync(root, page);
+                DesktopPresentationPreferences.Apply(previous, DesktopPresentationPreferences.ShowPlanReminders);
+            }
+        });
+
+    [Fact]
+    public Task SwitchingCatalogLayoutReleasesRowsOfTheInactiveTemplate()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var source = new SeasonSource((year, _, _) => Task.FromResult(SeasonItems(year)));
+            var tracking = new TrackingService(fixture.Factory);
+            var page = new PastSeasonPage(source, new CacheService(fixture.Factory),
+                new DragDropService(tracking, new PersonalFeatureStateStore(fixture.Factory), NullLogger<DragDropService>.Instance),
+                tracking, fixture.Navigation, NullLogger<PastSeasonPage>.Instance);
+            var previous = DesktopPresentationPreferences.UseDetailedCatalogCards;
+            DesktopPresentationPreferences.Apply(false, DesktopPresentationPreferences.ShowPlanReminders);
+            try
+            {
+                await page.OnNavigatedToAsync(new PastSeasonTarget(2025, Season.Spring));
+                await AttachAsync(root, page);
+                var repeater = (ItemsRepeater)page.FindName("CatalogRows");
+                await WaitAsync(root, () => VisibleCards(repeater).Length == 2);
+                var expected = VisibleCards(repeater).Select(c => c.Anime!.ID).Order().ToArray();
+                foreach (var detailed in new[] { true, false })
+                {
+                    var oldRows = (System.Collections.ICollection)repeater.ItemsSource;
+                    await DetachAsync(root, page);
+                    DesktopPresentationPreferences.Apply(detailed, DesktopPresentationPreferences.ShowPlanReminders);
+                    await AttachAsync(root, page);
+                    await WaitAsync(root, () => repeater.ItemsSource is not null && !ReferenceEquals(oldRows, repeater.ItemsSource));
+                    Assert.Empty(oldRows);
+                    await WaitAsync(root, () => VisibleCards(repeater).Length == 2);
+                    Assert.Equal(expected, VisibleCards(repeater).Select(c => c.Anime!.ID).Order());
+                }
+            }
+            finally
+            {
+                await DetachAsync(root, page);
+                DesktopPresentationPreferences.Apply(previous, DesktopPresentationPreferences.ShowPlanReminders);
+            }
         });
 
     [Fact]
@@ -486,6 +602,42 @@ public sealed class DesktopCatalogTemplateTests(ITestOutputHelper output)
             }
         });
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task EmptyOrFailedSeasonReplacesThePreviousCardsAndCanLoadAgain(bool fail)
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var response = new TaskCompletionSource<List<Anime>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var source = new SeasonSource((year, _, _) => year == 2024 ? response.Task : Task.FromResult(SeasonItems(year)));
+            var tracking = new TrackingService(fixture.Factory);
+            var page = new PastSeasonPage(source, new CacheService(fixture.Factory),
+                new DragDropService(tracking, new PersonalFeatureStateStore(fixture.Factory), NullLogger<DragDropService>.Instance),
+                tracking, fixture.Navigation, NullLogger<PastSeasonPage>.Instance);
+            var rows = (ItemsRepeater)page.FindName("CatalogRows");
+            var hint = (TextBlock)page.FindName("SeasonSwitchHint");
+            await page.OnNavigatedToAsync(new PastSeasonTarget(2023, Season.Spring));
+            try
+            {
+                await AttachAsync(root, page);
+                await WaitAsync(root, () => VisibleCards(rows).Length == 2);
+                await SelectThroughFlyoutAsync(page, 2024, Season.Spring);
+                Assert.Equal(Visibility.Visible, hint.Visibility);
+                if (fail) response.SetException(new HttpRequestException("合成断网"));
+                else response.SetResult([]);
+                await WaitAsync(root, () => !page.ViewModel.IsLoading && VisibleCards(rows).Length == 0);
+                Assert.Equal(fail, page.ViewModel.IsError);
+                Assert.Equal(!fail, page.ViewModel.HasNoResults);
+                Assert.Equal(Visibility.Collapsed, hint.Visibility);
+                Assert.Contains("2024", ((TextBlock)page.FindName("SeasonSummary")).Text);
+                await SelectThroughFlyoutAsync(page, 2025, Season.Spring);
+                await WaitAsync(root, () => VisibleCards(rows).Length == 2 && rows.IsHitTestVisible);
+                Assert.All(VisibleCards(rows), card => Assert.Equal(2025, card.Anime!.SeasonYear));
+            }
+            finally { response.TrySetResult([]); await DetachAsync(root, page); }
+        });
+
     private static async Task SelectThroughFlyoutAsync(PastSeasonPage page, int year, Season season)
     {
         var picker = (Button)page.FindName("SeasonPickerButton");
@@ -517,7 +669,12 @@ public sealed class DesktopCatalogTemplateTests(ITestOutputHelper output)
     };
 
     private static AnimeCard[] VisibleCards(ItemsRepeater rows)
-        => Children<AnimeCard>(rows).Where(card => card.IsLoaded && card.ActualWidth > 0 && card.ActualHeight > 0 && IsVisible(card, rows)).ToArray();
+        // 回收池中的旧模板仍在视觉树里，虽有尺寸却排在约 -10000 的位置。
+        => Enumerable.Range(0, VisualTreeHelper.GetChildrenCount(rows))
+            .Select(i => VisualTreeHelper.GetChild(rows, i)).OfType<UIElement>()
+            .Where(row => rows.GetElementIndex(row) >= 0)
+            .SelectMany(Children<AnimeCard>)
+            .Where(card => card.IsLoaded && card.ActualWidth > 0 && card.ActualHeight > 0 && IsVisible(card, rows)).ToArray();
 
     private static bool IsVisible(DependencyObject element, ItemsRepeater rows)
     {

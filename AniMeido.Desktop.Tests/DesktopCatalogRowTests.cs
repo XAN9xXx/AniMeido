@@ -39,6 +39,49 @@ public sealed class DesktopCatalogRowTests
     }
 
     [Fact]
+    public void TogglingAWholeRowFilterDoesNotRebindSurvivingPosters()
+    {
+        object[] entries = Enumerable.Range(0, 599).Select(_ => new object()).ToArray();
+        var rows = new ObservableCollection<DesktopCatalogPosterRow>();
+        DesktopCatalogPosterRow.SyncRows(rows, entries, 4, 278);
+        var original = rows.ToArray();
+        var changes = 0;
+        foreach (var row in original) row.Entries.CollectionChanged += (_, _) => changes++;
+
+        object[] filtered = [.. entries.Take(8), .. entries.Skip(12)];
+        DesktopCatalogPosterRow.SyncRows(rows, filtered, 4, 278);
+        Assert.Equal(0, changes);
+        Assert.Equal(original.Where((_, i) => i != 2), rows);
+
+        DesktopCatalogPosterRow.SyncRows(rows, entries, 4, 300);
+        Assert.Equal(0, changes);
+        Assert.Equal(original.Skip(3), rows.Skip(3));
+        Assert.All(rows, row => Assert.Equal(300, row.MinimumHeight));
+        Assert.Equal(entries, rows.SelectMany(row => row.Entries));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void DetailedFilterPreservesUnchangedRowsAndDoesNotNotifyTheirCards(bool twoColumns)
+    {
+        var entries = Enumerable.Range(0, 599).Select(_ => new object()).ToArray();
+        var rows = CreateRows(entries, twoColumns);
+        var original = rows.ToArray();
+        var changes = 0;
+        foreach (var row in original) row.PropertyChanged += (_, _) => changes++;
+        var stride = twoColumns ? 2 : 1;
+        var filtered = entries.Take(stride).Concat(entries.Skip(2 * stride)).ToArray();
+        DesktopCatalogRow.SyncRows(rows, filtered, twoColumns);
+        Assert.Equal(0, changes);
+        Assert.Equal(original.Where((_, index) => index != 1), rows);
+        DesktopCatalogRow.SyncRows(rows, entries, twoColumns);
+        Assert.Equal(0, changes);
+        Assert.Equal(original.Skip(2), rows.Skip(2));
+        Assert.Same(entries[^1], rows[^1].First);
+    }
+
+    [Fact]
     public void TwoColumnRowsKeepTheOriginalPairingAndOrder()
     {
         object[] entries = [new(), new(), new(), new()];

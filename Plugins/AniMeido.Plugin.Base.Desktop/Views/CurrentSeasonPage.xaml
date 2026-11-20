@@ -631,12 +631,15 @@
                               HorizontalAlignment="Center"
                               IsActive="True"/>
                 <Image x:Name="LoadingFailedImage"
-                       Source="ms-appx:///Assets/Loading_failed.png"
                        Width="80"
                        Height="80"
                        Stretch="Uniform"
                        HorizontalAlignment="Center"
-                       Visibility="Collapsed"/>
+                       Visibility="Collapsed">
+                    <Image.Source>
+                        <BitmapImage DecodePixelType="Logical" DecodePixelHeight="80" UriSource="ms-appx:///Assets/Loading_failed.png"/>
+                    </Image.Source>
+                </Image>
                 <TextBlock x:Name="LoadingHint"
                            FontSize="14"
                            Foreground="{ThemeResource DesktopMutedBrush}"

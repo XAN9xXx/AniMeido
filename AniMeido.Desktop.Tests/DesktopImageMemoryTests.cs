@@ -90,6 +90,36 @@ public sealed class DesktopImageMemoryTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public Task LeavingGalleryDropsTheDecodedDetailPreviewAndReopeningLoadsItAgain()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var path = CreateImage(Path.GetDirectoryName(fixture.DatabasePath)!, "gallery-preview.jpg", SKColors.Navy);
+            var store = new ArchiveService(fixture.Factory);
+            await store.ImportScreenshotsAsync([new AnimeScreenshot("preview", path, "", DateTimeOffset.UnixEpoch,
+                "", "", 1200, 1800, null, null, null, null, "", true)]);
+            var page = fixture.Archives(new Source());
+            await page.OnNavigatedToAsync("preview");
+            try
+            {
+                await AttachAsync(root, page); await page.PendingActivation; await page.PendingRead;
+                var image = Assert.IsType<Image>(page.FindName("ScreenshotDetailImage"));
+                await UnoVisualEvidence.WaitForAsync(() => image.Source is BitmapSource decoded && Surface(decoded) is not null);
+                var surface = Surface((BitmapSource)image.Source)!;
+                var before = SurfaceBytes(surface);
+                Assert.True(before > 0);
+                await DetachAsync(root, page);
+                Assert.Null(image.Source);
+                await UnoVisualEvidence.WaitForAsync(() => SurfaceBytes(surface) == 0);
+                output.WriteLine($"gallery-detail decodedBytes={before}; afterLeave={SurfaceBytes(surface)}");
+                await page.OnNavigatedToAsync("preview");
+                await AttachAsync(root, page); await page.PendingActivation; await page.PendingRead;
+                await UnoVisualEvidence.WaitForAsync(() => image.Source is BitmapSource reopened && DecodedBytes(reopened) > 0);
+            }
+            finally { await DetachAsync(root, page); await page.PendingRead; }
+        });
+
+    [Fact]
     public Task ArchiveStripDecodesAtTheViewportWidthOnLoadResizeAndReentry()
         => UnoHeadlessTestHost.RunAsync(async root =>
         {

@@ -19,6 +19,82 @@ public sealed class DesktopManagedImageLifetimeTests(ITestOutputHelper output)
     private static int _nextId = 1_000_000;
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task CachedItemEnteringTheViewportShowsItsImageWithoutAnIntermediatePlaceholder(bool avatar)
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            using var first = new CachedImage(avatar, 96, 144);
+            using var next = new CachedImage(avatar, 96, 144);
+            var image = NewImage();
+            var placeholders = 0;
+            var token = image.RegisterPropertyChangedCallback(Image.SourceProperty, (_, _) =>
+            {
+                if (image.Source is BitmapImage bitmap && bitmap.UriSource == ImageCacheHelper.PlaceholderUri)
+                    placeholders++;
+            });
+            try
+            {
+                first.Configure(image);
+                root.Children.Add(image);
+                await ReadyAsync(image);
+                root.Children.Remove(image);
+                next.Configure(image);
+                root.Children.Add(image);
+                await ReadyAsync(image);
+                Assert.Equal(new Uri(next.Path), Assert.IsType<BitmapImage>(image.Source).UriSource);
+                Assert.Equal(0, placeholders);
+            }
+            finally
+            {
+                image.UnregisterPropertyChangedCallback(Image.SourceProperty, token);
+                root.Children.Remove(image);
+                ManagedImageLoader.Cancel(image);
+            }
+        });
+
+    [Fact]
+    public Task BindingACachedCoverBeforeMountingDoesNotStartTheDownloadIndicator()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            using var entry = new CachedImage(false, 96, 144);
+            var states = new List<ManagedImageLoadState>();
+            var image = NewImage();
+            ManagedImageLoader.ConfigureCover(image, entry.Id, entry.Url, image.Width, states.Add);
+            root.Children.Add(image);
+            try
+            {
+                await ReadyAsync(image);
+                Assert.Contains(ManagedImageLoadState.Loaded, states);
+                Assert.DoesNotContain(ManagedImageLoadState.Loading, states);
+            }
+            finally
+            {
+                root.Children.Remove(image);
+                ManagedImageLoader.Cancel(image);
+            }
+        });
+
+    [Fact]
+    public Task MissingCoverUsesTheRequestedDecodeWidth()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            var image = new Image { Width = 120 };
+            ManagedImageLoader.ConfigureCover(image, -1, null, 120);
+            root.Children.Add(image);
+            try
+            {
+                var bitmap = Assert.IsType<BitmapImage>(image.Source);
+                Assert.Equal(120, bitmap.DecodePixelWidth);
+                var deadline = Stopwatch.StartNew();
+                while (bitmap.PixelWidth == 0 && deadline.Elapsed < TimeSpan.FromSeconds(5))
+                    await Task.Delay(16);
+                Assert.Equal(120, bitmap.PixelWidth);
+            }
+            finally { root.Children.Remove(image); }
+        });
+
+    [Theory]
     [InlineData(600, 600)]
     [InlineData(900, 600)]
     [InlineData(600, 900)]
@@ -626,7 +702,9 @@ public sealed class DesktopManagedImageLifetimeTests(ITestOutputHelper output)
             _image = image;
             _callback = image.RegisterPropertyChangedCallback(Image.SourceProperty, (_, _) =>
             {
-                if (image.Source is BitmapImage { DecodePixelWidth: > 0 } bitmap)
+                // 占位图也按尺寸解码；这里只统计实际内容的重载次数。
+                if (image.Source is BitmapImage { DecodePixelWidth: > 0 } bitmap &&
+                    bitmap.UriSource != ImageCacheHelper.PlaceholderUri)
                 {
                     Widths.Add(bitmap.DecodePixelWidth);
                     bitmap.ImageOpened += (_, _) => Opened++;

@@ -143,10 +143,15 @@ public sealed partial class ArchivePage
         _suppressScreenshotSelectionChanged = true;
         try
         {
-            _screenshotGroups.Source = _gallery.VisibleScreenshots
-                .GroupBy(item => item.CapturedAt.ToLocalTime().Date)
-                .Select(group => new ScreenshotDayGroup(group.Key, group))
-                .ToArray();
+            // F5 仍读取最新记录；数据相同时沿用原来的分组，GridView 不用重建缩略图。
+            if (_screenshotGroups.Source is not ScreenshotDayGroup[] existing
+                || !existing.SelectMany(group => group).SequenceEqual(_gallery.VisibleScreenshots))
+            {
+                _screenshotGroups.Source = _gallery.VisibleScreenshots
+                    .GroupBy(item => item.CapturedAt.ToLocalTime().Date)
+                    .Select(group => new ScreenshotDayGroup(group.Key, group))
+                    .ToArray();
+            }
             if (_gallery.IsBatchMode)
             {
                 foreach (var item in restoredSelection)

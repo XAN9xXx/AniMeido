@@ -16,6 +16,46 @@ public sealed class CacheMutationSchedulingTests : IAsyncLifetime
 
     public Task DisposeAsync() => _database.DisposeAsync();
 
+    [Fact]
+    [Trait("Category", "Mechanism")]
+    public async Task LargeJsonEntriesAreEvictedFromMemoryButStillAvailableOffline()
+    {
+        var cache = new CacheService(Factory);
+        var memory = (IDictionary)typeof(CacheService)
+            .GetField("_memoryCache", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(cache)!;
+        var value = new string('界', 1024 * 1024);
+        for (var i = 0; i < 6; i++)
+            await cache.SetCacheAsync($"large-{i}", value, TimeSpan.FromHours(-1));
+
+        Assert.False(memory.Contains("large-0"));
+        Assert.True(memory.Contains("large-5"));
+        Assert.Null(await cache.GetCacheAsync("large-0"));
+        Assert.Equal(value, await cache.GetCacheAllowExpiredAsync("large-0"));
+
+        var oversize = new string('大', 5 * 1024 * 1024);
+        await cache.SetCacheAsync("large-5", oversize, TimeSpan.FromDays(1));
+        Assert.Equal(oversize, await cache.GetCacheAsync("large-5"));
+        Assert.False(memory.Contains("large-5"));
+    }
+
+    [Fact]
+    [Trait("Category", "Mechanism")]
+    public async Task ReadingAnOlderEntryKeepsItHotWhenTheBudgetFills()
+    {
+        var cache = new CacheService(Factory);
+        var memory = (IDictionary)typeof(CacheService)
+            .GetField("_memoryCache", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(cache)!;
+        var data = new string('文', 1024 * 1024);
+        foreach (var key in new[] { "first", "second", "third" })
+            await cache.SetCacheAsync(key, data, TimeSpan.FromDays(1));
+
+        Assert.Equal(data, await cache.GetCacheAsync("first"));
+        await cache.SetCacheAsync("fourth", data, TimeSpan.FromDays(1));
+        Assert.True(memory.Contains("first"));
+        Assert.False(memory.Contains("second"));
+        Assert.Equal(data, await cache.GetCacheAsync("second"));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

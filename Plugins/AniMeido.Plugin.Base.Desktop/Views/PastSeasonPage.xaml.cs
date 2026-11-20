@@ -29,7 +29,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
     private readonly DispatcherQueueTimer _skeletonTimer;
     private readonly ObservableCollection<DesktopCatalogRow> _detailedRows = [];
     private readonly ObservableCollection<DesktopCatalogPosterRow> _posterRows = [];
-    private readonly HashSet<AnimeCard> _visiblePosters = [];
+    private readonly HashSet<AnimeCard> _realizedCards = [];
     private ObservableCollection<PastSeasonEntry>? _observedEntries;
     private CancellationTokenSource? _loading;
     private IDisposable? _dropHost;
@@ -48,6 +48,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
     private readonly DispatcherQueueTimer _settleScrollTimer;
     private double? _settlingScrollOffset;
     private bool _seasonPending;
+    private bool _holdingSeason;
     private bool? _detailed;
 
     public PastSeasonViewModel ViewModel { get; }
@@ -72,7 +73,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         _seasonTimer = Timer(250, () => _ = LoadAsync());
         _skeletonTimer = Timer(150, () =>
         {
-            if (_active && (_seasonPending || ViewModel.IsLoading))
+            if (_active && !_holdingSeason && (_seasonPending || ViewModel.IsLoading))
                 SkeletonRepeater.Visibility = Visibility.Visible;
         });
         SkeletonRepeater.ItemsSource = Enumerable.Range(0, 12).ToArray();
@@ -97,6 +98,13 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
     {
         if (parameter is PastSeasonTarget target && PastSeasonBrowse.IsWithin(target, FirstSeason, LatestSeason()))
         {
+            if (_active && _selected != target)
+            {
+                HoldVisibleSeason();
+                _selected = target;
+                UpdateSeasonHeading();
+                return LoadAsync();
+            }
             _selected = target;
             UpdateSeasonHeading();
         }
@@ -153,6 +161,8 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         _seasonTimer.Stop();
         _skeletonTimer.Stop();
         _seasonPending = false;
+        _holdingSeason = false;
+        SeasonSwitchHint.Visibility = Visibility.Collapsed;
         SkeletonRepeater.Visibility = Visibility.Collapsed;
         _dropHost?.Dispose();
         _dropHost = null;
@@ -160,7 +170,8 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         DesktopPresentationPreferences.Changed -= OnPreferencesChanged;
         if (_observedEntries is { } entries) entries.CollectionChanged -= OnEntriesChanged;
         _observedEntries = null;
-        _visiblePosters.Clear();
+        StopFilterMotion();
+        _realizedCards.Clear();
         SeasonFlyout.Hide();
     }
 
@@ -233,23 +244,49 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         finally
         {
             if (ReferenceEquals(_loading, cancellation)) _loading = null;
-            if (Current()) { _seasonPending = false; UpdateSeasonHeading(); UpdateLoading(); UpdateFormatChips(); QueueLayout(); }
+            if (Current())
+            {
+                _seasonPending = false;
+                if (_holdingSeason)
+                {
+                    _holdingSeason = false;
+                    // 不让上一季的虚拟行参与下一季的逐条替换，避免回收中的卡片继续显示旧绑定。
+                    CatalogRows.ItemsSource = null;
+                    _scrollOffset = 0;
+                    _restoreScroll = true;
+                    UpdateRows();
+                }
+                UpdateSeasonHeading();
+                UpdateLoading();
+                UpdateFormatChips();
+                QueueLayout();
+            }
         }
     }
 
     private void SelectSeason(PastSeasonTarget target, bool delay)
     {
         SeasonFlyout.Hide();
-        _selected = PastSeasonBrowse.Clamp(target, FirstSeason, LatestSeason());
+        target = PastSeasonBrowse.Clamp(target, FirstSeason, LatestSeason());
+        if (_selected == target && !_seasonPending && !ViewModel.IsLoading && ViewModel.LoadedAnime.Count > 0) return;
+        HoldVisibleSeason();
+        _selected = target;
         CancelLoad();
         _seasonPending = true;
         _scrollOffset = 0;
         _restoreScroll = true;
-        CatalogRows.ItemsSource = null;
         UpdateSeasonHeading();
         UpdateLoading();
         _seasonTimer.Stop();
         if (delay) _seasonTimer.Start(); else _ = LoadAsync();
+    }
+
+    private void HoldVisibleSeason()
+    {
+        StopFilterMotion();
+        // 短暂等待期间沿用已呈现的标题和卡片。下一季数据到齐后，同一轮更新两者。
+        _holdingSeason |= CatalogRows.ItemsSource is System.Collections.ICollection { Count: > 0 } && CatalogRows.Opacity > 0;
+        if (_holdingSeason) CatalogRows.IsHitTestVisible = false;
     }
 
     private void StepSeason(int step)
@@ -263,8 +300,10 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         var latest = LatestSeason();
         SeasonLabel.Text = $"{_selected.Year} {PastSeasonBrowse.SeasonName(_selected.Season)}";
         SeasonMonthsLabel.Text = PastSeasonBrowse.SeasonMonths(_selected.Season);
-        SeasonSummary.Text = !_seasonPending && ViewModel.Season == _selected
-            ? ViewModel.SummaryText : $"{_selected.Year} 年{PastSeasonBrowse.SeasonName(_selected.Season)}季";
+        SeasonSwitchHint.Visibility = _holdingSeason ? Visibility.Visible : Visibility.Collapsed;
+        if (!_holdingSeason)
+            SeasonSummary.Text = !_seasonPending && ViewModel.Season == _selected
+                ? ViewModel.SummaryText : $"{_selected.Year} 年{PastSeasonBrowse.SeasonName(_selected.Season)}季";
         PrevSeasonButton.IsEnabled = PastSeasonBrowse.Step(_selected, -1, FirstSeason, latest) is not null;
         NextSeasonButton.IsEnabled = PastSeasonBrowse.Step(_selected, 1, FirstSeason, latest) is not null;
     }
@@ -331,7 +370,11 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
     }
 
     private void OnEntriesChanged(object? sender, NotifyCollectionChangedEventArgs args) => QueueLayout();
-    private void OnPreferencesChanged(object? sender, EventArgs args) => QueueLayout();
+    private void OnPreferencesChanged(object? sender, EventArgs args)
+    {
+        StopFilterMotion();
+        QueueLayout();
+    }
     private void OnCatalogSizeChanged(object sender, SizeChangedEventArgs args) => QueueLayout();
 
     private void QueueLayout()
@@ -347,7 +390,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
 
     private void UpdateRows()
     {
-        if (_seasonPending || ViewModel.Season != _selected) return;
+        if (_holdingSeason || _seasonPending || ViewModel.Season != _selected) return;
         var width = CatalogScroller.ViewportWidth > 0 ? CatalogScroller.ViewportWidth : CatalogScroller.ActualWidth;
         if (width <= 0) return;
         // 空结果只隐藏画面，保留已测量的有效视口；折叠后首次重新显示可能一次实现整个季度。
@@ -363,6 +406,8 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
             if (detailed) CatalogScroller.ClearValue(ScrollViewer.VerticalAnchorRatioProperty);
             else CatalogScroller.VerticalAnchorRatio = double.NaN;
             CatalogRows.ItemsSource = null;
+            if (detailed) _posterRows.Clear();
+            else _detailedRows.Clear();
             CatalogRows.ItemTemplate = (DataTemplate)Resources[detailed ? "DesktopDetailedRowTemplate" : "DesktopPosterRowTemplate"];
             _detailed = detailed;
         }
@@ -382,22 +427,32 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
             DesktopCatalogPosterRow.SyncRows(_posterRows, ViewModel.Entries, _posterColumns,
                 Math.Round(_posterWidth * 1.5) + 20);
             CatalogRows.ItemsSource = _posterRows;
-            foreach (var card in _visiblePosters) card.CardWidth = _posterWidth;
+            foreach (var card in _realizedCards)
+                if (card.DisplayMode != AnimeCardDisplayMode.Detailed) card.CardWidth = _posterWidth;
             SkeletonLayout.MinItemWidth = Math.Floor(width / _posterColumns);
             SkeletonLayout.MinItemHeight = Math.Round(_posterWidth * 1.5) + 90;
         }
     }
 
-    private void OnPosterLoaded(object sender, RoutedEventArgs args)
+    private void OnCatalogCardLoaded(object sender, RoutedEventArgs args)
     {
         var card = (AnimeCard)sender;
-        _visiblePosters.Add(card);
-        card.CardWidth = _posterWidth;
+        _realizedCards.Add(card);
+        if (card.DisplayMode != AnimeCardDisplayMode.Detailed) card.CardWidth = _posterWidth;
     }
-    private void OnPosterUnloaded(object sender, RoutedEventArgs args) => _visiblePosters.Remove((AnimeCard)sender);
+    private void OnCatalogCardUnloaded(object sender, RoutedEventArgs args) => _realizedCards.Remove((AnimeCard)sender);
 
     private void OnCatalogLayoutUpdated(object? sender, object args)
     {
+        if (_filterOrigins is not null && !_layoutQueued && !_filterSlideQueued)
+        {
+            // 跨行后目标卡在这次布局结束时才触发 Loaded。
+            _filterSlideQueued = DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+            {
+                _filterSlideQueued = false;
+                if (_filterOrigins is not null && !_layoutQueued) AnimateFilterResult();
+            });
+        }
         if (!_active || !_restoreScroll || ViewModel.IsLoading || _seasonPending) return;
         if (_scrollOffset <= 0)
         {
@@ -447,6 +502,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
 
     private void YieldScrollRestore()
     {
+        StopFilterMotion();
         if (!_restoreScroll && _settlingScrollOffset is null) return;
         _restoreScroll = false;
         _settleScrollTimer.Stop();
@@ -462,6 +518,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
 
     private void ResetScroll()
     {
+        CaptureFilterOrigins();
         _settleScrollTimer.Stop();
         _settlingScrollOffset = null;
         _scrollOffset = 0;
@@ -472,7 +529,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
     private void UpdateLoading()
     {
         _skeletonTimer.Stop();
-        if (ViewModel.IsLoading || _seasonPending) _skeletonTimer.Start();
+        if (!_holdingSeason && (ViewModel.IsLoading || _seasonPending)) _skeletonTimer.Start();
         else SkeletonRepeater.Visibility = Visibility.Collapsed;
     }
 
@@ -508,7 +565,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
     private void UpdateFormatChips()
     {
         // 过渡期间保留上一批计数和位置，只响应用户选中的形态。新季度到齐后原地更新计数。
-        var loading = _seasonPending || ViewModel.IsLoading;
+        var loading = _holdingSeason || _seasonPending || ViewModel.IsLoading;
         foreach (var slot in FormatChipSlots)
         {
             var chip = slot.Chip;

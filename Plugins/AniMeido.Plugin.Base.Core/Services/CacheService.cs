@@ -2,7 +2,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using System.Collections.Concurrent;
 
 namespace AniMeido.Plugin.Base.Services
 {
@@ -24,7 +23,53 @@ namespace AniMeido.Plugin.Base.Services
         private readonly SemaphoreSlim _mutationGate = new(1, 1);
         private long _generation;
 
-        private readonly ConcurrentDictionary<string, (string data, DateTime expiresAt)> _memoryCache = new();
+        private const int MaxHotEntries = 512;
+        private const long MaxHotBytes = 8 * 1024 * 1024;
+        private readonly object _hotLock = new();
+        private readonly Dictionary<string, LinkedListNode<HotEntry>> _memoryCache = new(StringComparer.Ordinal);
+        private readonly LinkedList<HotEntry> _hotOrder = new();
+        private long _hotBytes;
+
+        private readonly record struct HotEntry(string Key, string Data, DateTime ExpiresAt)
+        {
+            public long Bytes => ((long)Key.Length + Data.Length) * sizeof(char);
+        }
+
+        private void ForgetHot(LinkedListNode<HotEntry> node)
+        {
+            _memoryCache.Remove(node.Value.Key);
+            _hotOrder.Remove(node);
+            _hotBytes -= node.Value.Bytes;
+        }
+
+        private void RememberHot(string key, string data, DateTime expiresAt)
+        {
+            var entry = new HotEntry(key, data, expiresAt);
+            lock (_hotLock)
+            {
+                if (_memoryCache.TryGetValue(key, out var previous)) ForgetHot(previous);
+                if (entry.Bytes > MaxHotBytes) return;
+                while (_hotOrder.First is { } oldest &&
+                    (_hotOrder.Count >= MaxHotEntries || _hotBytes + entry.Bytes > MaxHotBytes))
+                    ForgetHot(oldest);
+                _memoryCache.Add(key, _hotOrder.AddLast(entry));
+                _hotBytes += entry.Bytes;
+            }
+        }
+
+        private string? ReadHot(string key, bool allowExpired)
+        {
+            lock (_hotLock)
+            {
+                if (!_memoryCache.TryGetValue(key, out var node)) return null;
+                var now = DateTime.UtcNow;
+                if (node.Value.ExpiresAt <= now - ExpiredRetention) { ForgetHot(node); return null; }
+                if (!allowExpired && node.Value.ExpiresAt <= now) return null;
+                _hotOrder.Remove(node);
+                _hotOrder.AddLast(node);
+                return node.Value.Data;
+            }
+        }
 
         public CacheService(
             SqliteConnectionFactory dbFactory,
@@ -91,7 +136,7 @@ namespace AniMeido.Plugin.Base.Services
 
                     // SQLite 写入成功后再写入内存缓存。ClearAllCacheAsync 与本段互斥，
                     // 因而清空操作返回后不会被旧请求重新填充。
-                    _memoryCache[key] = (data, expiresAt);
+                    RememberHot(key, data, expiresAt);
                 }).ConfigureAwait(false);
             }
             finally
@@ -102,16 +147,8 @@ namespace AniMeido.Plugin.Base.Services
 
         public Task<string?> GetCacheAsync(string key)
         {
-            if (_memoryCache.TryGetValue(key, out var entry))
-            {
-                var now = DateTime.UtcNow;
-                if (entry.expiresAt > now)
-                    return Task.FromResult<string?>(entry.data);
-
-                // 过期不等于删除：保留期内仍留在内存，供离线读取使用。
-                if (entry.expiresAt <= now.Subtract(ExpiredRetention))
-                    _memoryCache.TryRemove(KeyValuePair.Create(key, entry));
-            }
+            if (ReadHot(key, allowExpired: false) is { } data)
+                return Task.FromResult<string?>(data);
 
             return GetFromSqliteAsync(key, onlyValid: true);
         }
@@ -121,14 +158,7 @@ namespace AniMeido.Plugin.Base.Services
         /// </summary>
         public async Task<string?> GetCacheAllowExpiredAsync(string key)
         {
-            if (_memoryCache.TryGetValue(key, out var entry))
-            {
-                if (entry.expiresAt > DateTime.UtcNow.Subtract(ExpiredRetention))
-                    return entry.data;
-
-                // 只移除观察到的旧值，不误删并发写入的同名新缓存。
-                _memoryCache.TryRemove(KeyValuePair.Create(key, entry));
-            }
+            if (ReadHot(key, allowExpired: true) is { } data) return data;
 
             return await GetFromSqliteAsync(key, onlyValid: false).ConfigureAwait(false);
         }
@@ -145,14 +175,11 @@ namespace AniMeido.Plugin.Base.Services
             await _mutationGate.WaitAsync().ConfigureAwait(false);
             try
             {
-                if (observedData is null)
+                lock (_hotLock)
                 {
-                    _memoryCache.TryRemove(key, out _);
-                }
-                else if (_memoryCache.TryGetValue(key, out var entry)
-                    && string.Equals(entry.data, observedData, StringComparison.Ordinal))
-                {
-                    _memoryCache.TryRemove(KeyValuePair.Create(key, entry));
+                    if (_memoryCache.TryGetValue(key, out var node) &&
+                        (observedData is null || string.Equals(node.Value.Data, observedData, StringComparison.Ordinal)))
+                        ForgetHot(node);
                 }
 
                 await Task.Run(async () =>
@@ -188,7 +215,12 @@ namespace AniMeido.Plugin.Base.Services
             try
             {
                 Interlocked.Increment(ref _generation);
-                _memoryCache.Clear();
+                lock (_hotLock)
+                {
+                    _memoryCache.Clear();
+                    _hotOrder.Clear();
+                    _hotBytes = 0;
+                }
 
                 await Task.Run(async () =>
                 {
@@ -250,11 +282,13 @@ namespace AniMeido.Plugin.Base.Services
                         await command.ExecuteNonQueryAsync().ConfigureAwait(false);
 
                         // 内存与 SQLite 使用同一截止时间，只移除本次观察到的过期值。
-                        foreach (var entry in _memoryCache)
+                        lock (_hotLock)
                         {
-                            if (entry.Value.expiresAt <= retentionCutoff)
+                            for (var node = _hotOrder.First; node is not null;)
                             {
-                                _memoryCache.TryRemove(entry);
+                                var next = node.Next;
+                                if (node.Value.ExpiresAt <= retentionCutoff) ForgetHot(node);
+                                node = next;
                             }
                         }
                     }).ConfigureAwait(false);
@@ -321,7 +355,7 @@ namespace AniMeido.Plugin.Base.Services
                             out var expiresAt))
                         {
                             // 回填内存缓存（即使已过期，也允许降级时命中）
-                            _memoryCache[key] = (data, expiresAt);
+                            RememberHot(key, data, expiresAt);
                         }
                         return data;
                     }

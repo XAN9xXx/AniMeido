@@ -22,20 +22,30 @@ public sealed class DesktopCatalogRow(object first, object? second, bool twoColu
     {
         var stride = twoColumns ? 2 : 1;
         var count = (entries.Count + stride - 1) / stride;
-        for (var rowIndex = 0; rowIndex < count; ++rowIndex)
+        var shared = Math.Min(rows.Count, count);
+        var suffix = 0;
+        while (rows.Count != count && suffix < shared)
+        {
+            var start = (count - suffix - 1) * stride;
+            var row = rows[rows.Count - suffix - 1];
+            if (row.FirstColumnSpan != (twoColumns ? 1 : 2) || !Equals(row.First, entries[start])
+                || !Equals(row.Second, twoColumns && start + 1 < entries.Count ? entries[start + 1] : null)) break;
+            ++suffix;
+        }
+        for (var rowIndex = 0; rowIndex < count - suffix; ++rowIndex)
         {
             var index = rowIndex * stride;
             var first = entries[index];
             var second = twoColumns && index + 1 < entries.Count ? entries[index + 1] : null;
-            if (rowIndex < rows.Count)
+            if (rowIndex < shared - suffix)
             {
                 var current = rows[rowIndex];
                 if (current.FirstColumnSpan == (twoColumns ? 1 : 2)) current.Sync(first, second);
                 else rows[rowIndex] = new(first, second, twoColumns);
             }
-            else rows.Add(new(first, second, twoColumns));
+            else rows.Insert(rowIndex, new(first, second, twoColumns));
         }
-        while (rows.Count > count) rows.RemoveAt(rows.Count - 1);
+        while (rows.Count > count) rows.RemoveAt(rows.Count - suffix - 1);
     }
 }
 
@@ -50,11 +60,25 @@ public sealed class DesktopCatalogPosterRow : ObservableObject
     {
         columns = Math.Max(1, columns);
         var count = (entries.Count + columns - 1) / columns;
-        for (var rowIndex = 0; rowIndex < count; ++rowIndex)
+        // 筛选可能只删掉中间一整排。保留后方内容未变的行，避免逐张替换这些封面。
+        var shared = Math.Min(rows.Count, count);
+        var suffix = 0;
+        if (rows.Count != count)
+        {
+            while (suffix < shared)
+            {
+                var start = (count - suffix - 1) * columns;
+                var row = rows[rows.Count - suffix - 1];
+                if (!row.Matches(entries, start, Math.Min(columns, entries.Count - start))) break;
+                row.MinimumHeight = minimumHeight;
+                ++suffix;
+            }
+        }
+        for (var rowIndex = 0; rowIndex < count - suffix; ++rowIndex)
         {
             var index = rowIndex * columns;
             var length = Math.Min(columns, entries.Count - index);
-            if (rowIndex < rows.Count)
+            if (rowIndex < shared - suffix)
             {
                 rows[rowIndex].MinimumHeight = minimumHeight;
                 rows[rowIndex].Sync(entries, index, length);
@@ -63,20 +87,23 @@ public sealed class DesktopCatalogPosterRow : ObservableObject
             {
                 var row = new DesktopCatalogPosterRow { MinimumHeight = minimumHeight };
                 row.Sync(entries, index, length);
-                rows.Add(row);
+                rows.Insert(rowIndex, row);
             }
         }
-        while (rows.Count > count) rows.RemoveAt(rows.Count - 1);
+        while (rows.Count > count) rows.RemoveAt(rows.Count - suffix - 1);
+    }
+
+    private bool Matches(IReadOnlyList<object> target, int start, int count)
+    {
+        if (Entries.Count != count) return false;
+        for (var i = 0; i < count; i++)
+            if (!Equals(Entries[i], target[start + i])) return false;
+        return true;
     }
 
     private void Sync(IReadOnlyList<object> target, int start, int count)
     {
-        if (Entries.Count == count)
-        {
-            var same = true;
-            for (var i = 0; i < count && same; i++) same = Equals(Entries[i], target[start + i]);
-            if (same) return;
-        }
+        if (Matches(target, start, count)) return;
 
         // 先移除不再显示的作品；同排保留项由 ItemsControl 原地挪位，不重新建立封面源。
         for (var i = Entries.Count - 1; i >= 0; i--)

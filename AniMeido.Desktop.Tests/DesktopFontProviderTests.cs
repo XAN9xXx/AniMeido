@@ -6,6 +6,10 @@ namespace AniMeido.Desktop.Tests;
 
 public sealed class DesktopFontProviderTests
 {
+    [Fact]
+    public void BundledFallbackFontStaysWithinItsSizeBudget()
+        => Assert.InRange(new FileInfo(Path.Combine(Fonts(), "DesktopWenKai.ttf")).Length, 1L, 52L * 1024 * 1024);
+
     [Theory]
     [InlineData('桐', 17, "Desktop WenKai Reading")]
     [InlineData('桐', 34, "Desktop WenKai")]

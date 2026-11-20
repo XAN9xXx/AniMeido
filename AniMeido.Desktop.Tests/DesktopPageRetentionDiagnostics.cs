@@ -293,7 +293,7 @@ public sealed class DesktopPageRetentionDiagnostics(ITestOutputHelper output)
                 Assert.False((bool)typeof(PastSeasonPage).GetField("_active", Flags)!.GetValue(page)!);
                 foreach (var field in new[] { "_loading", "_dropHost", "_observedEntries" })
                     Assert.Null(typeof(PastSeasonPage).GetField(field, Flags)!.GetValue(page));
-                Assert.Empty((System.Collections.IEnumerable)typeof(PastSeasonPage).GetField("_visiblePosters", Flags)!.GetValue(page)!);
+                Assert.Empty((System.Collections.IEnumerable)typeof(PastSeasonPage).GetField("_realizedCards", Flags)!.GetValue(page)!);
             }
         }
 

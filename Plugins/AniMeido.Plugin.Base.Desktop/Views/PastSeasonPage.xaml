@@ -42,13 +42,14 @@
                                 TrackingStatus="{x:Bind Status}"
                                 ShowMediaFormatBadge="True"
                                 ShowSeasonDate="True"
-                                Loaded="OnPosterLoaded" Unloaded="OnPosterUnloaded"
+                                Loaded="OnCatalogCardLoaded" Unloaded="OnCatalogCardUnloaded"
                                 CardClicked="OnAnimeCardClicked"
                                 VerticalAlignment="Top" Margin="0,0,16,20"/>
         </DataTemplate>
         <DataTemplate x:Key="DesktopDetailedTemplate" x:DataType="vm:PastSeasonEntry">
             <controls:AnimeCard Anime="{Binding Anime, Mode=OneWay}"
                                 DisplayMode="Detailed"
+                                Loaded="OnCatalogCardLoaded" Unloaded="OnCatalogCardUnloaded"
                                 ShowQuickActions="False"
                                 TrackingStatus="{Binding Status, Mode=OneWay}"
                                 HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
@@ -100,6 +101,8 @@
                        Style="{StaticResource AniMeidoPageSubtitleStyle}"
                        VerticalAlignment="Bottom"
                        Margin="0,0,0,4"/>
+            <TextBlock x:Name="SeasonSwitchHint" Text="正在切换季度…" Visibility="Collapsed"
+                       Style="{StaticResource AniMeidoPageSubtitleStyle}" VerticalAlignment="Bottom" Margin="0,0,0,4"/>
         </StackPanel>
 
         <!-- 意外错误（刷新缓存失败等）；数据源失败显示在内容区 -->
@@ -282,10 +285,14 @@
                         Margin="0,48,0,0"
                         MaxWidth="360"
                         Spacing="12">
-                <Image Source="ms-appx:///Assets/Loading_failed.png"
+                <Image
                        Width="64"
                        Height="64"
-                       Stretch="Uniform"/>
+                       Stretch="Uniform">
+                    <Image.Source>
+                        <BitmapImage DecodePixelType="Logical" DecodePixelHeight="64" UriSource="ms-appx:///Assets/Loading_failed.png"/>
+                    </Image.Source>
+                </Image>
                 <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
                            TextWrapping="Wrap"
                            TextAlignment="Center"

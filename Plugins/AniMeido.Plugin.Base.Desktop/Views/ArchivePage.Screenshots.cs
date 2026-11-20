@@ -17,7 +17,7 @@ public sealed partial class ArchivePage
         if (_pageLifetime is null || image.DataContext is not AnimeScreenshot item || !item.FileExists)
         { ManagedImageLoader.Cancel(image); return; }
         var isDetail = ReferenceEquals(image, ScreenshotDetailImage);
-        ManagedImageLoader.ConfigureLocal(image, item.FilePath, isDetail ? 600 : 350, releaseOffscreenPixels: !isDetail);
+        ManagedImageLoader.ConfigureLocal(image, item.FilePath, isDetail ? 600 : 350, releaseOffscreenPixels: true);
     }
 
     private void OnArchiveImageUnloaded(object sender, RoutedEventArgs e)
