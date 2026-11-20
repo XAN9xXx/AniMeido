@@ -47,7 +47,7 @@ $env:ANIMEIDO_DATA_ROOT = 'D:\AniMeidoDev\sandbox'
 dotnet run --project AniMeido.App/AniMeido.App.csproj
 ```
 
-新桌面项目使用 `global.json` 固定的 Uno.Sdk 7.0.5，采用 Uno Skia 的 Win32 桌面宿主，界面库为 `Plugins/AniMeido.Plugin.Base.Desktop`。Windows 截图和通知由 `AniMeido.Platform.Windows` 适配。运行时也使用独立数据：
+新桌面项目使用 `global.json` 固定版本的 Uno.Sdk，采用 Uno Skia 的 Win32 桌面宿主，界面库为 `Plugins/AniMeido.Plugin.Base.Desktop`。Windows 截图和通知由 `AniMeido.Platform.Windows` 适配。运行时也使用独立数据：
 
 ```powershell
 dotnet build AniMeido.Desktop/AniMeido.Desktop.csproj -c Release

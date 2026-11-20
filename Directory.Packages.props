@@ -42,8 +42,8 @@
 
   <!-- 使用与桌面宿主一致的渲染库验证实际字体。 -->
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'AniMeido.Desktop.Tests'">
-    <PackageVersion Include="Uno.WinUI.Composition.Skia" Version="7.0.32" />
-    <PackageVersion Include="Uno.WinUI.Runtime.Headless" Version="7.0.32" />
+    <PackageVersion Include="Uno.WinUI.Composition.Skia" Version="7.0.65" />
+    <PackageVersion Include="Uno.WinUI.Runtime.Headless" Version="7.0.65" />
   </ItemGroup>
 
   <!-- Player 插件 -->
