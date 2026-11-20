@@ -397,11 +397,16 @@ stable 3.0.0 会强制加入安装位置迁移、应用内更新、旧版卸载�
 
 ### 发布顺序（不能颠倒）
 
-1. Windows 沙盒验收成功；正式发布还要等 Uno 迁移完成后再次验收。
+1. 在 Windows 沙盒验收安装包。把要打 tag 的提交推送到分支，等这次提交的 push CI 通过。
+   在 GitHub 仓库的 Actions Secrets 中配置 `R2_ACCOUNT_ID`、`R2_BUCKET_NAME`、`R2_ACCESS_KEY_ID`、
+   `R2_SECRET_ACCESS_KEY`；凭据只需对目标桶列举、读取和上传对象。更新签名私钥留在本机。
 2. 维护者创建 GitHub Release，tag 为 `v<完整版本>`；preview 勾选预发布。上传安装包、ZIP、
    release.json 和 release.json.sig 四个附件，**不上传 version.json 或任何密钥**。
 3. `release-to-r2.yml` 根据 tag 的预发布后缀（不是 GitHub 的 prerelease 勾选框）选择 stable/preview。
-   安装包同步到 R2 根目录；ZIP 先传到 `updates/win-x64/<通道>/`，成功后才传签名及清单。
+   它检查 tag 提交的 CI，用客户端内置生产公钥验签，核对版本、通道、下载地址及 ZIP 大小和摘要。
+   发布前从 R2 读取通道现有清单；读取失败、版本倒退、同版本不同清单均停止，不写入 R2。
+   如果附件是原样重跑且清单已上线，只补传签名和清单，不覆盖安装包或 ZIP。
+   安装包上传到 R2 根目录；ZIP 先传到 `updates/win-x64/<通道>/`，成功后才传签名及清单。
    这两个对象不能原子更新，短暂签名不匹配时客户端会拒绝，不会信任不完整清单。
 4. 维护者确认安装包已能通过 `https://dl.animeido.com/AniMeido_setup_<版本>.exe` 下载，
    再把 stable 的 `version.json` 提交到 **animeido-website**，由 Cloudflare Pages 部署。

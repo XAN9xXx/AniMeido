@@ -26,6 +26,11 @@ internal static class SignerCommands
                     Sign(options);
                     output.WriteLine("更新清单签名已生成。");
                     break;
+                case "verify-release":
+                    var publish = ReleasePublication.ShouldPublish(Value(options, "--directory"), Value(options, "--version"),
+                        options.TryGetValue("--current", out var current) ? current[0] : null, UpdateTrustedKeys.PublicKeys);
+                    output.WriteLine(publish ? "publish" : "repair");
+                    break;
                 case "verify":
                     var manifest = await VerifyAsync(options).ConfigureAwait(false);
                     output.WriteLine($"版本：{manifest.Version}；通道：{manifest.Channel}");
@@ -57,7 +62,7 @@ internal static class SignerCommands
     {
         if (args.Length == 0)
         {
-            throw new UsageException("需要子命令：keygen、manifest、sign 或 verify。");
+            throw new UsageException("需要子命令：keygen、manifest、sign、verify 或 verify-release。");
         }
 
         var allowed = args[0] switch
@@ -66,6 +71,7 @@ internal static class SignerCommands
             "manifest" => new[] { "--zip", "--version", "--channel", "--url", "--release-date",
                 "--min-updatable-from", "--notes-file", "--out" },
             "sign" => new[] { "--private", "--file", "--overwrite" },
+            "verify-release" => new[] { "--directory", "--version", "--current" },
             "verify" => new[] { "--public", "--file", "--channel" },
             _ => throw new UsageException("未知子命令。")
         };
@@ -109,6 +115,7 @@ internal static class SignerCommands
             "keygen" => new[] { "--private", "--public" },
             "manifest" => new[] { "--zip", "--version", "--channel", "--url", "--release-date", "--out" },
             "sign" => new[] { "--private", "--file" },
+            "verify-release" => new[] { "--directory", "--version" },
             _ => new[] { "--public", "--file" }
         };
         foreach (var name in required)

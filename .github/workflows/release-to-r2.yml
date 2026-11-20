@@ -6,81 +6,125 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
-# Serialize all R2 publications, including reruns. Never cancel between the signature and manifest uploads.
 concurrency:
   group: release-to-r2
   cancel-in-progress: false
-  # Keep pending releases rather than replacing the previous one (up to 100 pending runs).
   queue: max
 
 jobs:
   upload:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
     env:
       TAG: ${{ github.event.release.tag_name }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - name: Determine update channel from tag
-        id: release
-        shell: bash
+      - name: Require successful CI for this release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run=$(gh run list --repo "$GH_REPO" --workflow ci.yml --event push --commit "$GITHUB_SHA" \
+            --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+          if [[ -z "$run" ]]; then
+            echo "::error::No successful push CI for $GITHUB_SHA. Push the release commit to a branch, wait for CI, then rerun."
+            exit 1
+          fi
+
+      - name: Check R2 configuration
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+        run: |
+          missing=()
+          for name in R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ACCOUNT_ID R2_BUCKET_NAME; do
+            [[ -n "${!name}" ]] || missing+=("$name")
+          done
+          if (( ${#missing[@]} )); then
+            echo "::error::Missing Actions secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Download the four versioned release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           version="${TAG#v}"
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
-            echo "Invalid release tag: $TAG" >&2
+            echo "::error::Invalid release tag"
             exit 1
           fi
-          precedence="${version%%+*}"
           channel=stable
-          if [[ "$precedence" == *-* ]]; then channel=preview; fi
-          echo "channel=$channel" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "${version%%+*}" == *-* ]]; then channel=preview; fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "PREFIX=updates/win-x64/$channel" >> "$GITHUB_ENV"
+          gh release download "$TAG" --repo "$GH_REPO" --dir "$RUNNER_TEMP/assets" \
+            --pattern "AniMeido_setup_$version.exe" --pattern "AniMeido-$version-win-x64.zip" \
+            --pattern release.json --pattern release.json.sig
 
-      - name: Download release assets
-        run: |
-          set -euo pipefail
-          gh release download "$TAG" --repo "$GH_REPO" \
-            --pattern 'AniMeido_setup_*' \
-            --pattern 'AniMeido-*-win-x64.zip' \
-            --pattern 'release.json' \
-            --pattern 'release.json.sig' \
-            --dir downloads/
-          test -f "downloads/AniMeido_setup_${{ steps.release.outputs.version }}.exe"
-          test -f "downloads/AniMeido-${{ steps.release.outputs.version }}-win-x64.zip"
-          test -f downloads/release.json
-          test -f downloads/release.json.sig
+      - name: Build the production manifest verifier
+        run: dotnet build Tools/AniMeido.UpdateSigner -c Release -p:AniMeidoUpdateTestSource=false -o "$RUNNER_TEMP/verifier"
+
+      - name: Read current channel manifest from R2
         env:
-          GH_TOKEN: ${{ github.token }}
-
-      - name: Configure R2 credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          aws-region: auto
-
-      - name: Upload installer and ZIP to R2
-        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}
-          CHANNEL: ${{ steps.release.outputs.channel }}
+          BUCKET: ${{ secrets.R2_BUCKET_NAME }}
         run: |
           set -euo pipefail
-          aws s3 sync --endpoint-url "$R2_ENDPOINT" \
-            downloads/ "s3://$R2_BUCKET/" --exclude '*' --include 'AniMeido_setup_*'
-          aws s3 sync --endpoint-url "$R2_ENDPOINT" \
-            downloads/ "s3://$R2_BUCKET/updates/win-x64/$CHANNEL/" --exclude '*' --include 'AniMeido-*-win-x64.zip'
+          key="$PREFIX/release.json"
+          # The exact key sorts before release.json.sig. A failed list/get is never a first release.
+          first=$(aws s3api list-objects-v2 --endpoint-url "$R2_ENDPOINT" --bucket "$BUCKET" \
+            --prefix "$key" --max-keys 1 --no-paginate --query 'Contents[0].Key' --output text)
+          if [[ "$first" == "$key" ]]; then
+            aws s3api get-object --endpoint-url "$R2_ENDPOINT" --bucket "$BUCKET" --key "$key" \
+              "$RUNNER_TEMP/current.json" > /dev/null
+          fi
 
-      # Only publish discovery files after the referenced ZIP upload succeeds.
-      - name: Upload manifest and signature to R2
-        env:
-          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}
-          CHANNEL: ${{ steps.release.outputs.channel }}
+      - name: Verify signature, ZIP and version ordering
+        id: verify
         run: |
           set -euo pipefail
-          aws s3 cp --endpoint-url "$R2_ENDPOINT" downloads/release.json.sig \
-            "s3://$R2_BUCKET/updates/win-x64/$CHANNEL/release.json.sig"
-          aws s3 cp --endpoint-url "$R2_ENDPOINT" downloads/release.json \
-            "s3://$R2_BUCKET/updates/win-x64/$CHANNEL/release.json"
+          current=()
+          if [[ -f "$RUNNER_TEMP/current.json" ]]; then current=(--current "$RUNNER_TEMP/current.json"); fi
+          mode=$(dotnet "$RUNNER_TEMP/verifier/AniMeido.UpdateSigner.dll" verify-release \
+            --directory "$RUNNER_TEMP/assets" --version "$VERSION" "${current[@]}")
+          case "$mode" in publish|repair) ;; *) exit 1 ;; esac
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to R2 (discovery last)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          BUCKET: ${{ secrets.R2_BUCKET_NAME }}
+          MODE: ${{ steps.verify.outputs.mode }}
+        working-directory: ${{ runner.temp }}/assets
+        run: |
+          set -euo pipefail
+          put() { aws s3 cp --only-show-errors --endpoint-url "$R2_ENDPOINT" "$1" "s3://$BUCKET/$2" "${@:3}"; }
+          if [[ "$MODE" == publish ]]; then
+            put "AniMeido_setup_$VERSION.exe" "AniMeido_setup_$VERSION.exe"
+            put "AniMeido-$VERSION-win-x64.zip" "$PREFIX/AniMeido-$VERSION-win-x64.zip"
+          fi
+          put release.json.sig "$PREFIX/release.json.sig" --cache-control no-cache
+          put release.json "$PREFIX/release.json" --cache-control no-cache
