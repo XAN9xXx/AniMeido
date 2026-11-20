@@ -95,7 +95,10 @@ namespace AniMeido.Plugin.Base
             services.AddSingleton<IAnimePlaybackProgressSink>(provider =>
                 provider.GetRequiredService<ActionCenterService>());
             services.AddSingleton<IPlanReminderNavigation, PlanReminderNavigation>();
-            services.AddSingleton<PlanReminderCoordinator>();
+            services.AddSingleton(provider => new PlanReminderCoordinator(
+                provider.GetRequiredService<ActionCenterService>(),
+                provider.GetRequiredService<AniMeido.Contracts.Notifications.IAppNotificationService>(),
+                provider.GetRequiredService<IPlanReminderNavigation>(), initiallyEnabled: false));
             services.AddSingleton<LocalSearchService>(sp =>
                 new LocalSearchService(
                     sp.GetRequiredService<TrackingService>(),

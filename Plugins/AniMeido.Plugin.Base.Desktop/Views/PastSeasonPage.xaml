@@ -118,7 +118,6 @@
                         <Button x:Name="PrevSeasonButton"
                                 Click="OnPrevSeasonClick"
                                 Padding="8,7"
-                                ToolTipService.ToolTip="上一季（[）"
                                 AutomationProperties.Name="上一季">
                             <FontIcon Glyph="&#xE76B;" FontSize="12"/>
                         </Button>
@@ -170,7 +169,6 @@
                         <Button x:Name="NextSeasonButton"
                                 Click="OnNextSeasonClick"
                                 Padding="8,7"
-                                ToolTipService.ToolTip="下一季（]）"
                                 AutomationProperties.Name="下一季">
                             <FontIcon Glyph="&#xE76C;" FontSize="12"/>
                         </Button>

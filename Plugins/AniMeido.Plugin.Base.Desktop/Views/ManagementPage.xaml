@@ -128,7 +128,6 @@
                             BorderThickness="0"
                             Tag="{x:Bind TagName}"
                             Click="OnRemoveTagClick"
-                            ToolTipService.ToolTip="取消收藏"
                             AutomationProperties.Name="取消收藏">
                         <FontIcon FontSize="9" Glyph="&#xE711;" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </Button>
@@ -182,7 +181,6 @@
                                   IsChecked="False"
                                   Padding="8,7"
                                   Click="OnLayoutClick"
-                                  ToolTipService.ToolTip="列表"
                                   AutomationProperties.Name="列表视图">
                         <FontIcon Glyph="&#xE8FD;" FontSize="14"/>
                     </ToggleButton>
@@ -190,7 +188,6 @@
                                   IsChecked="True"
                                   Padding="8,7"
                                   Click="OnLayoutClick"
-                                  ToolTipService.ToolTip="网格"
                                   AutomationProperties.Name="网格视图">
                         <FontIcon Glyph="&#xF0E2;" FontSize="14"/>
                     </ToggleButton>

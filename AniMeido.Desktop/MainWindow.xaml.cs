@@ -18,11 +18,13 @@ public sealed partial class MainWindow : Window
     private readonly ThemeService _theme;
     private readonly StartupDialogCoordinator _dialogs;
     private readonly MainWindowDragDropAdapter _dragDrop;
+    private readonly DesktopTitleBarRegions _titleBarRegions;
     private readonly StartupMigrationGate? _migration;
     private readonly string? _migrationBackupDirectory;
     private readonly CancellationTokenSource _closing = new();
     private readonly List<DesktopShellNavigationItem> _navigationButtons = [];
     private Task _startupTask = Task.CompletedTask;
+    private Task _reminderStartup = Task.CompletedTask;
     private DesktopShellNavigationItem? _settingsButton;
     private Type? _selectedPage;
     private bool _started;
@@ -53,6 +55,7 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
         SetTitleBar(AppTitleBar);
+        _titleBarRegions = new(RootGrid, BackButton, rectangles => DesktopNativeWindow.SetTitleBarPassthrough(this, rectangles));
         TitleBarHelper.SetWindowIcon(this);
         _navigation.Initialize(ContentFrame);
         _navigation.Navigated += OnNavigated;
@@ -94,6 +97,8 @@ public sealed partial class MainWindow : Window
                 }
             }
             _closing.Token.ThrowIfCancellationRequested();
+            _reminderStartup = InitializePlanRemindersSafelyAsync();
+            DesktopUiWork.Track(_reminderStartup);
             if (!_dropAttached)
             {
                 _dragDrop.Attach(RootGrid, NavigationPane, ContentFrame);
@@ -134,7 +139,20 @@ public sealed partial class MainWindow : Window
         MigrationRetry.IsEnabled = true;
     }
 
-    internal Task WaitForStartupAsync() => _startupTask;
+    private async Task InitializePlanRemindersSafelyAsync()
+    {
+        try { await _theme.InitializePlanRemindersAsync(_closing.Token); }
+        catch (OperationCanceledException) when (_isClosing) { }
+#pragma warning disable CA1031 // 提醒失败保留记录并提供重试，主窗口继续启动。
+        catch (Exception error)
+        {
+            Serilog.Log.Error(error, "补番提醒初始化失败");
+            if (!_isClosing) _theme.ReportPlanReminderFailure();
+        }
+#pragma warning restore CA1031
+    }
+
+    internal Task WaitForStartupAsync() => Task.WhenAll(_startupTask, _reminderStartup);
 
     internal void QueueFinalClose() => DesktopWindowClose.Enqueue(DispatcherQueue, Close);
 
@@ -150,6 +168,7 @@ public sealed partial class MainWindow : Window
         _theme.ThemeChanged -= OnThemeChanged;
         Activated -= OnActivated;
         _navigation.Stop();
+        _titleBarRegions.Dispose();
         _dragDrop.Dispose();
         BackButton.IsEnabled = false;
         NavigationPane.IsHitTestVisible = false;

@@ -9,7 +9,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
 using System.ComponentModel;
 using Windows.System;
 
@@ -19,16 +18,10 @@ public sealed partial class RecommendationPage : Page, INavigationAware
 {
     private readonly IPluginNavigator _navigator;
     private readonly ILogger<RecommendationPage> _logger;
-    private readonly DesktopDeckOverlay _tags;
     private readonly DesktopPageOperations _operations = new();
-    private readonly DispatcherTimer _tagOpenTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
-    private readonly DispatcherTimer _tagCloseTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
     private readonly HashSet<Border> _candidates = [];
-    private TodayPlanStackPanel? _tagPanel;
     private CancellationTokenSource? _visit;
     private ContentDialog? _dialog;
-    private bool _tagPinned;
-    private bool _overTags;
     private bool _restoring;
     private bool _restorePending;
     private bool _prefetching;
@@ -47,9 +40,6 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         _logger = logger;
         ViewModel = new(recommendations, browse, logger);
         InitializeComponent();
-        _tags = new(TagPackHost, TagPackVisual, TagPackScroll, TagStackPopup, TagDismissCanvas, () => _tagPanel);
-        _tagOpenTimer.Tick += (_, _) => { _tagOpenTimer.Stop(); if (_overTags) _tags.Open(); };
-        _tagCloseTimer.Tick += (_, _) => { _tagCloseTimer.Stop(); if (!_overTags && !_tagPinned) _tags.Close(); };
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
         KeyDown += OnPageKeyDown;
@@ -73,7 +63,6 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         if (_visit is not { } visit) return;
         SaveScroll();
         _visit = null;
-        CloseTagStackImmediately();
         _dialog?.Hide();
         visit.Cancel();
         visit.Dispose();
@@ -117,7 +106,6 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         switch (args.PropertyName)
         {
             case nameof(RecommendationViewModel.SelectedItem):
-                CloseTagStackImmediately();
                 UpdatePreview();
                 if (_visit is { } visit) PendingTags = LoadTagsAsync(visit.Token);
                 break;
@@ -186,7 +174,6 @@ public sealed partial class RecommendationPage : Page, INavigationAware
 
     private void OnAppearanceChanged(object? sender, EventArgs args)
     {
-        CloseTagStackImmediately();
         foreach (var candidate in _candidates) UpdateCandidate(candidate);
     }
 
@@ -197,7 +184,6 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     internal void ShowSection(string section)
     {
         SaveScroll();
-        CloseTagStackImmediately();
         ViewModel.BrowseState.Section = section;
         RecommendationsPanel.Visibility = section == "recommendations" ? Visibility.Visible : Visibility.Collapsed;
         ProfilePanel.Visibility = section == "profile" ? Visibility.Visible : Visibility.Collapsed;
@@ -232,7 +218,6 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         SaveScroll();
         PendingPrefetch = PrefetchAsync();
     }
-    private void OnFeedScrollChanged(object? sender, ScrollViewerViewChangedEventArgs args) => CloseTagStackImmediately();
 
     internal async Task PrefetchAsync()
     {
@@ -377,49 +362,11 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     }
     private Task SaveTagAsync(object sender, RecommendationAdjustment? adjustment)
     {
-        _tagPinned = _tags.IsOpen;
         return sender is FrameworkElement { Tag: RecommendationTagPreference tag }
             ? RunActionAsync(token => ViewModel.SaveTagAsync(tag, adjustment, token)) : Task.CompletedTask;
     }
     private static RecommendationAdjustment? Adjustment(int index) => index switch { 0 => RecommendationAdjustment.Like, 2 => RecommendationAdjustment.Reduce, _ => null };
 
-    private void OnTagPanelLoaded(object sender, RoutedEventArgs args) => _tagPanel = (TodayPlanStackPanel)sender;
-    private void OnTagPackEntered(object sender, PointerRoutedEventArgs args)
-    {
-        _overTags = true;
-        _tagCloseTimer.Stop();
-        if (_visit is not null && !_tags.IsOpen && ViewModel.SelectedTags.Count > 1) _tagOpenTimer.Start();
-    }
-    private void OnTagPackExited(object sender, PointerRoutedEventArgs args)
-    {
-        var point = args.GetCurrentPoint(TagPackVisual).Position;
-        if (point.X >= 0 && point.X < TagPackVisual.ActualWidth && point.Y >= 0 && point.Y < TagPackVisual.ActualHeight) return;
-        _overTags = false;
-        _tagOpenTimer.Stop();
-        if (!_tagPinned) _tagCloseTimer.Start();
-    }
-    private void OnTagPackTapped(object sender, TappedRoutedEventArgs args)
-    {
-        // 编辑器负责自己的点击；点击卡面空白才展开。
-        for (var node = args.OriginalSource as DependencyObject; node is not null && !ReferenceEquals(node, sender); node = VisualTreeHelper.GetParent(node))
-            if (node is ButtonBase or DesktopChoice) return;
-        if (_tags.IsOpen) CloseTagStackImmediately();
-        else if (ViewModel.SelectedTags.Count > 1) { _tagPinned = true; _tags.Open(); }
-        args.Handled = true;
-    }
-    private void OnTagStackKeyDown(object sender, KeyRoutedEventArgs args)
-    {
-        if (args.Key is not (VirtualKey.Enter or VirtualKey.Space) || !ReferenceEquals(args.OriginalSource, _tagPanel)) return;
-        args.Handled = true;
-        _tagPinned = true;
-        _tags.Open();
-    }
-    private void CloseTagStackImmediately()
-    {
-        _tagOpenTimer.Stop(); _tagCloseTimer.Stop();
-        _tagPinned = false; _overTags = false;
-        _tags?.Close();
-    }
     private void OnCoverUnloaded(object sender, RoutedEventArgs args)
     {
         if (sender is Image image) ManagedImageLoader.Cancel(image);
@@ -432,7 +379,6 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     internal async Task<ContentDialogResult> ShowDialogAsync(ContentDialog dialog, CancellationToken token)
     {
         if (token.IsCancellationRequested || _visit is not { } visit || XamlRoot is null || _dialog is not null) return ContentDialogResult.None;
-        CloseTagStackImmediately();
         _dialog = dialog;
         dialog.XamlRoot = XamlRoot;
         try

@@ -11,6 +11,7 @@ namespace AniMeido.App.Services;
 public sealed class ThemeService : IAsyncDisposable
 {
     private readonly DesktopSettingsStore _settings;
+    private readonly PlanReminderCoordinator? _reminders;
     private readonly SemaphoreSlim _changes = new(1, 1);
     private readonly ResourceDictionary _resources;
     private readonly Style _nativeToggleSwitchStyle;
@@ -22,14 +23,17 @@ public sealed class ThemeService : IAsyncDisposable
     private ElementTheme _theme = ElementTheme.Default;
     private ElementTheme _savedTheme = ElementTheme.Default;
     private bool _settingsSaveFailed;
+    private bool _planReminderFailed;
     private const string SettingsSaveFailureMessage = "更改已生效，设置未能保存。";
+    private const string PlanReminderFailureMessage = "补番提醒尚未完成，请重试。";
     private Task? _disposeTask;
     private bool _applying;
     private bool? _appliedDark;
 
-    public ThemeService(DesktopSettingsStore settings)
+    public ThemeService(DesktopSettingsStore settings, PlanReminderCoordinator? reminders = null)
     {
         _settings = settings;
+        _reminders = reminders;
         _appearance = CreateEditor(new());
         var definitions = Application.Current.Resources.MergedDictionaries
             .FirstOrDefault(dictionary => dictionary.ContainsKey("DesktopPageBrush"))
@@ -184,6 +188,7 @@ public sealed class ThemeService : IAsyncDisposable
             };
             _savedTheme = _theme;
             Apply();
+            if (_planReminderFailed) ReportPlanReminderFailure();
         }
         finally
         {
@@ -227,8 +232,55 @@ public sealed class ThemeService : IAsyncDisposable
     public Task SetCatalogCardStyleAsync(DesktopCatalogCardStyle style)
         => ObserveSettingsSaveAsync(_appearance.UpdateAsync(value => value with { CatalogCards = style }));
 
-    public Task SetPlanRemindersAsync(bool visible)
-        => ObserveSettingsSaveAsync(_appearance.UpdateAsync(value => value with { ShowPlanReminders = visible }));
+    public async Task SetPlanRemindersAsync(bool enabled)
+    {
+        var save = ObserveSettingsSaveAsync(_appearance.UpdateAsync(value => value with { ShowPlanReminders = enabled }));
+        var scheduling = _reminders?.SetEnabledAsync(enabled) ?? Task.CompletedTask;
+        try { await Task.WhenAll(save, scheduling); ClearPlanReminderFailure(); }
+        catch
+        {
+            if (scheduling.IsFaulted) ReportPlanReminderFailure();
+            throw;
+        }
+    }
+
+    internal async Task InitializePlanRemindersAsync(CancellationToken cancellationToken = default)
+    {
+        if (_reminders is null) return;
+        // 首次页面加载前执行。主题初始化可能尚在读取设置，与它共用已有队列。
+        await _changes.WaitAsync(cancellationToken);
+        try
+        {
+            var enabled = _root is null ? (await _settings.LoadAsync()).ShowPlanReminders : CurrentAppearance.ShowPlanReminders;
+            await _reminders.SetEnabledAsync(enabled, cancellationToken);
+            ClearPlanReminderFailure();
+        }
+        finally { _changes.Release(); }
+    }
+
+    internal void ReportPlanReminderFailure()
+    {
+        _planReminderFailed = true;
+        _toasts?.Show(PlanReminderFailureMessage, true, CurrentAppearance.VisualStyle, _resources, RetryPlanRemindersAsync);
+    }
+
+    private void ClearPlanReminderFailure()
+    {
+        _planReminderFailed = false;
+        _toasts?.Dismiss(PlanReminderFailureMessage, error: true);
+    }
+
+    private async Task<bool> RetryPlanRemindersAsync()
+    {
+        var work = InitializePlanRemindersAsync();
+        DesktopUiWork.Track(work);
+        try { await work; return true; }
+        catch (Exception error) when (error is InvalidOperationException or IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            Serilog.Log.Error(error, "重试补番提醒失败");
+            return false;
+        }
+    }
 
     internal async Task<bool> RetrySettingsSaveAsync()
     {

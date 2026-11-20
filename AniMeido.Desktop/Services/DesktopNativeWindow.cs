@@ -9,6 +9,15 @@ namespace AniMeido.App.Services;
 
 internal static class DesktopNativeWindow
 {
+    internal static void SetTitleBarPassthrough(Window window, Windows.Graphics.RectInt32[] rectangles)
+    {
+        if (WindowHelper.GetNativeWindow(window) is Win32NativeWindow)
+        {
+            Microsoft.UI.Input.InputNonClientPointerSource.GetForWindowId(window.AppWindow.Id)
+                .SetRegionRects(Microsoft.UI.Input.NonClientRegionKind.Passthrough, rectangles);
+        }
+    }
+
     internal static Task OpenFolderAsync(string path)
         => Task.Run(() => Process.Start(new ProcessStartInfo
         {

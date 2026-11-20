@@ -1,5 +1,7 @@
 ﻿using AniMeido.App.Services;
 using AniMeido.App.Views;
+using AniMeido.Contracts.Notifications;
+using Microsoft.Extensions.DependencyInjection;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.Views;
@@ -14,6 +16,216 @@ namespace AniMeido.Desktop.Tests;
 [Collection(UnoHeadlessTestHost.CollectionName)]
 public sealed class DesktopSettingsAdmissionTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task MainWindowStillStartsWhenRemindersFailAndTheVisibleRetryCompletesCatchUp(bool supported)
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var action = new ActionCenterService(fixture.Factory);
+            await action.UpsertPlanAsync(91, "启动补发", AnimePlanPriority.Normal, null, 0);
+            var scheduled = DateTimeOffset.Now.AddHours(-1);
+            await action.AddReminderAsync(new("startup-reminder", 91, PlanReminderKind.Absolute, null, null,
+                scheduled, scheduled, PlanReminderState.Pending, null, null));
+            var notifications = new ReminderNotifications
+            {
+                Supported = supported,
+                Scheduling = supported ? Task.FromException(new InvalidOperationException("合成排期失败")) : Task.CompletedTask,
+            };
+            using var reminders = new PlanReminderCoordinator(action, notifications, fixture.Navigation, initiallyEnabled: false);
+            var store = new DesktopSettingsStore(fixture);
+            await store.SaveAsync(new DesktopSettings { ShowPlanReminders = true, PrivacyAccepted = true, AnnouncementShown = true, VisualStyle = "Paper" });
+            await using var theme = new ThemeService(store, reminders);
+            await theme.InitializeThemeAsync(root);
+            using var provider = new ServiceCollection().BuildServiceProvider();
+            var navigation = new NavigationService(new PageFactory(provider), Microsoft.Extensions.Logging.Abstractions.NullLogger<NavigationService>.Instance);
+            var registry = new PluginContributionRegistry();
+            registry.SetBuiltInItems([AniMeido.Contracts.PluginNavigationItem.CreatePage("合成首页", "", typeof(DesktopBackNavigationTests.SearchStatePage).FullName!, typeof(DesktopBackNavigationTests.SearchStatePage))]);
+            var drag = new DragDropService(new TrackingService(fixture.Factory), new PersonalFeatureStateStore(fixture.Factory),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<DragDropService>.Instance);
+            var window = new AniMeido.App.MainWindow(registry, navigation, theme, new StartupDialogCoordinator(new PrivacyService(store), store), new MainWindowDragDropAdapter(drag));
+            var shell = Assert.IsType<Grid>(window.Content);
+            var loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            shell.Loaded += (_, _) => loaded.TrySetResult();
+            root.Children.Add(shell);
+            try
+            {
+                await loaded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await window.WaitForStartupAsync();
+                Assert.True(window.DataReady.Task.IsCompletedSuccessfully);
+                Assert.IsType<DesktopBackNavigationTests.SearchStatePage>(((Frame)shell.FindName("ContentFrame")).Content);
+                Assert.Equal(Visibility.Collapsed, ((Grid)shell.FindName("StartupOverlay")).Visibility);
+                var message = Find<TextBlock>(root, text => text.Text == "补番提醒尚未完成，请重试。");
+                var toast = Assert.IsType<Grid>(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(message));
+                Assert.Null(Assert.Single(await action.GetRemindersAsync()).CatchUpSentAt);
+                notifications.Supported = true;
+                notifications.Scheduling = Task.CompletedTask;
+                Invoke(toast.Children.OfType<Button>().Single(button => button.Content as string == "重试"));
+                await DesktopUiWork.DrainAsync();
+                Assert.False(message.IsLoaded);
+                Assert.NotNull(Assert.Single(await action.GetRemindersAsync()).CatchUpSentAt);
+                Assert.IsType<DesktopBackNavigationTests.SearchStatePage>(((Frame)shell.FindName("ContentFrame")).Content);
+            }
+            finally { window.BeginShutdown(); await window.WaitForStartupAsync(); root.Children.Remove(shell); window.Close(); await DesktopUiWork.DrainAsync(); }
+        });
+
+    [Fact]
+    public Task DesktopPluginStartsWithReminderSchedulingDisabled()
+        => UnoHeadlessTestHost.RunAsync(async _ =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var services = new ServiceCollection();
+            await new AniMeido.Plugin.Base.BasePlugin().InitializeAsync(services);
+            services.AddSingleton(new ActionCenterService(fixture.Factory));
+            services.AddSingleton<IAppNotificationService>(new ReminderNotifications());
+            services.AddSingleton<AniMeido.Contracts.IPluginNavigator>(fixture.Navigation);
+            using var provider = services.BuildServiceProvider();
+            Assert.False(provider.GetRequiredService<PlanReminderCoordinator>().NotificationsAvailable);
+        });
+
+    [Fact]
+    public Task ReminderSettingWaitsForSchedulingAndShutdownDrainIncludesRapidDisable()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var action = new ActionCenterService(fixture.Factory);
+            await action.UpsertPlanAsync(90, "待提醒作品", AnimePlanPriority.Normal, null, 0);
+            await action.AddReminderAsync(new("pending", 90, PlanReminderKind.Absolute, null, null,
+                DateTimeOffset.Now.AddDays(1), DateTimeOffset.Now.AddDays(1), PlanReminderState.Pending, null, null));
+            var notifications = new ReminderNotifications();
+            using var reminders = new PlanReminderCoordinator(action, notifications, fixture.Navigation, initiallyEnabled: false);
+            var store = new DesktopSettingsStore(fixture);
+            await using var theme = new ThemeService(store, reminders);
+            await theme.InitializeThemeAsync(root);
+            await theme.InitializePlanRemindersAsync();
+            Assert.Contains("anime-plan-90", notifications.Cancelled);
+            var page = TrayPage(store, theme);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            notifications.Scheduling = release.Task;
+            try
+            {
+                await AttachAsync(root, page);
+                var toggle = (ToggleSwitch)page.FindName("PlanRemindersToggle");
+                Assert.False(toggle.IsOn);
+                toggle.IsOn = true;
+                await UntilAsync(() => notifications.ScheduleEntered);
+                toggle.IsOn = false;
+                await DetachAsync(root, page);
+                var drain = DesktopUiWork.DrainAsync();
+                Assert.False(drain.IsCompleted);
+                release.SetResult();
+                await drain;
+                Assert.False((await store.LoadAsync()).ShowPlanReminders);
+                Assert.False(reminders.NotificationsAvailable);
+                Assert.Empty(notifications.Scheduled);
+                Assert.Equal(PlanReminderState.Pending, Assert.Single(await action.GetRemindersAsync()).State);
+            }
+            finally { release.TrySetResult(); await DetachAsync(root, page); await DesktopUiWork.DrainAsync(); }
+        });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task StartupAppliesTheSavedReminderChoiceBeforeAnyPageLoads(bool enabled)
+        => UnoHeadlessTestHost.RunAsync(async _ =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var action = new ActionCenterService(fixture.Factory);
+            var notifications = new ReminderNotifications();
+            using var reminders = new PlanReminderCoordinator(action, notifications, fixture.Navigation, initiallyEnabled: false);
+            var store = new DesktopSettingsStore(fixture);
+            await store.SaveAsync(new DesktopSettings { ShowPlanReminders = enabled });
+            await using var theme = new ThemeService(store, reminders);
+            await theme.InitializePlanRemindersAsync();
+            Assert.Equal(enabled, reminders.NotificationsAvailable);
+            Assert.Equal(enabled, (await store.LoadAsync()).ShowPlanReminders);
+        });
+
+    private sealed class ReminderNotifications : IAppNotificationService
+    {
+        internal bool Supported { get; set; } = true;
+        public bool IsSupported => Supported;
+        public bool NotificationsEnabled => true;
+        internal List<string> Cancelled { get; } = [];
+        internal HashSet<string> Scheduled { get; } = [];
+        internal bool ScheduleEntered { get; private set; }
+        internal Task Scheduling { get; set; } = Task.CompletedTask;
+        public async Task ScheduleAsync(AppNotificationRequest request, CancellationToken cancellationToken = default)
+        {
+            if (!IsSupported || !NotificationsEnabled) throw new InvalidOperationException("系统通知不可用");
+            ScheduleEntered = true; await Scheduling; Scheduled.Add(request.Tag);
+        }
+        public Task CancelAsync(string group, string tag, CancellationToken cancellationToken = default)
+        { Scheduled.Remove(tag); return Task.CompletedTask; }
+        public Task CancelGroupAsync(string group, CancellationToken cancellationToken = default)
+        { Cancelled.Add(group); Scheduled.Clear(); return Task.CompletedTask; }
+        public IDisposable RegisterActivationHandler(string category, Func<AppNotificationActivation, CancellationToken, Task> handler) => new Registration();
+        public Task OpenNotificationSettingsAsync() => Task.CompletedTask;
+        private sealed class Registration : IDisposable { public void Dispose() { } }
+    }
+
+    [Theory]
+    [InlineData(DesktopVisualStyle.Fluent10)]
+    [InlineData(DesktopVisualStyle.Fluent11)]
+    [InlineData(DesktopVisualStyle.Paper)]
+    public Task AppearanceSelectionMatchesTheRootAndPaletteBeforeAndAfterMounting(DesktopVisualStyle visual)
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var store = new DesktopSettingsStore(fixture);
+            await store.SaveAsync(new DesktopSettings { VisualStyle = visual.ToString(), ThemeSetting = "Dark", FontStyle = "Serif" });
+            var shell = new Grid();
+            await using var theme = new ThemeService(store);
+            await theme.InitializeThemeAsync(shell);
+            Assert.Equal(DesktopAppearancePalette.For(visual, true).Page,
+                "#" + ((Microsoft.UI.Xaml.Media.SolidColorBrush)Application.Current.Resources["DesktopPageBrush"]).Color.ToString().Substring(3));
+            var page = TrayPage(store, theme);
+            shell.Children.Add(page);
+            root.Children.Add(shell);
+            await Task.Delay(30);
+            root.UpdateLayout();
+            var choice = (AniMeido.Plugin.Base.Views.Controls.DesktopChoice)page.FindName("ThemeCombo");
+            try
+            {
+                foreach (var index in new[] { 1, 0, 1, 0, 1 })
+                {
+                    var picker = Find<Microsoft.UI.Xaml.Controls.Primitives.Selector>(choice, item => item.Visibility == Visibility.Visible);
+                    picker.SelectedIndex = index;
+                    await Task.Delay(30);
+                    await DesktopUiWork.DrainAsync();
+                    var requested = index == 1 ? ElementTheme.Dark : ElementTheme.Light;
+                    Assert.Equal(requested, theme.GetCurrentTheme());
+                    Assert.Equal(requested, shell.ActualTheme);
+                    Assert.Equal(index, choice.SelectedIndex);
+                    Assert.Equal(DesktopAppearancePalette.For(visual, index == 1).Page,
+                        "#" + ((Microsoft.UI.Xaml.Media.SolidColorBrush)Application.Current.Resources["DesktopPageBrush"]).Color.ToString().Substring(3));
+                    Assert.Equal(requested.ToString(), (await store.LoadAsync()).ThemeSetting);
+                }
+                foreach (var index in new[] { 0, 1, 2 })
+                {
+                    var fontChoice = (AniMeido.Plugin.Base.Views.Controls.DesktopChoice)page.FindName("FontStyleChoice");
+                    Find<Microsoft.UI.Xaml.Controls.Primitives.Selector>(fontChoice, item => item.Visibility == Visibility.Visible).SelectedIndex = index;
+                    await Task.Delay(30); await DesktopUiWork.DrainAsync();
+                    var expected = DesktopAppearanceFont.FromChoiceIndex(index);
+                    Assert.Equal(expected, theme.CurrentAppearance.FontStyle);
+                    Assert.Equal(DesktopAppearanceFont.ForStyle(expected).Family,
+                        ((Microsoft.UI.Xaml.Media.FontFamily)Application.Current.Resources["DesktopUiFontFamily"]).Source);
+                    Assert.Equal(expected.ToString(), (await store.LoadAsync()).FontStyle);
+                }
+                foreach (var style in new[] { DesktopVisualStyle.Fluent10, DesktopVisualStyle.Paper, DesktopVisualStyle.Fluent11 })
+                {
+                    var visualChoice = (AniMeido.Plugin.Base.Views.Controls.DesktopChoice)page.FindName("VisualStyleChoice");
+                    Find<Microsoft.UI.Xaml.Controls.Primitives.Selector>(visualChoice, item => item.Visibility == Visibility.Visible).SelectedIndex = (int)style;
+                    await Task.Delay(30); await DesktopUiWork.DrainAsync();
+                    Assert.Equal(style, theme.CurrentAppearance.VisualStyle);
+                    Assert.Equal(style.ToString(), (await store.LoadAsync()).VisualStyle);
+                    Assert.Equal((int)style, visualChoice.SelectedIndex);
+                }
+            }
+            finally { root.Children.Remove(shell); await DesktopUiWork.DrainAsync(); }
+        });
+
     [Fact]
     public Task TraySaveIsIncludedInShutdownDrain()
         => UnoHeadlessTestHost.RunAsync(async root =>

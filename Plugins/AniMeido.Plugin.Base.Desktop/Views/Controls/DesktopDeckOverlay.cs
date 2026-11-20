@@ -8,7 +8,7 @@ using Windows.System;
 
 namespace AniMeido.Plugin.Base.Views.Controls;
 
-// 两个页面的卡包都移动原控件；关闭时立即归位，不持有窗口或截图。
+// 计划浮层移动原控件；关闭时立即归位，不持有窗口或截图。
 internal sealed class DesktopDeckOverlay
 {
     private readonly Grid _host;
@@ -20,6 +20,9 @@ internal sealed class DesktopDeckOverlay
     private readonly Control? _returnFocus;
     private XamlRoot? _root;
     private double _hostHeight;
+    private Size _rootSize;
+    private double _scale;
+    private bool _closeQueued;
 
     internal DesktopDeckOverlay(Grid host, FrameworkElement surface, ScrollViewer scroll,
         Popup popup, Canvas canvas, Func<TodayPlanStackPanel?> panel, Control? returnFocus = null)
@@ -32,7 +35,8 @@ internal sealed class DesktopDeckOverlay
         _panel = panel;
         _returnFocus = returnFocus;
         _popup.IsLightDismissEnabled = true;
-        _popup.Closed += (_, _) => Restore();
+        // Uno 延后派发 Closed；上一轮的通知到达时，新一轮可能已经打开。
+        _popup.Closed += (_, _) => { if (!_popup.IsOpen) Restore(); };
         _surface.KeyDown += OnKeyDown;
         _canvas.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         _canvas.PointerPressed += (_, args) =>
@@ -78,6 +82,8 @@ internal sealed class DesktopDeckOverlay
         _scroll.VerticalScrollMode = ScrollMode.Enabled;
         _scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         _root = root;
+        _rootSize = root.Size;
+        _scale = root.RasterizationScale;
         root.Changed += OnRootChanged;
         _popup.XamlRoot = root;
         var offset = _popup.TransformToVisual(root.Content).TransformPoint(new Point());
@@ -120,7 +126,19 @@ internal sealed class DesktopDeckOverlay
         return false;
     }
 
-    private void OnRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => Close();
+    private void OnRootChanged(XamlRoot sender, XamlRootChangedEventArgs args)
+    {
+        if (_closeQueued || !ReferenceEquals(sender, _root)
+            || sender.Size == _rootSize && sender.RasterizationScale == _scale) return;
+        // 根节点通知可能来自正在进行的布局，等当前布局完成后再迁移控件。
+        _closeQueued = true;
+        if (!_host.DispatcherQueue.TryEnqueue(() =>
+        {
+            _closeQueued = false;
+            if (ReferenceEquals(sender, _root)
+                && (sender.Size != _rootSize || sender.RasterizationScale != _scale)) Close();
+        })) _closeQueued = false;
+    }
     private void OnKeyDown(object sender, KeyRoutedEventArgs args)
     {
         if (args.Key != VirtualKey.Escape || !IsOpen) return;

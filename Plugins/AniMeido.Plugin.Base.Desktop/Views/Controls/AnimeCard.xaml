@@ -24,7 +24,7 @@
                         <Button x:Name="RetryButton" Width="40" Height="40" Padding="0"
                                 HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="Collapsed" Click="OnRetryClick"
-                                AutomationProperties.Name="重新加载封面" ToolTipService.ToolTip="重新加载封面">
+                                AutomationProperties.Name="重新加载封面">
                             <FontIcon Glyph="&#xE72C;"/>
                         </Button>
                     </Grid>

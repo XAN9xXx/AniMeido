@@ -5,6 +5,18 @@ namespace AniMeido.Desktop.Tests;
 
 public sealed class DesktopProjectTests
 {
+    [Theory]
+    [InlineData("AniMeido.Desktop")]
+    [InlineData("Plugins/AniMeido.Plugin.Base.Desktop")]
+    [Trait("Category", "Mechanism")]
+    public void DesktopSourcesKeepInstructionalHoverTooltipsRemoved(string project)
+    {
+        foreach (var file in Directory.EnumerateFiles(Path.Combine(FindRepository(), project), "*", SearchOption.AllDirectories)
+            .Where(file => file.EndsWith(".cs", StringComparison.Ordinal) || file.EndsWith(".xaml", StringComparison.Ordinal))
+            .Where(file => !file.Split(Path.DirectorySeparatorChar).Any(part => part is "bin" or "obj")))
+            Assert.DoesNotContain("ToolTipService", File.ReadAllText(file), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void SkiaHeadUsesUnoResourceGenerationWithoutTheNativePriPipeline()
     {

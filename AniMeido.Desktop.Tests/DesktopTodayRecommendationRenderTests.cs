@@ -90,8 +90,6 @@ public sealed class DesktopTodayRecommendationRenderTests
                 ((Expander)feed.FindName("TagPreferencesExpander")).IsExpanded = true;
                 root.UpdateLayout();
                 await Task.Delay(20);
-                Assert.IsType<DesktopDeckOverlay>(typeof(RecommendationPage).GetField("_tags", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(feed)).Open();
-                await Task.Delay(20);
                 await RenderAsync((Grid)feed.FindName("TagPackVisual"), $"tags-expanded-{visual}-{dark}-{width}{suffix}");
             }
             finally { await DetachAsync(root, feed); await feed.PendingTags; await feed.PendingPrefetch; }

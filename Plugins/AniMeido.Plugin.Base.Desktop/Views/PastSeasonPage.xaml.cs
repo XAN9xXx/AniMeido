@@ -412,7 +412,6 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
     {
         SortDirectionIcon.Glyph = ViewModel.SortAscending ? "\uE74A" : "\uE74B";
         var label = PastSeasonBrowse.SortDirectionText(ViewModel.SortKey, ViewModel.SortAscending);
-        ToolTipService.SetToolTip(SortDirectionButton, label);
         AutomationProperties.SetName(SortDirectionButton, label);
     }
     private void OnFormatChipClick(object sender, RoutedEventArgs args)

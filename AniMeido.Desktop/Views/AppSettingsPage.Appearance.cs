@@ -173,7 +173,7 @@ public sealed partial class AppSettingsPage
             DesktopUiWork.Track(task);
             await task;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException
             or InvalidOperationException)
         {
             Serilog.Log.Error(ex, "保存桌面外观设置失败");

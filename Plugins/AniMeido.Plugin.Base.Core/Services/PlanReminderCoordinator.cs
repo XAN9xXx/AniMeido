@@ -12,16 +12,20 @@ public sealed class PlanReminderCoordinator : IDisposable
     private readonly IAppNotificationService _notifications;
     private readonly IPlanReminderNavigation _navigator;
     private readonly IDisposable _activationRegistration;
+    private readonly SemaphoreSlim _scheduling = new(1, 1);
+    private bool _enabled;
     private bool _disposed;
 
     public PlanReminderCoordinator(
         ActionCenterService actionCenter,
         IAppNotificationService notifications,
-        IPlanReminderNavigation navigator)
+        IPlanReminderNavigation navigator,
+        bool initiallyEnabled = true)
     {
         _actionCenter = actionCenter;
         _notifications = notifications;
         _navigator = navigator;
+        _enabled = initiallyEnabled;
         _activationRegistration =
             notifications.RegisterActivationHandler(
                 NotificationCategory,
@@ -29,7 +33,51 @@ public sealed class PlanReminderCoordinator : IDisposable
     }
 
     public bool NotificationsAvailable =>
-        _notifications.IsSupported && _notifications.NotificationsEnabled;
+        _enabled && _notifications.IsSupported && _notifications.NotificationsEnabled;
+
+    public Task SetEnabledAsync(bool enabled, CancellationToken cancellationToken = default)
+        => RunScheduledOperationAsync(async () =>
+        {
+            _enabled = enabled;
+            await ReconcileCoreAsync(cancellationToken);
+        }, cancellationToken);
+
+    public Task<PlanReminder> AddRelativeReminderAsync(AnimePlan plan, int relativeDays, TimeOnly timeOfDay,
+        CancellationToken cancellationToken = default)
+        => RunScheduledOperationAsync(() => AddRelativeReminderCoreAsync(plan, relativeDays, timeOfDay, cancellationToken), cancellationToken);
+
+    public Task<PlanReminder> AddAbsoluteReminderAsync(AnimePlan plan, DateTimeOffset deliveryTime,
+        CancellationToken cancellationToken = default)
+        => RunScheduledOperationAsync(() => AddAbsoluteReminderCoreAsync(plan, deliveryTime, cancellationToken), cancellationToken);
+
+    public Task RemoveReminderAsync(PlanReminder reminder, CancellationToken cancellationToken = default)
+        => RunScheduledOperationAsync(() => RemoveReminderCoreAsync(reminder, cancellationToken), cancellationToken);
+
+    public Task RescheduleAnimeAsync(AnimePlan plan, CancellationToken cancellationToken = default)
+        => RunScheduledOperationAsync(() => RescheduleAnimeCoreAsync(plan, cancellationToken), cancellationToken);
+
+    public Task ReconcileAsync(CancellationToken cancellationToken = default)
+        => _enabled && (!_notifications.IsSupported || !_notifications.NotificationsEnabled)
+            ? Task.CompletedTask
+            : RunScheduledOperationAsync(() => ReconcileCoreAsync(cancellationToken), cancellationToken);
+
+    private async Task RunScheduledOperationAsync(Func<Task> action, CancellationToken token)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        using var operation = _actionCenter.Access.BeginWrite();
+        await _scheduling.WaitAsync(token);
+        try { await action(); }
+        finally { _scheduling.Release(); }
+    }
+
+    private async Task<T> RunScheduledOperationAsync<T>(Func<Task<T>> action, CancellationToken token)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        using var operation = _actionCenter.Access.BeginWrite();
+        await _scheduling.WaitAsync(token);
+        try { return await action(); }
+        finally { _scheduling.Release(); }
+    }
 
     internal static int GetRelativeDayOffset(double daysBefore)
     {
@@ -45,13 +93,12 @@ public sealed class PlanReminderCoordinator : IDisposable
         return -(int)daysBefore;
     }
 
-    public async Task<PlanReminder> AddRelativeReminderAsync(
+    private async Task<PlanReminder> AddRelativeReminderCoreAsync(
         AnimePlan plan,
         int relativeDays,
         TimeOnly timeOfDay,
         CancellationToken cancellationToken = default)
     {
-        using var operation = _actionCenter.Access.BeginWrite();
         if (plan.TargetStartDate is null)
         {
             throw new InvalidOperationException(
@@ -72,12 +119,11 @@ public sealed class PlanReminderCoordinator : IDisposable
         return reminder;
     }
 
-    public async Task<PlanReminder> AddAbsoluteReminderAsync(
+    private async Task<PlanReminder> AddAbsoluteReminderCoreAsync(
         AnimePlan plan,
         DateTimeOffset deliveryTime,
         CancellationToken cancellationToken = default)
     {
-        using var operation = _actionCenter.Access.BeginWrite();
         var reminder = CreateReminder(
             plan.AnimeId,
             PlanReminderKind.Absolute,
@@ -89,11 +135,10 @@ public sealed class PlanReminderCoordinator : IDisposable
         return reminder;
     }
 
-    public async Task RemoveReminderAsync(
+    private async Task RemoveReminderCoreAsync(
         PlanReminder reminder,
         CancellationToken cancellationToken = default)
     {
-        using var operation = _actionCenter.Access.BeginWrite();
         await _actionCenter.CancelReminderAsync(
             reminder.ReminderId,
             cancellationToken);
@@ -103,11 +148,10 @@ public sealed class PlanReminderCoordinator : IDisposable
             cancellationToken);
     }
 
-    public async Task RescheduleAnimeAsync(
+    private async Task RescheduleAnimeCoreAsync(
         AnimePlan plan,
         CancellationToken cancellationToken = default)
     {
-        using var operation = _actionCenter.Access.BeginWrite();
         var reminders = await _actionCenter.GetRemindersAsync(
             plan.AnimeId,
             PlanReminderState.Pending,
@@ -121,7 +165,7 @@ public sealed class PlanReminderCoordinator : IDisposable
                     || reminder.RelativeDays is null
                     || reminder.TimeOfDay is null)
                 {
-                    await RemoveReminderAsync(reminder, cancellationToken);
+                    await RemoveReminderCoreAsync(reminder, cancellationToken);
                     continue;
                 }
 
@@ -145,10 +189,16 @@ public sealed class PlanReminderCoordinator : IDisposable
         }
     }
 
-    public async Task ReconcileAsync(
+    private async Task ReconcileCoreAsync(
         CancellationToken cancellationToken = default)
     {
-        using var operation = _actionCenter.Access.BeginWrite();
+        if (!_enabled)
+        {
+            var pendingReminders = await _actionCenter.GetRemindersAsync(state: PlanReminderState.Pending, cancellationToken: cancellationToken);
+            foreach (var animeId in pendingReminders.Select(item => item.AnimeId).Distinct())
+                await _notifications.CancelGroupAsync(GetNotificationGroup(animeId), cancellationToken);
+            return;
+        }
         var plans = (await _actionCenter.GetPlansAsync(
             cancellationToken: cancellationToken))
             .ToDictionary(plan => plan.AnimeId);
@@ -219,7 +269,7 @@ public sealed class PlanReminderCoordinator : IDisposable
         AnimePlan plan,
         PlanReminder reminder,
         CancellationToken cancellationToken)
-        => _notifications.ScheduleAsync(
+        => !_enabled ? Task.CompletedTask : _notifications.ScheduleAsync(
             new AppNotificationRequest(
                 NotificationCategory,
                 GetNotificationGroup(plan.AnimeId),
@@ -238,7 +288,10 @@ public sealed class PlanReminderCoordinator : IDisposable
                 ]),
             cancellationToken);
 
-    private async Task HandleActivationAsync(
+    private Task HandleActivationAsync(AppNotificationActivation activation, CancellationToken cancellationToken)
+        => RunScheduledOperationAsync(() => HandleActivationCoreAsync(activation, cancellationToken), cancellationToken);
+
+    private async Task HandleActivationCoreAsync(
         AppNotificationActivation activation,
         CancellationToken cancellationToken)
     {
@@ -250,13 +303,10 @@ public sealed class PlanReminderCoordinator : IDisposable
         activation.Arguments.TryGetValue(
             "reminderId",
             out var reminderId);
-        using var operation = string.IsNullOrWhiteSpace(reminderId)
-            ? null
-            : _actionCenter.Access.BeginWrite();
         switch (activation.Action)
         {
             case "snooze":
-                if (string.IsNullOrWhiteSpace(reminderId)
+                if (!_enabled || string.IsNullOrWhiteSpace(reminderId)
                     || !await _actionCenter.TryMarkReminderHandledAsync(
                         reminderId,
                         cancellationToken))
@@ -269,7 +319,7 @@ public sealed class PlanReminderCoordinator : IDisposable
                     cancellationToken);
                 if (plan is not null)
                 {
-                    await AddAbsoluteReminderAsync(
+                    await AddAbsoluteReminderCoreAsync(
                         plan,
                         DateTimeOffset.Now.AddHours(1),
                         cancellationToken);
@@ -344,5 +394,6 @@ public sealed class PlanReminderCoordinator : IDisposable
 
         _disposed = true;
         _activationRegistration.Dispose();
+        _scheduling.Dispose();
     }
 }

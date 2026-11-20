@@ -1,5 +1,6 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
+using AniMeido.App.Services;
 using AniMeido.Plugin.Base;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
@@ -18,6 +19,44 @@ namespace AniMeido.Desktop.Tests;
 [Collection(UnoHeadlessTestHost.CollectionName)]
 public sealed class DesktopSearchPageTests
 {
+    [Theory]
+    [InlineData(DesktopVisualStyle.Fluent10)]
+    [InlineData(DesktopVisualStyle.Fluent11)]
+    [InlineData(DesktopVisualStyle.Paper)]
+    public Task SearchFormAndLandingHaveVisibleWidthAndTheButtonSubmits(DesktopVisualStyle visual)
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            var queries = new List<string>();
+            await using var fixture = await SearchFixture.CreateAsync(new SearchSource
+            {
+                Search = (query, _, _) => { queries.Add(query); return Task.FromResult((new List<Anime> { Item(1, "合成作品") }, 1, 1)); },
+            });
+            var settings = new DesktopSettingsStore(fixture);
+            await settings.SaveAsync(new DesktopSettings { VisualStyle = visual.ToString(), ThemeSetting = "Dark", FontStyle = "Serif" });
+            await using var theme = new ThemeService(settings);
+            await theme.InitializeThemeAsync(root);
+            var page = fixture.SearchPage();
+            try
+            {
+                await AttachAsync(root, page);
+                await page.PendingActivation;
+                root.UpdateLayout();
+                await Task.Delay(30);
+                var box = (AutoSuggestBox)page.FindName("SearchBox");
+                Assert.True(box.ActualWidth > 200, $"搜索框宽度为 {box.ActualWidth}");
+                Assert.True(Assert.Single(Children<TextBox>(box)).ActualWidth > 200);
+                Assert.True(((FrameworkElement)((ScrollViewer)page.FindName("LandingScroll")).Content).ActualWidth > 200);
+                box.Text = "合成作品";
+                DesktopTodayRecommendationPageTests.Invoke(Children<Button>(page).Single(button => button.Content as string == "搜索"));
+                var deadline = DateTime.UtcNow.AddSeconds(5);
+                while (page.ViewModel.Results.Count == 0 && DateTime.UtcNow < deadline) await Task.Delay(10);
+                Assert.Equal("合成作品", Assert.Single(queries));
+                Assert.Equal(1, Assert.Single(page.ViewModel.Results).Anime.ID);
+                Assert.Equal(Visibility.Visible, ((Grid)page.FindName("SearchResultsLayout")).Visibility);
+            }
+            finally { await DetachAsync(root, page); await page.PendingActivation; }
+        });
+
     [Fact]
     public Task ClearingTheActualSearchBoxRejectsTheLateReplyAndKeepsTheRecentQuery()
         => UnoHeadlessTestHost.RunAsync(async root =>

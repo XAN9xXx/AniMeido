@@ -14,6 +14,45 @@ namespace AniMeido.Desktop.Tests;
 [Collection(UnoHeadlessTestHost.CollectionName)]
 public sealed class DesktopMineDetailPageTests
 {
+    [Theory]
+    [InlineData(AniMeido.App.Services.DesktopVisualStyle.Fluent10)]
+    [InlineData(AniMeido.App.Services.DesktopVisualStyle.Fluent11)]
+    [InlineData(AniMeido.App.Services.DesktopVisualStyle.Paper)]
+    public Task TagFavoritesUseStateFeedbackWithoutAContextPopupAndKeepKeyboardAccess(AniMeido.App.Services.DesktopVisualStyle visual)
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var store = new AniMeido.App.Services.DesktopSettingsStore(fixture);
+            await store.SaveAsync(new AniMeido.App.Services.DesktopSettings { VisualStyle = visual.ToString(), ThemeSetting = "Dark" });
+            await using var theme = new AniMeido.App.Services.ThemeService(store);
+            await theme.InitializeThemeAsync(root);
+            var page = fixture.Details(new Source { Tags = (_, _) => Task.FromResult(new List<Tag> { new("旅行") }) });
+            await page.OnNavigatedToAsync(1);
+            try
+            {
+                await AttachAsync(root, page); await page.PendingActivation;
+                var tags = (Panel)page.FindName("TagContainer");
+                var button = Find<Button>(tags, item => item.Tag as string == "旅行");
+                Assert.Null(button.ContextFlyout);
+                Assert.True(button.IsTabStop);
+                Assert.Equal(Microsoft.UI.Xaml.Input.KeyboardAcceleratorPlacementMode.Hidden, button.KeyboardAcceleratorPlacementMode);
+                Assert.Equal(2, button.KeyboardAccelerators.Count);
+                Assert.All(button.KeyboardAccelerators, shortcut => Assert.Same(button, shortcut.ScopeOwner));
+                root.UpdateLayout(); await Task.Delay(20);
+                Assert.True(button.Focus(FocusState.Keyboard));
+                await page.ToggleSavedTagAsync("旅行");
+                root.UpdateLayout(); await Task.Delay(20);
+                button = Find<Button>(tags, item => item.Tag as string == "旅行");
+                Assert.Equal(FocusState.Keyboard, button.FocusState);
+                Assert.Equal("已收藏", Microsoft.UI.Xaml.Automation.AutomationProperties.GetItemStatus(button));
+                Assert.Same(Application.Current.Resources["AccentButtonStyle"], button.Style);
+                Invoke(button);
+                Assert.Equal(typeof(TagSearchResultPage), fixture.Navigation.Page);
+                Assert.Equal("旅行", fixture.Navigation.Parameter);
+            }
+            finally { await DetachAsync(root, page); await page.PendingOperation; }
+        });
+
     [Fact]
     public Task DetailsDeferNavigationUntilAttached()
         => UnoHeadlessTestHost.RunAsync(async _ =>

@@ -72,9 +72,9 @@
                 </Border>
                 <Border Style="{StaticResource DesktopSettingRowStyle}">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="24">
-                        <TextBlock Text="显示补番提醒" VerticalAlignment="Center"/>
+                        <TextBlock Text="补番提醒" VerticalAlignment="Center"/>
                         <ToggleSwitch x:Name="PlanRemindersToggle" Grid.Column="1" Toggled="OnPlanRemindersChanged"
-                                      Style="{ThemeResource DesktopToggleSwitchStyle}" AutomationProperties.Name="显示补番提醒"/>
+                                      Style="{ThemeResource DesktopToggleSwitchStyle}" AutomationProperties.Name="补番提醒"/>
                     </Grid>
                 </Border>
             </StackPanel>

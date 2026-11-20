@@ -7,6 +7,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Automation;
+using Windows.System;
 using System.Collections.Specialized;
 using System.ComponentModel;
 
@@ -58,7 +60,6 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
         InitializeComponent();
         InitializeDesktopArchiveSummary();
         ResetDesktopArchiveSummary();
-        ToolTipService.SetToolTip(RatingsSection, RatingPresentation.Explanation);
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
@@ -287,6 +288,8 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
 
     private void RenderTags()
     {
+        var focusedTag = XamlRoot is { } root && FocusManager.GetFocusedElement(root) is Button { FocusState: FocusState.Keyboard, Tag: string tag } focused
+            && TagContainer.Children.Contains(focused) ? tag : null;
         TagContainer.Children.Clear();
         TagContainer.Visibility = _tagNames.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         foreach (var name in _tagNames)
@@ -295,14 +298,26 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
             {
                 Content = name, Tag = name, Margin = new(0, 0, 6, 4),
                 Style = (Style)Application.Current.Resources[_savedTagNames.Contains(name) ? "AccentButtonStyle" : "DesktopButtonStyle"],
+                KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden,
             };
+            AutomationProperties.SetName(button, name);
+            AutomationProperties.SetItemStatus(button, _savedTagNames.Contains(name) ? "已收藏" : "未收藏");
             button.Click += (_, _) => _navigator.Navigate(typeof(TagSearchResultPage), name);
             button.RightTapped += (_, args) => { args.Handled = true; _ = ToggleSavedTagAsync(name); };
-            var menu = new MenuFlyout();
-            var item = new MenuFlyoutItem { Text = _savedTagNames.Contains(name) ? "取消收藏" : "收藏标签" };
-            item.Click += (_, _) => _ = ToggleSavedTagAsync(name);
-            menu.Items.Add(item); button.ContextFlyout = menu;
+            foreach (var (key, modifiers) in new[] { (VirtualKey.Application, VirtualKeyModifiers.None), (VirtualKey.F10, VirtualKeyModifiers.Shift) })
+            {
+                var shortcut = new KeyboardAccelerator { Key = key, Modifiers = modifiers, ScopeOwner = button };
+                shortcut.Invoked += (accelerator, args) => { args.Handled = true; _ = ToggleSavedTagAsync(name); };
+                button.KeyboardAccelerators.Add(shortcut);
+            }
+            if (name == focusedTag) button.Loaded += RestoreFocus;
             TagContainer.Children.Add(button);
+
+            void RestoreFocus(object sender, RoutedEventArgs args)
+            {
+                button.Loaded -= RestoreFocus;
+                button.Focus(FocusState.Keyboard);
+            }
         }
     }
     internal Task ToggleSavedTagAsync(string name)

@@ -160,6 +160,108 @@ public sealed class PlanReminderCoordinatorTests : IAsyncLifetime
         Assert.Equal(2, notifications.Requests.Count);
     }
 
+    [Fact]
+    public async Task DisabledStartupCancelsOldSchedulesAndKeepsPendingRecords()
+    {
+        var action = new ActionCenterService(DbFactory);
+        await action.UpsertPlanAsync(40, "保留的计划", AnimePlanPriority.Normal, null, 0);
+        var reminder = Reminder(40, DateTimeOffset.Now.AddHours(-1));
+        await action.AddReminderAsync(reminder);
+        var notifications = new FakeNotificationService();
+        using var coordinator = new PlanReminderCoordinator(action, notifications, new FakeNavigator(), initiallyEnabled: false);
+        await coordinator.ReconcileAsync();
+        Assert.Empty(notifications.Requests);
+        Assert.Equal("anime-plan-40", Assert.Single(notifications.CancelledGroups));
+        var saved = Assert.Single(await action.GetRemindersAsync());
+        Assert.Equal(PlanReminderState.Pending, saved.State);
+        Assert.Null(saved.CatchUpSentAt);
+        Assert.NotNull(await action.GetPlanAsync(40));
+    }
+
+    [Fact]
+    public async Task DisableWaitsForAcceptedScheduleThenCancelsItAndBlocksReschedule()
+    {
+        var action = new ActionCenterService(DbFactory);
+        await action.UpsertPlanAsync(41, "在途提醒", AnimePlanPriority.Normal, null, 0);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var notifications = new FakeNotificationService { BeforeSchedule = () => { entered.TrySetResult(); return release.Task; } };
+        using var coordinator = new PlanReminderCoordinator(action, notifications, new FakeNavigator());
+        var plan = (await action.GetPlanAsync(41))!;
+        var adding = coordinator.AddAbsoluteReminderAsync(plan, DateTimeOffset.Now.AddDays(1));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var disabling = coordinator.SetEnabledAsync(false);
+        try { Assert.False(disabling.IsCompleted); }
+        finally { release.TrySetResult(); }
+        await adding;
+        await disabling;
+        Assert.Empty(notifications.Scheduled);
+        await coordinator.RescheduleAnimeAsync(plan);
+        Assert.Single(notifications.Requests);
+        Assert.Equal(PlanReminderState.Pending, Assert.Single(await action.GetRemindersAsync()).State);
+    }
+
+    [Fact]
+    public async Task ReenableSchedulesFutureAndOnlyCatchesUpWithinExistingWindow()
+    {
+        var action = new ActionCenterService(DbFactory);
+        await action.UpsertPlanAsync(42, "重新启用", AnimePlanPriority.Normal, null, 0);
+        var future = Reminder(42, DateTimeOffset.Now.AddDays(1));
+        var recent = Reminder(42, DateTimeOffset.Now.AddHours(-1));
+        var old = Reminder(42, DateTimeOffset.Now.AddDays(-2));
+        foreach (var reminder in new[] { future, recent, old }) await action.AddReminderAsync(reminder);
+        var notifications = new FakeNotificationService();
+        using var coordinator = new PlanReminderCoordinator(action, notifications, new FakeNavigator(), initiallyEnabled: false);
+        await coordinator.ReconcileAsync();
+        await coordinator.SetEnabledAsync(true);
+        Assert.Equal(new[] { future.ReminderId, recent.ReminderId }.Order(), notifications.Requests.Select(item => item.Tag).Order());
+        var saved = await action.GetRemindersAsync();
+        Assert.NotNull(saved.Single(item => item.ReminderId == recent.ReminderId).CatchUpSentAt);
+        Assert.Null(saved.Single(item => item.ReminderId == old.ReminderId).CatchUpSentAt);
+    }
+
+    [Fact]
+    public async Task DisabledSnoozeKeepsTheOriginalReminderAndDoesNotCreateAnotherSchedule()
+    {
+        var action = new ActionCenterService(DbFactory);
+        await action.UpsertPlanAsync(43, "关闭后稍后提醒", AnimePlanPriority.Normal, null, 0);
+        var notifications = new FakeNotificationService();
+        var navigation = new FakeNavigator();
+        using var coordinator = new PlanReminderCoordinator(action, notifications, navigation);
+        var reminder = await coordinator.AddAbsoluteReminderAsync((await action.GetPlanAsync(43))!, DateTimeOffset.Now.AddDays(1));
+        await coordinator.SetEnabledAsync(false);
+        await notifications.ActivateAsync(new(PlanReminderCoordinator.NotificationCategory, "snooze",
+            new Dictionary<string, string> { ["animeId"] = "43", ["reminderId"] = reminder.ReminderId }));
+        Assert.Single(notifications.Requests);
+        Assert.Empty(notifications.Scheduled);
+        Assert.Equal(PlanReminderState.Pending, Assert.Single(await action.GetRemindersAsync()).State);
+        Assert.Equal(43, navigation.Parameter);
+    }
+
+    [Fact]
+    public async Task RapidEnableThenDisableFinishesInAcceptedOrder()
+    {
+        var action = new ActionCenterService(DbFactory);
+        await action.UpsertPlanAsync(44, "快速开关", AnimePlanPriority.Normal, null, 0);
+        await action.AddReminderAsync(Reminder(44, DateTimeOffset.Now.AddDays(1)));
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var notifications = new FakeNotificationService { BeforeSchedule = () => { entered.TrySetResult(); return release.Task; } };
+        using var coordinator = new PlanReminderCoordinator(action, notifications, new FakeNavigator(), initiallyEnabled: false);
+        var enabling = coordinator.SetEnabledAsync(true);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var disabling = coordinator.SetEnabledAsync(false);
+        release.SetResult();
+        await Task.WhenAll(enabling, disabling);
+        Assert.Empty(notifications.Scheduled);
+        await coordinator.ReconcileAsync();
+        Assert.Single(notifications.Requests);
+    }
+
+    private static PlanReminder Reminder(int id, DateTimeOffset scheduled)
+        => new(Guid.NewGuid().ToString("N"), id, PlanReminderKind.Absolute, null, null, scheduled, scheduled,
+            PlanReminderState.Pending, null, null);
+
     private sealed class FakeNotificationService :
         IAppNotificationService
     {
@@ -176,12 +278,16 @@ public sealed class PlanReminderCoordinatorTests : IAsyncLifetime
 
         public List<string> CancelledGroups { get; } = [];
 
-        public Task ScheduleAsync(
+        internal Func<Task>? BeforeSchedule { get; set; }
+        internal HashSet<string> Scheduled { get; } = [];
+
+        public async Task ScheduleAsync(
             AppNotificationRequest request,
             CancellationToken cancellationToken = default)
         {
+            if (BeforeSchedule is { } before) await before();
             Requests.Add(request);
-            return Task.CompletedTask;
+            Scheduled.Add(request.Tag);
         }
 
         public Task CancelAsync(
@@ -195,6 +301,7 @@ public sealed class PlanReminderCoordinatorTests : IAsyncLifetime
             CancellationToken cancellationToken = default)
         {
             CancelledGroups.Add(group);
+            foreach (var request in Requests.Where(item => item.Group == group)) Scheduled.Remove(request.Tag);
             return Task.CompletedTask;
         }
 

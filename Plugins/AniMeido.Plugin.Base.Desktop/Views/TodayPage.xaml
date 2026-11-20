@@ -59,7 +59,7 @@
                         <ItemsControl ItemsSource="{x:Bind PreviewTitles}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="x:String">
-                                    <TextBlock Text="{x:Bind}" Style="{StaticResource DesktopDataTextStyle}" MaxLines="1" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind}"/>
+                                    <TextBlock Text="{x:Bind}" Style="{StaticResource DesktopDataTextStyle}" MaxLines="1" TextTrimming="CharacterEllipsis"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
@@ -137,7 +137,7 @@
         </DataTemplate>
 
         <DataTemplate x:Key="BrowseEntryTemplate" x:DataType="vm:TodayBrowseEntry">
-            <Button Tag="{x:Bind Anime}" Click="OnAnimeButtonClick" FontSize="{ThemeResource DesktopControlTextSize}" Padding="9,4" MaxWidth="220" ToolTipService.ToolTip="{x:Bind Anime.Title}">
+            <Button Tag="{x:Bind Anime}" Click="OnAnimeButtonClick" FontSize="{ThemeResource DesktopControlTextSize}" Padding="9,4" MaxWidth="220">
                 <TextBlock Text="{x:Bind Anime.Title}" Style="{StaticResource DesktopControlTextStyle}" MaxLines="1" TextTrimming="CharacterEllipsis"/>
             </Button>
         </DataTemplate>

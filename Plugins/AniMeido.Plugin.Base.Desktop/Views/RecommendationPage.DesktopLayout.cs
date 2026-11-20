@@ -53,9 +53,6 @@ public sealed partial class RecommendationPage
         CandidateScroll.ChangeView(Math.Max(0, index * 116 - CandidateScroll.ViewportWidth / 2), null, null, true);
     }
 
-    private void OnDesktopTagPreferencesCollapsed(Expander sender, ExpanderCollapsedEventArgs args)
-        => CloseTagStackImmediately();
-
     private async void OnDesktopTagPreferenceChanged(object sender, SelectionChangedEventArgs args)
     {
         if (sender is not DesktopChoice { Tag: RecommendationTagPreference tag } choice)

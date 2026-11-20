@@ -49,7 +49,6 @@ public sealed partial class TagSearchResultPage : Page, INavigationAware
         ViewModel = viewModel;
         InitializeComponent();
         ResultGrid.ItemsSource = ViewModel.Items;
-        ToolTipService.SetToolTip((ComboBoxItem)SortSelector.Items[0], RatingPresentation.Explanation);
         var year = DateTime.Now.Year;
         for (var value = year; value >= 1960; --value)
         {

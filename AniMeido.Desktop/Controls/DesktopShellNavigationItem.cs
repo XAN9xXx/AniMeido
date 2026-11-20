@@ -30,7 +30,6 @@ public sealed class DesktopShellNavigationItem : ToggleButton
         _content.Children.Add(_caption);
         Content = _content;
         AutomationProperties.SetName(this, label);
-        ToolTipService.SetToolTip(this, label);
     }
 
     internal string Caption => _caption.Text;

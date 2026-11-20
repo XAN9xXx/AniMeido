@@ -62,8 +62,7 @@
                             <ToggleButton x:Name="SortOrderToggle" Grid.Column="1" Content="↓" IsChecked="True" Click="OnSortOrderToggle" MinWidth="32" AutomationProperties.Name="切换升降序"/>
                         </Grid>
                     </StackPanel>
-                    <CheckBox x:Name="IncludeLowVotesCheckBox" Click="OnIncludeLowVotesChanged"
-                              ToolTipService.ToolTip="至少一个平台有 50 人评分即可参与评分排序，作品分数保持不变。">
+                    <CheckBox x:Name="IncludeLowVotesCheckBox" Click="OnIncludeLowVotesChanged">
                         <TextBlock Text="包含评分人数较少的作品" TextWrapping="Wrap"/>
                     </CheckBox>
                 </StackPanel>
