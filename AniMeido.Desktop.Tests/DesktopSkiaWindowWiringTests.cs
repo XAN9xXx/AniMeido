@@ -6,7 +6,6 @@ namespace AniMeido.Desktop.Tests;
 public sealed class DesktopSkiaWindowWiringTests
 {
     [Theory]
-    [InlineData("AniMeido.Desktop/App.xaml.cs", "_mainAppWindow = _window.AppWindow")]
     [InlineData("AniMeido.Desktop/Services/TitleBarHelper.cs", "window.AppWindow.SetIcon(iconPath)")]
     public void SkiaUsesTheWindowOwnedAppWindow(string path, string expected)
     {
@@ -43,8 +42,9 @@ public sealed class DesktopSkiaWindowWiringTests
     public void ShellCancelsClosingUntilServiceShutdownHasCompleted()
     {
         var source = Read("AniMeido.Desktop/App.xaml.cs");
-        Assert.Contains("_mainAppWindow.Closing += OnMainAppWindowClosing", source);
-        Assert.Contains("args.Cancel = true", source);
+        Assert.Contains("closeRequested: OnMainAppWindowClosing", source);
+        Assert.Contains("args.Handled = true", source);
+        Assert.Contains("Closed += OnClosed", Read("AniMeido.Desktop/MainWindow.xaml.cs"));
         Assert.Contains(".HideMainWindow()", source);
         Assert.Contains("await StopApplicationServicesAsync(provider, restorePreparation)", source);
         Assert.Contains("_window?.QueueFinalClose()", source);

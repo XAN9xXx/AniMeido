@@ -42,6 +42,22 @@
                       SkipGetTargetFrameworkProperties="true" />
   </ItemGroup>
   <Import Project="../Shared/PluginHostOutput.targets" />
+  <!-- 直接使用 Uno 解析的包资源清单，让跳过构建的发布也保留 ms-appx 路径。 -->
+  <Target Name="IncludeDesktopPackageAssets" AfterTargets="ComputeResolvedFilesToPublishList"
+          DependsOnTargets="ResolvePackageAssets;_UnoAddLibraryAssets">
+    <ItemGroup>
+      <_DesktopPackageAsset Include="@(_UnoAssetsFilesExpanded)" RelativePath="%(_UnoAssetsFilesExpanded.TargetPath)" />
+      <_DesktopPackageAsset Remove="@(ResolvedFileToPublish)" MatchOnMetadata="RelativePath" MatchOnMetadataOptions="PathLike" />
+      <ResolvedFileToPublish Include="@(_DesktopPackageAsset)" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+  <Target Name="VerifyPublishedDesktopFonts" AfterTargets="Publish">
+    <ItemGroup>
+      <_RequiredDesktopFont Include="Uno.Fonts.Fluent/Fonts/uno-fluentui-assets.ttf;Uno.Fonts.OpenSans/Fonts/OpenSans-Regular.ttf" />
+    </ItemGroup>
+    <Error Condition="!Exists('$(PublishDir)%(_RequiredDesktopFont.Identity)')"
+           Text="桌面发布包缺少字体：%(_RequiredDesktopFont.Identity)" />
+  </Target>
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
       <_Parameter1>AniMeido.Tests</_Parameter1>

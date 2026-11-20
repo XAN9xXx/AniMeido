@@ -2,7 +2,6 @@
 using AniMeido.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Serilog;
@@ -19,7 +18,6 @@ namespace AniMeido.App
         private bool _exitRequested;
         private DesktopSettings _desktopSettings = new();
         private ServiceProvider? _serviceProvider;
-        private AppWindow? _mainAppWindow;
         private AppWindowActivationService? _activationService;
         private readonly InstalledAppContext _installedApp;
         private readonly CancellationTokenSource _shutdownCancellation = new();
@@ -114,21 +112,13 @@ namespace AniMeido.App
                         AniMeido.Plugin.Base.Services.DragDropService>()),
                 new StartupMigrationGate(ct => provider.GetRequiredService<
                     AniMeido.Plugin.Base.Services.PublicIdMigrationService>().MigrateAsync(ct)),
-                provider.GetRequiredService<DatabaseService>().BackupDir);
+                provider.GetRequiredService<DatabaseService>().BackupDir,
+                closeRequested: OnMainAppWindowClosing);
             MainWindow = _window;
 
-            _mainAppWindow = _window.AppWindow;
             _activationService =
                 provider.GetRequiredService<AppWindowActivationService>();
-            _activationService.Attach(_window, _mainAppWindow);
-            _mainAppWindow.Closing += OnMainAppWindowClosing;
-            _window.Closed += (_, _) =>
-            {
-                MainWindow = null;
-                _activationService?.Detach();
-                _activationService = null;
-                _mainAppWindow = null;
-            };
+            _activationService.Attach(_window);
             _window.Activate();
             // 数据库初始化已完成，主窗口已经 Activate；这不是首帧或全部后台功能的健康保证。
             MarkInstalledAppHealthy();
@@ -308,16 +298,15 @@ namespace AniMeido.App
 #pragma warning restore CA1031
         }
 
-        private async void OnMainAppWindowClosing(
-            AppWindow sender,
-            AppWindowClosingEventArgs args)
+        private async void OnMainAppWindowClosing(WindowEventArgs args)
         {
             if (_shutdownCompleted)
             {
+                MainWindow = null;
                 return;
             }
 
-            args.Cancel = true;
+            args.Handled = true;
             if (!_exitRequested
                 && _desktopSettings.KeepInTrayOnClose
                 && _serviceProvider?.GetRequiredService<TrayIconService>().IsRunning == true)
@@ -357,12 +346,8 @@ namespace AniMeido.App
                 _shutdownCancellation.Dispose();
                 Services = null;
                 _shutdownCompleted = true;
-                if (_mainAppWindow is not null)
-                {
-                    _mainAppWindow.Closing -= OnMainAppWindowClosing;
-                    _mainAppWindow = null;
-                }
                 _activationService?.Detach();
+                _activationService = null;
                 Log.CloseAndFlush();
                 _window?.QueueFinalClose();
             }

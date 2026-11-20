@@ -22,6 +22,7 @@ public sealed partial class MainWindow : Window
     private readonly DesktopTitleBarRegions _titleBarRegions;
     private readonly StartupMigrationGate? _migration;
     private readonly string? _migrationBackupDirectory;
+    private readonly Action<WindowEventArgs>? _closeRequested;
     private readonly CancellationTokenSource _closing = new();
     private readonly List<DesktopShellNavigationItem> _navigationButtons = [];
     private Task _startupTask = Task.CompletedTask;
@@ -40,13 +41,15 @@ public sealed partial class MainWindow : Window
 
     internal MainWindow(PluginContributionRegistry pluginContributions, NavigationService navigationService,
         ThemeService themeService, StartupDialogCoordinator dialogs, MainWindowDragDropAdapter dragDropAdapter,
-        StartupMigrationGate? migrationGate = null, string? migrationBackupDirectory = null)
+        StartupMigrationGate? migrationGate = null, string? migrationBackupDirectory = null,
+        Action<WindowEventArgs>? closeRequested = null)
     {
         _contributions = pluginContributions;
         _navigation = navigationService;
         _theme = themeService;
         _dialogs = dialogs;
         _dragDrop = dragDropAdapter;
+        _closeRequested = closeRequested;
         _migration = migrationGate;
         _migrationBackupDirectory = migrationBackupDirectory;
         InitializeComponent();
@@ -186,6 +189,10 @@ public sealed partial class MainWindow : Window
 
     private void OnClosed(object sender, WindowEventArgs args)
     {
+        // Uno 标题栏直接调用 Window.Close；先让托盘或异步清理接管本次请求。
+        if (!args.Handled) _closeRequested?.Invoke(args);
+        if (args.Handled) return;
+
         BeginShutdown();
         _closing.Dispose();
     }

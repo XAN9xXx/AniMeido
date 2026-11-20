@@ -63,6 +63,34 @@ public sealed class DesktopBackNavigationTests
             finally { window.BeginShutdown(); root.Children.Remove(shell); window.Close(); }
         });
 
+    [Fact]
+    public Task CancelledTitleBarCloseKeepsTheActivePageAndNavigationUsable()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            await using var theme = new ThemeService(new DesktopSettingsStore(fixture));
+            using var provider = new ServiceCollection().BuildServiceProvider();
+            var navigation = new NavigationService(new PageFactory(provider), NullLogger<NavigationService>.Instance);
+            bool keepInTray = true;
+            var window = new MainWindow(new PluginContributionRegistry(), navigation, theme, null!,
+                new MainWindowDragDropAdapter(() => null!), closeRequested: args => args.Handled = keepInTray);
+            try
+            {
+                navigation.NavigateTopLevel(typeof(SearchStatePage));
+                var frame = Assert.IsType<Frame>(Assert.IsType<Grid>(window.Content).FindName("ContentFrame"));
+                var page = Assert.IsType<SearchStatePage>(frame.Content);
+                var args = (WindowEventArgs)Activator.CreateInstance(typeof(WindowEventArgs), nonPublic: true)!;
+                typeof(MainWindow).GetMethod("OnClosed", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(window, [window, args]);
+
+                Assert.True(args.Handled);
+                Assert.Same(page, frame.Content);
+                navigation.Navigate(typeof(DetailStatePage));
+                Assert.IsType<DetailStatePage>(frame.Content);
+            }
+            finally { keepInTray = false; window.Close(); }
+        });
+
     public sealed class SearchStatePage : Page
     {
         internal TextBox Query { get; } = new();
