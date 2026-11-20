@@ -14,6 +14,17 @@
 | `prepare-libmpv.ps1` | 下载并校验固定版本的 libmpv，放到 Player 插件的 `runtimes\win-x64\native\` | 维护者手动执行；打包 Player 前执行一次即可 |
 | `pack-player-source.ps1` | 把一个播放源目录打成 `.animeido-source` 包 | 手动调用 |
 
+## 独立桌面窗口性能验收
+
+保持窗口大小、缩放、字体和数据不变。每次采一个场景：设置页静置、连续滚动或切换筛选、回设置页静置。静置对照使用相同时长。
+
+```powershell
+Get-Process AniMeido.App | Select-Object Id, MainWindowTitle
+.\Tools\Measure-DesktopAcceptance.ps1 -ProcessId (Read-Host '独立窗口的进程 ID') -Seconds 30 | Format-List
+```
+
+需要帧数据时追加 `-PresentMonPath <PresentMon 命令行程序的绝对路径>`。工具只读指定进程，只输出到终端。内存分为专用工作集与专用提交量。CPU 的 100% 对应一个逻辑核。帧间隔按交换链分别统计；最长间隔对应的 CPU 是同一采样时段的均值。静置时应用可能不提交画面。
+
 ## 打包 Player 插件
 
 在线播放器已暂停提供。以下命令留作维护参考，当前不分发 Player 包，也不把实际播放列为发布验收项。
