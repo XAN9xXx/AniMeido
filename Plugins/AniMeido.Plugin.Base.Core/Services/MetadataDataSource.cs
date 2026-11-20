@@ -3,6 +3,7 @@ using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Exceptions;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using System.Collections.Concurrent;
 
 namespace AniMeido.Plugin.Base.Services;
 
@@ -16,6 +17,7 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
     private readonly ILogger<MetadataDataSource> _logger;
     private readonly CacheService _cacheService;
     private readonly TimeProvider _time;
+    private readonly ConcurrentDictionary<int, int> _knownMergedIds = new();
     private DateOnly Today => MetadataCalendar.Today(_time);
 
     internal MetadataDataSource(ILogger<MetadataDataSource> logger, HttpClient httpClient,
@@ -83,6 +85,7 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
             }).ConfigureAwait(false);
         if (result.Problem is { Code: "merged", MergedInto: > 0 } problem && followMerge && problem.MergedInto != id)
         {
+            RememberMergedIdentity(id, problem.MergedInto.Value);
             QueueMergedCheck(id);
             return await FetchDetailAsync(problem.MergedInto.Value, ct, budget, followMerge: false).ConfigureAwait(false);
         }
@@ -97,7 +100,23 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
         if (id <= 0) return null;
         var detail = await CachedAsync($"metadata:detail:{id}", TimeSpan.FromDays(7), false,
             readBudget => FetchDetailAsync(id, ct, readBudget), ct, budget).ConfigureAwait(false);
+        if (detail.Data is { Id: > 0 } work && work.Id != id)
+        {
+            RememberMergedIdentity(id, work.Id);
+            QueueMergedCheck(id);
+        }
         return detail.Data;
+    }
+
+    internal void RememberMergedIdentity(int from, int to) => _knownMergedIds[from] = to;
+
+    internal HashSet<int> ExpandKnownMergedIds(IEnumerable<int> ids)
+    {
+        var expanded = ids.ToHashSet();
+        var pending = new Queue<int>(expanded);
+        while (pending.TryDequeue(out var id))
+            if (_knownMergedIds.TryGetValue(id, out var target) && expanded.Add(target)) pending.Enqueue(target);
+        return expanded;
     }
 
     public async Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct) =>
@@ -203,11 +222,18 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
     public async Task<(List<Anime> Results, int Total)> SearchByTagAsync(string tag, int offset, string sort,
         CancellationToken ct, string? airDateFrom = null, string? airDateTo = null)
     {
+        var page = await SearchTagPageAsync(tag, offset, sort, ct, airDateFrom, airDateTo).ConfigureAwait(false);
+        return (page.Results, page.Total);
+    }
+
+    internal async Task<(List<Anime> Results, int Total, int NextOffset)> SearchTagPageAsync(string tag, int offset, string sort,
+        CancellationToken ct, string? airDateFrom = null, string? airDateTo = null)
+    {
         ArgumentOutOfRangeException.ThrowIfNegative(offset);
         var budget = new ServiceReadBudget();
         var ids = await FindTagIdsAsync(tag, sort, airDateFrom, airDateTo, ct, budget).ConfigureAwait(false);
         var results = await WorksByIdsAsync(ids.Skip(offset).Take(PageSize), ct, budget).ConfigureAwait(false);
-        return (results, ids.Count);
+        return (results, ids.Count, offset + Math.Min(PageSize, Math.Max(0, ids.Count - offset)));
     }
 
     internal async Task<List<Anime>> SearchAllByTagAsync(

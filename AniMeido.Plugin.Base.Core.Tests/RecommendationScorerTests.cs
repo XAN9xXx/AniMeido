@@ -98,9 +98,10 @@ public class RecommendationScorerTests
             today);
 
         Assert.Equal(20, result.Count);
-        Assert.Equal(14, result.Count(item => item.IsRecent));
-        Assert.Equal(6, result.Count(item => !item.IsRecent));
-        var first = Assert.Single(result, item => item.Anime.ID == 1);
+        Assert.Equal(13, result.Count(item => item.IsRecent));
+        Assert.Equal(7, result.Count(item => !item.IsRecent));
+        Assert.DoesNotContain(result, item => item.Anime.ID == 1);
+        var first = Assert.Single(RecommendationScorer.Rank(profile, [candidates[0]], today));
         Assert.Contains(first.Reasons, reason => reason.IsReduction);
         Assert.Contains(first.Reasons, reason => reason.Text.Contains("证据番剧"));
     }
@@ -129,7 +130,7 @@ public class RecommendationScorerTests
     }
 
     [Fact]
-    public void Rank_PrioritizesSavedTagInScoreAndExplanation()
+    public void Rank_ExplainsOnlyTheStrongestScoredMatches()
     {
         var savedTag = new RecommendationFeatureProfile(
             Feature(RecommendationFeatureKind.Tag, "百合", "百合"),
@@ -156,8 +157,8 @@ public class RecommendationScorerTests
             new DateOnly(2026, 8, 1));
 
         var item = Assert.Single(result);
-        Assert.Contains("收藏了标签“百合”", item.ReasonSummary);
-        Assert.True(item.Score >= 20.5);
+        Assert.DoesNotContain("收藏了标签“百合”", item.ReasonSummary);
+        Assert.Equal(24.95, item.Score, 6);
     }
 
     [Fact]
@@ -390,7 +391,72 @@ public class RecommendationScorerTests
         var profile = RecommendationScorer.BuildProfile(seeds, features, []);
 
         Assert.Equal(3, Assert.Single(profile).Evidence.Count);
-        Assert.Equal("依据 3 部作品的记录", profile[0].EvidenceText);
+        Assert.Equal("展示 3 部参考作品", profile[0].EvidenceText);
+    }
+
+    [Fact]
+    public void ProfileMergesCaseVariantsAndCountsEachSavedTagOnce()
+    {
+        var upper = Feature(RecommendationFeatureKind.Tag, "SCI-FI", "科幻");
+        var lower = upper with { Key = "sci-fi" };
+        var profile = RecommendationScorer.BuildProfile(
+            [new RecommendationSeed(1, "证据", 4)],
+            new Dictionary<int, IReadOnlyList<RecommendationFeature>> { [1] = [upper, lower] },
+            [new(RecommendationFeatureKind.Tag, "sci-fi", "科幻", RecommendationAdjustment.Like, DateTimeOffset.UtcNow)],
+            ["SCI-FI", "sci-fi", " SCI-FI "]);
+        var feature = Assert.Single(profile);
+        Assert.Equal(6.5, feature.InferredScore);
+        var item = Assert.Single(RecommendationScorer.Rank(profile,
+            [new(Anime(2, new DateOnly(2026, 1, 1), 8), [upper, lower])], new(2026, 11, 11)));
+        Assert.Equal(13.25, item.Score, 6);
+    }
+
+    [Fact]
+    public void ClassicSelectionSharesRecentFeatureAndStudioCounts()
+    {
+        var same = Feature(RecommendationFeatureKind.Tag, "SAME", "相同依据");
+        var different = Feature(RecommendationFeatureKind.Tag, "OTHER", "另一依据");
+        var studio = Feature(RecommendationFeatureKind.Studio, "1", "共同制作方");
+        var profile = new RecommendationFeatureProfile[] { new(same, 6, null, []), new(different, 5.9, null, []) };
+        var candidates = Enumerable.Range(1, 14).Select(id => new RecommendationCandidate(
+            Anime(id, new(2026, 1, 1), 8), [same, studio])).ToList();
+        candidates.Add(new(Anime(100, new(2010, 1, 1), 8), [same, studio]));
+        candidates.AddRange(Enumerable.Range(101, 6).Select(id => new RecommendationCandidate(
+            Anime(id, new(2010, 1, 1), 8), [different])));
+        var items = RecommendationScorer.Rank(profile, candidates, new(2026, 11, 11));
+        Assert.Equal(20, items.Count);
+        Assert.Equal(14, items.Count(item => item.IsRecent));
+        Assert.Equal(101, items.First(item => !item.IsRecent).Anime.ID);
+    }
+
+    [Fact]
+    public void ExplorationDoesNotPromoteAnExplicitlyReducedCandidateOverAPositiveAlternative()
+    {
+        var first = Feature(RecommendationFeatureKind.Tag, "FIRST", "第一偏好");
+        var second = Feature(RecommendationFeatureKind.Tag, "SECOND", "第二偏好");
+        var reduced = Feature(RecommendationFeatureKind.Tag, "REDUCED", "减少的标签");
+        var profile = new RecommendationFeatureProfile[]
+        {
+            new(first, 2, null, []), new(second, 2, null, []),
+            new(reduced, 0, RecommendationAdjustment.Reduce, []),
+        };
+        var candidates = Enumerable.Range(1, 14).Select(id => new RecommendationCandidate(
+            Anime(id, new(2026, 1, 1), 8), [first, second])).Append(
+                new(Anime(99, new(2026, 1, 1), 8), [first, reduced])).ToArray();
+        var items = RecommendationScorer.Rank(profile, candidates, new(2026, 11, 11));
+        Assert.Equal(14, items[13].Anime.ID);
+        Assert.Contains(items.Single(item => item.Anime.ID == 99).Reasons, reason => reason.IsReduction);
+    }
+
+    [Fact]
+    public void DiversityRemainsSoftWhenOnlyOnePreferenceHasCandidates()
+    {
+        var tag = Feature(RecommendationFeatureKind.Tag, "ONE", "唯一题材");
+        var profile = new RecommendationFeatureProfile[] { new(tag, 4, null, []) };
+        var items = RecommendationScorer.Rank(profile, Enumerable.Range(1, 30).Select(id =>
+            new RecommendationCandidate(Anime(id, new(2026, 1, 1), 8), [tag])).ToArray(), new(2026, 11, 11));
+        Assert.Equal(20, items.Count);
+        Assert.Equal(Enumerable.Range(1, 20), items.Select(item => item.Anime.ID));
     }
 
     private static RecommendationFeature Feature(

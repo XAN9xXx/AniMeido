@@ -196,7 +196,7 @@ public class RecommendationCandidateProviderTests
         }
 
         public Task<Anime?> GetAnimeDetailAsync(int id, CancellationToken ct)
-            => Task.FromResult<Anime?>(null);
+            => Task.FromResult<Anime?>(new Anime(id, $"作品{id}", null, [], new DateOnly(2026, 1, 1), null, "", 2026, 1, Score: 8));
         public Task<List<Tag>> GetTagsAsync(int id, CancellationToken ct)
             => Task.FromResult(new List<Tag>());
         public Task<List<Studio>> GetStudioAsync(int id, CancellationToken ct)

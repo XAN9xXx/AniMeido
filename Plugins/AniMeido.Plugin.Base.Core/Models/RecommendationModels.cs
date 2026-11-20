@@ -93,7 +93,7 @@ public sealed record RecommendationFeatureProfile(
         RecommendationAdjustment.Like => "喜欢 · 手动",
         RecommendationAdjustment.Reduce => "减少 · 手动",
         _ when IsSavedTag && EffectiveScore > 0 => "收藏的标签",
-        _ when EffectiveScore > 0.25 => "喜欢 · 自动",
+        _ when EffectiveScore > 0.25 => "推测感兴趣",
         _ when EffectiveScore < -0.25 => "减少 · 自动",
         _ => "无偏好",
     };
@@ -102,7 +102,7 @@ public sealed record RecommendationFeatureProfile(
         ? "你收藏了这个标签"
         : Evidence.Count == 0
         ? "你手动设置的"
-        : $"依据 {Evidence.Select(item => item.AnimeId).Distinct().Count()} 部作品的记录";
+        : $"展示 {Evidence.Select(item => item.AnimeId).Distinct().Count()} 部参考作品";
 }
 
 public sealed record RecommendationReason(
@@ -124,9 +124,11 @@ public sealed record RecommendationItem(
         "；",
         Reasons.Select(reason => reason.Text));
 
+    private string AgeText => Anime.AirDate is null ? "年代未知" : IsRecent ? "近三年" : "较早作品";
+
     public string Metadata => Anime.Score is > 0
-        ? $"评分 {Anime.Score:F1} · {(IsRecent ? "近三年" : "经典作品")}"
-        : IsRecent ? "近三年" : "经典作品";
+        ? $"评分 {Anime.Score:F1} · {AgeText}"
+        : AgeText;
 }
 
 public sealed record RecommendationSnapshot(
@@ -137,7 +139,7 @@ public sealed record RecommendationSnapshot(
     IReadOnlyList<RecommendationFeatureProfile>? RoundProfile = null,
     bool HasMore = false)
 {
-    public const int CurrentSchemaVersion = 7;
+    public const int CurrentSchemaVersion = 11;
 }
 
 public sealed record RecommendationGeneration(

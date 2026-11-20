@@ -103,13 +103,17 @@ public sealed partial class MetadataConsumerLoggingTests : DbTestBase
     }
 
     [Fact]
-    public async Task Logging_CandidateDetailFallbackWarnsAndPreservesTheOriginalCandidate()
+    public async Task Logging_CandidateDetailFailureWarnsAndDefersUntilIdentityIsConfirmed()
     {
         var failure = new HttpRequestException("synthetic detail failure");
         var original = Anime(1);
+        var confirmed = Anime(2);
+        var detailCalls = 0;
         var source = new ConsumerSource
         {
-            Detail = (_, _) => Task.FromException<Anime?>(failure),
+            Detail = (_, _) => Interlocked.Increment(ref detailCalls) == 1
+                ? Task.FromException<Anime?>(failure)
+                : Task.FromResult<Anime?>(confirmed),
             TagSearch = _ => Task.FromResult<(List<Anime>, int)>(([original], 1)),
         };
         var logger = new ConsumerLogger<RecommendationCandidateProvider>();
@@ -118,9 +122,14 @@ public sealed partial class MetadataConsumerLoggingTests : DbTestBase
 
         var candidates = await provider.GetNextWindowAsync(round, 30, CancellationToken.None).WaitAsync(Budget);
 
-        var candidate = Assert.Single(candidates);
-        Assert.Same(original, candidate.Anime);
+        Assert.Empty(candidates);
+        Assert.True(round.HasMore);
+        AssertLog(logger, LogLevel.Warning, failure);
+
+        var candidate = Assert.Single(await provider.GetNextWindowAsync(round, 30, CancellationToken.None).WaitAsync(Budget));
+        Assert.Same(confirmed, candidate.Anime);
         Assert.Contains(candidate.Features, feature => feature == KnownTag);
+        Assert.Equal(2, detailCalls);
         AssertLog(logger, LogLevel.Warning, failure);
     }
 

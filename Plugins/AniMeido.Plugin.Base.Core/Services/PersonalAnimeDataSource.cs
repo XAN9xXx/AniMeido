@@ -9,6 +9,8 @@ internal sealed class PersonalAnimeDataSource(
     MetadataDataSource remote,
     SqliteConnectionFactory db) : IAnimeDataSource, IMetadataCacheScope
 {
+    internal MetadataDataSource RecommendationSource => remote;
+
     MetadataCacheStamp IMetadataCacheScope.CacheStamp => ((IMetadataCacheScope)remote).CacheStamp;
 
     public async Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct)

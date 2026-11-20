@@ -88,12 +88,91 @@ public sealed class RecommendationSeedProjectionPerformanceTests(ITestOutputHelp
 
         AssertSeeds(
         [
-            new ExpectedSeed(1, "档案标题1", 4, 2.4, RecommendationEvidenceSource.PersonalRating),
+            new ExpectedSeed(1, "档案标题1", 3, 3, RecommendationEvidenceSource.PersonalRating),
             new ExpectedSeed(2, "低分标题2", -3, -3, RecommendationEvidenceSource.PersonalRating),
             new ExpectedSeed(4, RemoteTitle(4), 1, 1, RecommendationEvidenceSource.Following),
             new ExpectedSeed(6, RemoteTitle(6), 3, 3, RecommendationEvidenceSource.PersonalRating),
         ], source, generation);
         Assert.Equal(new[] { 4, 6 }, source.DetailReads.Order());
+    }
+
+    [Fact]
+    public async Task LowPersonalRatingRemainsNegativeAfterCompletingTheWork()
+    {
+        await using (var connection = await _database.Factory.OpenAsync())
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO anime_archives(AnimeId, TitleSnapshot, PersonalRating, SummaryNote, CreatedAt, UpdatedAt)
+                VALUES(1, '看完但不喜欢', 4, '', @at, @at);
+                INSERT INTO tracking(AnimeId, Status, UpdatedAt) VALUES(1, @completed, @at);
+                """;
+            command.Parameters.AddWithValue("@at", "2026-11-11T00:00:00Z");
+            command.Parameters.AddWithValue("@completed", (int)AnimeTrackingStatus.Completed);
+            await command.ExecuteNonQueryAsync();
+        }
+        var source = new SeedCaptureSource();
+        await using var candidates = new RecommendationCandidateProvider(source, NullLogger<RecommendationCandidateProvider>.Instance);
+        await using var service = RecommendationTestServices.CreateService(_database.Factory, candidates);
+        var result = await service.RefreshAsync();
+        var feature = Assert.Single(Assert.IsType<RecommendationGeneration>(result).Profile);
+        Assert.Equal(-1.5, feature.InferredScore);
+        Assert.False(feature.IsActiveForRecommendation);
+        Assert.Equal(RecommendationEvidenceSource.PersonalRating, Assert.Single(feature.Evidence).Source);
+    }
+
+    [Theory]
+    [InlineData(AnimeTrackingStatus.Completed, 5d, -0.5, RecommendationEvidenceSource.PersonalRating)]
+    [InlineData(AnimeTrackingStatus.Completed, 5.5, 0, RecommendationEvidenceSource.PersonalRating)]
+    [InlineData(AnimeTrackingStatus.Completed, 6d, 0.5, RecommendationEvidenceSource.PersonalRating)]
+    [InlineData(AnimeTrackingStatus.Completed, 8.5, 3, RecommendationEvidenceSource.PersonalRating)]
+    [InlineData(AnimeTrackingStatus.Dropped, 10d, 4, RecommendationEvidenceSource.PersonalRating)]
+    [InlineData(AnimeTrackingStatus.Dropped, 5.5, 0, RecommendationEvidenceSource.PersonalRating)]
+    [InlineData(AnimeTrackingStatus.NotInterested, 10d, -3, RecommendationEvidenceSource.NotInterested)]
+    [InlineData(AnimeTrackingStatus.NotInterested, 5.5, -3, RecommendationEvidenceSource.NotInterested)]
+    [InlineData(AnimeTrackingStatus.NotInterested, 4d, -3, RecommendationEvidenceSource.NotInterested)]
+    [InlineData(AnimeTrackingStatus.Completed, null, 2, RecommendationEvidenceSource.Completed)]
+    [InlineData(AnimeTrackingStatus.Watching, null, 1.5, RecommendationEvidenceSource.Watching)]
+    [InlineData(AnimeTrackingStatus.Following, null, 1, RecommendationEvidenceSource.Following)]
+    [InlineData(AnimeTrackingStatus.PlanToWatch, null, 0.5, RecommendationEvidenceSource.PlanToWatch)]
+    [InlineData(AnimeTrackingStatus.Dropped, null, -2, RecommendationEvidenceSource.Dropped)]
+    public async Task ExplicitIntentWinsOverRepeatedBehavior(AnimeTrackingStatus status, double? rating,
+        double expected, RecommendationEvidenceSource expectedSource)
+    {
+        await using (var connection = await _database.Factory.OpenAsync())
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO anime_archives(AnimeId, TitleSnapshot, PersonalRating, SummaryNote, CreatedAt, UpdatedAt)
+                VALUES(1, '规则测试作品', @rating, '', @at, @at);
+                INSERT INTO tracking(AnimeId, Status, UpdatedAt) VALUES(1, @status, @at);
+                INSERT INTO browse_history(AnimeID, TitleSnapshot, LastViewedAt, ViewCount)
+                VALUES(1, '规则测试作品', @at, 100);
+                INSERT INTO anime_plans(AnimeId, TitleSnapshot, Priority, CreatedAt, UpdatedAt)
+                VALUES(1, '规则测试作品', 2, @at, @at);
+                INSERT INTO episode_progress(AnimeId, EpisodeNumber, PositionSeconds, DurationSeconds, IsCompleted, LastWatchedAt)
+                VALUES(1, 1, 1200, 1200, 1, @at);
+                """;
+            command.Parameters.AddWithValue("@at", "2026-11-12T00:00:00Z");
+            command.Parameters.AddWithValue("@rating", (object?)rating ?? DBNull.Value);
+            command.Parameters.AddWithValue("@status", (int)status);
+            await command.ExecuteNonQueryAsync();
+        }
+        var source = new SeedCaptureSource();
+        await using var candidates = new RecommendationCandidateProvider(source, NullLogger<RecommendationCandidateProvider>.Instance);
+        await using var service = RecommendationTestServices.CreateService(_database.Factory, candidates);
+        var generation = Assert.IsType<RecommendationGeneration>(await service.RefreshAsync());
+        if (expected == 0)
+        {
+            Assert.Empty(generation.Profile);
+            Assert.Empty(source.FeatureReads);
+        }
+        else
+        {
+            var feature = Assert.Single(generation.Profile);
+            Assert.Equal(expected, feature.InferredScore, 8);
+            Assert.Equal(expectedSource, Assert.Single(feature.Evidence).Source);
+        }
     }
 
     private async Task SeedArchivesAsync(int count)
@@ -168,7 +247,7 @@ public sealed class RecommendationSeedProjectionPerformanceTests(ITestOutputHelp
             var evidence = Assert.Single(profile.Evidence);
             Assert.Equal(item.AnimeId, evidence.AnimeId);
             Assert.Equal(item.Title, evidence.Title);
-            Assert.Equal(item.Contribution, evidence.Contribution, 12);
+            Assert.Equal(item.Weight, evidence.Contribution, 12);
             Assert.Equal(item.Source, evidence.Source);
         }
     }

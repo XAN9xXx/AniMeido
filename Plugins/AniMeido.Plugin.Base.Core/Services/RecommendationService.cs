@@ -19,6 +19,8 @@ public sealed class RecommendationService : IAsyncDisposable
     private readonly SemaphoreSlim _personalWriteGate = new(1);
     private RecommendationCandidateProvider.CandidateRound? _round;
     private DateTimeOffset _roundGeneratedAt;
+    private RecommendationSnapshot? _committedSnapshot;
+    internal TimeProvider Clock { get; set; } = TimeProvider.System;
     private readonly ServiceOperationLifetime _lifetime = new();
 
     public RecommendationService(
@@ -79,9 +81,50 @@ public sealed class RecommendationService : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         using var request = _lifetime.Begin(cancellationToken);
-        return await Task.Run(() => _snapshots.ReadAsync(allowExpired, request.Token), request.Token)
+        return await Task.Run(async () =>
+        {
+            var snapshot = await _snapshots.ReadAsync(allowExpired, request.Token);
+            if (snapshot is null) return null;
+            return await FilterRatedItemsCoreAsync(snapshot, request.Token);
+        }, request.Token)
             .ConfigureAwait(false);
     }
+
+    public async Task<RecommendationSnapshot> FilterRatedItemsAsync(RecommendationSnapshot snapshot,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = _lifetime.Begin(cancellationToken);
+        return await Task.Run(() => FilterRatedItemsCoreAsync(snapshot, request.Token), request.Token)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<RecommendationSnapshot> FilterRatedItemsCoreAsync(RecommendationSnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        await _refreshGate.WaitAsync(cancellationToken);
+        try
+        {
+            snapshot = RestoreCommittedSnapshot(snapshot);
+            var rated = await ReadRatedAnimeIdsAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            var filtered = snapshot with { Items = snapshot.Items.Where(item => !rated.Contains(item.Anime.ID)).ToArray() };
+            RememberFilteredSnapshot(filtered);
+            if (_roundGeneratedAt == snapshot.GeneratedAt) _round?.Exclude(rated);
+            return filtered;
+        }
+        finally { _refreshGate.Release(); }
+    }
+
+    private void RememberFilteredSnapshot(RecommendationSnapshot snapshot)
+    {
+        if (_committedSnapshot is null || (_committedSnapshot.GeneratedAt == snapshot.GeneratedAt
+            && _committedSnapshot.SchemaVersion == snapshot.SchemaVersion))
+            Volatile.Write(ref _committedSnapshot, snapshot);
+    }
+
+    private RecommendationSnapshot RestoreCommittedSnapshot(RecommendationSnapshot snapshot)
+        => Volatile.Read(ref _committedSnapshot) is { } committed && committed.GeneratedAt == snapshot.GeneratedAt
+            && committed.SchemaVersion == snapshot.SchemaVersion ? committed : snapshot;
 
     public async Task<RecommendationGeneration?> RefreshAsync(
         CancellationToken cancellationToken = default,
@@ -101,6 +144,8 @@ public sealed class RecommendationService : IAsyncDisposable
         await _refreshGate.WaitAsync(cancellationToken);
         try
         {
+            var generatedAt = Clock.GetUtcNow();
+            var roundDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(generatedAt, Clock.LocalTimeZone).DateTime);
             var snapshotRevision = _snapshots.Revision;
             var cacheGeneration = _snapshots.CaptureCacheGeneration();
             var previousSnapshot = preferNewBatch
@@ -117,8 +162,10 @@ public sealed class RecommendationService : IAsyncDisposable
                 : null;
             var tracking = await _tracking.GetAllTrackingAsync();
             var hidden = await ReadHiddenAnimeAsync(cancellationToken);
+            var rated = await _archive.GetRatedArchiveSeedsAsync(cancellationToken);
             var excluded = tracking.Select(item => item.AnimeId)
                 .Concat(hidden.Select(item => item.AnimeId))
+                .Concat(rated.Select(item => item.AnimeId))
                 .ToHashSet();
             if (previousIds is not null)
             {
@@ -129,7 +176,7 @@ public sealed class RecommendationService : IAsyncDisposable
             preferences = preferences.Where(p => !p.Invalid).ToList();
             var savedTags = (await _savedTags.GetSavedTagStatesAsync()).Where(t => !t.Invalid).Select(t => t.Name).ToList();
             var seeds = await BuildSeedsAsync(
-                tracking,
+                tracking, rated,
                 cancellationToken);
             seeds = await _candidates.ResolveTitlesAsync(
                 seeds,
@@ -142,20 +189,21 @@ public sealed class RecommendationService : IAsyncDisposable
                 features,
                 preferences,
                 savedTags);
+            excluded = _candidates.ExpandKnownExcludedIds(excluded);
 
             IReadOnlyList<RecommendationItem> items;
             RecommendationCandidateProvider.CandidateRound? newRound = null;
             var personalized = profile.Any(item => item.IsActiveForRecommendation);
             if (personalized)
             {
-                newRound = _candidates.CreateRound(profile, excluded);
+                newRound = _candidates.CreateRound(profile, excluded, roundDate);
                 items = await GenerateBatchAsync(newRound, profile,
                     cancellationToken);
                 if (items.Count == 0 && !newRound.HasMore)
                 {
                     items = await _candidates.GetPopularAsync(
-                        excluded,
-                        cancellationToken);
+                        newRound.ExcludedIds,
+                        cancellationToken, profile);
                     personalized = false;
                     newRound = null;
                 }
@@ -164,10 +212,13 @@ public sealed class RecommendationService : IAsyncDisposable
             {
                 items = await _candidates.GetPopularAsync(
                     excluded,
-                    cancellationToken);
+                    cancellationToken, profile);
             }
 
-            items = items
+            // 档案评分可在远端读取期间保存，发布结果前再次读取轻量 ID 集合。
+            var currentRated = await ReadRatedAnimeIdsAsync(cancellationToken);
+            excluded = _candidates.ExpandKnownExcludedIds(excluded);
+            items = items.Where(item => !excluded.Contains(item.Anime.ID) && !currentRated.Contains(item.Anime.ID))
                 .DistinctBy(item => item.Anime.ID)
                 .Take(20)
                 .ToArray();
@@ -179,24 +230,28 @@ public sealed class RecommendationService : IAsyncDisposable
                 if (snapshotRevision != _snapshots.Revision)
                     return null;
                 LastProfile = profile;
+                var unavailable = _candidates.ExpandKnownExcludedIds(tracking.Select(item => item.AnimeId)
+                    .Concat(hidden.Select(item => item.AnimeId)).Concat(currentRated));
                 return new RecommendationGeneration(
-                    previousSnapshot,
+                    previousSnapshot with { Items = previousSnapshot.Items.Where(item => !unavailable.Contains(item.Anime.ID)).ToArray() },
                     profile);
             }
 
             var snapshot = new RecommendationSnapshot(
                 RecommendationSnapshot.CurrentSchemaVersion,
-                DateTimeOffset.UtcNow,
+                generatedAt,
                 personalized,
                 items,
                 personalized ? profile : null,
-                newRound?.HasMore == true);
+                newRound?.HasMoreAfterConsuming(items.Select(item => item.Anime.ID)) == true);
             if (!await _snapshots.TryWriteAsync(snapshot, cacheGeneration,
                 snapshotRevision, cancellationToken))
                 return null;
             LastProfile = profile;
+            newRound?.Consume(items.Select(item => item.Anime.ID));
             _round = newRound;
             _roundGeneratedAt = snapshot.GeneratedAt;
+            Volatile.Write(ref _committedSnapshot, snapshot);
             return new RecommendationGeneration(snapshot, profile);
         }
         finally
@@ -223,66 +278,91 @@ public sealed class RecommendationService : IAsyncDisposable
         await _refreshGate.WaitAsync(cancellationToken);
         try
         {
+            var suppliedIds = snapshot.Items.Select(item => item.Anime.ID).ToHashSet();
+            snapshot = RestoreCommittedSnapshot(snapshot);
             var snapshotRevision = _snapshots.Revision;
             var cacheGeneration = _snapshots.CaptureCacheGeneration();
+            var tracking = await _tracking.GetAllTrackingAsync();
+            var hidden = await ReadHiddenAnimeAsync(cancellationToken);
+            var rated = await ReadRatedAnimeIdsAsync(cancellationToken);
+            var unavailable = _candidates.ExpandKnownExcludedIds(tracking.Select(item => item.AnimeId)
+                .Concat(hidden.Select(item => item.AnimeId)).Concat(removedIds).Concat(rated));
+            var shownIds = snapshot.Items.Select(item => item.Anime.ID).ToArray();
+            snapshot = snapshot with { Items = snapshot.Items.Where(item => !unavailable.Contains(item.Anime.ID)).ToArray() };
+            if (snapshot.SchemaVersion != RecommendationSnapshot.CurrentSchemaVersion)
+                return new RecommendationPageBatch(snapshot with { HasMore = false }, []);
             if (!snapshot.IsPersonalized || !snapshot.HasMore)
-                return new RecommendationPageBatch(snapshot, []);
+            {
+                RememberFilteredSnapshot(snapshot);
+                return new RecommendationPageBatch(snapshot, snapshot.Items.Where(item => !suppliedIds.Contains(item.Anime.ID)).ToArray());
+            }
 
             var profile = snapshot.RoundProfile ?? [];
             if (profile.Count == 0)
                 return new RecommendationPageBatch(snapshot with { HasMore = false }, []);
-            var tracking = await _tracking.GetAllTrackingAsync();
-            var hidden = await ReadHiddenAnimeAsync(cancellationToken);
-            var excluded = tracking.Select(item => item.AnimeId)
-                .Concat(hidden.Select(item => item.AnimeId))
-                .Concat(removedIds)
-                .Concat(snapshot.Items.Select(item => item.Anime.ID))
+            var excluded = unavailable.Concat(shownIds)
                 .ToHashSet();
             if (_round is null || _roundGeneratedAt != snapshot.GeneratedAt)
             {
-                _round = _candidates.CreateRound(profile, excluded);
+                _round = _candidates.CreateRound(profile, excluded,
+                    DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(snapshot.GeneratedAt, Clock.LocalTimeZone).DateTime));
                 _roundGeneratedAt = snapshot.GeneratedAt;
             }
             _round.Exclude(excluded);
             var items = await GenerateBatchAsync(_round, profile, cancellationToken);
+            var currentRated = await ReadRatedAnimeIdsAsync(cancellationToken);
+            _round.Exclude(currentRated);
+            items = items.Where(item => !currentRated.Contains(item.Anime.ID)).ToArray();
+            snapshot = snapshot with { Items = snapshot.Items.Where(item => !currentRated.Contains(item.Anime.ID)).ToArray() };
             var updated = snapshot with
             {
                 Items = snapshot.Items.Concat(items)
                     .DistinctBy(item => item.Anime.ID).ToArray(),
-                HasMore = _round.HasMore,
+                HasMore = _round.HasMoreAfterConsuming(items.Select(item => item.Anime.ID)),
             };
             // An invalidated cache must stay removed, but this page can keep
             // browsing its existing round (including edits to next-round preferences).
             if (snapshotRevision == _snapshots.Revision
                 && await _snapshots.MatchesRoundAsync(snapshot.GeneratedAt, cancellationToken))
             {
-                await _snapshots.TryWriteAsync(updated, cacheGeneration,
-                    snapshotRevision, cancellationToken);
+                if (await _snapshots.TryWriteAsync(updated, cacheGeneration, snapshotRevision, cancellationToken))
+                    return CommitBatch(_round, updated, suppliedIds);
             }
             if (snapshotRevision != _snapshots.Revision)
             {
                 var currentTracking = await _tracking.GetAllTrackingAsync();
                 var currentHidden = await ReadHiddenAnimeAsync(cancellationToken);
-                var currentExcluded = currentTracking.Select(item => item.AnimeId)
+                var currentExcluded = _candidates.ExpandKnownExcludedIds(currentTracking.Select(item => item.AnimeId)
                     .Concat(currentHidden.Select(item => item.AnimeId))
                     .Concat(removedIds)
-                    .ToHashSet();
+                    .Concat(currentRated));
                 _round.Exclude(currentExcluded);
                 items = items.Where(item => !currentExcluded.Contains(item.Anime.ID))
                     .ToArray();
                 updated = updated with
                 {
                     Items = snapshot.Items.Concat(items)
+                        .Where(item => !currentExcluded.Contains(item.Anime.ID))
                         .DistinctBy(item => item.Anime.ID).ToArray(),
-                    HasMore = _round.HasMore,
+                    HasMore = _round.HasMoreAfterConsuming(items.Select(item => item.Anime.ID)),
                 };
             }
-            return new RecommendationPageBatch(updated, items);
+            cancellationToken.ThrowIfCancellationRequested();
+            return CommitBatch(_round, updated, suppliedIds);
         }
         finally
         {
             _refreshGate.Release();
         }
+    }
+
+    private RecommendationPageBatch CommitBatch(RecommendationCandidateProvider.CandidateRound round,
+        RecommendationSnapshot snapshot, IReadOnlySet<int> suppliedIds)
+    {
+        // 缓存一旦完成写入，同步提交消费和恢复状态；离页由 ViewModel 决定是否展示。
+        round.Consume(snapshot.Items.Select(item => item.Anime.ID));
+        Volatile.Write(ref _committedSnapshot, snapshot);
+        return new(snapshot, snapshot.Items.Where(item => !suppliedIds.Contains(item.Anime.ID)).ToArray());
     }
 
     private async Task<IReadOnlyList<RecommendationItem>> GenerateBatchAsync(
@@ -299,8 +379,7 @@ public sealed class RecommendationService : IAsyncDisposable
                 continue;
             }
             var ranked = RecommendationScorer.Rank(profile, window,
-                DateOnly.FromDateTime(DateTime.Today));
-            round.Consume(ranked.Select(item => item.Anime.ID));
+                round.Today);
             if (ranked.Count > 0) return ranked;
             // None of these candidates matched a positive feature. Do not keep
             // offering the same window or misreport it as source exhaustion.
@@ -550,6 +629,7 @@ public sealed class RecommendationService : IAsyncDisposable
             int AnimeId,
             AnimeTrackingStatus Status,
             string UpdatedAt)> tracking,
+        IReadOnlyList<(int AnimeId, string TitleSnapshot, double PersonalRating)> rated,
         CancellationToken cancellationToken)
     {
         var seeds = new Dictionary<int, SeedAccumulator>();
@@ -573,8 +653,7 @@ public sealed class RecommendationService : IAsyncDisposable
                 });
         }
 
-        foreach (var item in await _archive.GetRatedArchiveSeedsAsync(
-            cancellationToken))
+        foreach (var item in rated)
         {
             AddSeed(
                 seeds,
@@ -619,7 +698,7 @@ public sealed class RecommendationService : IAsyncDisposable
             .Select(item => item.AnimeId)
             .ToHashSet();
         return seeds.Values
-            .Where(item => item.AnimeId > 0 && !blocked.Contains(item.AnimeId))
+            .Where(item => item.AnimeId > 0 && !blocked.Contains(item.AnimeId) && item.NormalizedWeight != 0)
             .OrderByDescending(item => Math.Abs(item.NormalizedWeight))
             .Take(30)
             .Select(item => new RecommendationSeed(
@@ -628,6 +707,17 @@ public sealed class RecommendationService : IAsyncDisposable
                 item.NormalizedWeight,
                 item.NormalizedSignals))
             .ToArray();
+    }
+
+    private async Task<HashSet<int>> ReadRatedAnimeIdsAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await _dbFactory.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT AnimeId FROM anime_archives WHERE PersonalRating IS NOT NULL";
+        var result = new HashSet<int>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken)) result.Add(reader.GetInt32(0));
+        return _candidates.ExpandKnownExcludedIds(result);
     }
 
     private async Task<HashSet<int>> GetCompletedAnimeIdsAsync(
@@ -657,7 +747,7 @@ public sealed class RecommendationService : IAsyncDisposable
         double weight,
         RecommendationEvidenceSource source)
     {
-        if (weight == 0)
+        if (weight == 0 && source != RecommendationEvidenceSource.PersonalRating)
         {
             return;
         }
@@ -717,23 +807,16 @@ public sealed class RecommendationService : IAsyncDisposable
 
         public List<RecommendationSignal> Signals { get; } = [];
 
-        // Correlated actions on one title should not turn that title into an
-        // unlimited number of independent votes for every one of its tags.
+        // 明确意图优先；同一作品的浏览、计划与观看行为只贡献一次。
         public IReadOnlyList<RecommendationSignal> NormalizedSignals
         {
             get
             {
-                var positives = Signals.Where(signal => signal.Weight > 0)
-                    .Sum(signal => signal.Weight);
-                var negatives = Signals.Where(signal => signal.Weight < 0)
-                    .Sum(signal => signal.Weight);
-                var positiveScale = positives > 4 ? 4 / positives : 1;
-                var negativeScale = negatives < -3 ? -3 / negatives : 1;
-                return Signals.Select(signal => signal with
-                {
-                    Weight = signal.Weight * (signal.Weight > 0
-                        ? positiveScale : negativeScale),
-                }).ToArray();
+                var signal = Signals.FirstOrDefault(item => item.Source == RecommendationEvidenceSource.NotInterested)
+                    ?? Signals.FirstOrDefault(item => item.Source == RecommendationEvidenceSource.PersonalRating)
+                    ?? Signals.Where(item => item.Weight < 0).OrderBy(item => item.Weight).FirstOrDefault()
+                    ?? Signals.OrderByDescending(item => item.Weight).ThenBy(item => item.Source).FirstOrDefault();
+                return signal is null ? [] : [signal with { Weight = Math.Clamp(signal.Weight, -3, 4) }];
             }
         }
 

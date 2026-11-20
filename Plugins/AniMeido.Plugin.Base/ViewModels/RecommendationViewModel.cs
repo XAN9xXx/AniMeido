@@ -416,6 +416,9 @@ public partial class RecommendationViewModel : ObservableObject
         {
             if (_browse.Snapshot is { SchemaVersion: RecommendationSnapshot.CurrentSchemaVersion } saved)
             {
+                saved = await _recommendations.FilterRatedItemsAsync(saved, cancellationToken);
+                if (!IsCurrentLoad(generation, cancellationToken)) return;
+                _browse.Snapshot = saved;
                 var selectedId = _browse.SelectedAnimeId;
                 Profile = new(_browse.Profile);
                 Items = new(_browse.VisibleItems);
@@ -580,8 +583,13 @@ public partial class RecommendationViewModel : ObservableObject
             if (generation != _loadMoreGeneration || cancellationToken.IsCancellationRequested)
                 return;
             _browse.Snapshot = result.Snapshot;
-            foreach (var item in result.Items.Where(item => !removed.Contains(item.Anime.ID)))
-                Items.Add(item);
+            var visible = _browse.VisibleItems;
+            var visibleIds = visible.Select(item => item.Anime.ID).ToHashSet();
+            foreach (var item in Items.Where(item => !visibleIds.Contains(item.Anime.ID)).ToArray()) RemoveItem(item);
+            var existingIds = Items.Select(item => item.Anime.ID).ToHashSet();
+            foreach (var item in visible)
+                if (existingIds.Add(item.Anime.ID)) Items.Add(item);
+            SelectedItem ??= Items.FirstOrDefault();
             HasMoreRecommendations = result.Snapshot.HasMore;
             OnPropertyChanged(nameof(HasItems));
         }

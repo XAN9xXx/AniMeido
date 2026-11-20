@@ -20,7 +20,8 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
         IAnimeDataSource dataSource,
         ILogger<RecommendationCandidateProvider> logger)
     {
-        _dataSource = dataSource;
+        // 发现型推荐使用公共作品身份；个人记录适配器为旧记录保留原 ID。
+        _dataSource = dataSource is PersonalAnimeDataSource personal ? personal.RecommendationSource : dataSource;
         _logger = logger;
     }
 
@@ -50,6 +51,9 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
             });
         return result;
     }
+
+    internal HashSet<int> ExpandKnownExcludedIds(IEnumerable<int> ids)
+        => _dataSource is MetadataDataSource metadata ? metadata.ExpandKnownMergedIds(ids) : ids.ToHashSet();
 
     internal async Task<IReadOnlyList<RecommendationSeed>> ResolveTitlesAsync(
         IReadOnlyList<RecommendationSeed> seeds,
@@ -86,7 +90,8 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
     // the saved snapshot only needs to preserve the items already shown to the user.
     internal CandidateRound CreateRound(
         IReadOnlyList<RecommendationFeatureProfile> profile,
-        IReadOnlySet<int> excludedIds)
+        IReadOnlySet<int> excludedIds,
+        DateOnly? today = null)
     {
         var sources = profile
             .Where(item => item.IsActiveForRecommendation)
@@ -94,6 +99,7 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
             .SelectMany(group => group
                 .OrderByDescending(GetExplicitPreferencePriority)
                 .ThenByDescending(item => item.EffectiveScore)
+                .ThenBy(item => item.Feature.Key, StringComparer.OrdinalIgnoreCase)
                 .Take(group.Key switch
                 {
                     RecommendationFeatureKind.Tag => 6,
@@ -102,7 +108,8 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
                     _ => 0,
                 }))
             .ToArray();
-        var recentFrom = $"{DateTime.UtcNow.Year - 3:D4}-01-01";
+        var roundDate = today ?? DateOnly.FromDateTime(DateTime.Today);
+        var recentFrom = roundDate.AddYears(-3).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         var cursors = sources.SelectMany(source => source.Feature.Kind
             == RecommendationFeatureKind.Tag
                 ? new[]
@@ -111,7 +118,8 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
                     new CandidateCursor(source, null, recentFrom),
                 }
                 : [new CandidateCursor(source, null, null)]).ToArray();
-        return new CandidateRound(sources, cursors, excludedIds);
+        return new CandidateRound(sources, cursors, excludedIds, roundDate,
+            profile.Where(item => item.EffectiveScore < 0).Select(item => item.Feature.Kind).Distinct().ToArray());
     }
 
     internal async Task<IReadOnlyList<RecommendationCandidate>> GetNextWindowAsync(
@@ -165,17 +173,46 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
             throw new HttpRequestException("推荐的作品没能加载出来，请重试。");
 
         var enriched = new ConcurrentBag<RecommendationCandidate>();
+        var exhausted = new ConcurrentBag<int>();
         await Parallel.ForEachAsync(selected,
             new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = 4 },
             async (candidate, token) =>
             {
-                var anime = await TryGetDetailAsync(candidate.Anime.ID, token) ?? candidate.Anime;
-                var features = (await GetAnimeFeaturesAsync(anime.ID, token))
-                    .Concat(candidate.SourceFeatures)
+                var state = round.Enriched.GetOrAdd(candidate.Anime.ID, _ => new CandidateEnrichment());
+                await EnrichAsync(candidate.Anime.ID, state, Enum.GetValues<RecommendationFeatureKind>(), true, token);
+                if (state.Anime is not { ID: > 0 } anime)
+                {
+                    if (state.DetailCompleted || state.DetailAttempts >= 2) exhausted.Add(candidate.Anime.ID);
+                    return;
+                }
+                if (round.NegativeKinds.Any(kind => state.Categories[kind].Features is null))
+                {
+                    if (round.NegativeKinds.Any(kind => state.Categories[kind] is { Features: null, Attempts: >= 2 }))
+                        exhausted.Add(candidate.Anime.ID);
+                    return;
+                }
+                if (round.ExcludedIds.Contains(anime.ID))
+                {
+                    exhausted.Add(candidate.Anime.ID);
+                    return;
+                }
+                if (candidate.SourceFeatures.Any(feature => feature.Kind != RecommendationFeatureKind.Tag
+                    && state.Categories[feature.Kind] is { Features: null, Attempts: < 2 })) return;
+                var features = state.Categories.Values.SelectMany(category => category.Features ?? [])
+                    .Concat(candidate.SourceFeatures.Where(feature => feature.Kind == RecommendationFeatureKind.Tag))
                     .DistinctBy(feature => (feature.Kind, feature.Key)).ToArray();
                 enriched.Add(new RecommendationCandidate(anime, features));
             });
-        return enriched.OrderBy(item => item.Anime.ID).ToArray();
+        round.Exclude(ExpandKnownExcludedIds(round.ExcludedIds.Concat(exhausted)));
+        // 缓存只属于当前轮次；已展示项目随 Consume 释放，额外保留最多 120 部。
+        var selectedIds = selected.Select(item => item.Anime.ID).ToHashSet();
+        foreach (var id in round.Enriched.Keys.Where(id => !selectedIds.Contains(id)).Order()
+            .Take(Math.Max(0, round.Enriched.Count - MaximumCandidates)))
+            round.Enriched.TryRemove(id, out _);
+        return enriched.Where(item => !round.ExcludedIds.Contains(item.Anime.ID))
+            .GroupBy(item => item.Anime.ID).OrderBy(group => group.Key)
+            .Select(group => new RecommendationCandidate(group.First().Anime,
+                group.SelectMany(item => item.Features).DistinctBy(feature => (feature.Kind, feature.Key)).ToArray())).ToArray();
     }
 
     private async Task<bool> FetchCursorsAsync(CandidateRound round,
@@ -190,13 +227,11 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
                 {
                     if (cursor.Source.Feature.Kind == RecommendationFeatureKind.Tag)
                     {
-                        var (items, total) = await WithNetworkGateAsync(ct =>
-                            _dataSource.SearchByTagAsync(cursor.Source.Feature.DisplayName,
-                                cursor.Offset, "rank", ct, cursor.From, cursor.To), token);
+                        var (items, total, nextOffset) = await WithNetworkGateAsync(ct => ReadTagPageAsync(cursor, ct), token);
                         foreach (var item in items)
                             round.Add(item, cursor.Source);
-                        cursor.Offset += items.Count;
-                        cursor.Exhausted = items.Count == 0 || cursor.Offset >= total;
+                        cursor.Exhausted = nextOffset <= cursor.Offset || nextOffset >= total;
+                        cursor.Offset = nextOffset;
                     }
                     else if (int.TryParse(cursor.Source.Feature.Key, out var personId))
                     {
@@ -220,11 +255,24 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
         return succeeded > 0;
     }
 
+    private async Task<(List<Anime> Results, int Total, int NextOffset)> ReadTagPageAsync(CandidateCursor cursor, CancellationToken token)
+    {
+        if (_dataSource is MetadataDataSource metadata)
+            return await metadata.SearchTagPageAsync(cursor.Source.Feature.DisplayName, cursor.Offset, "rank", token, cursor.From, cursor.To);
+        var (items, total) = await _dataSource.SearchByTagAsync(cursor.Source.Feature.DisplayName, cursor.Offset, "rank", token, cursor.From, cursor.To);
+        return (items, total, cursor.Offset + items.Count);
+    }
+
     internal sealed class CandidateRound(
         IReadOnlyList<RecommendationFeatureProfile> sources,
         CandidateCursor[] cursors,
-        IReadOnlySet<int> excludedIds)
+        IReadOnlySet<int> excludedIds,
+        DateOnly today,
+        IReadOnlyList<RecommendationFeatureKind> negativeKinds)
     {
+        internal DateOnly Today { get; } = today;
+        internal IReadOnlyList<RecommendationFeatureKind> NegativeKinds { get; } = negativeKinds;
+        internal ConcurrentDictionary<int, CandidateEnrichment> Enriched { get; } = new();
         internal IReadOnlyList<RecommendationFeatureProfile> Sources { get; } = sources;
         internal List<CandidateCursor> Cursors { get; } = [.. cursors];
         internal ConcurrentDictionary<int, CandidateSource> Pending { get; } = new();
@@ -233,23 +281,33 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
         internal bool InitialFetchComplete { get; set; }
         internal bool HasMore => !Pending.IsEmpty || Cursors.Any(cursor => !cursor.Exhausted);
 
+        internal bool HasMoreAfterConsuming(IEnumerable<int> ids)
+        {
+            var consumed = SourceIds(ids).ToHashSet();
+            return Pending.Keys.Any(id => !consumed.Contains(id)) || Cursors.Any(cursor => !cursor.Exhausted);
+        }
+
+        private int[] SourceIds(IEnumerable<int> ids)
+        {
+            var targets = ids.ToHashSet();
+            foreach (var id in targets.ToArray())
+                if (Enriched.TryGetValue(id, out var state) && state.Anime is { } anime) targets.Add(anime.ID);
+            return targets.Concat(Enriched.Where(pair => pair.Value.Anime is { } anime && targets.Contains(anime.ID))
+                .Select(pair => pair.Key)).Distinct().ToArray();
+        }
+
         internal void Exclude(IEnumerable<int> ids)
         {
-            foreach (var id in ids)
+            foreach (var id in SourceIds(ids))
             {
                 ExcludedIds.Add(id);
                 Pending.TryRemove(id, out _);
+                Enriched.TryRemove(id, out _);
             }
         }
 
         internal void Consume(IEnumerable<int> ids)
-        {
-            foreach (var id in ids)
-            {
-                Pending.TryRemove(id, out _);
-                ExcludedIds.Add(id);
-            }
-        }
+            => Exclude(ids);
 
         internal void Add(Anime anime, RecommendationFeatureProfile source)
         {
@@ -323,7 +381,8 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
 
     internal async Task<IReadOnlyList<RecommendationItem>> GetPopularAsync(
         IReadOnlySet<int> excludedIds,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<RecommendationFeatureProfile>? profile = null)
     {
         using var request = _lifetime.Begin(cancellationToken);
         cancellationToken = request.Token;
@@ -331,24 +390,100 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
         var anime = await WithNetworkGateAsync(
             ct => _dataSource.GetAnimeBySeasonAsync(year, season, ct),
             cancellationToken);
-        return anime
+        var ordered = anime
             .Where(item => !excludedIds.Contains(item.ID))
             .OrderByDescending(item => item.Score ?? 0)
-            .Take(20)
+            .ThenBy(item => item.ID).ToArray();
+        var negativeProfile = (profile ?? []).Where(item => item.EffectiveScore < 0).ToArray();
+        if (negativeProfile.Length > 0)
+        {
+            var kinds = negativeProfile.Select(item => item.Feature.Kind).Distinct().ToArray();
+            var candidates = new ConcurrentBag<RecommendationCandidate>();
+            await Parallel.ForEachAsync(ordered.Take(EnrichedCandidateCount),
+                new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = 4 },
+                async (item, token) =>
+                {
+                    var state = new CandidateEnrichment();
+                    await EnrichAsync(item.ID, state, kinds, false, token);
+                    if (kinds.All(kind => state.Categories[kind].Features is not null))
+                        candidates.Add(new(item, state.Categories.Values.SelectMany(category => category.Features ?? []).ToArray()));
+                });
+            return RecommendationScorer.Rank(negativeProfile, candidates.ToArray(), DateOnly.FromDateTime(DateTime.Today),
+                requirePositiveMatch: false).Select(item => item with
+                { Reasons = item.Reasons.Prepend(PopularReason()).ToArray() }).ToArray();
+        }
+        return ordered.Take(20)
             .Select(item => new RecommendationItem(
                 item,
                 item.Score ?? 0,
-                [new RecommendationReason(
-                    new RecommendationFeature(
-                        RecommendationFeatureKind.Tag,
-                        "popular",
-                        "本季热门"),
-                    0,
-                    false,
-                    "你标记的作品还不多，先推荐本季热门")],
+                [PopularReason()],
                 false,
                 true))
             .ToArray();
+    }
+
+    private static RecommendationReason PopularReason() => new(
+        new(RecommendationFeatureKind.Tag, "popular", "本季热门"), 0, false, "本季推荐");
+
+    internal sealed class CandidateEnrichment
+    {
+        internal Anime? Anime { get; set; }
+        internal bool DetailCompleted { get; set; }
+        internal int DetailAttempts { get; set; }
+        internal Dictionary<RecommendationFeatureKind, FeatureRead> Categories { get; } = new();
+    }
+
+    internal sealed record FeatureRead(IReadOnlyList<RecommendationFeature>? Features, int Attempts);
+
+    private async Task EnrichAsync(int animeId, CandidateEnrichment state,
+        IReadOnlyList<RecommendationFeatureKind> kinds, bool includeDetail, CancellationToken token)
+    {
+        if (includeDetail && !state.DetailCompleted && state.DetailAttempts < 2)
+        {
+            try
+            {
+                state.Anime = await WithNetworkGateAsync(ct => _dataSource.GetAnimeDetailAsync(animeId, ct), token);
+                state.DetailCompleted = true;
+                state.DetailAttempts++;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                state.DetailAttempts++;
+                LogEnrichmentFailure(ex, token);
+            }
+        }
+        // 各类别保留成功空集合；只有失败类别下一次读取时重试一次。
+        foreach (var kind in kinds)
+        {
+            state.Categories.TryGetValue(kind, out var previous);
+            if (previous?.Features is not null || previous?.Attempts >= 2) continue;
+            IReadOnlyList<RecommendationFeature>? features;
+            try
+            {
+                features = kind switch
+                {
+                    RecommendationFeatureKind.Tag => (await WithNetworkGateAsync(ct => _dataSource.GetTagsAsync(animeId, ct), token))
+                        .Select(tag => new RecommendationFeature(kind, NormalizeTag(tag.Name), tag.Name.Trim())).ToArray(),
+                    RecommendationFeatureKind.Studio => (await WithNetworkGateAsync(ct => _dataSource.GetStudioAsync(animeId, ct), token))
+                        .Select(studio => new RecommendationFeature(kind, studio.ID.ToString(System.Globalization.CultureInfo.InvariantCulture), studio.Name)).ToArray(),
+                    RecommendationFeatureKind.VoiceActor => (await WithNetworkGateAsync(ct => _dataSource.GetCVsAsync(animeId, ct), token))
+                        .Select(actor => new RecommendationFeature(kind, actor.VoiceActorId.ToString(System.Globalization.CultureInfo.InvariantCulture), actor.Name)).ToArray(),
+                    _ => throw new ArgumentOutOfRangeException(nameof(kinds)),
+                };
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                features = null;
+                LogEnrichmentFailure(ex, token);
+            }
+            state.Categories[kind] = new(features, (previous?.Attempts ?? 0) + 1);
+        }
+    }
+
+    private void LogEnrichmentFailure(Exception exception, CancellationToken token)
+    {
+        if (!token.IsCancellationRequested && exception is not MetadataServiceException { IsRateLimited: true })
+            _logger.LogWarning(exception, "Recommendation enrichment failed; retaining category state for the next request.");
     }
 
     internal async Task<IReadOnlyList<RecommendationFeature>> GetTagsForPreviewAsync(

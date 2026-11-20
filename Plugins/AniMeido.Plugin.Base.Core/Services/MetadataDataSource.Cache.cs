@@ -73,6 +73,7 @@ public sealed partial class MetadataDataSource
         if (string.IsNullOrWhiteSpace(version))
             throw new MetadataServiceException("资料服务未返回 X-Data-Version。");
         var changed = Interlocked.Exchange(ref _dataVersion, version) != version;
+        if (changed) _knownMergedIds.Clear();
         if (changed
             || await _cacheService.GetCacheAsync(VersionCacheKey).ConfigureAwait(false) is null)
             await _cacheService.SetCacheAsync(VersionCacheKey, version, TimeSpan.FromDays(365), generation)

@@ -390,7 +390,7 @@ public class RecommendationLoadMoreTests : DbTestBase
             DetailStarted.TrySetResult();
             if (blockDetails)
                 await WaitForReleaseAsync(ct);
-            return null;
+            return Anime(id);
         }
 
         private async Task WaitForReleaseAsync(CancellationToken cancellationToken)

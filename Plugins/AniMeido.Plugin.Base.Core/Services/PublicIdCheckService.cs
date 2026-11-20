@@ -223,6 +223,7 @@ public sealed class PublicIdCheckService : IAsyncDisposable
 
                 foreach (var work in works)
                 {
+                    if (work.Status == "merged") _metadata.RememberMergedIdentity(work.Id, work.MergedInto!.Value);
                     // 正常作品的 status 是放送状态，只有这三个值表示资料问题。
                     if (work.Status is not ("merged" or "deactivated" or "not_found"))
                     {

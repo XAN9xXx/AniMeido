@@ -662,6 +662,7 @@ public sealed class DesktopTodayRecommendationPageTests
         internal SqliteConnectionFactory Factory { get; }
         internal Navigator Navigation { get; } = new();
         internal RecommendationService? Recommendations { get; private set; }
+        internal CacheService? RecommendationCache { get; private set; }
         internal ScreenshotShortcutAction? ScreenshotShortcut { get; private set; }
         private Fixture() => Factory = new(this);
         public string DatabasePath => Path.Combine(_directory, "personal.db");
@@ -695,9 +696,10 @@ public sealed class DesktopTodayRecommendationPageTests
         internal RecommendationPage Recommendation(Source source, RecommendationBrowseState state, ILogger<RecommendationPage>? logger = null)
         {
             var candidates = new RecommendationCandidateProvider(source, NullLogger<RecommendationCandidateProvider>.Instance);
+            RecommendationCache = new CacheService(Factory);
             var service = new RecommendationService(Factory, new TrackingService(Factory), new SavedTagService(Factory),
                 new ArchiveService(Factory), new BrowseHistoryService(Factory), new ActionCenterService(Factory),
-                new CacheService(Factory), candidates);
+                RecommendationCache, candidates);
             _services.Add(service);
             Recommendations = service;
             _services.Add(candidates);
