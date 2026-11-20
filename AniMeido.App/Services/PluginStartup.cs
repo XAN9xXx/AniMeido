@@ -25,6 +25,6 @@ internal static class PluginStartup
         var navItems = new List<PluginNavigationItem>();
         await plugin.InitializeAsync(services);
         navItems.AddRange(plugin.GetNavigationItems());
-        return (navItems, [plugin]);
+        return (navItems, new IPlugin[] { plugin });
     }
 }

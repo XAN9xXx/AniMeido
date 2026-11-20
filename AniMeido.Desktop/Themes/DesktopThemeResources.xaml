@@ -1,0 +1,899 @@
+﻿<ResourceDictionary
+    x:Class="AniMeido.App.Themes.DesktopThemeResources"
+    xmlns:controls="using:AniMeido.App.Controls"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:services="using:AniMeido.App.Services">
+    <Thickness x:Key="DesktopControlPadding">12,6</Thickness>
+    <x:Double x:Key="DesktopControlMinHeight">32</x:Double>
+    <x:Double x:Key="DesktopControlMinWidth">0</x:Double>
+    <Thickness x:Key="DesktopFocusThickness">2</Thickness>
+    <x:Double x:Key="DesktopDisabledOpacity">0.4</x:Double>
+    <Thickness x:Key="DesktopSubtleButtonBorderThickness">0</Thickness>
+    <SolidColorBrush x:Key="DesktopSubtleButtonBackgroundBrush" Color="#00F9F9F9"/>
+    <SolidColorBrush x:Key="DesktopPlaceholderBrush" Color="#EAEAEA"/>
+    <SolidColorBrush x:Key="DesktopFailedOverlayBrush" Color="#E6FFFFFF"/>
+    <SolidColorBrush x:Key="DesktopFollowingBrush" Color="#F6B925"/>
+    <x:Boolean x:Key="DesktopMotionEnabled">True</x:Boolean>
+    <SolidColorBrush x:Key="DesktopPageBrush" Color="#F9F9F9"/>
+    <SolidColorBrush x:Key="DesktopNavigationBrush" Color="#F3F3F3"/>
+    <SolidColorBrush x:Key="DesktopSurfaceBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="DesktopCardBrush" Color="#F5F5F5"/>
+    <SolidColorBrush x:Key="DesktopCardHoverBrush" Color="#EEEEEE"/>
+    <SolidColorBrush x:Key="DesktopCardPressedBrush" Color="#E8E8E8"/>
+    <SolidColorBrush x:Key="DesktopSelectionHoverBrush" Color="#DEDEDE"/>
+    <SolidColorBrush x:Key="DesktopSelectionPressedBrush" Color="#D8D8D8"/>
+    <SolidColorBrush x:Key="DesktopListSelectedBrush" Color="#E5E5E5"/>
+    <SolidColorBrush x:Key="DesktopListSelectedTextBrush" Color="#1A1A1A"/>
+    <SolidColorBrush x:Key="DesktopListIndicatorBrush" Color="#005FB8"/>
+    <SolidColorBrush x:Key="DesktopFieldBrush" Color="#F9F9F9"/>
+    <SolidColorBrush x:Key="DesktopFieldHoverBrush" Color="#F5F5F5"/>
+    <SolidColorBrush x:Key="DesktopFieldFocusBackgroundBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="DesktopOverlayBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="DesktopLineBrush" Color="#E5E5E5"/>
+    <SolidColorBrush x:Key="DesktopTextBrush" Color="#1A1A1A"/>
+    <SolidColorBrush x:Key="DesktopMutedBrush" Color="#5D5D5D"/>
+    <SolidColorBrush x:Key="DesktopDialogBodyBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="DesktopDialogFooterBrush" Color="#F9F9F9"/>
+    <SolidColorBrush x:Key="DesktopDialogEdgeBrush" Color="#E5E5E5"/>
+    <CornerRadius x:Key="DesktopClassicDialogRadius">0</CornerRadius>
+    <CornerRadius x:Key="DesktopModernDialogRadius">8</CornerRadius>
+    <CornerRadius x:Key="DesktopPaperDialogRadius">6</CornerRadius>
+    <CornerRadius x:Key="DesktopDialogRadius">8</CornerRadius>
+    <Thickness x:Key="DesktopClassicDialogBorderThickness">2</Thickness>
+    <Thickness x:Key="DesktopStandardDialogBorderThickness">1</Thickness>
+    <Thickness x:Key="DesktopDialogBorderThickness">1</Thickness>
+    <Thickness x:Key="DesktopDialogSeparatorThickness">0,0,0,1</Thickness>
+    <SolidColorBrush x:Key="DesktopAccentBrush" Color="#005FB8"/>
+    <SolidColorBrush x:Key="DesktopOnAccentBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="DesktopSelectedBrush" Color="#E5E5E5"/>
+    <SolidColorBrush x:Key="DesktopNavigationSelectedPointerOverBrush" Color="#DEDEDE"/>
+    <SolidColorBrush x:Key="DesktopNavigationSelectedPressedBrush" Color="#D8D8D8"/>
+    <SolidColorBrush x:Key="DesktopSectionSelectedBrush" Color="#E7F0FB"/>
+    <SolidColorBrush x:Key="DesktopBroadcastBrush" Color="#EAF2F9"/>
+    <SolidColorBrush x:Key="DesktopCalendarSelectedBrush" Color="#005FB8" Opacity="0.14"/>
+    <SolidColorBrush x:Key="DesktopCalendarSelectedEdgeBrush" Color="#005FB8"/>
+    <SolidColorBrush x:Key="DesktopButtonBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="DesktopButtonHoverBrush" Color="#F9F9F9"/>
+    <SolidColorBrush x:Key="DesktopButtonPressedBrush" Color="#F0F0F0"/>
+    <LinearGradientBrush x:Key="DesktopButtonEdgeBrush" MappingMode="Absolute" StartPoint="0,0" EndPoint="0,2">
+        <LinearGradientBrush.RelativeTransform><ScaleTransform ScaleY="-1" CenterY="0.5"/></LinearGradientBrush.RelativeTransform>
+        <GradientStop Offset="0.5" Color="#CCCCCC"/><GradientStop Offset="1" Color="#E5E5E5"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="DesktopButtonHoverEdgeBrush" MappingMode="Absolute" StartPoint="0,0" EndPoint="0,2">
+        <LinearGradientBrush.RelativeTransform><ScaleTransform ScaleY="-1" CenterY="0.5"/></LinearGradientBrush.RelativeTransform>
+        <GradientStop Offset="0.5" Color="#CCCCCC"/><GradientStop Offset="1" Color="#DCDCDC"/>
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="DesktopButtonPressedEdgeBrush" Color="#E5E5E5"/>
+    <SolidColorBrush x:Key="DesktopPrimaryButtonBrush" Color="#005FB8"/>
+    <SolidColorBrush x:Key="DesktopPrimaryButtonHoverBrush" Color="#196EBF"/>
+    <SolidColorBrush x:Key="DesktopPrimaryButtonPressedBrush" Color="#317CC4"/>
+    <SolidColorBrush x:Key="DesktopPrimaryButtonDisabledBrush" Color="#005FB8" Opacity="0.35"/>
+    <LinearGradientBrush x:Key="DesktopPrimaryButtonEdgeBrush" MappingMode="Absolute" StartPoint="0,0" EndPoint="0,2">
+        <LinearGradientBrush.RelativeTransform><ScaleTransform ScaleY="-1" CenterY="0.5"/></LinearGradientBrush.RelativeTransform>
+        <GradientStop Offset="0.5" Color="#003E75"/><GradientStop Offset="1" Color="#00539F"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="DesktopPrimaryButtonHoverEdgeBrush" MappingMode="Absolute" StartPoint="0,0" EndPoint="0,2">
+        <LinearGradientBrush.RelativeTransform><ScaleTransform ScaleY="-1" CenterY="0.5"/></LinearGradientBrush.RelativeTransform>
+        <GradientStop Offset="0.5" Color="#003E75"/><GradientStop Offset="1" Color="#00539F"/>
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="DesktopPrimaryButtonPressedEdgeBrush" Color="#00539F"/>
+    <SolidColorBrush x:Key="DesktopCheckedButtonBrush" Color="#005FB8"/>
+    <SolidColorBrush x:Key="DesktopCheckedButtonHoverBrush" Color="#196EBF"/>
+    <SolidColorBrush x:Key="DesktopCheckedButtonPressedBrush" Color="#317CC4"/>
+    <SolidColorBrush x:Key="DesktopCheckedButtonDisabledBrush" Color="#005FB8" Opacity="0.35"/>
+    <SolidColorBrush x:Key="DesktopCheckedButtonTextBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="DesktopCheckedButtonEdgeBrush" Color="#005FB8"/>
+    <SolidColorBrush x:Key="DesktopTransparentBrush" Color="Transparent"/>
+    <SolidColorBrush x:Key="DesktopChoiceSelectedBrush" Color="#E5E5E5"/>
+    <SolidColorBrush x:Key="DesktopChoiceSelectedTextBrush" Color="#1A1A1A"/>
+    <SolidColorBrush x:Key="DesktopChoiceIndicatorBrush" Color="#005FB8"/>
+    <SolidColorBrush x:Key="DesktopFieldFocusBrush" Color="#1A1A1A"/>
+    <SolidColorBrush x:Key="DesktopClassicFieldEdgeBrush" Color="#8A8A8A"/>
+    <SolidColorBrush x:Key="DesktopClassicFieldHoverBrush" Color="#555555"/>
+    <SolidColorBrush x:Key="DesktopTextFieldEdgeBrush" Color="#E5E5E5"/>
+    <SolidColorBrush x:Key="DesktopTextFieldHoverEdgeBrush" Color="#5D5D5D"/>
+    <SolidColorBrush x:Key="DesktopTextFieldFocusBrush" Color="#005FB8"/>
+    <Thickness x:Key="DesktopTextFieldFocusThickness">1,1,1,2</Thickness>
+    <SolidColorBrush x:Key="DesktopFocusVisualBrush" Color="#1A1A1A"/>
+    <Thickness x:Key="DesktopClassicFocusMargin">-4</Thickness>
+    <Thickness x:Key="DesktopModernFocusMargin">2</Thickness>
+    <Thickness x:Key="DesktopPaperFocusMargin">3</Thickness>
+    <Thickness x:Key="DesktopFocusMargin">2</Thickness>
+    <x:Boolean x:Key="DesktopUseSegmentedChoices">False</x:Boolean>
+    <Thickness x:Key="DesktopButtonBorderThickness">1</Thickness>
+    <Thickness x:Key="DesktopFieldBorderThickness">1</Thickness>
+    <SolidColorBrush x:Key="DesktopSettingsSelectedBrush" Color="#E5E5E5" Opacity="0"/>
+    <SolidColorBrush x:Key="DesktopSettingsIndicatorBrush" Color="#005FB8"/>
+    <SolidColorBrush x:Key="DesktopSettingRowBrush" Color="#FFFFFF"/>
+    <Thickness x:Key="DesktopSettingRowBorderThickness">1</Thickness>
+    <Thickness x:Key="DesktopSettingRowPadding">20,16</Thickness>
+    <Thickness x:Key="DesktopSettingRowMargin">0,0,0,8</Thickness>
+    <FontFamily x:Key="DesktopSymbolFontFamily">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+    <SolidColorBrush x:Key="DesktopSegmentTrackBrush" Color="#ECECEC"/>
+    <SolidColorBrush x:Key="DesktopSegmentHoverBrush" Color="#E2E2E2"/>
+    <SolidColorBrush x:Key="DesktopSegmentPressedBrush" Color="#D9D9D9"/>
+    <SolidColorBrush x:Key="DesktopSegmentSelectedBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="DesktopSegmentSelectedEdgeBrush" Color="#DEDEDE"/>
+    <SolidColorBrush x:Key="DesktopSegmentSelectedTextBrush" Color="#1A1A1A"/>
+    <SolidColorBrush x:Key="DesktopSegmentFocusBrush" Color="#1A1A1A"/>
+    <CornerRadius x:Key="DesktopControlRadius">4</CornerRadius>
+    <CornerRadius x:Key="DesktopCoverRadius">6</CornerRadius>
+    <CornerRadius x:Key="DesktopSegmentTrackRadius">7</CornerRadius>
+    <CornerRadius x:Key="DesktopSegmentItemRadius">4</CornerRadius>
+    <CornerRadius x:Key="DesktopSectionRadius">6</CornerRadius>
+    <CornerRadius x:Key="DesktopNavigationRadius">5</CornerRadius>
+    <FontFamily x:Key="DesktopUiFontFamily">Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI</FontFamily>
+    <FontFamily x:Key="DesktopReadingFontFamily">Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI</FontFamily>
+    <x:Double x:Key="DesktopBodySize">15</x:Double>
+    <x:Double x:Key="DesktopBodyLineHeight">25.8</x:Double>
+    <x:Double x:Key="DesktopControlTextSize">14</x:Double>
+    <x:Double x:Key="DesktopDataTextSize">13</x:Double>
+    <x:Double x:Key="DesktopTitleSize">28</x:Double>
+    <x:Double x:Key="DesktopSectionSize">15</x:Double>
+    <FontWeight x:Key="DesktopTitleWeight">SemiBold</FontWeight>
+    <FontWeight x:Key="DesktopSectionWeight">SemiBold</FontWeight>
+    <FontWeight x:Key="DesktopEmphasisWeight">SemiBold</FontWeight>
+    <Thickness x:Key="DesktopCardBorderThickness">1</Thickness>
+    <Style x:Key="DesktopUnderlinedSectionTabStyle" TargetType="ToggleButton" BasedOn="{StaticResource DesktopToggleButtonStyle}">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="UnderlinedSection"/>
+        <Setter Property="Background" Value="{ThemeResource DesktopSubtleButtonBackgroundBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+    <Style x:Key="DesktopFilledSectionTabStyle" TargetType="ToggleButton" BasedOn="{StaticResource DesktopToggleButtonStyle}">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="FilledSection"/>
+        <Setter Property="Background" Value="{ThemeResource DesktopSubtleButtonBackgroundBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+    <Style x:Key="AniMeidoPageTitleStyle" TargetType="TextBlock">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Title"/>
+        <Setter Property="FontFamily" Value="{ThemeResource DesktopUiFontFamily}"/>
+        <Setter Property="FontSize" Value="{ThemeResource DesktopTitleSize}"/>
+        <Setter Property="FontWeight" Value="{ThemeResource DesktopTitleWeight}"/>
+        <Setter Property="Foreground" Value="{ThemeResource DesktopTextBrush}"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+    <Style x:Key="AniMeidoSectionTitleStyle" TargetType="TextBlock">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Section"/>
+        <Setter Property="FontFamily" Value="{ThemeResource DesktopUiFontFamily}"/>
+        <Setter Property="FontSize" Value="{ThemeResource DesktopSectionSize}"/>
+        <Setter Property="FontWeight" Value="{ThemeResource DesktopSectionWeight}"/>
+        <Setter Property="Foreground" Value="{ThemeResource DesktopTextBrush}"/>
+    </Style>
+    <Style x:Key="AniMeidoCardStyle" TargetType="Border">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="SectionSurface"/>
+        <Setter Property="Background" Value="{ThemeResource DesktopSurfaceBrush}"/>
+        <Setter Property="BorderBrush" Value="{ThemeResource DesktopLineBrush}"/>
+        <Setter Property="BorderThickness" Value="{ThemeResource DesktopCardBorderThickness}"/>
+        <Setter Property="CornerRadius" Value="{ThemeResource DesktopSectionRadius}"/>
+        <Setter Property="Padding" Value="16"/>
+    </Style>
+    <Style x:Key="AniMeidoToolbarStyle" TargetType="Border" BasedOn="{StaticResource AniMeidoCardStyle}">
+        <Setter Property="Padding" Value="12"/>
+    </Style>
+    <Style x:Key="AniMeidoContentCardStyle" TargetType="Border" BasedOn="{StaticResource AniMeidoCardStyle}">
+        <Setter Property="Background" Value="{ThemeResource DesktopCardBrush}"/>
+    </Style>
+    <SolidColorBrush x:Key="DesktopSwitchOffBrush" Color="#D0D0D0"/>
+    <SolidColorBrush x:Key="DesktopSwitchOffHoverBrush" Color="#AAAAAA"/>
+    <SolidColorBrush x:Key="DesktopSwitchOnBrush" Color="#237CE6"/>
+    <SolidColorBrush x:Key="DesktopSwitchOnHoverBrush" Color="#206DCC"/>
+    <ControlTemplate x:Key="DesktopSwitchTemplate" TargetType="ToggleSwitch">
+                    <Grid x:Name="DesktopSwitchRoot" RowDefinitions="Auto,Auto">
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal"/>
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="OuterBorder.Fill" Value="{ThemeResource DesktopSwitchOffHoverBrush}"/>
+                                        <Setter Target="SwitchKnobBounds.Fill" Value="{ThemeResource DesktopSwitchOnHoverBrush}"/>
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters><Setter Target="SwitchAreaGrid.Opacity" Value="0.8"/></VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <VisualState.Setters><Setter Target="DesktopSwitchRoot.Opacity" Value="0.4"/></VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                            <VisualStateGroup x:Name="ToggleStates">
+                                <VisualStateGroup.Transitions>
+                                    <VisualTransition To="On">
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="KnobTranslateTransform" Storyboard.TargetProperty="X" To="20" Duration="0:0:0.15" EnableDependentAnimation="True"/>
+                                            <DoubleAnimation Storyboard.TargetName="SwitchKnobBounds" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.15"/>
+                                        </Storyboard>
+                                    </VisualTransition>
+                                    <VisualTransition To="Off">
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="KnobTranslateTransform" Storyboard.TargetProperty="X" To="0" Duration="0:0:0.15" EnableDependentAnimation="True"/>
+                                            <DoubleAnimation Storyboard.TargetName="SwitchKnobBounds" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.15"/>
+                                        </Storyboard>
+                                    </VisualTransition>
+                                </VisualStateGroup.Transitions>
+                                <VisualState x:Name="Off"/>
+                                <VisualState x:Name="Dragging"/>
+                                <VisualState x:Name="On">
+                                    <VisualState.Setters>
+                                        <Setter Target="KnobTranslateTransform.X" Value="20"/>
+                                        <Setter Target="SwitchKnobBounds.Opacity" Value="1"/>
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                        <ContentPresenter x:Name="HeaderContentPresenter" Content="{TemplateBinding Header}" ContentTemplate="{TemplateBinding HeaderTemplate}" Foreground="{TemplateBinding Foreground}" Margin="0,0,0,6"/>
+                    <Grid x:Name="SwitchAreaGrid" Grid.Row="1" Width="44" Height="24" HorizontalAlignment="Left"
+                          Background="Transparent" Control.IsTemplateFocusTarget="True">
+
+                        <Rectangle x:Name="OuterBorder" Width="44" Height="24" RadiusX="12" RadiusY="12"
+                                   Fill="{ThemeResource DesktopSwitchOffBrush}"/>
+                        <Rectangle x:Name="SwitchKnobBounds" Width="44" Height="24" RadiusX="12" RadiusY="12"
+                                   Fill="{ThemeResource DesktopSwitchOnBrush}" Opacity="0"/>
+                        <Grid x:Name="SwitchKnob" Width="24" Height="24" HorizontalAlignment="Left">
+                            <Grid.RenderTransform><TranslateTransform x:Name="KnobTranslateTransform"/></Grid.RenderTransform>
+                            <Ellipse Width="20" Height="20" Fill="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Grid>
+                        <Thumb x:Name="SwitchThumb" AutomationProperties.AccessibilityView="Raw">
+                            <Thumb.Template>
+                                <ControlTemplate TargetType="Thumb"><Rectangle Fill="Transparent"/></ControlTemplate>
+                            </Thumb.Template>
+                        </Thumb>
+                    </Grid>
+                    </Grid>
+                </ControlTemplate>
+    <Style x:Key="DesktopToggleSwitchStyle" TargetType="ToggleSwitch">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Control"/>
+        <Setter Property="MinWidth" Value="44"/><Setter Property="MinHeight" Value="32"/>
+        <Setter Property="OnContent" Value=""/><Setter Property="OffContent" Value=""/>
+        <Setter Property="Foreground" Value="{ThemeResource DesktopTextBrush}"/>
+        <Setter Property="Template" Value="{StaticResource DesktopSwitchTemplate}"/>
+        <Setter Property="UseSystemFocusVisuals" Value="True"/>
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource DesktopFocusVisualBrush}"/>
+        <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource DesktopPageBrush}"/>
+        <Setter Property="FocusVisualPrimaryThickness" Value="2"/><Setter Property="FocusVisualMargin" Value="3"/>
+    </Style>
+    <Style TargetType="ToggleSwitch" BasedOn="{StaticResource DesktopToggleSwitchStyle}"/>
+    <Style x:Key="DesktopPaperToggleSwitchStyle" TargetType="ToggleSwitch" BasedOn="{StaticResource DesktopToggleSwitchStyle}"/>
+    <Style x:Key="AccentButtonStyle" TargetType="Button" BasedOn="{StaticResource DesktopAccentButtonStyle}"/>
+    <Style TargetType="Button" BasedOn="{StaticResource DesktopButtonStyle}">
+        <Setter Property="CornerRadius" Value="{ThemeResource DesktopControlRadius}"/>
+        <Setter Property="BorderThickness" Value="{ThemeResource DesktopButtonBorderThickness}"/>
+    </Style>
+    <Style TargetType="ToggleButton" BasedOn="{StaticResource DesktopToggleButtonStyle}"/>
+    <Style TargetType="ListView" BasedOn="{StaticResource DefaultListViewStyle}">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Control"/>
+    </Style>
+    <Style TargetType="GridView" BasedOn="{StaticResource DefaultGridViewStyle}">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Control"/>
+    </Style>
+    <ControlTemplate x:Key="DesktopExpanderHeaderTemplate" TargetType="ToggleButton">
+        <Border x:Name="ExpanderHeaderSurface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Control.IsTemplateFocusTarget="True">
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal"/>
+                    <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="ExpanderHeaderSurface.Background" Value="{ThemeResource DesktopFieldHoverBrush}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="ExpanderHeaderSurface.Background" Value="{ThemeResource DesktopButtonPressedBrush}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Checked"><VisualState.Setters><Setter Target="ExpanderChevron.Angle" Value="180"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="CheckedPointerOver"><VisualState.Setters><Setter Target="ExpanderChevron.Angle" Value="180"/><Setter Target="ExpanderHeaderSurface.Background" Value="{ThemeResource DesktopFieldHoverBrush}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="CheckedPressed"><VisualState.Setters><Setter Target="ExpanderChevron.Angle" Value="180"/><Setter Target="ExpanderHeaderSurface.Background" Value="{ThemeResource DesktopButtonPressedBrush}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Disabled"><VisualState.Setters><Setter Target="ExpanderHeaderSurface.Opacity" Value="0.4"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="CheckedDisabled"><VisualState.Setters><Setter Target="ExpanderChevron.Angle" Value="180"/><Setter Target="ExpanderHeaderSurface.Opacity" Value="0.4"/></VisualState.Setters></VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16" Padding="{TemplateBinding Padding}">
+                <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Foreground="{TemplateBinding Foreground}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center"/>
+                <FontIcon Grid.Column="1" Glyph="&#xE70D;" FontFamily="Segoe MDL2 Assets" FontSize="12" Foreground="{TemplateBinding Foreground}" RenderTransformOrigin="0.5,0.5"><FontIcon.RenderTransform><RotateTransform x:Name="ExpanderChevron"/></FontIcon.RenderTransform></FontIcon>
+            </Grid>
+        </Border>
+    </ControlTemplate>
+    <ControlTemplate x:Key="DesktopExpanderTemplate" TargetType="Expander">
+        <Grid x:Name="DesktopExpanderRoot" RowDefinitions="Auto,Auto">
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="ExpandDirectionStates">
+                    <VisualState x:Name="Down"/>
+                    <VisualState x:Name="Up"><VisualState.Setters><Setter Target="ExpanderHeader.(Grid.Row)" Value="1"/><Setter Target="ExpanderContentClip.(Grid.Row)" Value="0"/></VisualState.Setters></VisualState>
+                </VisualStateGroup>
+                <VisualStateGroup x:Name="ExpansionStates">
+                    <VisualState x:Name="CollapseDown"/><VisualState x:Name="CollapseUp"/>
+                    <VisualState x:Name="ExpandDown"><VisualState.Setters><Setter Target="ExpanderContentClip.Visibility" Value="Visible"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="ExpandUp"><VisualState.Setters><Setter Target="ExpanderContentClip.Visibility" Value="Visible"/></VisualState.Setters></VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ToggleButton x:Name="ExpanderHeader" IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}" Content="{TemplateBinding Header}" ContentTemplate="{TemplateBinding HeaderTemplate}" Template="{StaticResource DesktopExpanderHeaderTemplate}" Background="{ThemeResource DesktopFieldBrush}" BorderBrush="{ThemeResource DesktopLineBrush}" BorderThickness="{ThemeResource DesktopFieldBorderThickness}" Padding="16,12" HorizontalContentAlignment="Stretch" HorizontalAlignment="Stretch"/>
+            <Border x:Name="ExpanderContentClip" Grid.Row="1" Visibility="Collapsed">
+                <Border x:Name="ExpanderContent" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
+                    <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}" Foreground="{TemplateBinding Foreground}" HorizontalContentAlignment="Stretch"/>
+                </Border>
+            </Border>
+        </Grid>
+    </ControlTemplate>
+    <Style TargetType="Expander">
+        <Setter Property="Template" Value="{StaticResource DesktopExpanderTemplate}"/>
+        <Setter Property="Background" Value="{ThemeResource DesktopSurfaceBrush}"/><Setter Property="Foreground" Value="{ThemeResource DesktopTextBrush}"/>
+        <Setter Property="BorderBrush" Value="{ThemeResource DesktopLineBrush}"/><Setter Property="BorderThickness" Value="0,0,0,1"/>
+        <Setter Property="Padding" Value="16"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Control"/>
+    </Style>
+    <ControlTemplate x:Key="DesktopComboBoxTemplate" TargetType="ComboBox">
+        <Grid x:Name="DesktopComboRoot" RowDefinitions="Auto,*,Auto">
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal"/>
+                    <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="ComboSurface.Background" Value="{ThemeResource DesktopFieldHoverBrush}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="ComboSurface.Background" Value="{ThemeResource DesktopButtonPressedBrush}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Highlighted"/>
+                    <VisualState x:Name="Disabled"><VisualState.Setters><Setter Target="DesktopComboRoot.Opacity" Value="0.4"/></VisualState.Setters></VisualState>
+                </VisualStateGroup>
+                <VisualStateGroup x:Name="FocusStates">
+                    <VisualState x:Name="Unfocused"/>
+                    <VisualState x:Name="Focused"><VisualState.Setters><Setter Target="ComboSurface.BorderBrush" Value="{ThemeResource DesktopFieldFocusBrush}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="FocusedPressed"><VisualState.Setters><Setter Target="ComboSurface.BorderBrush" Value="{ThemeResource DesktopFieldFocusBrush}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="FocusedDropDown"><VisualState.Setters><Setter Target="ComboSurface.BorderBrush" Value="{ThemeResource DesktopFieldFocusBrush}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="PointerFocused"/>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ContentPresenter x:Name="HeaderContentPresenter" Content="{TemplateBinding Header}" ContentTemplate="{TemplateBinding HeaderTemplate}" Foreground="{TemplateBinding Foreground}" Margin="0,0,0,6" Visibility="Collapsed"/>
+            <Border x:Name="ComboSurface" Grid.Row="1" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Control.IsTemplateFocusTarget="True">
+                <Grid ColumnDefinitions="*,32">
+                    <ContentPresenter x:Name="ContentPresenter" Padding="{TemplateBinding Padding}" Foreground="{TemplateBinding Foreground}" FontFamily="{TemplateBinding FontFamily}" FontSize="{TemplateBinding FontSize}" VerticalContentAlignment="Center" HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}">
+                        <TextBlock x:Name="PlaceholderTextBlock" Text="{TemplateBinding PlaceholderText}" Foreground="{ThemeResource DesktopMutedBrush}"/>
+                    </ContentPresenter>
+                    <TextBox x:Name="EditableText" Visibility="Collapsed" BorderThickness="0"/>
+                    <FontIcon Grid.Column="1" Glyph="&#xE70D;" FontFamily="Segoe MDL2 Assets" FontSize="12" Foreground="{TemplateBinding Foreground}" IsHitTestVisible="False"/>
+                </Grid>
+            </Border>
+            <ContentPresenter x:Name="DescriptionPresenter" Grid.Row="2" Content="{TemplateBinding Description}" Foreground="{ThemeResource DesktopMutedBrush}" Margin="0,4,0,0"/>
+            <Popup x:Name="Popup" IsLightDismissEnabled="True">
+                <Border x:Name="PopupBorder" Background="{ThemeResource DesktopOverlayBrush}" BorderBrush="{ThemeResource DesktopLineBrush}" BorderThickness="1" CornerRadius="{ThemeResource DesktopControlRadius}" Padding="4" MaxHeight="360">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" IsTabStop="False"><ItemsPresenter/></ScrollViewer>
+                </Border>
+            </Popup>
+        </Grid>
+    </ControlTemplate>
+    <Style TargetType="ComboBox">
+        <Setter Property="Background" Value="{ThemeResource DesktopFieldBrush}"/>
+        <Setter Property="Foreground" Value="{ThemeResource DesktopTextBrush}"/>
+        <Setter Property="BorderBrush" Value="{ThemeResource DesktopLineBrush}"/>
+        <Setter Property="MinHeight" Value="32"/><Setter Property="MinWidth" Value="80"/>
+        <Setter Property="Padding" Value="12,6"/><Setter Property="HorizontalContentAlignment" Value="Left"/>
+        <Setter Property="UseSystemFocusVisuals" Value="True"/>
+        <Setter Property="Template" Value="{StaticResource DesktopComboBoxTemplate}"/>
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Control"/>
+        <Setter Property="CornerRadius" Value="{ThemeResource DesktopControlRadius}"/>
+        <Setter Property="BorderThickness" Value="{ThemeResource DesktopFieldBorderThickness}"/>
+    </Style>
+    <ControlTemplate x:Key="DesktopComboBoxItemTemplate" TargetType="ComboBoxItem">
+        <Border x:Name="DesktopComboItemSurface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Control.IsTemplateFocusTarget="True">
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal"/>
+                    <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="DesktopComboItemSurface.Background" Value="{ThemeResource DesktopCardHoverBrush}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="DesktopComboItemSurface.Background" Value="{ThemeResource DesktopCardPressedBrush}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Selected"><VisualState.Setters><Setter Target="DesktopComboItemSurface.Background" Value="{ThemeResource DesktopListSelectedBrush}"/><Setter Target="DesktopComboItemContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopComboItemIndicator.Opacity" Value="1"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="SelectedUnfocused"><VisualState.Setters><Setter Target="DesktopComboItemSurface.Background" Value="{ThemeResource DesktopListSelectedBrush}"/><Setter Target="DesktopComboItemContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopComboItemIndicator.Opacity" Value="1"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="SelectedPointerOver"><VisualState.Setters><Setter Target="DesktopComboItemSurface.Background" Value="{ThemeResource DesktopSelectionHoverBrush}"/><Setter Target="DesktopComboItemContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopComboItemIndicator.Opacity" Value="1"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="SelectedPressed"><VisualState.Setters><Setter Target="DesktopComboItemSurface.Background" Value="{ThemeResource DesktopSelectionPressedBrush}"/><Setter Target="DesktopComboItemContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopComboItemIndicator.Opacity" Value="1"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="SelectedDisabled"><VisualState.Setters><Setter Target="DesktopComboItemSurface.Background" Value="{ThemeResource DesktopListSelectedBrush}"/><Setter Target="DesktopComboItemContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopComboItemIndicator.Opacity" Value="1"/><Setter Target="DesktopComboItemSurface.Opacity" Value="0.4"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="PointerOverSelected"><VisualState.Setters><Setter Target="DesktopComboItemSurface.Background" Value="{ThemeResource DesktopSelectionHoverBrush}"/><Setter Target="DesktopComboItemContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopComboItemIndicator.Opacity" Value="1"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="PressedSelected"><VisualState.Setters><Setter Target="DesktopComboItemSurface.Background" Value="{ThemeResource DesktopSelectionPressedBrush}"/><Setter Target="DesktopComboItemContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopComboItemIndicator.Opacity" Value="1"/></VisualState.Setters></VisualState>
+                </VisualStateGroup>
+                <VisualStateGroup x:Name="EnabledStates">
+                    <VisualState x:Name="Enabled"/>
+
+                    <VisualState x:Name="Disabled"><VisualState.Setters><Setter Target="DesktopComboItemSurface.Opacity" Value="0.4"/></VisualState.Setters></VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <Grid>
+                <Border x:Name="DesktopComboItemIndicator" Width="3" Height="16" Margin="2,0,0,0" Background="{ThemeResource DesktopListIndicatorBrush}" CornerRadius="2" HorizontalAlignment="Left" Opacity="0" IsHitTestVisible="False"/>
+                <ContentPresenter x:Name="DesktopComboItemContent" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}" ContentTransitions="{TemplateBinding ContentTransitions}" Foreground="{TemplateBinding Foreground}" Padding="{TemplateBinding Padding}" HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" FontFamily="{TemplateBinding FontFamily}" FontSize="{TemplateBinding FontSize}"/>
+            </Grid>
+        </Border>
+    </ControlTemplate>
+    <ControlTemplate x:Key="DesktopListViewItemTemplate" TargetType="ListViewItem">
+        <Border x:Name="DesktopListSurface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Control.IsTemplateFocusTarget="True">
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal"/>
+                    <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="DesktopListSurface.Background" Value="{ThemeResource DesktopCardHoverBrush}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="DesktopListSurface.Background" Value="{ThemeResource DesktopCardPressedBrush}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Selected"><VisualState.Setters><Setter Target="DesktopListSurface.Background" Value="{ThemeResource DesktopListSelectedBrush}"/><Setter Target="DesktopListContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopListIndicator.Opacity" Value="1"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="SelectedUnfocused"><VisualState.Setters><Setter Target="DesktopListSurface.Background" Value="{ThemeResource DesktopListSelectedBrush}"/><Setter Target="DesktopListContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopListIndicator.Opacity" Value="1"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="SelectedPointerOver"><VisualState.Setters><Setter Target="DesktopListSurface.Background" Value="{ThemeResource DesktopSelectionHoverBrush}"/><Setter Target="DesktopListContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopListIndicator.Opacity" Value="1"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="SelectedPressed"><VisualState.Setters><Setter Target="DesktopListSurface.Background" Value="{ThemeResource DesktopSelectionPressedBrush}"/><Setter Target="DesktopListContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopListIndicator.Opacity" Value="1"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="SelectedDisabled"><VisualState.Setters><Setter Target="DesktopListSurface.Background" Value="{ThemeResource DesktopListSelectedBrush}"/><Setter Target="DesktopListContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopListIndicator.Opacity" Value="1"/><Setter Target="DesktopListSurface.Opacity" Value="0.4"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="PointerOverSelected"><VisualState.Setters><Setter Target="DesktopListSurface.Background" Value="{ThemeResource DesktopSelectionHoverBrush}"/><Setter Target="DesktopListContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopListIndicator.Opacity" Value="1"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="PressedSelected"><VisualState.Setters><Setter Target="DesktopListSurface.Background" Value="{ThemeResource DesktopSelectionPressedBrush}"/><Setter Target="DesktopListContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopListIndicator.Opacity" Value="1"/></VisualState.Setters></VisualState>
+                </VisualStateGroup>
+                <VisualStateGroup x:Name="EnabledStates">
+                    <VisualState x:Name="Enabled"/>
+
+                    <VisualState x:Name="Disabled"><VisualState.Setters><Setter Target="DesktopListSurface.Opacity" Value="0.4"/></VisualState.Setters></VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <Grid>
+                <Border x:Name="DesktopListIndicator" Width="3" Height="16" Margin="2,0,0,0" Background="{ThemeResource DesktopListIndicatorBrush}" CornerRadius="2" HorizontalAlignment="Left" Opacity="0" IsHitTestVisible="False"/>
+                <ContentPresenter x:Name="DesktopListContent" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}" ContentTransitions="{TemplateBinding ContentTransitions}" Foreground="{TemplateBinding Foreground}" Padding="{TemplateBinding Padding}" HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" FontFamily="{TemplateBinding FontFamily}" FontSize="{TemplateBinding FontSize}"/>
+            </Grid>
+        </Border>
+    </ControlTemplate>
+    <ControlTemplate x:Key="DesktopGridViewItemTemplate" TargetType="GridViewItem">
+        <Border x:Name="DesktopListSurface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Control.IsTemplateFocusTarget="True">
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal"/>
+                    <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="DesktopListSurface.Background" Value="{ThemeResource DesktopCardHoverBrush}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="DesktopListSurface.Background" Value="{ThemeResource DesktopCardPressedBrush}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Selected"><VisualState.Setters><Setter Target="DesktopListSurface.Background" Value="{ThemeResource DesktopListSelectedBrush}"/><Setter Target="DesktopListContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopListIndicator.Opacity" Value="1"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="SelectedUnfocused"><VisualState.Setters><Setter Target="DesktopListSurface.Background" Value="{ThemeResource DesktopListSelectedBrush}"/><Setter Target="DesktopListContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopListIndicator.Opacity" Value="1"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="SelectedPointerOver"><VisualState.Setters><Setter Target="DesktopListSurface.Background" Value="{ThemeResource DesktopSelectionHoverBrush}"/><Setter Target="DesktopListContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopListIndicator.Opacity" Value="1"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="SelectedPressed"><VisualState.Setters><Setter Target="DesktopListSurface.Background" Value="{ThemeResource DesktopSelectionPressedBrush}"/><Setter Target="DesktopListContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopListIndicator.Opacity" Value="1"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="SelectedDisabled"><VisualState.Setters><Setter Target="DesktopListSurface.Background" Value="{ThemeResource DesktopListSelectedBrush}"/><Setter Target="DesktopListContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopListIndicator.Opacity" Value="1"/><Setter Target="DesktopListSurface.Opacity" Value="0.4"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="PointerOverSelected"><VisualState.Setters><Setter Target="DesktopListSurface.Background" Value="{ThemeResource DesktopSelectionHoverBrush}"/><Setter Target="DesktopListContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopListIndicator.Opacity" Value="1"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="PressedSelected"><VisualState.Setters><Setter Target="DesktopListSurface.Background" Value="{ThemeResource DesktopSelectionPressedBrush}"/><Setter Target="DesktopListContent.Foreground" Value="{ThemeResource DesktopListSelectedTextBrush}"/><Setter Target="DesktopListIndicator.Opacity" Value="1"/></VisualState.Setters></VisualState>
+                </VisualStateGroup>
+                <VisualStateGroup x:Name="EnabledStates">
+                    <VisualState x:Name="Enabled"/>
+
+                    <VisualState x:Name="Disabled"><VisualState.Setters><Setter Target="DesktopListSurface.Opacity" Value="0.4"/></VisualState.Setters></VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <Grid>
+                <Border x:Name="DesktopListIndicator" Width="3" Height="16" Margin="2,0,0,0" Background="{ThemeResource DesktopListIndicatorBrush}" CornerRadius="2" HorizontalAlignment="Left" Opacity="0" IsHitTestVisible="False"/>
+                <ContentPresenter x:Name="DesktopListContent" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}" ContentTransitions="{TemplateBinding ContentTransitions}" Foreground="{TemplateBinding Foreground}" Padding="{TemplateBinding Padding}" HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" FontFamily="{TemplateBinding FontFamily}" FontSize="{TemplateBinding FontSize}"/>
+            </Grid>
+        </Border>
+    </ControlTemplate>
+    <Style x:Key="DesktopListViewItemStyle" TargetType="ListViewItem">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Control"/>
+        <Setter Property="Template" Value="{StaticResource DesktopListViewItemTemplate}"/>
+        <Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{ThemeResource DesktopTextBrush}"/>
+        <Setter Property="BorderBrush" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding" Value="12,8"/><Setter Property="Margin" Value="0,2"/>
+        <Setter Property="CornerRadius" Value="{ThemeResource DesktopControlRadius}"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="MinHeight" Value="32"/><Setter Property="UseSystemFocusVisuals" Value="True"/>
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource DesktopFocusVisualBrush}"/>
+        <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource DesktopPageBrush}"/>
+        <Setter Property="FocusVisualPrimaryThickness" Value="2"/>
+    </Style>
+    <Style TargetType="ListViewItem" BasedOn="{StaticResource DesktopListViewItemStyle}"/>
+    <Style x:Key="DesktopGridViewItemStyle" TargetType="GridViewItem">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Control"/>
+        <Setter Property="Template" Value="{StaticResource DesktopGridViewItemTemplate}"/>
+        <Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{ThemeResource DesktopTextBrush}"/>
+        <Setter Property="BorderBrush" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding" Value="12,8"/><Setter Property="Margin" Value="0,2"/>
+        <Setter Property="CornerRadius" Value="{ThemeResource DesktopControlRadius}"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="MinHeight" Value="32"/><Setter Property="UseSystemFocusVisuals" Value="True"/>
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource DesktopFocusVisualBrush}"/>
+        <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource DesktopPageBrush}"/>
+        <Setter Property="FocusVisualPrimaryThickness" Value="2"/>
+    </Style>
+    <Style TargetType="GridViewItem" BasedOn="{StaticResource DesktopGridViewItemStyle}"/>
+    <Style x:Key="DesktopNativeComboBoxItemStyle" TargetType="ComboBoxItem">
+        <Setter Property="Template" Value="{StaticResource DesktopComboBoxItemTemplate}"/>
+        <Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{ThemeResource DesktopTextBrush}"/>
+        <Setter Property="Padding" Value="12,8"/><Setter Property="Margin" Value="2"/><Setter Property="MinHeight" Value="32"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="UseSystemFocusVisuals" Value="True"/>
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Control"/>
+        <Setter Property="CornerRadius" Value="{ThemeResource DesktopControlRadius}"/>
+        <Setter Property="FontFamily" Value="{ThemeResource DesktopUiFontFamily}"/>
+        <Setter Property="FontSize" Value="{ThemeResource DesktopControlTextSize}"/>
+    </Style>
+    <Style TargetType="ComboBoxItem" BasedOn="{StaticResource DesktopNativeComboBoxItemStyle}"/>
+    <Style TargetType="TextBox" BasedOn="{StaticResource DefaultTextBoxStyle}">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Control"/>
+        <Setter Property="CornerRadius" Value="{ThemeResource DesktopControlRadius}"/>
+        <Setter Property="BorderThickness" Value="{ThemeResource DesktopFieldBorderThickness}"/>
+        <Setter Property="Template" Value="{ThemeResource DesktopTextBoxTemplate}"/>
+    </Style>
+    <ControlTemplate x:Key="DesktopContentDialogTemplate" TargetType="ContentDialog">
+        <Grid x:Name="LayoutRoot">
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="ButtonsVisibilityStates">
+                    <VisualState x:Name="NoneVisible"/>
+                    <VisualState x:Name="PrimaryVisible"><VisualState.Setters><Setter Target="Button1Host.Visibility" Value="Visible"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="SecondaryVisible"><VisualState.Setters><Setter Target="Button2Host.Visibility" Value="Visible"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="CloseVisible"><VisualState.Setters><Setter Target="CloseButton.Visibility" Value="Visible"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="PrimaryAndSecondaryVisible"><VisualState.Setters><Setter Target="Button1Host.Visibility" Value="Visible"/><Setter Target="Button2Host.Visibility" Value="Visible"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="PrimaryAndCloseVisible"><VisualState.Setters><Setter Target="Button1Host.Visibility" Value="Visible"/><Setter Target="CloseButton.Visibility" Value="Visible"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="SecondaryAndCloseVisible"><VisualState.Setters><Setter Target="Button2Host.Visibility" Value="Visible"/><Setter Target="CloseButton.Visibility" Value="Visible"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="AllVisible"><VisualState.Setters><Setter Target="Button1Host.Visibility" Value="Visible"/><Setter Target="Button2Host.Visibility" Value="Visible"/><Setter Target="CloseButton.Visibility" Value="Visible"/></VisualState.Setters></VisualState>
+                </VisualStateGroup>
+                <VisualStateGroup x:Name="DefaultButtonStates">
+                    <VisualState x:Name="NoDefaultButton"/>
+                    <VisualState x:Name="PrimaryAsDefaultButton"><VisualState.Setters><Setter Target="PrimaryButton.Style" Value="{StaticResource DesktopAccentButtonStyle}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="SecondaryAsDefaultButton"><VisualState.Setters><Setter Target="SecondaryButton.Style" Value="{StaticResource DesktopAccentButtonStyle}"/></VisualState.Setters></VisualState>
+                    <VisualState x:Name="CloseAsDefaultButton"><VisualState.Setters><Setter Target="CloseButton.Style" Value="{StaticResource DesktopAccentButtonStyle}"/></VisualState.Setters></VisualState>
+                </VisualStateGroup>
+                <VisualStateGroup x:Name="DialogShowingStates"><VisualState x:Name="DialogShowing"/><VisualState x:Name="DialogShowingWithoutSmokeLayer"/><VisualState x:Name="DialogHidden"/></VisualStateGroup>
+                <VisualStateGroup x:Name="DialogSizingStates"><VisualState x:Name="DefaultDialogSizing"/><VisualState x:Name="FullDialogSizing"/></VisualStateGroup>
+                <VisualStateGroup x:Name="DialogBorderStates"><VisualState x:Name="NoBorder"/></VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <Grid x:Name="DialogSpace" Margin="32">
+                <Border x:Name="Container" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Border x:Name="BackgroundElement" Background="{ThemeResource DesktopDialogBodyBrush}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" MinWidth="300" MaxWidth="{ThemeResource ContentDialogMaxWidth}">
+                        <Border.RenderTransform><ScaleTransform x:Name="ScaleTransform"/></Border.RenderTransform>
+                        <Grid x:Name="ContentPanel" RowDefinitions="Auto,*,Auto">
+                            <ContentControl x:Name="Title" Content="{TemplateBinding Title}" ContentTemplate="{TemplateBinding TitleTemplate}" IsTabStop="False" Padding="24,22,24,12" FontSize="{ThemeResource DesktopSectionSize}" Foreground="{ThemeResource DesktopTextBrush}"/>
+                            <ScrollViewer x:Name="ContentScrollViewer" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" IsTabStop="False" Padding="24,0,24,24">
+                                <ContentPresenter x:Name="Content" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}" Foreground="{ThemeResource DesktopTextBrush}" HorizontalContentAlignment="Stretch"/>
+                            </ScrollViewer>
+                            <Grid x:Name="CommandSpace" Grid.Row="2" Background="{ThemeResource DesktopDialogFooterBrush}" Padding="24" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8" BorderBrush="{ThemeResource DesktopLineBrush}" BorderThickness="0,1,0,0">
+                                <Border x:Name="Button1Host" Grid.Column="1" Visibility="Collapsed"><Button x:Name="PrimaryButton" Content="{TemplateBinding PrimaryButtonText}" IsEnabled="{TemplateBinding IsPrimaryButtonEnabled}" Style="{TemplateBinding PrimaryButtonStyle}" MinWidth="80"/></Border>
+                                <Border x:Name="Button2Host" Grid.Column="2" Visibility="Collapsed"><Button x:Name="SecondaryButton" Content="{TemplateBinding SecondaryButtonText}" IsEnabled="{TemplateBinding IsSecondaryButtonEnabled}" Style="{TemplateBinding SecondaryButtonStyle}" MinWidth="80"/></Border>
+                                <Button x:Name="CloseButton" Grid.Column="3" Content="{TemplateBinding CloseButtonText}" Style="{TemplateBinding CloseButtonStyle}" Visibility="Collapsed" MinWidth="80"/>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Border>
+            </Grid>
+        </Grid>
+    </ControlTemplate>
+    <Style TargetType="ContentDialog">
+        <Setter Property="Template" Value="{StaticResource DesktopContentDialogTemplate}"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Control"/>
+        <Setter Property="CornerRadius" Value="{ThemeResource DesktopDialogRadius}"/>
+        <Setter Property="BorderThickness" Value="{ThemeResource DesktopDialogBorderThickness}"/>
+        <Setter Property="BorderBrush" Value="{ThemeResource DesktopDialogEdgeBrush}"/>
+        <Setter Property="Background" Value="{ThemeResource DesktopDialogFooterBrush}"/>
+        <Setter Property="Foreground" Value="{ThemeResource DesktopTextBrush}"/>
+    </Style>
+    <ControlTemplate x:Key="DesktopTextBoxTemplate" TargetType="TextBox">
+        <Grid>
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal"/>
+                    <VisualState x:Name="PointerOver">
+                        <VisualState.Setters><Setter Target="BorderElement.BorderBrush" Value="{ThemeResource DesktopTextFieldHoverEdgeBrush}"/></VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Focused">
+                        <VisualState.Setters>
+                            <Setter Target="BorderElement.BorderThickness" Value="{ThemeResource DesktopTextFieldFocusThickness}"/>
+                            <Setter Target="BorderElement.BorderBrush" Value="{ThemeResource DesktopTextFieldFocusBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Disabled">
+                        <VisualState.Setters>
+                            <Setter Target="BorderElement.Opacity" Value="0.45"/>
+                            <Setter Target="ContentElement.Opacity" Value="0.45"/>
+                            <Setter Target="PlaceholderTextContentPresenter.Opacity" Value="0.45"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                </VisualStateGroup>
+                <VisualStateGroup x:Name="ButtonStates">
+                    <VisualState x:Name="ButtonVisible">
+                        <VisualState.Setters><Setter Target="DeleteButton.Visibility" Value="Visible"/></VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="ButtonCollapsed"/>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ContentPresenter x:Name="HeaderContentPresenter" Grid.ColumnSpan="2" Content="{TemplateBinding Header}"
+                              ContentTemplate="{TemplateBinding HeaderTemplate}" Foreground="{TemplateBinding Foreground}"
+                              Margin="0,0,0,8" TextWrapping="Wrap" Visibility="Collapsed"/>
+            <Border x:Name="BorderElement" Grid.Row="1" Grid.ColumnSpan="2" Background="{TemplateBinding Background}"
+                    BorderBrush="{ThemeResource DesktopTextFieldEdgeBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Control.IsTemplateFocusTarget="True"/>
+            <ScrollViewer x:Name="ContentElement" Grid.Row="1"
+                          HorizontalScrollMode="{TemplateBinding ScrollViewer.HorizontalScrollMode}"
+                          HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}"
+                          VerticalScrollMode="{TemplateBinding ScrollViewer.VerticalScrollMode}"
+                          VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}"
+                          IsHorizontalRailEnabled="{TemplateBinding ScrollViewer.IsHorizontalRailEnabled}"
+                          IsVerticalRailEnabled="{TemplateBinding ScrollViewer.IsVerticalRailEnabled}"
+                          Margin="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}"
+                          Foreground="{TemplateBinding Foreground}" IsTabStop="False" ZoomMode="Disabled"
+                          AutomationProperties.AccessibilityView="Raw"/>
+            <TextBlock x:Name="PlaceholderTextContentPresenter" Grid.Row="1" Grid.ColumnSpan="2"
+                       Text="{TemplateBinding PlaceholderText}" TextWrapping="{TemplateBinding TextWrapping}"
+                       Margin="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}"
+                       Foreground="{Binding PlaceholderForeground, RelativeSource={RelativeSource TemplatedParent}, TargetNullValue={ThemeResource DesktopMutedBrush}}"
+                       IsHitTestVisible="False"/>
+            <Button x:Name="DeleteButton" Grid.Row="1" Grid.Column="1" Width="30" Padding="0" MinWidth="0"
+                    Style="{StaticResource DesktopSubtleButtonStyle}" BorderThickness="0" VerticalAlignment="Stretch" Visibility="Collapsed"
+                    IsTabStop="False" AutomationProperties.AccessibilityView="Raw">
+                <FontIcon Glyph="&#xE711;" FontFamily="Segoe MDL2 Assets" FontSize="12"/>
+            </Button>
+            <ContentPresenter x:Name="DescriptionPresenter" Grid.Row="2" Grid.ColumnSpan="2"
+                              Content="{TemplateBinding Description}" Foreground="{ThemeResource DesktopMutedBrush}"
+                              AutomationProperties.AccessibilityView="Raw"/>
+        </Grid>
+    </ControlTemplate>
+    <Style x:Key="DesktopPaperComboBoxItemStyle" TargetType="ComboBoxItem" BasedOn="{StaticResource DesktopNativeComboBoxItemStyle}">
+        <Setter Property="Foreground" Value="{ThemeResource DesktopTextBrush}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Grid x:Name="PaperChoiceSurface" ColumnDefinitions="*,Auto" Margin="5,2,5,2"
+                          Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}"
+                          Control.IsTemplateFocusTarget="True">
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal"/>
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters><Setter Target="PaperChoiceSurface.Background" Value="{ThemeResource DesktopButtonHoverBrush}"/></VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters><Setter Target="PaperChoiceSurface.Background" Value="{ThemeResource DesktopButtonPressedBrush}"/></VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Selected">
+                                    <VisualState.Setters>
+                                        <Setter Target="PaperChoiceSurface.Background" Value="{ThemeResource DesktopSelectedBrush}"/>
+                                        <Setter Target="PaperChoiceCheckmark.Opacity" Value="1"/>
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="SelectedUnfocused">
+                                    <VisualState.Setters>
+                                        <Setter Target="PaperChoiceSurface.Background" Value="{ThemeResource DesktopSelectedBrush}"/>
+                                        <Setter Target="PaperChoiceCheckmark.Opacity" Value="1"/>
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="SelectedPointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="PaperChoiceSurface.Background" Value="{ThemeResource DesktopSelectedBrush}"/>
+                                        <Setter Target="PaperChoiceCheckmark.Opacity" Value="1"/>
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="SelectedPressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="PaperChoiceSurface.Background" Value="{ThemeResource DesktopSelectedBrush}"/>
+                                        <Setter Target="PaperChoiceCheckmark.Opacity" Value="1"/>
+                                        <Setter Target="PaperChoiceSurface.Opacity" Value="0.8"/>
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="SelectedDisabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="PaperChoiceSurface.Background" Value="{ThemeResource DesktopSelectedBrush}"/>
+                                        <Setter Target="PaperChoiceCheckmark.Opacity" Value="1"/>
+                                        <Setter Target="PaperChoiceSurface.Opacity" Value="0.4"/>
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        <VisualStateGroup x:Name="EnabledStates"><VisualState x:Name="Enabled"/>
+                                <VisualState x:Name="Disabled"><VisualState.Setters><Setter Target="PaperChoiceSurface.Opacity" Value="0.4"/></VisualState.Setters></VisualState></VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                        <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          ContentTransitions="{TemplateBinding ContentTransitions}" Padding="{TemplateBinding Padding}"
+                                          Foreground="{TemplateBinding Foreground}" FontFamily="{TemplateBinding FontFamily}"
+                                          FontSize="{TemplateBinding FontSize}" FontWeight="{TemplateBinding FontWeight}"
+                                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalContentAlignment="Center"/>
+                        <FontIcon x:Name="PaperChoiceCheckmark" Grid.Column="1" Glyph="&#xE73E;" FontFamily="Segoe MDL2 Assets"
+                                  Foreground="{ThemeResource DesktopSwitchOnBrush}" FontSize="16" Margin="10,0,12,0" Opacity="0"
+                                  AutomationProperties.AccessibilityView="Raw"/>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+
+
+
+    <Style TargetType="ProgressRing">
+        <Setter Property="Foreground" Value="{ThemeResource DesktopAccentBrush}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ProgressRing">
+                    <controls:DesktopLoadingIndicator IsActive="{TemplateBinding IsActive}"
+                        Foreground="{ThemeResource DesktopAccentBrush}"
+                        MotionEnabled="{ThemeResource DesktopMotionEnabled}"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="DesktopSegmentItemStyle" TargetType="ListBoxItem">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="SegmentItem"/>
+        <Setter Property="Padding" Value="12,5"/>
+        <Setter Property="Margin" Value="0,0,2,0"/>
+        <Setter Property="MinWidth" Value="48"/>
+        <Setter Property="MinHeight" Value="32"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{ThemeResource DesktopTextBrush}"/>
+        <Setter Property="CornerRadius" Value="{ThemeResource DesktopSegmentItemRadius}"/>
+        <Setter Property="FontFamily" Value="{ThemeResource DesktopUiFontFamily}"/>
+        <Setter Property="FontSize" Value="{ThemeResource DesktopControlTextSize}"/>
+        <Setter Property="FontWeight" Value="Normal"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="UseSystemFocusVisuals" Value="True"/>
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource DesktopSegmentFocusBrush}"/>
+        <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource DesktopSurfaceBrush}"/>
+        <Setter Property="FocusVisualPrimaryThickness" Value="2"/>
+        <Setter Property="FocusVisualMargin" Value="-2"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="SegmentSurface"
+                            Control.IsTemplateFocusTarget="True"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}">
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal"/>
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="SegmentSurface.Background" Value="{ThemeResource DesktopSegmentHoverBrush}"/>
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="SegmentSurface.Background" Value="{ThemeResource DesktopSegmentPressedBrush}"/>
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Selected">
+                                    <VisualState.Setters>
+                                        <Setter Target="SegmentSurface.Background" Value="{ThemeResource DesktopSegmentSelectedBrush}"/>
+                                        <Setter Target="SegmentSurface.BorderBrush" Value="{ThemeResource DesktopSegmentSelectedEdgeBrush}"/>
+                                        <Setter Target="SegmentContent.Foreground" Value="{ThemeResource DesktopSegmentSelectedTextBrush}"/>
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="SelectedUnfocused">
+                                    <VisualState.Setters>
+                                        <Setter Target="SegmentSurface.Background" Value="{ThemeResource DesktopSegmentSelectedBrush}"/>
+                                        <Setter Target="SegmentSurface.BorderBrush" Value="{ThemeResource DesktopSegmentSelectedEdgeBrush}"/>
+                                        <Setter Target="SegmentContent.Foreground" Value="{ThemeResource DesktopSegmentSelectedTextBrush}"/>
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="SelectedPointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="SegmentSurface.Background" Value="{ThemeResource DesktopSegmentSelectedBrush}"/>
+                                        <Setter Target="SegmentSurface.BorderBrush" Value="{ThemeResource DesktopSegmentSelectedEdgeBrush}"/>
+                                        <Setter Target="SegmentContent.Foreground" Value="{ThemeResource DesktopSegmentSelectedTextBrush}"/>
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="SelectedPressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="SegmentSurface.Background" Value="{ThemeResource DesktopSegmentSelectedBrush}"/>
+                                        <Setter Target="SegmentSurface.BorderBrush" Value="{ThemeResource DesktopSegmentSelectedEdgeBrush}"/>
+                                        <Setter Target="SegmentContent.Foreground" Value="{ThemeResource DesktopSegmentSelectedTextBrush}"/>
+                                        <Setter Target="SegmentSurface.Opacity" Value="0.8"/>
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <VisualState.Setters><Setter Target="SegmentSurface.Opacity" Value="0.45"/></VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="SelectedDisabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="SegmentSurface.Background" Value="{ThemeResource DesktopSegmentSelectedBrush}"/>
+                                        <Setter Target="SegmentSurface.BorderBrush" Value="{ThemeResource DesktopSegmentSelectedEdgeBrush}"/>
+                                        <Setter Target="SegmentContent.Foreground" Value="{ThemeResource DesktopSegmentSelectedTextBrush}"/>
+                                        <Setter Target="SegmentSurface.Opacity" Value="0.45"/>
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                        <ContentPresenter x:Name="SegmentContent"
+                                          Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          ContentTransitions="{TemplateBinding ContentTransitions}"
+                                          Foreground="{TemplateBinding Foreground}"
+                                          FontFamily="{TemplateBinding FontFamily}"
+                                          FontSize="{TemplateBinding FontSize}"
+                                          FontWeight="{TemplateBinding FontWeight}"
+                                          Padding="{TemplateBinding Padding}"
+                                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="DesktopSegmentsStyle" TargetType="ListBox">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Segments"/>
+        <Setter Property="Padding" Value="3"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Background" Value="{ThemeResource DesktopSegmentTrackBrush}"/>
+        <Setter Property="CornerRadius" Value="{ThemeResource DesktopSegmentTrackRadius}"/>
+        <Setter Property="FontSize" Value="{ThemeResource DesktopControlTextSize}"/>
+        <Setter Property="FontWeight" Value="Normal"/>
+        <Setter Property="ItemContainerStyle" Value="{StaticResource DesktopSegmentItemStyle}"/>
+        <Setter Property="ScrollViewer.HorizontalScrollMode" Value="Disabled"/>
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Hidden"/>
+        <Setter Property="ScrollViewer.VerticalScrollMode" Value="Disabled"/>
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Hidden"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBox">
+                    <Border x:Name="LayoutRoot"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}">
+                        <ScrollViewer x:Name="ScrollViewer"
+                                      Background="Transparent"
+                                      Padding="{TemplateBinding Padding}"
+                                      TabNavigation="{TemplateBinding TabNavigation}"
+                                      HorizontalScrollMode="{TemplateBinding ScrollViewer.HorizontalScrollMode}"
+                                      HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}"
+                                      VerticalScrollMode="{TemplateBinding ScrollViewer.VerticalScrollMode}"
+                                      VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}"
+                                      ZoomMode="Disabled"
+                                      BringIntoViewOnFocusChange="True"
+                                      AutomationProperties.AccessibilityView="Raw">
+                            <ItemsPresenter/>
+                        </ScrollViewer>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Setter Property="ItemsPanel">
+            <Setter.Value>
+                <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="DesktopSettingSectionStyle" TargetType="Border">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="SectionSurface"/>
+        <Setter Property="Background" Value="{ThemeResource DesktopSurfaceBrush}"/>
+        <Setter Property="BorderBrush" Value="{ThemeResource DesktopLineBrush}"/>
+        <Setter Property="BorderThickness" Value="{ThemeResource DesktopCardBorderThickness}"/>
+        <Setter Property="CornerRadius" Value="{ThemeResource DesktopSectionRadius}"/>
+        <Setter Property="Padding" Value="20,16"/>
+        <Setter Property="Margin" Value="0,0,0,12"/>
+    </Style>
+    <Style x:Key="DesktopSettingRowStyle" TargetType="Border">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="SettingRow"/>
+        <Setter Property="Background" Value="{ThemeResource DesktopSettingRowBrush}"/>
+        <Setter Property="BorderBrush" Value="{ThemeResource DesktopLineBrush}"/>
+        <Setter Property="BorderThickness" Value="{ThemeResource DesktopSettingRowBorderThickness}"/>
+        <Setter Property="CornerRadius" Value="{ThemeResource DesktopSectionRadius}"/>
+        <Setter Property="Padding" Value="{ThemeResource DesktopSettingRowPadding}"/>
+        <Setter Property="Margin" Value="{ThemeResource DesktopSettingRowMargin}"/>
+    </Style>
+    <Style x:Key="DesktopSettingHeadingStyle" TargetType="TextBlock">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Section"/>
+        <Setter Property="FontSize" Value="{ThemeResource DesktopSectionSize}"/>
+        <Setter Property="FontWeight" Value="{ThemeResource DesktopSectionWeight}"/>
+        <Setter Property="Foreground" Value="{ThemeResource DesktopTextBrush}"/>
+        <Setter Property="Margin" Value="0,20,0,12"/>
+    </Style>
+    <Style TargetType="Page">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Control"/>
+        <Setter Property="FontFamily" Value="{ThemeResource DesktopUiFontFamily}"/>
+        <Setter Property="FontSize" Value="{ThemeResource DesktopControlTextSize}"/>
+        <Setter Property="Foreground" Value="{ThemeResource DesktopTextBrush}"/>
+    </Style>
+    <Style x:Key="DesktopControlTextStyle" TargetType="TextBlock">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Control"/>
+        <Setter Property="FontFamily" Value="{ThemeResource DesktopUiFontFamily}"/>
+        <Setter Property="FontSize" Value="{ThemeResource DesktopControlTextSize}"/>
+        <Setter Property="FontWeight" Value="Normal"/>
+        <Setter Property="Foreground" Value="{ThemeResource DesktopTextBrush}"/>
+    </Style>
+    <Style x:Key="DesktopEmphasisTextStyle" TargetType="TextBlock" BasedOn="{StaticResource DesktopControlTextStyle}">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Emphasis"/>
+        <Setter Property="FontWeight" Value="{ThemeResource DesktopEmphasisWeight}"/>
+    </Style>
+    <Style x:Key="DesktopDataTextStyle" TargetType="TextBlock">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Data"/>
+        <Setter Property="FontFamily" Value="{ThemeResource DesktopUiFontFamily}"/>
+        <Setter Property="FontSize" Value="{ThemeResource DesktopDataTextSize}"/>
+        <Setter Property="FontWeight" Value="Normal"/>
+        <Setter Property="Foreground" Value="{ThemeResource DesktopMutedBrush}"/>
+    </Style>
+    <Style x:Key="DesktopEmphasisDataTextStyle" TargetType="TextBlock" BasedOn="{StaticResource DesktopDataTextStyle}">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="EmphasisData"/>
+        <Setter Property="FontWeight" Value="{ThemeResource DesktopEmphasisWeight}"/>
+    </Style>
+    <Style x:Key="DesktopReadingTextStyle" TargetType="TextBlock">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Reading"/>
+        <Setter Property="FontFamily" Value="{ThemeResource DesktopReadingFontFamily}"/>
+        <Setter Property="FontSize" Value="{ThemeResource DesktopBodySize}"/>
+        <Setter Property="FontWeight" Value="Normal"/>
+        <Setter Property="LineHeight" Value="{ThemeResource DesktopBodyLineHeight}"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="Foreground" Value="{ThemeResource DesktopTextBrush}"/>
+    </Style>
+</ResourceDictionary>

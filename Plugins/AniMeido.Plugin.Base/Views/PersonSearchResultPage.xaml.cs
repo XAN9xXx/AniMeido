@@ -32,6 +32,9 @@ public sealed partial class PersonSearchResultPage : Page, INavigationAware
         InitializeComponent();
         ResultGrid.ItemsSource = _viewModel.Results;
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+#if UNO_DESKTOP
+        InitializeDesktopPersonGroups();
+#endif
     }
 
     public Task OnNavigatedToAsync(object? parameter)

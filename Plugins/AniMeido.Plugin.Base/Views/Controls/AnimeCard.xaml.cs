@@ -237,6 +237,9 @@ namespace AniMeido.Plugin.Base.Views.Controls
             // 拖拽启动阶段自兜底：鼠标仍在卡片上方时防止禁止图标
             AllowDrop = true;
             AddHandler(UIElement.DragOverEvent, new DragEventHandler(OnSelfDragOver), true);
+#if UNO_DESKTOP
+            InitializeDesktopPresentation();
+#endif
         }
 
         private void ConfigureCover()
@@ -267,8 +270,22 @@ namespace AniMeido.Plugin.Base.Views.Controls
 
         private void ApplyCardSize()
         {
+#if UNO_DESKTOP
+            if (CatalogPresentation == AnimeCardCatalogPresentation.Detailed)
+            {
+                CardRoot.Width = double.NaN;
+                CoverHost.Height = double.NaN;
+                return;
+            }
+#endif
             var width = CardWidth > 0 ? CardWidth : AnimeCardPresentation.DefaultCardWidth;
+#if UNO_DESKTOP
+            var height = UsesDesktopPosterRatio
+                ? DesktopAnimeCardPresentation.CompactCoverHeightFor(width)
+                : AnimeCardPresentation.CoverHeightFor(width);
+#else
             var height = AnimeCardPresentation.CoverHeightFor(width);
+#endif
             CardRoot.Width = width;
             CoverHost.Height = height;
             CoverClip.Rect = new Rect(0, 0, width, height);
@@ -394,6 +411,9 @@ namespace AniMeido.Plugin.Base.Views.Controls
             {
                 ScoreBadge.Visibility = Visibility.Collapsed;
             }
+#if UNO_DESKTOP
+            ApplyDesktopScoreTheme();
+#endif
         }
 
         private static void OnTrackingPresentationChanged(
@@ -404,6 +424,9 @@ namespace AniMeido.Plugin.Base.Views.Controls
             var card = (AnimeCard)dependencyObject;
             card.UpdateTrackingBadges();
             card.UpdateQuickActions();
+#if UNO_DESKTOP
+            card.UpdateDesktopDetailedText();
+#endif
         }
 
         private static void OnTrackingActionPendingChanged(
@@ -479,7 +502,11 @@ namespace AniMeido.Plugin.Base.Views.Controls
         /// <summary>悬停时显示标记按钮并暂时隐藏封面底部角标，避免两者重叠。</summary>
         private void UpdateQuickActions()
         {
+#if UNO_DESKTOP
+            IsTabStop = ShowQuickActions || CatalogPresentation != AnimeCardCatalogPresentation.None;
+#else
             IsTabStop = ShowQuickActions;
+#endif
             var show = ShowQuickActions
                 && (_isPointerOver || _hasKeyboardFocus)
                 && DataContext is Anime;
@@ -569,6 +596,11 @@ namespace AniMeido.Plugin.Base.Views.Controls
         {
             _isPointerOver = true;
             UpdateQuickActions();
+#if UNO_DESKTOP
+            ApplyDesktopCardInteraction();
+            if (IsStaticDesktopPresentation)
+                return;
+#endif
 
             var visual = ElementCompositionPreview.GetElementVisual(this);
             visual.Properties.InsertVector3("Translation", new System.Numerics.Vector3(0, 0, 16));
@@ -580,6 +612,11 @@ namespace AniMeido.Plugin.Base.Views.Controls
         {
             _isPointerOver = false;
             UpdateQuickActions();
+#if UNO_DESKTOP
+            ApplyDesktopCardInteraction();
+            if (IsStaticDesktopPresentation)
+                return;
+#endif
 
             var visual = ElementCompositionPreview.GetElementVisual(this);
             visual.Properties.InsertVector3("Translation", new System.Numerics.Vector3(0, 0, 0));
@@ -594,6 +631,9 @@ namespace AniMeido.Plugin.Base.Views.Controls
             _standardDragStarted = false;
             _pointerDownPoint = e.GetCurrentPoint(this).Position;
 
+#if UNO_DESKTOP
+            ApplyDesktopCardInteraction();
+#endif
             AnimateScale(0.95, 100);
         }
 
@@ -607,6 +647,9 @@ namespace AniMeido.Plugin.Base.Views.Controls
             _clickCandidate = false;
             _standardDragStarted = false;
 
+#if UNO_DESKTOP
+            ApplyDesktopCardInteraction();
+#endif
             if (shouldClick)
                 CardClicked?.Invoke(this, new AnimeCardClickedEventArgs(clickAnime!));
 
@@ -621,6 +664,10 @@ namespace AniMeido.Plugin.Base.Views.Controls
         /// </summary>
         private void AnimateScale(double to, int milliseconds)
         {
+#if UNO_DESKTOP
+            if (IsStaticDesktopPresentation)
+                return;
+#endif
             var currentX = _cardScale.ScaleX;
             var currentY = _cardScale.ScaleY;
             _scaleStoryboard.Stop();
@@ -656,6 +703,9 @@ namespace AniMeido.Plugin.Base.Views.Controls
             _pointerDown = false;
             _clickCandidate = false;
             _standardDragStarted = false;
+#if UNO_DESKTOP
+            ApplyDesktopCardInteraction();
+#endif
         }
 
         private void OnPointerCaptureLost(object sender, PointerRoutedEventArgs e)
@@ -663,6 +713,9 @@ namespace AniMeido.Plugin.Base.Views.Controls
             _pointerDown = false;
             _clickCandidate = false;
             _standardDragStarted = false;
+#if UNO_DESKTOP
+            ApplyDesktopCardInteraction();
+#endif
         }
 
         private void OnDragPointerMoved(object sender, PointerRoutedEventArgs e)

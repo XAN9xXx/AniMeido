@@ -1,4 +1,5 @@
-﻿using AniMeido.Contracts.Models;
+﻿#if !UNO_DESKTOP
+using AniMeido.Contracts.Models;
 using Windows.Foundation;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
@@ -269,3 +270,4 @@ namespace AniMeido.Plugin.Base.Services
         }
     }
 }
+#endif

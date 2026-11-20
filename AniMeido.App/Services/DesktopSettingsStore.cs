@@ -116,7 +116,7 @@ public sealed class DesktopSettingsStore
     }
 }
 
-public sealed record DesktopSettings
+public sealed partial record DesktopSettings
 {
     public bool KeepInTrayOnClose { get; init; }
     public string? ThemeSetting { get; init; }

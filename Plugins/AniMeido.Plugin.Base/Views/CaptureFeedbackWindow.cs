@@ -1,4 +1,4 @@
-using AniMeido.Plugin.Base.Models;
+﻿using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -6,7 +6,9 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using System.Runtime.InteropServices;
 using Windows.Graphics;
+#if !UNO_SKIA
 using WinRT.Interop;
+#endif
 
 namespace AniMeido.Plugin.Base.Views;
 
@@ -113,16 +115,26 @@ internal sealed class CaptureFeedbackWindow : Window
 
     public void ShowWithoutActivation()
     {
+#if UNO_SKIA
+        var handle = DesktopShellServices.GetWindowHandle(this);
+#else
         var handle = WindowNative.GetWindowHandle(this);
+#endif
         var style = GetWindowLongPtr(handle, GwlExStyle);
         _ = SetWindowLongPtr(
             handle,
             GwlExStyle,
             style | WsExToolWindow | WsExNoActivate | WsExTopmost);
-        var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(handle);
-        var appWindow = AppWindow.GetFromWindowId(windowId);
         const int width = 380;
         const int height = 104;
+#if UNO_SKIA
+        var appWindow = AppWindow;
+        var area = DesktopShellServices.GetWorkArea(handle);
+        appWindow.Move(new PointInt32(area.X + area.Width - width - 18, area.Y + area.Height - height - 18));
+        appWindow.Resize(new SizeInt32(width, height));
+#else
+        var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(handle);
+        var appWindow = AppWindow.GetFromWindowId(windowId);
         var display = DisplayArea.GetFromWindowId(
             windowId,
             DisplayAreaFallback.Nearest);
@@ -131,6 +143,7 @@ internal sealed class CaptureFeedbackWindow : Window
             display.WorkArea.Y + display.WorkArea.Height - height - 18,
             width,
             height));
+#endif
         appWindow.Show(activateWindow: false);
         _timer.Start();
     }

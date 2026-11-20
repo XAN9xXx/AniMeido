@@ -1,0 +1,93 @@
+﻿<UserControl
+    x:Class="AniMeido.Plugin.Base.Views.Controls.AnimeCard"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    IsTabStop="True" CanDrag="True" AllowDrop="True"
+    FontFamily="{ThemeResource DesktopUiFontFamily}"
+    Foreground="{ThemeResource DesktopTextBrush}">
+    <Grid x:Name="CardRoot" Background="Transparent">
+        <Border x:Name="CardSurface" BorderThickness="1"
+                Background="{ThemeResource DesktopCardBrush}"
+                BorderBrush="{ThemeResource DesktopLineBrush}">
+            <Border.BackgroundTransition><BrushTransition Duration="0:0:0.12"/></Border.BackgroundTransition>
+            <Grid x:Name="ContentLayout" RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*">
+                <Grid x:Name="CoverHost" Grid.ColumnSpan="2" Height="225">
+                    <Border x:Name="CoverFrame" Background="{ThemeResource DesktopPlaceholderBrush}">
+                        <Border.Clip><RectangleGeometry x:Name="CoverClip"/></Border.Clip>
+                        <Image x:Name="CoverImage" Stretch="UniformToFill"
+                               HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+                    </Border>
+                    <Border x:Name="CompletedDim" Background="#73000000" Visibility="Collapsed" IsHitTestVisible="False"/>
+                    <Grid x:Name="RetryOverlay" Background="{ThemeResource DesktopFailedOverlayBrush}" Visibility="Collapsed">
+                        <ProgressRing x:Name="RetryRing" Width="24" Height="24" IsActive="False"
+                                      Foreground="{ThemeResource DesktopAccentBrush}"/>
+                        <Button x:Name="RetryButton" Width="40" Height="40" Padding="0"
+                                HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Visibility="Collapsed" Click="OnRetryClick"
+                                AutomationProperties.Name="重新加载封面" ToolTipService.ToolTip="重新加载封面">
+                            <FontIcon Glyph="&#xE72C;"/>
+                        </Button>
+                    </Grid>
+                    <StackPanel Orientation="Vertical" Spacing="4" Margin="6"
+                                HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False">
+                        <Border x:Name="StatusBadge" CornerRadius="6" Padding="6,2" Visibility="Collapsed"
+                                Background="#A6000000">
+                            <TextBlock x:Name="StatusText" FontSize="12" Foreground="White"/>
+                        </Border>
+                        <Border x:Name="WeekdayBadge" CornerRadius="6" Padding="6,2" Visibility="Collapsed"
+                                Background="#A6000000">
+                            <TextBlock x:Name="WeekdayTextBlock" FontSize="12" Foreground="White"/>
+                        </Border>
+                    </StackPanel>
+                    <Border x:Name="MediaFormatBadge" Margin="6" CornerRadius="6" Padding="6,2"
+                            HorizontalAlignment="Right" VerticalAlignment="Top" IsHitTestVisible="False"
+                            Background="#A6000000" Visibility="Collapsed">
+                        <TextBlock x:Name="MediaFormatText" FontSize="12" Foreground="White"/>
+                    </Border>
+                    <Border x:Name="ScoreBadge" Padding="6,3" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                            Background="#A6000000" IsHitTestVisible="False" Visibility="Collapsed">
+                        <TextBlock x:Name="ScoreText" Foreground="White"/>
+                    </Border>
+                    <Border x:Name="NotYetAiredBadge" Background="#C42B1C" CornerRadius="6" Padding="6,2" Margin="6"
+                            HorizontalAlignment="Left" VerticalAlignment="Bottom" IsHitTestVisible="False" Visibility="Collapsed">
+                        <TextBlock Text="未开播" FontSize="12" Foreground="White"/>
+                    </Border>
+                    <Grid x:Name="QuickActions" Visibility="Collapsed" VerticalAlignment="Bottom"
+                          Padding="6,28,6,6" ColumnDefinitions="*,*" ColumnSpacing="4">
+                        <Grid.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                <GradientStop Color="#00000000" Offset="0"/>
+                                <GradientStop Color="#D9000000" Offset="0.55"/>
+                            </LinearGradientBrush>
+                        </Grid.Background>
+                        <Button x:Name="WatchActionButton" Content="追番" Padding="0,3" FontSize="12"
+                                HorizontalAlignment="Stretch" Click="OnWatchClick"/>
+                        <Button x:Name="FollowActionButton" Grid.Column="1" Content="关注" Padding="0,3" FontSize="12"
+                                HorizontalAlignment="Stretch" Click="OnFollowClick"/>
+                    </Grid>
+                </Grid>
+
+                <StackPanel x:Name="CaptionHost" Grid.Row="1" Grid.ColumnSpan="2" Padding="10,8">
+                    <TextBlock x:Name="TitleText" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
+                               MaxLines="2" Foreground="{ThemeResource DesktopTextBrush}"/>
+                    <TextBlock x:Name="AirDateText" Foreground="{ThemeResource DesktopMutedBrush}" Margin="0,2,0,0"/>
+                </StackPanel>
+
+                <Grid x:Name="DetailedHost" Grid.Column="1" Visibility="Collapsed" Padding="16,12"
+                      RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
+                    <TextBlock x:Name="DetailedTitle" FontSize="17" TextWrapping="Wrap" MaxLines="2"
+                               TextTrimming="CharacterEllipsis" Foreground="{ThemeResource DesktopTextBrush}"/>
+                    <TextBlock x:Name="DetailedMetadata" Grid.Row="1" TextWrapping="Wrap"
+                               Foreground="{ThemeResource DesktopMutedBrush}"/>
+                    <TextBlock x:Name="DescriptionText" Grid.Row="2" TextWrapping="Wrap" MaxLines="7"
+                               TextTrimming="CharacterEllipsis" VerticalAlignment="Top"
+                               Foreground="{ThemeResource DesktopTextBrush}"/>
+                    <Grid Grid.Row="3" ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                        <TextBlock x:Name="DetailedStatus" VerticalAlignment="Center" Foreground="{ThemeResource DesktopMutedBrush}"/>
+                        <TextBlock x:Name="DetailedScore" Grid.Column="1" FontSize="18" Foreground="{ThemeResource DesktopAccentBrush}"/>
+                    </Grid>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

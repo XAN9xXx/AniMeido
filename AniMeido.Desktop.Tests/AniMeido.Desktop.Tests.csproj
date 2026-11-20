@@ -1,0 +1,21 @@
+﻿<Project Sdk="Uno.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-desktop</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <UnoFeatures>Skia</UnoFeatures>
+    <UnoDisableHotDesign>true</UnoDisableHotDesign>
+    <UnoDisableMCPSupport>true</UnoDisableMCPSupport>
+    <UnoDisableWinAppRunSupport>true</UnoDisableWinAppRunSupport>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="Serilog.Extensions.Logging" />
+    <PackageReference Include="Uno.WinUI.Runtime.Headless" />
+    <ProjectReference Include="../AniMeido.Desktop/AniMeido.Desktop.csproj" />
+  </ItemGroup>
+</Project>

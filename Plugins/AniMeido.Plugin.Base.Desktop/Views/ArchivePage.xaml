@@ -1,0 +1,741 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="AniMeido.Plugin.Base.Views.ArchivePage"
+    x:Name="RootPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:AniMeido.Plugin.Base.Models"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Page.Resources>
+        <Style x:Key="DesktopArchiveSectionStyle" TargetType="Border">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="{ThemeResource DesktopLineBrush}"/>
+            <Setter Property="BorderThickness" Value="0,1,0,0"/>
+            <Setter Property="Padding" Value="0,18,0,0"/>
+        </Style>
+        <DataTemplate x:Key="PendingReviewTemplate" x:DataType="models:PendingReviewItem">
+            <Border Style="{StaticResource DesktopArchiveSectionStyle}" Margin="0,0,0,18" HorizontalAlignment="Stretch">
+                <StackPanel Spacing="6">
+                    <TextBlock Style="{StaticResource DesktopEmphasisTextStyle}" Text="{x:Bind Title}" TextWrapping="Wrap"/>
+                    <TextBlock Style="{StaticResource DesktopControlTextStyle}" Text="{x:Bind ExplanationText}" TextWrapping="Wrap"/>
+                    <TextBlock Style="{StaticResource DesktopDataTextStyle}" Text="{x:Bind RecordsText}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <Grid ColumnDefinitions="Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="6" Margin="0,4,0,0">
+                        <Button Content="{x:Bind PrimaryActionText}" Tag="{x:Bind}" Click="OnPendingPrimaryClick" Style="{StaticResource AccentButtonStyle}"/>
+                        <Button Grid.Column="1" Content="暂不处理" Tag="{x:Bind}" Click="OnPendingKeepClick"/>
+                        <HyperlinkButton Grid.Row="1" Grid.ColumnSpan="2" Content="在 Bangumi 查看原条目" HorizontalAlignment="Left" NavigateUri="{x:Bind BangumiUri}" Visibility="{x:Bind HasBangumiUri}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+        <DataTemplate x:Key="KeptReviewTemplate" x:DataType="models:PendingReviewItem">
+            <Border Style="{StaticResource DesktopArchiveSectionStyle}" Margin="0,0,0,18" HorizontalAlignment="Stretch">
+                <StackPanel Spacing="6">
+                    <TextBlock Style="{StaticResource DesktopEmphasisTextStyle}" Text="{x:Bind Title}" TextWrapping="Wrap"/>
+                    <TextBlock Style="{StaticResource DesktopControlTextStyle}" Text="{x:Bind ExplanationText}" TextWrapping="Wrap"/>
+                    <TextBlock Style="{StaticResource DesktopDataTextStyle}" Text="{x:Bind RecordsText}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <StackPanel Spacing="6" Margin="0,4,0,0" HorizontalAlignment="Left">
+                        <Button Content="重新处理" Tag="{x:Bind}" Click="OnPendingUnkeepClick"/>
+                        <HyperlinkButton Content="在 Bangumi 查看原条目" NavigateUri="{x:Bind BangumiUri}" Visibility="{x:Bind HasBangumiUri}"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+        <CollectionViewSource x:Key="ScreenshotGroupsSource"
+                              IsSourceGrouped="True"/>
+        <MenuFlyout x:Key="ScreenshotMoreActionsFlyout">
+            <MenuFlyoutItem Text="移入回收站"
+                            Click="OnDeleteScreenshotClick"/>
+            <MenuFlyoutItem Text="清理缺失记录"
+                            Click="OnCleanupScreenshotsClick"/>
+            <MenuFlyoutSeparator/>
+            <MenuFlyoutItem Text="截图设置"
+                            Click="OnScreenshotSettingsClick"/>
+        </MenuFlyout>
+    </Page.Resources>
+
+    <Grid x:Name="DesktopArchiveRoot" Padding="32,28,32,32"
+           RowDefinitions="Auto,Auto,Auto,*"
+           RowSpacing="8" SizeChanged="OnDesktopArchiveSizeChanged">
+        <Grid ColumnDefinitions="*,Auto"
+              VerticalAlignment="Center">
+            <StackPanel Spacing="2">
+                <TextBlock Text="档案馆"
+                           Style="{StaticResource AniMeidoPageTitleStyle}"/>
+            </StackPanel>
+            <Button Grid.Column="1"
+                    ToolTipService.ToolTip="刷新档案数据"
+                    Click="OnRefreshClick">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE72C;" FontSize="14"/>
+                    <TextBlock Text="刷新"/>
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <StackPanel Grid.Row="1" Spacing="8">
+            <InfoBar x:Name="StatusInfoBar" IsClosable="True"/>
+            <Button x:Name="PendingReviewBanner" Visibility="Collapsed" Click="OnTogglePendingClick" HorizontalAlignment="Stretch"/>
+            <ScrollViewer x:Name="PendingReviewPanel" Visibility="Collapsed" MaxHeight="380" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="番剧资料更新后，这几部作品没能自动对上。你的记录都还在，在你确认之前不会有任何改动。"
+                               TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <ItemsControl x:Name="PendingReviewList" ItemTemplate="{StaticResource PendingReviewTemplate}"/>
+                    <Expander x:Name="KeptReviewGroup" Header="暂不处理" HorizontalAlignment="Stretch" IsExpanded="False">
+                        <ItemsControl x:Name="KeptReviewList" ItemTemplate="{StaticResource KeptReviewTemplate}" HorizontalAlignment="Stretch"/>
+                    </Expander>
+                </StackPanel>
+            </ScrollViewer>
+        </StackPanel>
+
+        <StackPanel Grid.Row="2"
+                    Orientation="Horizontal"
+                    Spacing="4">
+            <ToggleButton x:Name="ArchivesSectionButton"
+                          Tag="archives"
+                          Style="{StaticResource DesktopUnderlinedSectionTabStyle}"
+                          Click="OnSectionButtonClick">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE8F1;" FontSize="15"/>
+                    <TextBlock Text="番剧档案"/>
+                </StackPanel>
+            </ToggleButton>
+            <ToggleButton x:Name="StatisticsSectionButton"
+                          Tag="statistics"
+                          Style="{StaticResource DesktopUnderlinedSectionTabStyle}"
+                          Click="OnSectionButtonClick">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE9D2;" FontSize="15"/>
+                    <TextBlock Text="统计"/>
+                </StackPanel>
+            </ToggleButton>
+            <ToggleButton x:Name="ReviewSectionButton"
+                          Tag="review"
+                          Style="{StaticResource DesktopUnderlinedSectionTabStyle}"
+                          Click="OnSectionButtonClick">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE787;" FontSize="15"/>
+                    <TextBlock Text="年度回顾"/>
+                </StackPanel>
+            </ToggleButton>
+            <ToggleButton x:Name="ScreenshotsSectionButton"
+                          Tag="screenshots"
+                          Style="{StaticResource DesktopUnderlinedSectionTabStyle}"
+                          Click="OnSectionButtonClick">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE722;" FontSize="15"/>
+                    <TextBlock Text="截图"/>
+                </StackPanel>
+            </ToggleButton>
+        </StackPanel>
+
+        <Grid Grid.Row="3">
+            <Grid x:Name="ArchivesPanel" ColumnDefinitions="240,*" RowDefinitions="*,0" ColumnSpacing="22" RowSpacing="16">
+                <Border x:Name="DesktopArchiveListPane" Style="{StaticResource AniMeidoCardStyle}" Background="{ThemeResource DesktopNavigationBrush}">
+                    <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
+                        <StackPanel Spacing="8">
+                            <TextBox x:Name="ArchiveFilter" PlaceholderText="搜索标题或个人标签"
+                                     TextChanged="OnArchiveFilterChanged"/>
+                            <Expander Header="筛选档案">
+                                <StackPanel Spacing="10" Padding="0,8,0,4">
+                                    <ComboBox x:Name="StatusFilter" Header="追番状态"
+                                              HorizontalAlignment="Stretch"
+                                              SelectionChanged="OnArchiveOptionChanged">
+                                        <x:String>全部状态</x:String><x:String>追番中</x:String>
+                                        <x:String>补番中</x:String><x:String>不感兴趣</x:String>
+                                        <x:String>关注</x:String><x:String>已看完</x:String>
+                                        <x:String>弃坑</x:String>
+                                    </ComboBox>
+                                    <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                                        <NumberBox x:Name="MinimumRatingFilter" Header="最低评分"
+                                                   Minimum="0.5" Maximum="10" SmallChange="0.5"
+                                                   ValueChanged="OnArchiveNumberFilterChanged"/>
+                                        <NumberBox x:Name="ArchiveYearFilter" Grid.Column="1"
+                                                   Header="建档年份" Minimum="2000" Maximum="2100"
+                                                   ValueChanged="OnArchiveNumberFilterChanged"/>
+                                    </Grid>
+                                    <Button Content="清除筛选" HorizontalAlignment="Left"
+                                            Click="OnClearArchiveFiltersClick"/>
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                        <Grid Grid.Row="1" ColumnDefinitions="*,Auto">
+                            <TextBlock Text="我的档案" FontWeight="SemiBold" FontSize="18"/>
+                            <TextBlock x:Name="ArchiveResultCount" Grid.Column="1"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </Grid>
+                        <Grid Grid.Row="2">
+                            <ListView x:Name="ArchiveList" SelectionMode="Single"
+                                      SelectionChanged="OnArchiveSelectionChanged">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Padding="3,10" ColumnDefinitions="*,Auto" ColumnSpacing="12"
+                                              MinHeight="64">
+                                            <StackPanel VerticalAlignment="Center" Spacing="4">
+                                                <TextBlock Style="{StaticResource DesktopEmphasisTextStyle}" Text="{Binding Title}"
+                                                           TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Style="{StaticResource DesktopDataTextStyle}" Text="{Binding TagSummary}"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
+                                                <TextBlock Style="{StaticResource DesktopDataTextStyle}" Text="{Binding RatingText}"
+                                                           Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                                <TextBlock Style="{StaticResource DesktopDataTextStyle}" Text="{Binding EntryCountText}"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                            <StackPanel x:Name="ArchiveListEmptyState" Visibility="Collapsed"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                                <FontIcon Glyph="&#xE11A;" Style="{StaticResource AniMeidoEmptyStateIconStyle}"/>
+                                <TextBlock Text="没有符合条件的档案" FontWeight="SemiBold"/>
+                                <TextBlock Text="尝试清除筛选，或先在番剧详情中建立档案"
+                                           MaxWidth="260" TextAlignment="Center" TextWrapping="Wrap"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+                </Border>
+                <Grid x:Name="DesktopArchiveDetailPane" Grid.Column="1">
+                    <Border x:Name="ArchiveSelectionEmptyState" Background="Transparent">
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                            <FontIcon Glyph="&#xE8F1;" Style="{StaticResource AniMeidoEmptyStateIconStyle}"/>
+                            <TextBlock Text="选择一部番剧开始整理"
+                                       Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                        </StackPanel>
+                    </Border>
+                    <ScrollViewer x:Name="ArchiveDetailPanel" Visibility="Collapsed"
+                                  VerticalScrollBarVisibility="Auto">
+                        <StackPanel Spacing="16" Padding="0,0,4,4">
+                            <Border BorderBrush="{ThemeResource DesktopLineBrush}" BorderThickness="0,0,0,1" Padding="0,0,0,18">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                                    <Border Visibility="Collapsed">
+                                        <Image x:Name="ArchiveHeroCover" Width="150" Height="210"
+                                               Stretch="UniformToFill"/>
+                                    </Border>
+                                    <StackPanel VerticalAlignment="Center" Spacing="8">
+                                        <TextBlock x:Name="ArchiveTitle"
+                                                   Style="{StaticResource AniMeidoPageTitleStyle}"
+                                                   TextWrapping="Wrap"/>
+                                        <TextBlock x:Name="ArchiveAnimeMetadata"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <TextBlock x:Name="ArchiveRatingText"
+                                                       Foreground="{ThemeResource AniMeidoAccentBrush}"
+                                                       FontWeight="SemiBold"/>
+                                            <TextBlock x:Name="ArchiveStatusText"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </StackPanel>
+                                        <TextBlock x:Name="ArchiveTagsText" TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="编辑档案" VerticalAlignment="Top"
+                                            Click="OnEditArchiveClick"/>
+                                </Grid>
+                            </Border>
+                            <StackPanel Spacing="24">
+                                <Border BorderBrush="{ThemeResource DesktopLineBrush}" BorderThickness="0,0,0,1" Padding="0,0,0,20">
+                                    <StackPanel Spacing="14">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <StackPanel Spacing="2">
+                                                <TextBlock Text="作品笔记"
+                                                           Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Content="编辑" Click="OnEditNoteClick"/>
+                                        </Grid>
+                                        <Border Padding="0,4" Background="Transparent">
+                                            <RichTextBlock x:Name="ArchiveNotePreview" TextWrapping="Wrap"
+                                                           FontFamily="{ThemeResource DesktopReadingFontFamily}" FontSize="{ThemeResource DesktopBodySize}"
+                                                           LineHeight="27" MinHeight="180"/>
+                                        </Border>
+                                        <StackPanel x:Name="ArchiveScreenshotSection"
+                                                    Visibility="Collapsed" Spacing="10">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <TextBlock Text="相关截图"
+                                                           Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                                <TextBlock x:Name="ArchiveScreenshotCount" Grid.Column="1"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </Grid>
+                                            <ItemsControl x:Name="ArchiveScreenshotStrip">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <StackPanel Orientation="Horizontal" Spacing="8"/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Width="180" Height="104" CornerRadius="{ThemeResource DesktopCoverRadius}"
+                                                            Background="{ThemeResource DesktopCardBrush}">
+                                                        <Image Stretch="UniformToFill"
+                                                               Loaded="OnScreenshotImageLoaded" Unloaded="OnArchiveImageUnloaded"
+                                                               DataContextChanged="OnScreenshotImageDataContextChanged"/>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                                <Border Background="Transparent">
+                                    <StackPanel Spacing="12">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock x:Name="ArchiveTimelineTitle"
+                                                       Text="观看时间线"
+                                                       Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                            <Button Grid.Column="1" Content="写感想"
+                                                    Style="{StaticResource AccentButtonStyle}"
+                                                    Click="OnAddEntryClick"/>
+                                        </Grid>
+                                        <ComboBox x:Name="ArchiveTimelineFilter" Header="显示"
+                                                  SelectionChanged="OnTimelineFilterChanged">
+                                            <x:String>全部</x:String><x:String>感想</x:String>
+                                            <ComboBoxItem x:Name="WatchHistoryFilterItem"
+                                                          Content="观看记录"/>
+                                            <x:String>状态变更</x:String>
+                                        </ComboBox>
+                                        <ListView x:Name="EntryList" MinHeight="220" MaxHeight="540"
+                                                  SelectionMode="Single"
+                                                  SelectionChanged="OnEntrySelectionChanged">
+                                            <ListView.ItemContainerStyle>
+                                                <Style TargetType="ListViewItem" BasedOn="{StaticResource DesktopListViewItemStyle}">
+                                                    <Setter Property="Padding" Value="0"/>
+                                                    <Setter Property="Margin" Value="0"/>
+                                                </Style>
+                                            </ListView.ItemContainerStyle>
+                                            <ListView.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Padding="4,0" ColumnDefinitions="14,*" ColumnSpacing="12"
+                                                          MinHeight="90">
+                                                        <Border Width="2" HorizontalAlignment="Center"
+                                                                Margin="0,-2,0,-2"
+                                                                Background="{ThemeResource AniMeidoAccentBrush}"/>
+                                                        <Ellipse Width="10" Height="10" VerticalAlignment="Top"
+                                                                 Margin="0,12,0,0"
+                                                                 Fill="{ThemeResource AniMeidoAccentBrush}"/>
+                                                        <StackPanel Grid.Column="1" Spacing="4"
+                                                                    Margin="0,10,0,12">
+                                                            <TextBlock Style="{StaticResource DesktopDataTextStyle}" Text="{Binding DisplayTime}"
+                                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                            <TextBlock Style="{StaticResource DesktopDataTextStyle}" Text="{Binding Kind}"
+                                                                       Foreground="{ThemeResource AniMeidoAccentBrush}"/>
+                                                            <TextBlock Style="{StaticResource DesktopEmphasisTextStyle}" Text="{Binding Heading}"
+                                                                       TextWrapping="Wrap"/>
+                                                            <TextBlock Style="{StaticResource DesktopReadingTextStyle}" Text="{Binding Body}" TextWrapping="Wrap"
+                                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ListView.ItemTemplate>
+                                        </ListView>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                                            <Button x:Name="EditEntryButton" Content="编辑所选感想"
+                                                    IsEnabled="False" Click="OnEditEntryClick"/>
+                                            <Button x:Name="DeleteEntryButton" Content="删除所选"
+                                                    IsEnabled="False" Click="OnDeleteEntryClick"/>
+                                            <Button x:Name="AddManualWatchButton"
+                                                    Content="补录观看"
+                                                    Click="OnAddManualEventClick"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Grid>
+            <ScrollViewer x:Name="StatisticsPanel" Visibility="Collapsed">
+                <StackPanel Spacing="24" Padding="0,12,4,4">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <TextBlock Text="个人统计" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                        <TextBlock x:Name="StatisticsStartText" Grid.Column="1" Style="{StaticResource DesktopDataTextStyle}" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Grid x:Name="DesktopStatisticsMetrics" ColumnDefinitions="*,*,*,*" RowDefinitions="Auto,0" ColumnSpacing="24">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="档案" Style="{StaticResource DesktopDataTextStyle}"/>
+                            <TextBlock x:Name="StatisticsArchiveCountText" FontSize="32"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Spacing="8">
+                            <TextBlock Text="已评分" Style="{StaticResource DesktopDataTextStyle}"/>
+                            <TextBlock x:Name="StatisticsRatedCountText" FontSize="32"/>
+                        </StackPanel>
+                        <StackPanel x:Name="DesktopStatisticsEntryMetric" Grid.Column="2" Spacing="8">
+                            <TextBlock Text="观看感想" Style="{StaticResource DesktopDataTextStyle}"/>
+                            <TextBlock x:Name="StatisticsEntryCountText" FontSize="32"/>
+                        </StackPanel>
+                        <StackPanel x:Name="DesktopStatisticsScreenshotMetric" Grid.Column="3" Spacing="8">
+                            <TextBlock Text="截图记录" Style="{StaticResource DesktopDataTextStyle}"/>
+                            <TextBlock x:Name="StatisticsScreenshotCountText" FontSize="32"/>
+                        </StackPanel>
+                    </Grid>
+                    <Grid x:Name="DesktopStatisticsDetails" ColumnDefinitions="1.3*,*" RowDefinitions="Auto,Auto" ColumnSpacing="24">
+                        <Border x:Name="StatisticsTagsCard" Style="{StaticResource DesktopArchiveSectionStyle}">
+                            <StackPanel Spacing="14">
+                                <TextBlock Text="常用个人标签" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                <TextBlock x:Name="StatisticsTagsEmpty" Text="还没有个人标签" Visibility="Collapsed" Style="{StaticResource DesktopDataTextStyle}"/>
+                                <ItemsControl x:Name="StatisticsTagList">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid ColumnDefinitions="110,*,36" ColumnSpacing="14" Margin="0,7">
+                                                <TextBlock Text="{Binding Name}" Style="{StaticResource DesktopControlTextStyle}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                <ProgressBar Grid.Column="1" Maximum="100" Value="{Binding Percent}" Height="5" VerticalAlignment="Center" Foreground="{ThemeResource DesktopAccentBrush}"/>
+                                                <TextBlock Grid.Column="2" Text="{Binding Count}" Style="{StaticResource DesktopDataTextStyle}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                        <Border x:Name="StatisticsWatchCard" Grid.Column="1" Style="{StaticResource DesktopArchiveSectionStyle}" Visibility="Collapsed">
+                            <StackPanel Spacing="16">
+                                <TextBlock Text="观看记录" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="已记录完成集数" Style="{StaticResource DesktopDataTextStyle}"/>
+                                    <TextBlock x:Name="StatisticsCompletedText" FontSize="26"/>
+                                </StackPanel>
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="估算观看时长" Style="{StaticResource DesktopDataTextStyle}"/>
+                                    <TextBlock x:Name="StatisticsDurationText" FontSize="26"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                    <Border Style="{StaticResource DesktopArchiveSectionStyle}">
+                        <Grid x:Name="DesktopStatisticsCoverage" ColumnDefinitions="*,220" RowDefinitions="Auto,Auto" ColumnSpacing="28">
+                            <StackPanel Spacing="14">
+                                <TextBlock Text="已评分的档案" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="14">
+                                    <ProgressBar x:Name="StatisticsCoverageBar" Maximum="100" Height="5" VerticalAlignment="Center" Foreground="{ThemeResource DesktopAccentBrush}"/>
+                                    <TextBlock x:Name="StatisticsCoveragePercentText" Grid.Column="1" Style="{StaticResource DesktopEmphasisDataTextStyle}"/>
+                                </Grid>
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <TextBlock x:Name="StatisticsCoverageText" Style="{StaticResource DesktopControlTextStyle}"/>
+                                    <TextBlock x:Name="StatisticsUnratedText" Style="{StaticResource DesktopDataTextStyle}"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <StackPanel x:Name="DesktopStatisticsStatus" Grid.Column="1" Spacing="8">
+                                <TextBlock Text="状态变化" Style="{StaticResource DesktopDataTextStyle}"/>
+                                <TextBlock x:Name="StatisticsStatusChangesText" FontSize="26"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <ScrollViewer x:Name="ReviewPanel" Visibility="Collapsed">
+                <StackPanel x:Name="DesktopReviewContent" Spacing="24" MaxWidth="850" HorizontalAlignment="Left" Padding="0,12,4,4">
+                    <Grid x:Name="DesktopReviewToolbar" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="16">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="年份" Style="{StaticResource DesktopDataTextStyle}" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                            <Button Content="‹" Click="OnReviewPreviousYearClick" ToolTipService.ToolTip="上一年" AutomationProperties.Name="上一年"/>
+                            <NumberBox x:Name="ReviewYear" Width="100" Minimum="2000" Maximum="2100" SpinButtonPlacementMode="Hidden" ValueChanged="OnReviewYearChanged" AutomationProperties.Name="回顾年份"/>
+                            <Button Content="›" Click="OnReviewNextYearClick" ToolTipService.ToolTip="下一年" AutomationProperties.Name="下一年"/>
+                        </StackPanel>
+                        <Button x:Name="DesktopReviewExportButton" Grid.Column="1" Content="导出 HTML" HorizontalAlignment="Right" Click="OnExportReviewClick"/>
+                    </Grid>
+                    <Grid x:Name="DesktopReviewHero" ColumnDefinitions="*,0" ColumnSpacing="24">
+                        <StackPanel Spacing="7" VerticalAlignment="Center">
+                            <TextBlock x:Name="ReviewHeroYear" FontSize="36" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="ReviewYearState" Style="{StaticResource DesktopDataTextStyle}"/>
+                            <TextBlock x:Name="ReviewRecordingStart" Style="{StaticResource DesktopDataTextStyle}"/>
+                        </StackPanel>
+                        <Grid x:Name="DesktopReviewCoversPane" Grid.Column="1" Height="160" Visibility="Collapsed">
+                            <TextBlock x:Name="ReviewCoversEmpty" Text="这一年还没有新增档案" Style="{StaticResource DesktopDataTextStyle}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                            <ScrollViewer HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+                                <ItemsControl x:Name="ReviewCovers">
+                                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="8"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Width="102" Height="150" CornerRadius="{ThemeResource DesktopCoverRadius}" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}" ToolTipService.ToolTip="{Binding Title}">
+                                                <Image Stretch="UniformToFill" Loaded="OnReviewCoverLoaded" Unloaded="OnArchiveImageUnloaded" DataContextChanged="OnReviewCoverDataContextChanged"/>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Grid>
+                    </Grid>
+                    <Grid x:Name="ReviewStatsGrid" ColumnDefinitions="*,*,*,*" RowDefinitions="Auto,0" ColumnSpacing="20">
+                        <StackPanel x:Name="DesktopReviewArchiveStat" Spacing="8">
+                            <TextBlock Text="新增档案" Style="{StaticResource DesktopDataTextStyle}"/>
+                            <TextBlock x:Name="ReviewArchiveCount" FontSize="28"/>
+                        </StackPanel>
+                        <StackPanel x:Name="DesktopReviewEntryStat" Grid.Column="1" Spacing="8">
+                            <TextBlock Text="写下感想" Style="{StaticResource DesktopDataTextStyle}"/>
+                            <TextBlock x:Name="ReviewEntryCount" FontSize="28"/>
+                        </StackPanel>
+                        <StackPanel x:Name="ReviewScreenshotStat" Grid.Column="2" Spacing="8" Visibility="Collapsed">
+                            <TextBlock Text="截图记录" Style="{StaticResource DesktopDataTextStyle}"/>
+                            <TextBlock x:Name="ReviewScreenshotCount" FontSize="28"/>
+                        </StackPanel>
+                        <StackPanel x:Name="ReviewWatchStat" Grid.Column="3" Spacing="8" Visibility="Collapsed">
+                            <TextBlock Text="估算观看时长" Style="{StaticResource DesktopDataTextStyle}"/>
+                            <TextBlock x:Name="ReviewWatchDuration" FontSize="24"/>
+                        </StackPanel>
+                    </Grid>
+                    <Grid x:Name="DesktopReviewDetails" ColumnDefinitions="1.1*,*" RowDefinitions="Auto,Auto" ColumnSpacing="24">
+                        <Border x:Name="ReviewMomentsCard" Style="{StaticResource DesktopArchiveSectionStyle}">
+                            <StackPanel Spacing="14">
+                                <TextBlock Text="这一年的感想" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                <TextBlock x:Name="ReviewMomentsEmpty" Text="这一年还没有写下感想" Visibility="Collapsed" Style="{StaticResource DesktopDataTextStyle}"/>
+                                <ItemsControl x:Name="ReviewMoments">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Style="{StaticResource DesktopArchiveSectionStyle}" Margin="0,0,0,22">
+                                                <StackPanel Spacing="8">
+                                                    <TextBlock Text="{Binding DateText}" Style="{StaticResource DesktopDataTextStyle}"/>
+                                                    <TextBlock Text="{Binding AnimeTitle}" Style="{StaticResource DesktopEmphasisTextStyle}" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="{Binding Preview}" Style="{StaticResource DesktopReadingTextStyle}"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                        <Border x:Name="ReviewScreenshotsCard" Grid.Column="1" Style="{StaticResource DesktopArchiveSectionStyle}" Visibility="Collapsed">
+                            <StackPanel Spacing="14">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                    <TextBlock Text="这一年的截图" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                                    <Button Grid.Column="1" Content="查看更多截图" Style="{StaticResource AniMeidoNavigateButtonStyle}" Click="OnReviewMoreScreenshotsClick"/>
+                                </Grid>
+                                <TextBlock x:Name="ReviewScreenshotsEmpty" Text="这一年还没有截图" Visibility="Collapsed" Style="{StaticResource DesktopDataTextStyle}"/>
+                                <ItemsControl x:Name="ReviewScreenshots">
+                                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Spacing="14"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Spacing="4">
+                                                <Border Height="150" CornerRadius="{ThemeResource DesktopCoverRadius}" Background="{ThemeResource DesktopCardBrush}">
+                                                    <Image Stretch="Uniform" Loaded="OnScreenshotImageLoaded" Unloaded="OnArchiveImageUnloaded" DataContextChanged="OnScreenshotImageDataContextChanged"/>
+                                                </Border>
+                                                <TextBlock Text="{Binding ReviewTitle}" Style="{StaticResource DesktopEmphasisTextStyle}" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding ReviewCaption}" Style="{StaticResource DesktopDataTextStyle}" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Grid x:Name="ScreenshotsPanel" Visibility="Collapsed"
+                  ColumnDefinitions="*,360" RowDefinitions="*,0" ColumnSpacing="20" RowSpacing="16">
+                <Border x:Name="DesktopScreenshotGridPane" Style="{StaticResource DesktopArchiveSectionStyle}" Padding="0,12,0,0">
+                    <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10">
+                        <Grid x:Name="DesktopScreenshotToolbar" ColumnDefinitions="*,130,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" SizeChanged="OnDesktopScreenshotToolbarSizeChanged">
+                            <TextBox x:Name="ScreenshotFilter"
+                                     PlaceholderText="搜索作品、备注、进程或标签"
+                                     TextChanged="OnScreenshotFilterChanged"/>
+                            <NumberBox x:Name="ScreenshotYearFilter" Grid.Column="1"
+                                       PlaceholderText="全部年份"
+                                       Minimum="2000" Maximum="2100"
+                                       SpinButtonPlacementMode="Hidden"
+                                       ValueChanged="OnScreenshotYearFilterChanged"/>
+                            <Button x:Name="ScreenshotBatchButton" Grid.Column="2"
+                                    Content="本页批量选择"
+                                    Click="OnScreenshotBatchClick"/>
+                            <Button x:Name="DesktopScreenshotMoreButton" Grid.Column="3" Content="···" AutomationProperties.Name="截图管理"
+                                    ToolTipService.ToolTip="截图管理"
+                                    FlyoutBase.AttachedFlyout="{StaticResource ScreenshotMoreActionsFlyout}"
+                                    Click="OnShowScreenshotMoreActionsClick"/>
+                        </Grid>
+                        <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="16">
+                            <TextBlock x:Name="ScreenshotCountText"
+                                       FontSize="16" FontWeight="SemiBold"/>
+                            <CheckBox x:Name="ScreenshotUnassignedOnly" Grid.Column="1"
+                                      Content="未关联作品" Checked="OnScreenshotUnassignedChanged"
+                                      Unchecked="OnScreenshotUnassignedChanged"/>
+                            <StackPanel x:Name="ScreenshotBatchActions" Grid.Column="2"
+                                        Orientation="Horizontal" Spacing="8"
+                                        Visibility="Collapsed">
+                                <TextBlock x:Name="ScreenshotSelectedCountText"
+                                           VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <Button x:Name="ScreenshotBatchTagButton"
+                                        Content="加标签" Click="OnTagScreenshotsClick"/>
+                                <Button x:Name="ScreenshotBatchExportButton"
+                                        Content="复制所选原图…"
+                                        ToolTipService.ToolTip="选择文件夹保存原图副本，不移动原文件"
+                                        Click="OnExportScreenshotsClick"/>
+                            </StackPanel>
+                        </Grid>
+                        <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="12"
+                                    HorizontalAlignment="Center" Margin="0,8,0,0">
+                            <Button x:Name="ScreenshotPreviousButton" Content="上一页"
+                                    Click="OnPreviousScreenshotPage"/>
+                            <TextBlock x:Name="ScreenshotPageText" VerticalAlignment="Center"/>
+                            <Button x:Name="ScreenshotNextButton" Content="下一页"
+                                    Click="OnNextScreenshotPage"/>
+                        </StackPanel>
+                        <Grid Grid.Row="2">
+                            <GridView x:Name="ScreenshotList"
+                                       ItemsSource="{Binding Source={StaticResource ScreenshotGroupsSource}}"
+                                      Padding="0"
+                                       SelectionMode="Single"
+                                      SelectionChanged="OnScreenshotSelectionChanged"
+                                      ScrollViewer.VerticalScrollBarVisibility="Hidden">
+                                <GridView.GroupStyle>
+                                    <GroupStyle>
+                                        <GroupStyle.HeaderTemplate>
+                                            <DataTemplate>
+                                                 <TextBlock Style="{StaticResource DesktopEmphasisDataTextStyle}" Text="{Binding Header}"
+                                                           Margin="0,0,0,6"/>
+                                            </DataTemplate>
+                                        </GroupStyle.HeaderTemplate>
+                                    </GroupStyle>
+                                </GridView.GroupStyle>
+                                <GridView.ItemContainerStyle>
+                                    <Style TargetType="GridViewItem" BasedOn="{StaticResource DesktopGridViewItemStyle}">
+                                        <Setter Property="Padding" Value="0"/>
+                                        <Setter Property="Margin" Value="0,0,12,12"/>
+                                    </Style>
+                                </GridView.ItemContainerStyle>
+                                <GridView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Width="145" CornerRadius="{ThemeResource DesktopControlRadius}"
+                                                Background="{ThemeResource DesktopCardBrush}">
+                                            <StackPanel>
+                                                <Image Loaded="OnScreenshotImageLoaded" Unloaded="OnArchiveImageUnloaded"
+                                                       DataContextChanged="OnScreenshotImageDataContextChanged"
+                                                        Width="145" Height="82"
+                                                        Stretch="UniformToFill"/>
+                                                <Grid Padding="6,6,6,7" ColumnDefinitions="Auto,*"
+                                                      ColumnSpacing="8">
+                                                    <TextBlock Style="{StaticResource DesktopEmphasisDataTextStyle}" Text="{Binding CaptureClockText}"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Style="{StaticResource DesktopDataTextStyle}" Grid.Column="1"
+                                                               Text="{Binding ProcessName}"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" MaxLines="1" HorizontalAlignment="Right"/>
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </GridView.ItemTemplate>
+                            </GridView>
+                            <StackPanel x:Name="ScreenshotEmptyState"
+                                        Visibility="Collapsed"
+                                        VerticalAlignment="Center"
+                                        HorizontalAlignment="Center" Spacing="8">
+                                <FontIcon Glyph="&#xE722;" FontSize="40"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <TextBlock Text="没有找到截图"
+                                           HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+                </Border>
+                <Border x:Name="DesktopScreenshotDetailPane" Grid.Column="1" Style="{StaticResource AniMeidoCardStyle}">
+                    <Grid>
+                        <StackPanel x:Name="ScreenshotDetailsEmptyState"
+                                    VerticalAlignment="Center"
+                                    HorizontalAlignment="Center" Spacing="8">
+                            <FontIcon Glyph="&#xE722;" FontSize="40"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock Text="选择一张截图查看信息"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
+                        <Grid x:Name="ScreenshotDetailsPanel" Visibility="Collapsed"
+                              RowDefinitions="Auto,*,Auto" RowSpacing="12">
+                            <TextBlock Text="截图详情"
+                                       Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Hidden">
+                                <Grid x:Name="DesktopScreenshotDetailContent" ColumnDefinitions="*,0" RowDefinitions="Auto,Auto" RowSpacing="14" ColumnSpacing="14">
+                                    <Border x:Name="DesktopScreenshotPreview" Grid.ColumnSpan="2" Height="220" VerticalAlignment="Top" CornerRadius="{ThemeResource DesktopControlRadius}"
+                                            Background="{ThemeResource DesktopCardBrush}">
+                                        <Image x:Name="ScreenshotDetailImage"
+                                               Stretch="Uniform"
+                                               Loaded="OnScreenshotImageLoaded" Unloaded="OnArchiveImageUnloaded"
+                                               DataContextChanged="OnScreenshotImageDataContextChanged"/>
+                                    </Border>
+                                    <StackPanel x:Name="DesktopScreenshotMetadata" Grid.Row="1" Grid.ColumnSpan="2" Spacing="14">
+                                    <TextBlock x:Name="ScreenshotDetailFileState"
+                                               Visibility="Collapsed"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock x:Name="ScreenshotDetailAnime"
+                                                   FontSize="18" FontWeight="SemiBold"
+                                                   TextWrapping="Wrap" MaxLines="2"/>
+                                        <TextBlock x:Name="ScreenshotDetailTime"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    </StackPanel>
+                                    <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto">
+                                        <TextBlock x:Name="ScreenshotDetailEpisodeLabel" Text="集数"/>
+                                        <TextBlock x:Name="ScreenshotDetailEpisode" Grid.Column="1"/>
+                                        <TextBlock x:Name="ScreenshotDetailPositionLabel"
+                                                   Grid.Row="1" Margin="0,8,0,0" Text="播放位置"/>
+                                        <TextBlock x:Name="ScreenshotDetailPosition" Grid.Row="1" Grid.Column="1"
+                                                   Margin="0,8,0,0"/>
+                                        <TextBlock Grid.Row="2" Margin="0,8,0,0" Text="图片尺寸"/>
+                                        <TextBlock x:Name="ScreenshotDetailSize" Grid.Row="2" Grid.Column="1"
+                                                   Margin="0,8,0,0"/>
+                                    </Grid>
+                                    <StackPanel Spacing="8">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Text="个人标签" VerticalAlignment="Center"
+                                                       FontWeight="SemiBold"/>
+                                            <Button Grid.Column="1" Content="＋ 添加标签"
+                                                    Click="OnAddSelectedScreenshotTagClick"/>
+                                        </Grid>
+                                        <ItemsControl x:Name="ScreenshotDetailTags">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <VariableSizedWrapGrid Orientation="Horizontal"/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Button Click="OnRemoveScreenshotTagClick"
+                                                            Margin="0,0,6,6" Padding="10,5"
+                                                            Foreground="{ThemeResource AniMeidoAccentBrush}"
+                                                            Background="{ThemeResource DesktopCardBrush}"
+                                                            ToolTipService.ToolTip="移除标签">
+                                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                                            <TextBlock Text="{Binding}"/>
+                                                            <TextBlock Text="×"/>
+                                                        </StackPanel>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                    <StackPanel Spacing="7">
+                                        <TextBlock Text="截图备注" FontWeight="SemiBold"/>
+                                        <Border Padding="12" MinHeight="54" CornerRadius="7"
+                                                Background="{ThemeResource DesktopCardBrush}">
+                                            <TextBlock x:Name="ScreenshotDetailContext"
+                                                       TextWrapping="Wrap"/>
+                                        </Border>
+                                    </StackPanel>
+                                    </StackPanel>
+                                </Grid>
+                            </ScrollViewer>
+                            <Grid x:Name="DesktopScreenshotDetailActions" Grid.Row="2" ColumnDefinitions="*,*,0,0" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+                                <Button x:Name="ScreenshotOpenButton"
+                                        Content="打开原图"
+                                        Style="{StaticResource AccentButtonStyle}"
+                                        Click="OnOpenScreenshotClick" HorizontalAlignment="Stretch"/>
+                                <Button Grid.Column="1" Content="编辑信息" HorizontalAlignment="Stretch"
+                                        Click="OnEditScreenshotClick"/>
+                                <Button x:Name="ScreenshotExportButton"
+                                        Grid.Row="1" HorizontalAlignment="Stretch"
+                                        Content="复制原图…"
+                                        ToolTipService.ToolTip="选择文件夹保存原图副本，不移动原文件"
+                                        Click="OnExportCurrentScreenshotClick"/>
+                                <Button x:Name="ScreenshotDetailMoreButton"
+                                        Grid.Row="1" Grid.Column="1" AutomationProperties.Name="更多截图操作" HorizontalAlignment="Stretch"
+                                        Content="···"
+                                        FlyoutBase.AttachedFlyout="{StaticResource ScreenshotMoreActionsFlyout}"
+                                        Click="OnShowScreenshotMoreActionsClick"/>
+                            </Grid>
+                        </Grid>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+    </Grid>
+</Page>

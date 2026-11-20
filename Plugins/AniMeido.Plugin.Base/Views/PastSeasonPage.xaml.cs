@@ -49,7 +49,9 @@ namespace AniMeido.Plugin.Base.Views
         private PastSeasonTarget _selected;
         private int _flyoutYear;
         private double _cardWidth = AnimeCardPresentation.DefaultCardWidth;
+#if !UNO_DESKTOP
         private bool? _toolbarIsSingleRow;
+#endif
         private bool _isSyncingControls;
 
         public PastSeasonPage(
@@ -433,6 +435,10 @@ namespace AniMeido.Plugin.Base.Views
         /// <summary>工具栏宽时一行，窄时季度与形态一行、其余一行。</summary>
         private void OnToolbarSizeChanged(object sender, SizeChangedEventArgs e)
         {
+#if UNO_DESKTOP
+            // 默认目录始终分成季度/形态和搜索/排序两行。
+            return;
+#else
             var singleRow = e.NewSize.Width >= ToolbarSingleRowWidth;
             if (_toolbarIsSingleRow == singleRow)
                 return;
@@ -445,6 +451,7 @@ namespace AniMeido.Plugin.Base.Views
             Grid.SetColumnSpan(SecondaryTools, singleRow ? 1 : 2);
             Grid.SetColumnSpan(PrimaryTools, singleRow ? 1 : 2);
             FilterBox.Width = singleRow ? 220 : double.NaN;
+#endif
         }
 
         private void OnGridSizeChanged(object sender, SizeChangedEventArgs e)
@@ -456,6 +463,9 @@ namespace AniMeido.Plugin.Base.Views
         /// <summary>按网格宽度算出每行几张、每张多宽，让卡片铺满整行。</summary>
         private void ApplyCardWidth()
         {
+#if UNO_DESKTOP
+            ApplyDesktopCatalogWidth();
+#else
             var available = AnimeGridView.ActualWidth
                 - AnimeGridView.Padding.Left
                 - AnimeGridView.Padding.Right;
@@ -488,6 +498,7 @@ namespace AniMeido.Plugin.Base.Views
 
             SkeletonLayout.MinItemWidth = width + CardSlotExtra;
             SkeletonLayout.MinItemHeight = AnimeCardPresentation.CoverHeightFor(width) + CardBelowCoverHeight;
+#endif
         }
 
         private void OnGridContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
@@ -500,6 +511,9 @@ namespace AniMeido.Plugin.Base.Views
 
         private void OnPageLoaded(object sender, RoutedEventArgs e)
         {
+#if UNO_DESKTOP
+            AttachDesktopCatalogPreferences();
+#endif
             _dropHostRegistration?.Dispose();
             _dropHostRegistration = _dragDrop.AttachStandardDragHost(
                 RootGrid,
@@ -536,6 +550,9 @@ namespace AniMeido.Plugin.Base.Views
 
         private void OnRootGridUnloaded(object sender, RoutedEventArgs e)
         {
+#if UNO_DESKTOP
+            DetachDesktopCatalogPreferences();
+#endif
             _dropHostRegistration?.Dispose();
             _dropHostRegistration = null;
             _seasonLoadTimer.Stop();

@@ -52,6 +52,7 @@ public partial class RecommendationViewModel : ObservableObject
 
     private bool _isSavingPreference;
     private bool _isActionRunning;
+    private readonly AsyncLocal<PersonalWriteOperation?> _personalWrite = new();
     public bool HasSelection => SelectedItem is not null;
     public RecommendationBrowseState BrowseState => _browse;
     public string TagSummary => $"标签 · 共 {SelectedTags.Count} 个 · 手动设置 {SelectedTags.Count(tag => tag.Adjustment is not null)} 个";
@@ -190,7 +191,7 @@ public partial class RecommendationViewModel : ObservableObject
         OnPropertyChanged(nameof(SavingFollowingIds));
         try
         {
-            var (status, changed) = await _recommendations.ToggleFollowingAsync(item.Anime.ID, cancellationToken);
+            var (status, changed) = await CompletePersonalWriteAsync(token => _recommendations.ToggleFollowingAsync(item.Anime.ID, token), cancellationToken);
             if (cancellationToken.IsCancellationRequested) return;
             var label = status switch
             {
@@ -333,28 +334,55 @@ public partial class RecommendationViewModel : ObservableObject
 
         if (serialize)
             _isActionRunning = true;
+        var previousWrite = _personalWrite.Value;
+        var write = new PersonalWriteOperation();
+        _personalWrite.Value = write;
         try
         {
             await action(cancellationToken);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested && !write.Failed)
         {
         }
 #pragma warning disable CA1031 // 页面操作的最终错误边界；显示提示，不让事件异常终止应用。
         catch (Exception ex)
         {
-            if (!cancellationToken.IsCancellationRequested)
+            if (write.Failed || !cancellationToken.IsCancellationRequested)
             {
                 _logger.LogError(ex, "Recommendation action failed.");
+            }
+            if (!cancellationToken.IsCancellationRequested)
+            {
                 ReportError(ex.Message);
             }
         }
 #pragma warning restore CA1031
         finally
         {
+            _personalWrite.Value = previousWrite;
             if (serialize)
                 _isActionRunning = false;
         }
+    }
+
+    private async Task<T> CompletePersonalWriteAsync<T>(Func<CancellationToken, Task<T>> write, CancellationToken pageToken)
+    {
+        pageToken.ThrowIfCancellationRequested();
+        // 点击确认后交给服务完成写入；原令牌继续管后续读取和展示。
+        try { return await write(CancellationToken.None); }
+        catch
+        {
+            if (_personalWrite.Value is { } operation) operation.Failed = true;
+            throw;
+        }
+    }
+
+    private Task CompletePersonalWriteAsync(Func<CancellationToken, Task> write, CancellationToken pageToken)
+        => CompletePersonalWriteAsync(async token => { await write(token); return true; }, pageToken);
+
+    private sealed class PersonalWriteOperation
+    {
+        internal bool Failed { get; set; }
     }
 
     public void RefreshSuggestedTags()
@@ -579,10 +607,10 @@ public partial class RecommendationViewModel : ObservableObject
         CancellationToken cancellationToken = default)
     {
         var generation = _loadGeneration;
-        await _recommendations.HideAnimeAsync(
+        await CompletePersonalWriteAsync(token => _recommendations.HideAnimeAsync(
             item.Anime.ID,
             item.Anime.Title,
-            cancellationToken);
+            token), cancellationToken);
         _browse.RemovedIds.Add(item.Anime.ID);
         if (!IsCurrentLoad(generation, cancellationToken))
             return;
@@ -598,9 +626,9 @@ public partial class RecommendationViewModel : ObservableObject
         RecommendationItem item,
         CancellationToken cancellationToken = default)
     {
-        await _recommendations.MarkNotInterestedAsync(
+        await CompletePersonalWriteAsync(token => _recommendations.MarkNotInterestedAsync(
             item.Anime.ID,
-            cancellationToken);
+            token), cancellationToken);
         _browse.RemovedIds.Add(item.Anime.ID);
         if (cancellationToken.IsCancellationRequested) return;
         RemoveItem(item);
@@ -612,9 +640,9 @@ public partial class RecommendationViewModel : ObservableObject
         CancellationToken cancellationToken = default)
     {
         var generation = _loadGeneration;
-        await _recommendations.RestoreAnimeAsync(
+        await CompletePersonalWriteAsync(token => _recommendations.RestoreAnimeAsync(
             item.AnimeId,
-            cancellationToken);
+            token), cancellationToken);
         if (!IsCurrentLoad(generation, cancellationToken))
             return;
 
@@ -627,7 +655,7 @@ public partial class RecommendationViewModel : ObservableObject
         CancellationToken cancellationToken = default)
     {
         var generation = _loadGeneration;
-        await _recommendations.ClearHiddenAnimeAsync(cancellationToken);
+        await CompletePersonalWriteAsync(_recommendations.ClearHiddenAnimeAsync, cancellationToken);
         if (!IsCurrentLoad(generation, cancellationToken))
             return;
 
@@ -645,7 +673,7 @@ public partial class RecommendationViewModel : ObservableObject
         _isSavingPreference = true;
         try
         {
-            await _recommendations.SetFeaturePreferenceAsync(feature, adjustment, cancellationToken);
+            await CompletePersonalWriteAsync(token => _recommendations.SetFeaturePreferenceAsync(feature, adjustment, token), cancellationToken);
             _preferenceGeneration++;
             _browse.HasPendingPreferences = true;
             // Preserve the current evidence and ordering; only explicit preference state changes.
@@ -682,26 +710,24 @@ public partial class RecommendationViewModel : ObservableObject
             return;
         }
 
-        foreach (var tag in tags)
+        await CompletePersonalWriteAsync(async token =>
         {
-            await _recommendations.SetFeaturePreferenceAsync(
-                new RecommendationFeature(
-                    RecommendationFeatureKind.Tag,
-                    RecommendationCandidateProvider.NormalizeTag(tag),
-                    tag),
-                RecommendationAdjustment.Like,
-                cancellationToken);
-        }
+            foreach (var tag in tags)
+            {
+                await _recommendations.SetFeaturePreferenceAsync(
+                    new RecommendationFeature(RecommendationFeatureKind.Tag, RecommendationCandidateProvider.NormalizeTag(tag), tag),
+                    RecommendationAdjustment.Like, token);
+            }
+        }, cancellationToken);
 
-        await RefreshAsync(cancellationToken);
+        if (!cancellationToken.IsCancellationRequested) await RefreshAsync(cancellationToken);
     }
 
     public async Task ClearPreferencesAsync(
         CancellationToken cancellationToken = default)
     {
-        await _recommendations.ClearFeaturePreferencesAsync(
-            cancellationToken);
-        await RefreshAsync(cancellationToken);
+        await CompletePersonalWriteAsync(_recommendations.ClearFeaturePreferencesAsync, cancellationToken);
+        if (!cancellationToken.IsCancellationRequested) await RefreshAsync(cancellationToken);
     }
 
     private async Task LoadPersonalDataAsync(

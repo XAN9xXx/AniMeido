@@ -159,7 +159,7 @@ public sealed class InstalledUpdateService
                 progress, cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             // 解压与 SetPending 是不可取消的收尾阶段；不会覆盖 current 或删除已有目标。
-            UpdatePackageExtractor.Extract(zip, target, [InstallLayout.AppFileName]);
+            UpdatePackageExtractor.Extract(zip, target, new[] { InstallLayout.AppFileName });
             manager.SetPending(version);
             DeletePreparedPackage(zip);
             return version;

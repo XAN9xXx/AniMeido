@@ -865,6 +865,10 @@ public partial class TodayViewModel : ObservableObject
         int reminderCount,
         DateOnly? today = null)
     {
+#if UNO_DESKTOP
+        if (!DesktopPresentationPreferences.ShowPlanReminders)
+            reminderCount = 0;
+#endif
         var reminderText = reminderCount == 0
             ? ""
             : $"{reminderCount} 个提醒";

@@ -1,0 +1,60 @@
+﻿<Page x:Class="AniMeido.Plugin.Base.Views.DataManagementSettingsPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+>
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Padding="0,0,4,28" Spacing="20" MaxWidth="940" HorizontalAlignment="Stretch">
+            <TextBlock Text="数据管理" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+            <InfoBar x:Name="DataStatus" IsClosable="True"/>
+            <ProgressRing x:Name="DataProgress" IsActive="True" Visibility="Collapsed" Height="28"/>
+            <Border Style="{StaticResource AniMeidoCardStyle}" Padding="20">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="本地缓存" Style="{StaticResource DesktopEmphasisTextStyle}"/>
+                    <TextBlock Text="缓存让看过的资料可离线浏览，也能减少重复请求。" TextWrapping="Wrap" Style="{StaticResource DesktopDataTextStyle}"/>
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                        <TextBlock x:Name="CacheInfoText" VerticalAlignment="Center" Style="{StaticResource DesktopDataTextStyle}"/>
+                        <Button x:Name="ClearCacheButton" Grid.Column="1" Content="清理缓存" Click="OnClearCacheClick"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource AniMeidoCardStyle}" Padding="20">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="数据路径" Style="{StaticResource DesktopEmphasisTextStyle}"/>
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                        <StackPanel Spacing="4"><TextBlock Text="数据库" Style="{StaticResource DesktopControlTextStyle}"/><TextBlock x:Name="DbPathText" TextWrapping="Wrap" Style="{StaticResource DesktopDataTextStyle}" IsTextSelectionEnabled="True"/></StackPanel>
+                        <Button Grid.Column="1" Content="打开文件夹" Click="OnOpenDbDirClick" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                        <StackPanel Spacing="4"><TextBlock Text="备份" Style="{StaticResource DesktopControlTextStyle}"/><TextBlock x:Name="BackupPathText" TextWrapping="Wrap" Style="{StaticResource DesktopDataTextStyle}" IsTextSelectionEnabled="True"/></StackPanel>
+                        <Button Grid.Column="1" Content="打开文件夹" Click="OnOpenBackupDirClick" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                        <StackPanel Spacing="4"><TextBlock Text="日志" Style="{StaticResource DesktopControlTextStyle}"/><TextBlock x:Name="LogPathText" TextWrapping="Wrap" Style="{StaticResource DesktopDataTextStyle}" IsTextSelectionEnabled="True"/></StackPanel>
+                        <Button Grid.Column="1" Content="打开文件夹" Click="OnOpenLogDirClick" VerticalAlignment="Center"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource AniMeidoCardStyle}" Padding="20">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                    <StackPanel Spacing="6"><TextBlock Text="立即备份" Style="{StaticResource DesktopEmphasisTextStyle}"/><TextBlock Text="保存当前数据库，保留最近十份。" TextWrapping="Wrap" Style="{StaticResource DesktopDataTextStyle}"/></StackPanel>
+                    <Button x:Name="BackupNowButton" Grid.Column="1" Content="备份" Click="OnBackupNowClick" VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+            <Border Style="{StaticResource AniMeidoCardStyle}" Padding="20">
+                <StackPanel Spacing="18">
+                    <TextBlock Text="导入与导出" Style="{StaticResource DesktopEmphasisTextStyle}"/>
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                        <StackPanel Spacing="6"><TextBlock Text="追番数据 JSON" Style="{StaticResource DesktopControlTextStyle}"/><TextBlock Text="追番、标签、计划与拖放设置" TextWrapping="Wrap" Style="{StaticResource DesktopDataTextStyle}"/></StackPanel>
+                        <Button x:Name="ExportButton" Grid.Column="1" Content="导出" Click="OnExportClick" VerticalAlignment="Center"/>
+                        <Button x:Name="ImportButton" Grid.Column="2" Content="导入" Click="OnImportClick" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                        <StackPanel Spacing="6"><TextBlock Text="完整档案 ZIP" Style="{StaticResource DesktopControlTextStyle}"/><TextBlock Text="连同截图原图一起保存，可在另一台设备导入。" TextWrapping="Wrap" Style="{StaticResource DesktopDataTextStyle}"/></StackPanel>
+                        <Button x:Name="ExportBundleButton" Grid.Column="1" Content="导出 ZIP" Click="OnExportBundleClick" VerticalAlignment="Center"/>
+                        <Button x:Name="ImportBundleButton" Grid.Column="2" Content="导入 ZIP" Click="OnImportBundleClick" VerticalAlignment="Center"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

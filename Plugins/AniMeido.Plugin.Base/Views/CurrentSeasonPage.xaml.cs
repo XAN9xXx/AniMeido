@@ -178,7 +178,7 @@ namespace AniMeido.Plugin.Base.Views
 
         private void UpdateOverlayState()
         {
-            ErrorInfoBar.Message = ViewModel.ErrorMessage;
+            ErrorInfoBar.Message = ViewModel.ErrorMessage ?? string.Empty;
             ErrorInfoBar.IsOpen = ViewModel.IsError;
 
             bool showOverlay = ViewModel.IsLoading || ViewModel.IsError;
@@ -256,6 +256,9 @@ namespace AniMeido.Plugin.Base.Views
             _applyingLowerLayout = true;
             try
             {
+#if UNO_DESKTOP
+                ApplyDesktopCalendarLowerLayout();
+#else
                 var viewportHeight = BodyScroller.ActualHeight;
                 if (ViewModel.IsFiltering)
                 {
@@ -302,6 +305,7 @@ namespace AniMeido.Plugin.Base.Views
                 TimeMachineLayout.MinItemHeight = Math.Min(
                     CalendarLowerLayout.PickMaxHeight,
                     Math.Floor((listHeight - CalendarLowerLayout.PickRowSpacing * (layout.Rows - 1)) / layout.Rows));
+#endif
             }
             finally
             {
@@ -383,10 +387,12 @@ namespace AniMeido.Plugin.Base.Views
 
         private void UpdateShelfFades()
         {
+#if !UNO_DESKTOP
             var offset = ShelfScroller.HorizontalOffset;
             ShelfStartFade.Opacity = offset > EdgeTolerance ? 1 : 0;
             ShelfEndFade.Opacity =
                 ShelfScroller.ScrollableWidth - offset > EdgeTolerance ? 1 : 0;
+#endif
         }
 
         /// <summary>
@@ -498,6 +504,10 @@ namespace AniMeido.Plugin.Base.Views
                 if (!IsLoaded || visit != _visitVersion)
                     return;
 
+#if UNO_DESKTOP
+                if (DesktopFeedback.TryShow($"标记失败：{ex.Message}", error: true))
+                    return;
+#endif
                 ErrorInfoBar.Message = $"标记失败：{ex.Message}";
                 ErrorInfoBar.IsOpen = true;
             }
@@ -542,6 +552,10 @@ namespace AniMeido.Plugin.Base.Views
                 if (!IsLoaded || visit != _visitVersion)
                     return;
 
+#if UNO_DESKTOP
+                if (DesktopFeedback.TryShow($"标记失败：{ex.Message}", error: true))
+                    return;
+#endif
                 ErrorInfoBar.Message = $"标记失败：{ex.Message}";
                 ErrorInfoBar.IsOpen = true;
             }

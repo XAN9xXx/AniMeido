@@ -65,16 +65,27 @@ public sealed partial class SettingPage : Page
                 : AppSettingsId;
         SettingsNavigation.MenuItems.Clear();
 
+#if !UNO_DESKTOP
         SettingsNavigation.MenuItems.Add(
             new NavigationViewItemHeader { Content = "AniMeido" });
+#endif
         var appItem = CreateNavigationItem(
+#if UNO_DESKTOP
+            "外观",
+            "\uE790",
+#else
             "App 设置",
             "\uE713",
+#endif
             new SettingsTarget(
                 AppSettingsId,
                 typeof(AppSettingsPage),
                 null));
         SettingsNavigation.MenuItems.Add(appItem);
+#if UNO_DESKTOP
+        SettingsNavigation.MenuItems.Add(CreateNavigationItem(
+            "窗口", "\uE737", new SettingsTarget("app:window", typeof(AppSettingsPage), null)));
+#endif
 
         if (App.Plugins is not null)
         {
@@ -86,11 +97,13 @@ public sealed partial class SettingPage : Page
                     entry.PluginDisplayName,
                 }))
             {
+#if !UNO_DESKTOP
                 SettingsNavigation.MenuItems.Add(
                     new NavigationViewItemHeader
                     {
                         Content = group.Key.PluginDisplayName,
                     });
+#endif
                 foreach (var entry in group)
                 {
                     SettingsNavigation.MenuItems.Add(
@@ -105,6 +118,13 @@ public sealed partial class SettingPage : Page
             }
         }
 
+#if UNO_DESKTOP
+        SettingsNavigation.MenuItems.Add(CreateNavigationItem(
+            "插件管理", "\uE8D4", new SettingsTarget("app:plugins", typeof(AppSettingsPage), null)));
+        SettingsNavigation.MenuItems.Add(CreateNavigationItem(
+            "关于", "\uE946", new SettingsTarget("app:about", typeof(AppSettingsPage), null)));
+#endif
+
         foreach (var group in _contributions.Settings.GroupBy(
             entry => new
             {
@@ -112,11 +132,13 @@ public sealed partial class SettingPage : Page
                 entry.PluginDisplayName,
             }))
         {
+#if !UNO_DESKTOP
             SettingsNavigation.MenuItems.Add(
                 new NavigationViewItemHeader
                 {
                     Content = group.Key.PluginDisplayName,
                 });
+#endif
             foreach (var entry in group)
             {
                 SettingsNavigation.MenuItems.Add(
@@ -183,6 +205,18 @@ public sealed partial class SettingPage : Page
         if (target.PageType is not null)
         {
             SettingsFrame.Content = _pageFactory.CreatePage(target.PageType);
+#if UNO_DESKTOP
+            if (SettingsFrame.Content is AppSettingsPage desktopSettings)
+            {
+                desktopSettings.SetDesktopSection(target.Id switch
+                {
+                    "app:window" => "window",
+                    "app:plugins" => "plugins",
+                    "app:about" => "about",
+                    _ => "appearance",
+                });
+            }
+#endif
         }
         else if (target.Hosted is not null)
         {
@@ -190,6 +224,9 @@ public sealed partial class SettingPage : Page
                 _contributions,
                 target.Hosted);
         }
+#if UNO_DESKTOP
+        ApplyDesktopSettingsAppearance(SettingsFrame.Content as FrameworkElement);
+#endif
     }
 
     private const string AppSettingsId = "app";

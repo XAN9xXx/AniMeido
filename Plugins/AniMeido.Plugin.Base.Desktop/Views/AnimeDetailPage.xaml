@@ -1,0 +1,141 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="AniMeido.Plugin.Base.Views.AnimeDetailPage"
+    x:Name="RootPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:AniMeido.Plugin.Base.Views"
+    xmlns:models="using:AniMeido.Contracts.Models"
+    xmlns:vm="using:AniMeido.Plugin.Base.ViewModels"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    <Grid RowDefinitions="Auto,*">
+        <InfoBar x:Name="ErrorInfoBar" Margin="32,20,32,0" Severity="Error" IsClosable="True" IsOpen="False"/>
+        <ScrollViewer x:Name="ContentScrollViewer" Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+            <Grid x:Name="DetailLayout" Padding="32,28,32,40" MaxWidth="1310" HorizontalAlignment="Stretch" SizeChanged="OnDesktopDetailSizeChanged"
+                  RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="24" ColumnSpacing="40">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition x:Name="DetailTextColumn" Width="*"/>
+                    <ColumnDefinition x:Name="DetailCoverColumn" Width="220"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel x:Name="DetailHeader" Spacing="14">
+                    <TextBlock Text="{Binding AnimeDetail.Title}" Style="{StaticResource AniMeidoPageTitleStyle}" TextWrapping="Wrap"/>
+                    <StackPanel Orientation="Horizontal" Spacing="16">
+                        <TextBlock Text="{Binding AnimeDetail.AirDate}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock Text="{Binding MediaFormatText}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock Text="{Binding ReleasePhaseText}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
+                </StackPanel>
+                <Border x:Name="CoverSection" Grid.Column="1" Grid.RowSpan="3" VerticalAlignment="Top" Width="220" MaxHeight="330"
+                        CornerRadius="{ThemeResource DesktopCoverRadius}" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}">
+                    <Image x:Name="DetailCoverImage" Stretch="Uniform"/>
+                </Border>
+                <StackPanel x:Name="SynopsisSection" Grid.Row="1" Spacing="12">
+                    <TextBlock Text="简介" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                    <TextBlock Text="{Binding DescriptionText}" Style="{StaticResource DesktopReadingTextStyle}" IsTextSelectionEnabled="True"/>
+                </StackPanel>
+                <StackPanel x:Name="ActionSection" Grid.Row="2" Orientation="Horizontal" Spacing="12">
+                    <Button x:Name="OnlinePlayButton" Click="OnOnlinePlayClick" IsEnabled="{Binding HasData}" Visibility="Collapsed"
+                            Style="{StaticResource AccentButtonStyle}" Padding="16,8" HorizontalAlignment="Left">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE768;"/>
+                            <TextBlock Text="在线播放"/>
+                        </StackPanel>
+                    </Button>
+                    <DropDownButton x:Name="DesktopTrackingButton" MinWidth="144" Padding="14,8" IsEnabled="{Binding HasData}"
+                                    Content="{x:Bind DesktopTrackingLabel(ViewModel.CurrentStatus), Mode=OneWay}"
+                                    AutomationProperties.Name="追番状态" Unloaded="OnDesktopTrackingUnloaded">
+                        <DropDownButton.Flyout>
+                            <MenuFlyout x:Name="DesktopTrackingMenu" Placement="BottomEdgeAlignedLeft"
+                                        Opening="OnDesktopTrackingMenuOpening"/>
+                        </DropDownButton.Flyout>
+                    </DropDownButton>
+                </StackPanel>
+                <Border x:Name="ArchiveSection" Grid.Row="3" Grid.ColumnSpan="2" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,1" Padding="0,20">
+                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="16">
+                        <TextBlock Text="个人档案" Style="{StaticResource AniMeidoSectionTitleStyle}" VerticalAlignment="Center"/>
+                        <Button x:Name="PersonalArchiveButton" Grid.Column="1" Click="OnPersonalArchiveClick" IsEnabled="False" Padding="14,8">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE70F;" FontSize="14"/>
+                                <TextBlock Text="编辑档案"/>
+                            </StackPanel>
+                        </Button>
+                        <TextBlock x:Name="DesktopPersonalArchiveSummaryText" Grid.Row="1" Grid.ColumnSpan="2"
+                                   TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </Grid>
+                </Border>
+                <StackPanel x:Name="TagsSection" Grid.Row="4" Grid.ColumnSpan="2" Spacing="12">
+                    <TextBlock Text="作品标签" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                    <ScrollViewer HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled">
+                        <StackPanel x:Name="TagContainer" Orientation="Horizontal" Visibility="Collapsed"/>
+                    </ScrollViewer>
+                </StackPanel>
+                <StackPanel x:Name="RatingsSection" Grid.Row="5" Grid.ColumnSpan="2" Spacing="10" MaxWidth="780" HorizontalAlignment="Left"
+                            Visibility="{x:Bind local:AnimeDetailPage.BooleanToVisibility(ViewModel.HasRatingData), Mode=OneWay}">
+                    <StackPanel Orientation="Horizontal" Spacing="18">
+                        <TextBlock Text="综合评分" Style="{StaticResource AniMeidoSectionTitleStyle}" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding CompositeRatingText}" FontSize="24"/>
+                        <TextBlock Text="{Binding CompositeSampleNotice}" Style="{StaticResource DesktopDataTextStyle}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock x:Name="DetailScore" TextWrapping="Wrap" LineHeight="25" FontSize="14" Visibility="Collapsed" IsTextSelectionEnabled="True"/>
+                    <Grid ColumnDefinitions="*,130,110" ColumnSpacing="18" Margin="0,8,0,0">
+                        <TextBlock Text="来源" Style="{StaticResource DesktopDataTextStyle}"/>
+                        <TextBlock Grid.Column="1" Text="评分" Style="{StaticResource DesktopDataTextStyle}"/>
+                        <TextBlock Grid.Column="2" Text="人数" Style="{StaticResource DesktopDataTextStyle}" HorizontalAlignment="Right"/>
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding RatingRows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:RatingSourceRow">
+                                <Border BorderBrush="{ThemeResource DesktopLineBrush}" BorderThickness="0,1,0,0" Padding="0,9">
+                                    <Grid ColumnDefinitions="*,130,110" ColumnSpacing="18">
+                                        <TextBlock Text="{x:Bind Source}" Style="{StaticResource DesktopControlTextStyle}" TextWrapping="Wrap"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="3">
+                                            <TextBlock Text="{x:Bind Score}" Style="{StaticResource DesktopControlTextStyle}"/>
+                                            <TextBlock Text="/" Style="{StaticResource DesktopDataTextStyle}" VerticalAlignment="Bottom"/>
+                                            <TextBlock Text="{x:Bind Scale}" Style="{StaticResource DesktopDataTextStyle}" VerticalAlignment="Bottom"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="2" Text="{x:Bind Votes}" Style="{StaticResource DesktopDataTextStyle}" HorizontalAlignment="Right"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+                <StackPanel x:Name="FactsSection" Grid.Row="6" Grid.ColumnSpan="2" Spacing="10">
+                    <TextBlock Text="制作与原作" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                    <TextBlock x:Name="DetailStudio" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="Collapsed"/>
+                </StackPanel>
+                <StackPanel x:Name="CharacterSection" Grid.Row="7" Grid.ColumnSpan="2" Spacing="12" Visibility="Collapsed">
+                    <TextBlock Text="角色与配音" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
+                    <ScrollViewer HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled" Padding="0,0,0,12">
+                        <ItemsRepeater x:Name="CharacterPanel" ItemsSource="{x:Bind ViewModel.Characters}">
+                            <ItemsRepeater.Layout><StackLayout Orientation="Horizontal" Spacing="16"/></ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="models:CharacterRole">
+                                    <Button Tag="{x:Bind}" Width="122" Padding="10" Click="OnCharacterClick"
+                                            Style="{StaticResource DesktopCardButtonStyle}">
+                                        <StackPanel Spacing="7" HorizontalAlignment="Center">
+                                            <Border Width="64" Height="64" CornerRadius="32" Background="{ThemeResource DesktopFieldBrush}">
+                                                <Image Tag="{x:Bind CharacterImage}" Stretch="UniformToFill" Loaded="OnAvatarLoaded" Unloaded="OnAvatarUnloaded"/>
+                                            </Border>
+                                            <TextBlock Text="{x:Bind CharacterName}" Style="{StaticResource DesktopEmphasisTextStyle}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" TextAlignment="Center"/>
+                                            <TextBlock Text="{x:Bind local:AnimeDetailPage.ActorLabel(Actors)}" Style="{StaticResource DesktopDataTextStyle}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" TextAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                    </ScrollViewer>
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+        <Grid Grid.Row="1" x:Name="LoadingOverlay" Visibility="Collapsed" Background="Transparent" Tapped="OnLoadingOverlayTapped">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                <ProgressRing x:Name="LoadingRing" Width="40" Height="40" HorizontalAlignment="Center"/>
+                <Image x:Name="LoadingFailedImage" Source="ms-appx:///Assets/Loading_failed.png" Width="80" Height="80" Stretch="Uniform" HorizontalAlignment="Center" Visibility="Collapsed"/>
+                <TextBlock x:Name="LoadingHint" FontSize="14" Foreground="{ThemeResource AniMeidoMutedTextBrush}" HorizontalAlignment="Center"
+                           TextWrapping="Wrap" MaxWidth="300" TextAlignment="Center"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Page>

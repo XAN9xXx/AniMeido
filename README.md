@@ -31,7 +31,7 @@
 
 ## 开发路线
 
-源码主线已完成业务核心重构、自有多来源资料服务接入，以及新的安装方式和应用内更新。下一步先验证 Uno，再迁移界面并支持 Android。这些主线能力随 3.0 发布，完整路线见 [ROADMAP](ROADMAP.md)。
+源码主线已完成业务核心重构、自有多来源资料服务接入，以及新的安装方式和应用内更新。Uno 桌面迁移正在进行，首轮只做 Windows 和已审阅的默认布局，原 WinUI 项目继续保留。移动端和实验性自定义布局后续单独推进。这些主线能力随 3.0 发布，完整路线见 [ROADMAP](ROADMAP.md)。
 
 路线的一部分依据来自 [2026 年 9 月用户问卷](docs-public/user-feedback-2026-09.md)：呼声最高的是电脑与手机同步。
 
@@ -45,6 +45,14 @@
 dotnet build AniMeido.slnx
 $env:ANIMEIDO_DATA_ROOT = 'D:\AniMeidoDev\sandbox'
 dotnet run --project AniMeido.App/AniMeido.App.csproj
+```
+
+新桌面项目使用 `global.json` 固定的 Uno.Sdk 7.0.5，采用 Uno Skia 的 Win32 桌面宿主，界面库为 `Plugins/AniMeido.Plugin.Base.Desktop`。Windows 截图和通知由 `AniMeido.Platform.Windows` 适配。运行时也使用独立数据：
+
+```powershell
+dotnet build AniMeido.Desktop/AniMeido.Desktop.csproj -c Release
+$env:ANIMEIDO_DATA_ROOT = 'D:\AniMeidoDev\uno-sandbox'
+dotnet run --project AniMeido.Desktop/AniMeido.Desktop.csproj -c Release --no-build
 ```
 
 打包与发布工具见 [Tools](Tools/README.md)。

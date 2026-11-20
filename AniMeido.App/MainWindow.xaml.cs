@@ -146,9 +146,13 @@ namespace AniMeido.App
 
         private void UpdateTitleBarButtons()
         {
+#if UNO_SKIA
+            TitleBarHelper.UpdateButtonColors(AppWindow, _themeService.GetCurrentTheme());
+#else
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
             var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hWnd);
             TitleBarHelper.UpdateButtonColors(Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId), _themeService.GetCurrentTheme());
+#endif
         }
 
         private void OnNavigationServiceNavigated(Type? pageType)
@@ -213,8 +217,16 @@ namespace AniMeido.App
         private async void OnOpenMigrationBackupsClick(object sender, RoutedEventArgs e)
         {
             if (_migrationBackupDirectory is null) return;
-            try { await Windows.System.Launcher.LaunchFolderPathAsync(_migrationBackupDirectory); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
+            try
+            {
+#if UNO_SKIA
+                await DesktopNativeWindow.OpenFolderAsync(_migrationBackupDirectory);
+#else
+                await Windows.System.Launcher.LaunchFolderPathAsync(_migrationBackupDirectory);
+#endif
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                or System.Runtime.InteropServices.COMException or System.ComponentModel.Win32Exception)
             { Serilog.Log.Warning(ex, "无法打开迁移备份文件夹"); }
         }
 

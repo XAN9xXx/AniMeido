@@ -1,4 +1,4 @@
-using AniMeido.Contracts;
+﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Desktop;
 using AniMeido.Plugin.Base.Services;
 using Microsoft.Extensions.Logging;
@@ -310,21 +310,36 @@ namespace AniMeido.Plugin.Base.Views
             }
         }
 
-        private void OnOpenDbDirClick(object sender, RoutedEventArgs e)
+        private async void OnOpenDbDirClick(object sender, RoutedEventArgs e)
         {
             var dir = Path.GetDirectoryName(_paths.DatabasePath);
             if (dir != null)
-                _ = Windows.System.Launcher.LaunchFolderPathAsync(dir);
+                await OpenDirectoryAsync(dir);
         }
 
-        private void OnOpenBackupDirClick(object sender, RoutedEventArgs e)
-        {
-            _ = Windows.System.Launcher.LaunchFolderPathAsync(_paths.BackupDirectory);
-        }
+        private async void OnOpenBackupDirClick(object sender, RoutedEventArgs e)
+            => await OpenDirectoryAsync(_paths.BackupDirectory);
 
-        private void OnOpenLogDirClick(object sender, RoutedEventArgs e)
+        private async void OnOpenLogDirClick(object sender, RoutedEventArgs e)
+            => await OpenDirectoryAsync(_paths.LogDirectory);
+
+        private async Task OpenDirectoryAsync(string directory)
         {
-            _ = Windows.System.Launcher.LaunchFolderPathAsync(_paths.LogDirectory);
+            var visit = _visitVersion;
+            try
+            {
+#if UNO_SKIA
+                await DesktopShellServices.OpenPath(directory);
+#else
+                await Windows.System.Launcher.LaunchFolderPathAsync(directory);
+#endif
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                or System.ComponentModel.Win32Exception or System.Runtime.InteropServices.COMException)
+            {
+                _logger.LogError(ex, "无法打开数据目录。");
+                await ShowMessageAsync("无法打开文件夹", "请稍后重试。", visit);
+            }
         }
 
         private async void OnBackupNowClick(object sender, RoutedEventArgs e)

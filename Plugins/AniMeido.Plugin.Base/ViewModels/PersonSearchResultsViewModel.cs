@@ -24,6 +24,10 @@ public sealed partial class PersonSearchResultsViewModel(
 
     public ObservableCollection<Anime> Results { get; } = [];
 
+#if UNO_DESKTOP
+    internal IReadOnlyList<PersonWork> DesktopWorkSnapshots => _works ?? [];
+#endif
+
     [ObservableProperty]
     private string _title = "";
 

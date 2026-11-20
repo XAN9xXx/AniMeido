@@ -17,10 +17,12 @@ param(
     [string]$DataRoot,
     [switch]$AsPending,
     [switch]$Broken,
-    [switch]$UpdateTestSource
+    [switch]$UpdateTestSource,
+    [switch]$Uno
 )
 
 $ErrorActionPreference = 'Stop'
+$appProject = if ($Uno) { '.\AniMeido.Desktop' } else { '.\AniMeido.App' }
 $testSourceProperty = "-p:AniMeidoUpdateTestSource=$($UpdateTestSource.IsPresent.ToString().ToLowerInvariant())"
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $installRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Root))
@@ -92,7 +94,20 @@ public static class DevDataRootValidation
 Push-Location -LiteralPath $repo
 try {
     # 复用更新核心的 SemVer、文件锁和原子 JSON 写入；只从本机缓存还原，脚本本身也不下载包。
-    $cache = Join-Path $env:USERPROFILE '.nuget\packages'
+    $cache = & {
+        $previousEncoding = [Console]::OutputEncoding
+        try {
+            # dotnet 的重定向输出使用 UTF-8，保留缓存路径中的中文。
+            [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+            $location = & dotnet nuget locals global-packages --list --force-english-output
+            if ($LASTEXITCODE -ne 0) { throw '无法读取 NuGet 缓存目录。' }
+            $location -replace '^global-packages: ', ''
+        }
+        finally { [Console]::OutputEncoding = $previousEncoding }
+    }
+    if ([string]::IsNullOrWhiteSpace($cache) -or -not [IO.Path]::IsPathFullyQualified($cache)) {
+        throw '无法读取 NuGet 缓存目录。'
+    }
     & dotnet build '.\AniMeido.Updates' -c Release $testSourceProperty "-p:RestoreSources=$cache" '-p:NuGetAudit=false'
     if ($LASTEXITCODE -ne 0) { throw 'AniMeido.Updates 构建失败。' }
     $built = Join-Path $repo 'AniMeido.Updates\bin\x64\Release\net10.0\AniMeido.Updates.dll'
@@ -122,7 +137,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $env:WINDIR 'System32\whoami.exe') -Destination (Join-Path $staging 'AniMeido.App.exe')
     }
     else {
-        & dotnet publish '.\AniMeido.App' -c Release -r win-x64 '-p:PublishProfile=win-x64' `
+        & dotnet publish $appProject -c Release -r win-x64 '-p:PublishProfile=win-x64' `
             "-p:AniMeidoVersion=$Version" $testSourceProperty "-p:RestoreSources=$cache" '-p:NuGetAudit=false' --output $staging
         if ($LASTEXITCODE -ne 0) { throw "App 发布失败；保留暂存目录 $staging 供检查，未修改 state.json。" }
     }

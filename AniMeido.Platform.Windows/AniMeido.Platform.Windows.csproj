@@ -1,0 +1,40 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <DefineConstants>$(DefineConstants);WINDOWS_PLATFORM_BRIDGE</DefineConstants>
+    <WindowsProjectionVersion>10.0.19041.87</WindowsProjectionVersion>
+    <WindowsFoundationVersion>2.3.12</WindowsFoundationVersion>
+    <WindowsProjectionDirectory>$(NuGetPackageRoot)/microsoft.windows.sdk.net.ref/$(WindowsProjectionVersion)/lib/net9.0</WindowsProjectionDirectory>
+    <WindowsFoundationDirectory>$(NuGetPackageRoot)/microsoft.windowsappsdk.foundation/$(WindowsFoundationVersion)</WindowsFoundationDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../AniMeido.Contracts/AniMeido.Contracts.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageDownload Include="Microsoft.Windows.SDK.NET.Ref" Version="[$(WindowsProjectionVersion)]" />
+    <PackageDownload Include="Microsoft.WindowsAppSDK.Foundation" Version="[$(WindowsFoundationVersion)]" />
+  </ItemGroup>
+  <!-- 原生 WinRT 投影只参与本库编译；公开接口使用 Contracts，避免与 Uno 的同名类型混用。 -->
+  <ItemGroup>
+    <Reference Include="Microsoft.Windows.SDK.NET" HintPath="$(WindowsProjectionDirectory)/Microsoft.Windows.SDK.NET.dll" />
+    <Reference Include="WinRT.Runtime" HintPath="$(WindowsProjectionDirectory)/WinRT.Runtime.dll" />
+    <Reference Include="Microsoft.Windows.AppNotifications.Projection"
+               HintPath="$(WindowsFoundationDirectory)/lib/net6.0-windows10.0.17763.0/Microsoft.Windows.AppNotifications.Projection.dll" />
+    <Reference Include="Microsoft.Windows.AppNotifications.Builder.Projection"
+               HintPath="$(WindowsFoundationDirectory)/lib/net6.0-windows10.0.17763.0/Microsoft.Windows.AppNotifications.Builder.Projection.dll" />
+    <Content Include="$(WindowsFoundationDirectory)/runtimes-framework/win-x64/native/Microsoft.WindowsAppRuntime.dll"
+             Link="Microsoft.WindowsAppRuntime.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Compile Include="../AniMeido.App/Services/ForegroundWindowCaptureService.cs" Link="ForegroundWindowCaptureService.cs" />
+    <Compile Include="../AniMeido.App/Services/WindowsAppNotificationService.cs" Link="WindowsAppNotificationService.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatform">
+      <_Parameter1>windows10.0.18362</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>AniMeido.App</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>AniMeido.Desktop.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>

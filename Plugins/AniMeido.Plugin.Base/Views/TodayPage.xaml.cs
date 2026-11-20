@@ -22,7 +22,11 @@ public sealed partial class TodayPage : Page, INavigationAware
     // 左右栏之间、上下排列时各块之间的间距。
     private const double ActivitySpacing = 16;
     // 页面上最大的封面宽度，封面按它解码。
+#if UNO_DESKTOP
+    private const double CoverDecodeWidth = 52;
+#else
     private const double CoverDecodeWidth = 60;
+#endif
     private readonly ActionCenterService _actionCenter;
     private readonly ArchiveService _archive;
     private readonly PlanReminderCoordinator _reminders;
@@ -76,7 +80,7 @@ public sealed partial class TodayPage : Page, INavigationAware
         {
             if (args.PropertyName == nameof(TodayViewModel.ErrorMessage))
             {
-                ErrorInfoBar.Message = ViewModel.ErrorMessage;
+                ErrorInfoBar.Message = ViewModel.ErrorMessage ?? string.Empty;
                 ErrorInfoBar.IsOpen =
                     !string.IsNullOrWhiteSpace(ViewModel.ErrorMessage);
             }
@@ -97,6 +101,55 @@ public sealed partial class TodayPage : Page, INavigationAware
 
     public TodayViewModel ViewModel { get; }
 
+#if UNO_DESKTOP
+    private readonly HashSet<FrameworkElement> _desktopReminderControls = [];
+    private bool _desktopReminderPreference;
+
+    public static string DesktopPlanDate(DateOnly? date)
+        => date?.ToString("MM/dd", System.Globalization.CultureInfo.InvariantCulture) ?? "—";
+
+    private async void OnDesktopPlanMoreClick(object sender, RoutedEventArgs e)
+    {
+        if (PlanStackPopup.IsOpen)
+            ClosePlanStack();
+        else
+            await TryOpenPlanStackAsync();
+    }
+
+    private void OnDesktopThemeCardClicked(object? sender, Controls.AnimeCardClickedEventArgs e)
+    {
+        _ = sender;
+        _navigator.Navigate(typeof(AnimeDetailPage), e.Anime.ID);
+    }
+
+    private void OnDesktopReminderLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement control) return;
+        _desktopReminderControls.Add(control);
+        control.Visibility = DesktopPresentationPreferences.ShowPlanReminders
+            ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OnDesktopReminderUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement control)
+            _desktopReminderControls.Remove(control);
+    }
+
+    private void OnDesktopReminderPreferenceChanged(object? sender, EventArgs e)
+    {
+        var changed = _desktopReminderPreference
+            != DesktopPresentationPreferences.ShowPlanReminders;
+        _desktopReminderPreference = DesktopPresentationPreferences.ShowPlanReminders;
+        PlanFooter.Visibility = DesktopPresentationPreferences.ShowPlanReminders
+            ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var control in _desktopReminderControls)
+            control.Visibility = PlanFooter.Visibility;
+        if (changed && IsLoaded && _wasLoaded)
+            _ = ReloadSafelyAsync(Volatile.Read(ref _visitGeneration));
+    }
+#endif
+
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         var visit = Interlocked.Increment(ref _visitGeneration);
@@ -107,6 +160,14 @@ public sealed partial class TodayPage : Page, INavigationAware
         try
         {
             previousVisibility?.Cancel();
+#if UNO_DESKTOP
+            DesktopPresentationPreferences.Changed -= OnDesktopReminderPreferenceChanged;
+            DesktopPresentationPreferences.Changed += OnDesktopReminderPreferenceChanged;
+            var reminderPreferenceChanged = _desktopReminderPreference
+                != DesktopPresentationPreferences.ShowPlanReminders;
+            _desktopReminderPreference = DesktopPresentationPreferences.ShowPlanReminders;
+            OnDesktopReminderPreferenceChanged(null, EventArgs.Empty);
+#endif
             if (!_isPlaybackAvailabilitySubscribed)
             {
                 _playbackLauncher.AvailabilityChanged += OnPlaybackAvailabilityChanged;
@@ -120,7 +181,11 @@ public sealed partial class TodayPage : Page, INavigationAware
             // 返回缓存页时，补上离页期间的能力变化；首次加载仍由导航入口负责。
             if (_wasLoaded)
             {
-                if (ViewModel.IsLoadInterrupted || availabilityChanged)
+                if (ViewModel.IsLoadInterrupted || availabilityChanged
+#if UNO_DESKTOP
+                    || reminderPreferenceChanged
+#endif
+                    )
                     _ = ReloadSafelyAsync();
                 else
                     ViewModel.Theme.ResumeIfNeeded();
@@ -153,6 +218,10 @@ public sealed partial class TodayPage : Page, INavigationAware
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+#if UNO_DESKTOP
+        DesktopPresentationPreferences.Changed -= OnDesktopReminderPreferenceChanged;
+        _desktopReminderControls.Clear();
+#endif
         Interlocked.Increment(ref _visitGeneration);
         try
         {
@@ -277,7 +346,7 @@ public sealed partial class TodayPage : Page, INavigationAware
             if (visit is null || IsCurrentVisit(visit.Value))
                 ShowNotification(
                     $"今天页刷新失败：{ex.Message}",
-                    InfoBarSeverity.Error);
+                    InfoBarSeverity.Error, transient: false);
         }
 #pragma warning restore CA1031
     }
@@ -319,6 +388,34 @@ public sealed partial class TodayPage : Page, INavigationAware
     /// </summary>
     private void ApplyLayout()
     {
+#if UNO_DESKTOP
+        var beside = _contentWidth >= 880;
+        Grid.SetRow(BroadcastCard, 0);
+        Grid.SetColumnSpan(BroadcastCard, beside ? 1 : 2);
+        Grid.SetRow(PlanCard, beside ? 0 : 1);
+        Grid.SetColumn(PlanCard, beside ? 1 : 0);
+        Grid.SetColumnSpan(PlanCard, beside ? 1 : 2);
+        PlanCard.Margin = new Thickness(0, beside ? 0 : 22, 0, 0);
+        PlanSurface.BorderThickness = beside ? new Thickness(1, 0, 0, 0) : new Thickness(0);
+        PlanSurface.Padding = beside ? new Thickness(16, 17, 0, 0) : new Thickness(0);
+        Grid.SetRow(ThemeCard, beside ? 1 : 2);
+        Grid.SetColumnSpan(ThemeCard, 2);
+        ThemeCard.Margin = new Thickness(0, 22, 0, 0);
+        Grid.SetColumn(ThemeRows, beside ? 1 : 0);
+        Grid.SetColumnSpan(ThemeRows, beside ? 1 : 2);
+        Grid.SetRow(ThemeRows, beside ? 0 : 1);
+        ThemeRows.Margin = new Thickness(0, beside ? 0 : 12, 0, 0);
+        Grid.SetColumnSpan(DesktopThemeTitle, beside ? 1 : 2);
+        Grid.SetRow(DesktopThemeStatus, beside ? 1 : 2);
+        Grid.SetRow(PlaybackCard, beside ? 2 : 3);
+        Grid.SetColumnSpan(PlaybackCard, 2);
+        PlaybackCard.Margin = new Thickness(0, ViewModel.IsPlaybackAvailable ? 22 : 0, 0, 0);
+        Grid.SetColumnSpan(TodayContent, 2);
+        Grid.SetRow(WeekStrip, 2);
+        Grid.SetColumn(WeekStrip, 0);
+        Grid.SetColumnSpan(WeekStrip, 2);
+        WeekStrip.Width = double.NaN;
+#else
         var stripBeside = _contentWidth >= WeekStripBesideWidth;
         Grid.SetColumnSpan(TodayContent, stripBeside ? 1 : 2);
         Grid.SetRow(WeekStrip, stripBeside ? 1 : 2);
@@ -339,6 +436,7 @@ public sealed partial class TodayPage : Page, INavigationAware
         Grid.SetColumn(PlanCard, sideBySide ? 1 : 0);
         Grid.SetColumnSpan(PlanCard, sideBySide ? 1 : 2);
         PlanCard.Margin = new Thickness(0, sideBySide && themeRow == 0 ? 0 : ActivitySpacing, 0, 0);
+#endif
     }
     private void OnVisiblePlanListSizeChanged(object sender, SizeChangedEventArgs e)
     {
@@ -351,8 +449,12 @@ public sealed partial class TodayPage : Page, INavigationAware
         // 忽略离树过程的零宽度及迟到的 SizeChanged，避免宽/窄模板反复重建全部卡片。
         var width = VisiblePlanList.ActualWidth;
         if (width <= 0) return;
+#if UNO_DESKTOP
+        var template = (DataTemplate)Resources["PlanRowCompactTemplate"];
+#else
         var template = (DataTemplate)Resources[
             width >= 480 ? "PlanRowWideTemplate" : "PlanRowCompactTemplate"];
+#endif
         if (!ReferenceEquals(VisiblePlanList.ItemTemplate, template))
             VisiblePlanList.ItemTemplate = template;
     }
@@ -584,7 +686,7 @@ public sealed partial class TodayPage : Page, INavigationAware
         {
             ShowNotification(
                 "系统通知不可用，无法添加提醒。",
-                InfoBarSeverity.Warning);
+                InfoBarSeverity.Warning, transient: false);
             return;
         }
 
@@ -666,7 +768,7 @@ public sealed partial class TodayPage : Page, INavigationAware
         catch (InvalidOperationException ex)
         {
             if (IsCurrentVisit(visit))
-                ShowNotification(ex.Message, InfoBarSeverity.Warning);
+                ShowNotification(ex.Message, InfoBarSeverity.Warning, transient: false);
             return;
         }
 
@@ -804,7 +906,7 @@ public sealed partial class TodayPage : Page, INavigationAware
 #pragma warning disable CA1031 // UI 事件边界将恢复性错误转换为页面提示。
         catch (Exception ex)
         {
-            ShowNotification($"今天页刷新失败：{ex.Message}", InfoBarSeverity.Error);
+            ShowNotification($"今天页刷新失败：{ex.Message}", InfoBarSeverity.Error, transient: false);
         }
 #pragma warning restore CA1031
     }
@@ -904,8 +1006,14 @@ public sealed partial class TodayPage : Page, INavigationAware
 
     private void ShowNotification(
         string message,
-        InfoBarSeverity severity = InfoBarSeverity.Informational)
+        InfoBarSeverity severity = InfoBarSeverity.Informational,
+        bool transient = true)
     {
+#if UNO_DESKTOP
+        if (transient && DesktopFeedback.TryShow(message,
+            error: severity is InfoBarSeverity.Error or InfoBarSeverity.Warning))
+            return;
+#endif
         NotificationInfoBar.Severity = severity;
         NotificationInfoBar.Message = message;
         NotificationInfoBar.IsOpen = true;

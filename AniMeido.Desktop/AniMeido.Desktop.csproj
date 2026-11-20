@@ -1,0 +1,57 @@
+﻿<Project Sdk="Uno.Sdk">
+  <PropertyGroup>
+    <Version>$(AniMeidoVersion)</Version>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-desktop</TargetFramework>
+    <RootNamespace>AniMeido.App</RootNamespace>
+    <AssemblyName>AniMeido.App</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>../AniMeido.App/Assets/icon.ico</ApplicationIcon>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <UnoDisableHotDesign>true</UnoDisableHotDesign>
+    <UnoDisableMCPSupport>true</UnoDisableMCPSupport>
+    <UnoDisableWinAppRunSupport>true</UnoDisableWinAppRunSupport>
+    <DefaultLanguage>zh-CN</DefaultLanguage>
+    <DefineConstants>$(DefineConstants);UNO_DESKTOP;UNO_SKIA</DefineConstants>
+    <UnoFeatures>Skia</UnoFeatures>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(AniMeidoUpdateTestSource)' == 'true'">
+    <DefineConstants>$(DefineConstants);UPDATE_TEST_SOURCE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <ApplicationDefinition Include="App.xaml" />
+    <Compile Include="../AniMeido.App/Services/**/*.cs"
+             Exclude="../AniMeido.App/Services/ThemeService.cs;../AniMeido.App/Services/ForegroundWindowCaptureService.cs;../AniMeido.App/Services/WindowsAppNotificationService.cs;../AniMeido.App/Services/ServiceRegistration.cs;../AniMeido.App/Services/PluginStartup.cs;../AniMeido.App/Services/AppWindowActivationService.cs;../AniMeido.App/Services/TitleBarHelper.cs;../AniMeido.App/Services/StartupDialogCoordinator.cs;../AniMeido.App/Services/UpdatePromptDialog.cs"
+             Link="Services/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="../Shared/AppDataRoots.cs;../Shared/DiagnosticFileStore.cs" Link="Shared/%(Filename)%(Extension)" />
+    <Compile Include="../AniMeido.App/Models/**/*.cs" Link="Models/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="../AniMeido.App/Helpers/**/*.cs" Link="Helpers/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Content Include="../AniMeido.App/Assets/**" Link="Assets/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets/Fonts/**" CopyToOutputDirectory="PreserveNewest" />
+    <None Remove="**/*.xaml" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="Serilog.Extensions.Logging" />
+    <PackageReference Include="Serilog.Sinks.Debug" />
+    <PackageReference Include="Serilog.Sinks.File" />
+    <ProjectReference Include="../AniMeido.Contracts/AniMeido.Contracts.csproj" />
+    <ProjectReference Include="../AniMeido.Platform.Windows/AniMeido.Platform.Windows.csproj" />
+    <ProjectReference Include="../AniMeido.PluginProtocol/AniMeido.PluginProtocol.csproj" />
+    <ProjectReference Include="../AniMeido.Updates/AniMeido.Updates.csproj" />
+    <ProjectReference Include="../Plugins/AniMeido.Plugin.Base.Desktop/AniMeido.Plugin.Base.Desktop.csproj" />
+    <ProjectReference Include="../AniMeido.PluginHost/AniMeido.PluginHost.csproj" ReferenceOutputAssembly="false" Private="false"
+                      SkipGetTargetFrameworkProperties="true" />
+  </ItemGroup>
+  <Import Project="../Shared/PluginHostOutput.targets" />
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>AniMeido.Desktop.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>

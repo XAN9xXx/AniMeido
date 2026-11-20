@@ -117,11 +117,15 @@ namespace AniMeido.App
                 provider.GetRequiredService<DatabaseService>().BackupDir);
             MainWindow = _window;
 
+#if UNO_SKIA
+            _mainAppWindow = _window.AppWindow;
+#else
             var windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(
                 _window);
             var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(
                 windowHandle);
             _mainAppWindow = AppWindow.GetFromWindowId(windowId);
+#endif
             _activationService =
                 provider.GetRequiredService<AppWindowActivationService>();
             _activationService.Attach(_window, _mainAppWindow);
@@ -368,7 +372,11 @@ namespace AniMeido.App
                 }
                 _activationService?.Detach();
                 Log.CloseAndFlush();
+#if UNO_SKIA
+                _window?.QueueFinalClose();
+#else
                 _window?.Close();
+#endif
             }
         }
 

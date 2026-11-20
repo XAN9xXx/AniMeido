@@ -39,6 +39,9 @@
     </Project>
   </Folder>
   <Folder Name="/Tests/">
+    <Project Path="AniMeido.Desktop.Tests/AniMeido.Desktop.Tests.csproj">
+      <Platform Project="x64" />
+    </Project>
     <Project Path="AniMeido.Plugin.Base.Core.Tests/AniMeido.Plugin.Base.Core.Tests.csproj">
       <Platform Project="x64" />
     </Project>
@@ -56,6 +59,17 @@
     <Platform Project="x64" />
     <Deploy />
   </Project>
+  <Folder Name="/Uno Desktop/">
+    <Project Path="AniMeido.Platform.Windows/AniMeido.Platform.Windows.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="AniMeido.Desktop/AniMeido.Desktop.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="Plugins/AniMeido.Plugin.Base.Desktop/AniMeido.Plugin.Base.Desktop.csproj">
+      <Platform Project="x64" />
+    </Project>
+  </Folder>
   <Project Path="AniMeido.Contracts/AniMeido.Contracts.csproj" Id="55ca2f31-e2d9-49ca-aef5-7736972f2eb4">
     <Platform Project="x64" />
   </Project>

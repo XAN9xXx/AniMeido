@@ -1,0 +1,72 @@
+﻿<ResourceDictionary
+    x:Class="AniMeido.App.Themes.DesktopWindowsSectionNavigation"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ControlTemplate x:Key="DesktopWindowsSectionTabTemplate" TargetType="ToggleButton">
+        <Grid x:Name="LayoutRoot" Background="Transparent" Control.IsTemplateFocusTarget="True">
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal"/>
+                    <VisualState x:Name="PointerOver">
+                        <VisualState.Setters>
+                            <Setter Target="ContentPresenter.Background" Value="{ThemeResource DesktopButtonHoverBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Pressed">
+                        <VisualState.Setters>
+                            <Setter Target="ContentPresenter.Background" Value="{ThemeResource DesktopButtonPressedBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Disabled">
+                        <VisualState.Setters>
+                            <Setter Target="LayoutRoot.Opacity" Value="0.55"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Checked">
+                        <VisualState.Setters>
+                            <Setter Target="SelectionMarker.Opacity" Value="1"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="CheckedPointerOver">
+                        <VisualState.Setters>
+                            <Setter Target="SelectionMarker.Opacity" Value="1"/>
+                            <Setter Target="ContentPresenter.Background" Value="{ThemeResource DesktopButtonHoverBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="CheckedPressed">
+                        <VisualState.Setters>
+                            <Setter Target="SelectionMarker.Opacity" Value="1"/>
+                            <Setter Target="ContentPresenter.Background" Value="{ThemeResource DesktopButtonPressedBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="CheckedDisabled">
+                        <VisualState.Setters>
+                            <Setter Target="SelectionMarker.Opacity" Value="1"/>
+                            <Setter Target="LayoutRoot.Opacity" Value="0.55"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ContentPresenter x:Name="ContentPresenter"
+                              Background="{ThemeResource DesktopSubtleButtonBackgroundBrush}"
+                              Foreground="{ThemeResource DesktopTextBrush}"
+                              FontFamily="{TemplateBinding FontFamily}"
+                              FontSize="{TemplateBinding FontSize}"
+                              FontWeight="{TemplateBinding FontWeight}"
+                              Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}"
+                              ContentTransitions="{TemplateBinding ContentTransitions}"
+                              CornerRadius="{TemplateBinding CornerRadius}"
+                              Padding="{TemplateBinding Padding}"
+                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                              AutomationProperties.AccessibilityView="Raw">
+                <ContentPresenter.BackgroundTransition><BrushTransition Duration="0:0:0.12"/></ContentPresenter.BackgroundTransition>
+            </ContentPresenter>
+            <Border x:Name="SelectionMarker" Height="3" Margin="2,0,2,-1"
+                    VerticalAlignment="Bottom" Background="{ThemeResource DesktopAccentBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Opacity="0" IsHitTestVisible="False"/>
+        </Grid>
+    </ControlTemplate>
+</ResourceDictionary>

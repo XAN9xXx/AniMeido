@@ -1,8 +1,10 @@
-using Microsoft.UI;
+﻿using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Windows.UI;
+#if !UNO_SKIA
 using WinRT.Interop;
+#endif
 
 namespace AniMeido.App.Services;
 
@@ -14,9 +16,13 @@ public static class TitleBarHelper
         var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "icon.ico");
         if (!System.IO.File.Exists(iconPath)) return;
 
+#if UNO_SKIA
+        window.AppWindow.SetIcon(iconPath);
+#else
         var hWnd = WindowNative.GetWindowHandle(window);
         var windowId = Win32Interop.GetWindowIdFromWindow(hWnd);
         AppWindow.GetFromWindowId(windowId).SetIcon(iconPath);
+#endif
     }
 
     /// <summary>
@@ -25,10 +31,14 @@ public static class TitleBarHelper
     /// </summary>
     public static void UseTallTitleBar(Window window)
     {
+#if UNO_SKIA
+        window.AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
+#else
         var hWnd = WindowNative.GetWindowHandle(window);
         var windowId = Win32Interop.GetWindowIdFromWindow(hWnd);
         AppWindow.GetFromWindowId(windowId).TitleBar.PreferredHeightOption =
             TitleBarHeightOption.Tall;
+#endif
     }
 
     public static void UpdateButtonColors(AppWindow appWindow, ElementTheme theme)

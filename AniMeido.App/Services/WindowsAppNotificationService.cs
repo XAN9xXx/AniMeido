@@ -2,7 +2,9 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
+#if !WINDOWS_PLATFORM_BRIDGE
 using Microsoft.UI.Dispatching;
+#endif
 using System.Runtime.InteropServices;
 using Windows.Data.Xml.Dom;
 using Windows.UI.Notifications;
@@ -24,10 +26,22 @@ public sealed class WindowsAppNotificationService :
     private Task? _stopActivationsTask;
     private Task? _disposeTask;
     private AppNotificationManager? _manager;
+#if !WINDOWS_PLATFORM_BRIDGE
     private DispatcherQueue? _dispatcherQueue;
+#endif
     private bool _registered;
     private bool _disposed;
 
+#if WINDOWS_PLATFORM_BRIDGE
+    public WindowsAppNotificationService(
+        ILogger<WindowsAppNotificationService> logger,
+        Func<Action, bool> enqueue)
+    {
+        ArgumentNullException.ThrowIfNull(enqueue);
+        _logger = logger;
+        _enqueue = enqueue;
+    }
+#else
     public WindowsAppNotificationService(
         ILogger<WindowsAppNotificationService> logger)
         : this(logger, null)
@@ -51,6 +65,7 @@ public sealed class WindowsAppNotificationService :
         }
         return _dispatcherQueue?.TryEnqueue(() => action()) == true;
     }
+#endif
 
     public bool IsSupported { get; private set; }
 
@@ -66,9 +81,14 @@ public sealed class WindowsAppNotificationService :
         {
             return Task.CompletedTask;
         }
+#if !WINDOWS_PLATFORM_BRIDGE
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
+#endif
         try
         {
+#if WINDOWS_PLATFORM_BRIDGE
+            WindowsNotificationRuntime.Initialize();
+#endif
             _manager = AppNotificationManager.Default;
             _manager.NotificationInvoked += OnNotificationInvoked;
             _manager.Register();

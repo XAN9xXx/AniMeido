@@ -4,7 +4,11 @@ using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using AniMeido.App.Services;
 using System.Text.Json;
+#if UNO_SKIA
+using Windows.Storage.Pickers;
+#else
 using Microsoft.Windows.Storage.Pickers;
+#endif
 
 namespace AniMeido.App.Views
 {
@@ -188,8 +192,13 @@ namespace AniMeido.App.Views
             InstallPluginButton.IsEnabled = false;
             try
             {
+#if UNO_SKIA
+                // Uno 的 Win32 宿主使用原生 IFileOpenDialog，并自动关联当前窗口。
+                var picker = new FileOpenPicker();
+#else
                 // 桌面选择器支持管理员进程，不使用受 UWP 权限限制的旧入口。
                 var picker = new FileOpenPicker(window.AppWindow.Id);
+#endif
                 picker.FileTypeFilter.Add(".animeido-plugin");
                 var file = await picker.PickSingleFileAsync();
                 if (file is null || navigationVersion != _navigationVersion || !IsLoaded)
@@ -572,16 +581,20 @@ namespace AniMeido.App.Views
                 var directory = await _rollbackData.ValidateDirectoryAsync(path);
                 if (navigationVersion != _navigationVersion || !IsLoaded)
                     return;
+#if UNO_SKIA
+                await DesktopNativeWindow.OpenFolderAsync(directory);
+#else
                 var folder = await Windows.Storage.StorageFolder.GetFolderFromPathAsync(directory);
                 if (!await Windows.System.Launcher.LaunchFolderAsync(folder))
                     throw new IOException("无法打开回滚前数据文件夹。");
+#endif
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException
-                or System.Runtime.InteropServices.COMException)
+                or System.Runtime.InteropServices.COMException or System.ComponentModel.Win32Exception)
             {
                 Serilog.Log.Error(ex, "无法打开回滚前数据文件夹");
-                if (IsLoaded)
-                    await UpdatePromptDialog.ShowMessageAsync(XamlRoot, "打开文件夹失败", ex.Message);
+                if (IsLoaded && XamlRoot is { } root)
+                    await UpdatePromptDialog.ShowMessageAsync(root, "打开文件夹失败", ex.Message);
             }
         }
 
@@ -649,8 +662,8 @@ namespace AniMeido.App.Views
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
             {
                 Serilog.Log.Error(ex, "无法删除回滚前数据：{Path}", path);
-                if (IsLoaded)
-                    await UpdatePromptDialog.ShowMessageAsync(XamlRoot, "删除失败", ex.Message);
+                if (IsLoaded && XamlRoot is { } root)
+                    await UpdatePromptDialog.ShowMessageAsync(root, "删除失败", ex.Message);
             }
             finally
             {

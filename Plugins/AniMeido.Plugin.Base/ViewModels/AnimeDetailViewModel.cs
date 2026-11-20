@@ -41,6 +41,17 @@ namespace AniMeido.Plugin.Base.ViewModels
         private string? _studiosText = null;
         [ObservableProperty]
         private string _ratingText = "";
+#if UNO_DESKTOP
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(HasRatingData))]
+        private IReadOnlyList<RatingSourceRow> _ratingRows = [];
+        [ObservableProperty]
+        private string _compositeRatingText = "";
+        [ObservableProperty]
+        private string _compositeSampleNotice = "";
+
+        public bool HasRatingData => RatingRows.Count > 0;
+#endif
 
         public string DescriptionText => AnimeDetail switch
         {
@@ -106,6 +117,11 @@ namespace AniMeido.Plugin.Base.ViewModels
             AnimeDetail = null;
             StudiosText = null;
             RatingText = "";
+#if UNO_DESKTOP
+            RatingRows = [];
+            CompositeRatingText = "";
+            CompositeSampleNotice = "";
+#endif
             Characters.Clear();
             _lastAnimeID = animeID;
             try
@@ -306,8 +322,21 @@ namespace AniMeido.Plugin.Base.ViewModels
         private async Task LoadRatingsAsync(Anime anime, int loadVersion, CancellationToken ct)
         {
             if (PersonalAnimeDataSource.IsUnavailable(anime)) return;
+#if UNO_DESKTOP
+            var details = await _ratingSource.GetRatingDetailsAsync(anime.ID, ct);
+            if (!IsCurrentLoad(loadVersion, ct) || details is null) return;
+            RatingRows = RatingPresentation.CreateRows(details.Ratings, details.AsOf);
+            var result = CompositeRating.Calculate(details.Ratings, details.FirstDate, details.AsOf);
+            CompositeRatingText = result is { } composite
+                && composite.IsEligible(includeLowVotes: true)
+                ? composite.Score.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) : "—";
+            CompositeSampleNotice = result is { } sample
+                && sample.IsEligible(includeLowVotes: true) && !sample.IsEligible() ? "评分人数较少" : "";
+            RatingText = RatingPresentation.Format(details.Ratings, details.FirstDate, details.AsOf);
+#else
             var text = await _ratingSource.GetRatingTextAsync(anime.ID, ct);
             if (IsCurrentLoad(loadVersion, ct)) RatingText = text;
+#endif
         }
 
         private bool IsCurrentLoad(

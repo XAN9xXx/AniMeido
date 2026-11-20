@@ -23,8 +23,13 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     private bool _restoringScroll;
     private bool _scrollRestorePending;
     private int _scrollRestoreGeneration;
+#if UNO_DESKTOP
+    private int _feedbackOperationDepth;
+#endif
+#if !UNO_DESKTOP
     private bool _isNarrow;
     private bool _previewOpen;
+#endif
     private bool _tagPinned;
     private bool _overTagEntry;
     private readonly DispatcherTimer _tagOpenTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
@@ -92,7 +97,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         await RunActionAsync(async token =>
         {
             applied = await ViewModel.RefreshAsync(token, preferNewBatch: true);
-        });
+        }, transientFeedback: false);
         if (applied && _navigationCancellation is not null)
         {
             ViewModel.BrowseState.VerticalOffset = 0;
@@ -241,7 +246,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
 
         GenerateFromTagsButton.IsEnabled = false;
         await RunActionAsync(token =>
-            ViewModel.ApplyOnboardingTagsAsync(selected, token));
+            ViewModel.ApplyOnboardingTagsAsync(selected, token), transientFeedback: false);
         GenerateFromTagsButton.IsEnabled = ViewModel.IsColdStart
             && ViewModel.SelectedOnboardingTags.Count > 0;
     }
@@ -282,7 +287,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware
                 "清除并刷新");
             if (await dialog.ShowAsync() == ContentDialogResult.Primary && !token.IsCancellationRequested)
                 await ViewModel.ClearPreferencesAsync(token);
-        });
+        }, transientFeedback: false);
     }
 
     private ContentDialog CreateConfirmationDialog(
@@ -326,22 +331,39 @@ public sealed partial class RecommendationPage : Page, INavigationAware
             or nameof(RecommendationViewModel.RefreshNotice)
             or nameof(RecommendationViewModel.HasError))
         {
-            StatusInfoBar.Message = string.Join(" ", new[]
-            {
-                ViewModel.Message,
-                ViewModel.RefreshNotice,
-            }.Where(message => !string.IsNullOrWhiteSpace(message)));
-            StatusInfoBar.Severity = ViewModel.HasError
-                ? InfoBarSeverity.Error
-                : InfoBarSeverity.Informational;
-            StatusInfoBar.IsOpen = !string.IsNullOrWhiteSpace(
-                StatusInfoBar.Message);
+#if UNO_DESKTOP
+            // Message 和 HasError 分别通知；操作结束后按完整结果选择提示位置。
+            if (_feedbackOperationDepth > 0)
+                return;
+#endif
+            UpdateStatusFeedback();
         }
         else if (e.PropertyName
             == nameof(RecommendationViewModel.IsRefreshing))
         {
             RefreshButton.IsEnabled = !ViewModel.IsRefreshing;
         }
+    }
+
+    private void UpdateStatusFeedback(bool transient = false)
+    {
+#if UNO_DESKTOP
+        if (transient && !string.IsNullOrWhiteSpace(ViewModel.Message)
+            && DesktopFeedback.TryShow(ViewModel.Message, error: ViewModel.HasError))
+        {
+            StatusInfoBar.IsOpen = false;
+            return;
+        }
+#endif
+        StatusInfoBar.Message = string.Join(" ", new[]
+        {
+            ViewModel.Message,
+            ViewModel.RefreshNotice,
+        }.Where(message => !string.IsNullOrWhiteSpace(message)));
+        StatusInfoBar.Severity = ViewModel.HasError
+            ? InfoBarSeverity.Error
+            : InfoBarSeverity.Informational;
+        StatusInfoBar.IsOpen = !string.IsNullOrWhiteSpace(StatusInfoBar.Message);
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -403,8 +425,15 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         NoSelectionText.Visibility = item is null ? Visibility.Visible : Visibility.Collapsed;
         EmptyRecommendations.Visibility = ViewModel.HasItems
             || ViewModel.HasMoreRecommendations ? Visibility.Collapsed : Visibility.Visible;
+#if UNO_DESKTOP
+        UpdateDesktopRecommendationNavigation();
+#endif
         if (item is null) ManagedImageLoader.Cancel(PreviewCover);
+#if UNO_DESKTOP
+        else ManagedImageLoader.ConfigureCover(PreviewCover, item.Anime.ID, item.Anime.CoverURL, 210);
+#else
         else ManagedImageLoader.ConfigureCover(PreviewCover, item.Anime.ID, item.Anime.CoverURL, 110);
+#endif
         ApplyPreviewLayout();
         UpdateSelectedFollowButton();
     }
@@ -438,13 +467,17 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     private void OnRecommendationItemClick(object sender, ItemClickEventArgs e)
     {
         if (e.ClickedItem is RecommendationItem item) ViewModel.SelectedItem = item;
+#if !UNO_DESKTOP
         _previewOpen = true;
+#endif
         ApplyPreviewLayout();
     }
 
     private void OnBrowseSizeChanged(object sender, SizeChangedEventArgs e)
     {
+#if !UNO_DESKTOP
         _isNarrow = e.NewSize.Width < 900;
+#endif
         ApplyPreviewLayout();
         TryLoadMoreNearEnd();
     }
@@ -452,6 +485,15 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     private void ApplyPreviewLayout()
     {
         if (PreviewColumn is null) return;
+#if UNO_DESKTOP
+        PreviewColumn.Width = new GridLength(0);
+        Grid.SetColumn(PreviewPanel, 0);
+        Grid.SetColumnSpan(PreviewPanel, 2);
+        PreviewPanel.HorizontalAlignment = HorizontalAlignment.Stretch;
+        PreviewPanel.Width = double.NaN;
+        PreviewPanel.Visibility = ViewModel.HasSelection ? Visibility.Visible : Visibility.Collapsed;
+        ClosePreviewButton.Visibility = Visibility.Collapsed;
+#else
         PreviewColumn.Width = _isNarrow ? new GridLength(0) : new GridLength(2, GridUnitType.Star);
         Grid.SetColumn(PreviewPanel, _isNarrow ? 0 : 1);
         Grid.SetColumnSpan(PreviewPanel, _isNarrow ? 2 : 1);
@@ -459,12 +501,15 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         PreviewPanel.Width = _isNarrow ? Math.Min(440, Math.Max(0, BrowseGrid.ActualWidth)) : double.NaN;
         PreviewPanel.Visibility = !_isNarrow || (_previewOpen && ViewModel.HasSelection) ? Visibility.Visible : Visibility.Collapsed;
         ClosePreviewButton.Visibility = _isNarrow ? Visibility.Visible : Visibility.Collapsed;
+#endif
     }
 
     private void OnClosePreviewClick(object sender, RoutedEventArgs e)
     {
         CloseTagStackImmediately();
+#if !UNO_DESKTOP
         _previewOpen = false;
+#endif
         ApplyPreviewLayout();
         RecommendationList.Focus(FocusState.Programmatic);
     }
@@ -526,12 +571,21 @@ public sealed partial class RecommendationPage : Page, INavigationAware
 
     private void OnSelectedSkipClick(object sender, RoutedEventArgs e)
     {
-        if (ViewModel.SelectedItem is { } item) ViewModel.Skip(item);
+        if (ViewModel.SelectedItem is { } item) SkipWithFeedback(item);
     }
 
     private void OnRowSkipClick(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: RecommendationItem item }) ViewModel.Skip(item);
+        if (sender is Button { Tag: RecommendationItem item }) SkipWithFeedback(item);
+    }
+
+    private void SkipWithFeedback(RecommendationItem item)
+    {
+        ViewModel.Skip(item);
+#if UNO_DESKTOP
+        if (DesktopFeedback.TryShow(ViewModel.Message!, error: false))
+            StatusInfoBar.IsOpen = false;
+#endif
     }
 
     private async void OnRowHideClick(object sender, RoutedEventArgs e)
@@ -601,7 +655,12 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     private void SaveScroll()
     {
         if (_listScroll is not null && !_restoringScroll && !_scrollRestorePending)
+#if UNO_DESKTOP
+            // 默认页的候选条横向排列，继续沿用这份页面返回位置。
+            ViewModel.BrowseState.VerticalOffset = _listScroll.HorizontalOffset;
+#else
             ViewModel.BrowseState.VerticalOffset = _listScroll.VerticalOffset;
+#endif
     }
 
     private void OnListViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
@@ -619,16 +678,24 @@ public sealed partial class RecommendationPage : Page, INavigationAware
             || ViewModel.IsLoadingMore || !ViewModel.HasMoreRecommendations
             || !string.IsNullOrWhiteSpace(ViewModel.LoadMoreError)
             || ViewModel.IsBusy || ViewModel.IsRefreshing
+#if UNO_DESKTOP
+            || _listScroll.ScrollableWidth - _listScroll.HorizontalOffset
+#else
             || _listScroll.ScrollableHeight - _listScroll.VerticalOffset
+#endif
                 > PrefetchDistance) return;
+#if !UNO_DESKTOP
         var previousCount = ViewModel.Items.Count;
+#endif
         await ViewModel.LoadMoreAsync(CurrentToken);
         UpdateMoreFooter();
+#if !UNO_DESKTOP
         // A large viewport may still be close to the end after one batch.
         // Continue only when this request actually added rows, avoiding a
         // tight loop on empty or failed remote pages.
         if (ViewModel.Items.Count > previousCount && _navigationCancellation is not null)
             DispatcherQueue.TryEnqueue(TryLoadMoreNearEnd);
+#endif
     }
 
     private async void OnLoadMoreClick(object sender, RoutedEventArgs e)
@@ -640,10 +707,17 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     private void UpdateMoreFooter()
     {
         if (MoreStatusText is null || LoadMoreButton is null) return;
+#if UNO_DESKTOP
+        UpdateDesktopRecommendationNavigation();
+#endif
         MoreStatusText.Text = ViewModel.IsLoadingMore ? "正在加载更多作品…"
             : ViewModel.LoadMoreError ?? (ViewModel.HasMoreRecommendations
                 ? ViewModel.HasItems
+#if UNO_DESKTOP
+                    ? "继续浏览或点击加载更多"
+#else
                     ? "继续向下滚动或点击加载更多"
+#endif
                     : "点击加载更多继续查找"
                 : "已显示本轮全部作品");
         LoadMoreButton.Content = string.IsNullOrWhiteSpace(ViewModel.LoadMoreError)
@@ -674,7 +748,11 @@ public sealed partial class RecommendationPage : Page, INavigationAware
                     return;
                 }
                 RecommendationList.UpdateLayout();
+#if UNO_DESKTOP
+                scroll.ChangeView(ViewModel.BrowseState.VerticalOffset, null, null, true);
+#else
                 scroll.ChangeView(null, ViewModel.BrowseState.VerticalOffset, null, true);
+#endif
                 _scrollRestorePending = false;
             }
             finally
@@ -704,7 +782,11 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     private async Task SaveTagAsync(object sender, RecommendationAdjustment? adjustment)
     {
         _tagPinned = TagStackPopup.IsOpen;
+#if UNO_DESKTOP
+        if (sender is FrameworkElement { Tag: RecommendationTagPreference tag })
+#else
         if (sender is ToggleButton { Tag: RecommendationTagPreference tag })
+#endif
         {
             // A click must not claim a saved preference before persistence succeeds.
             tag.RefreshSelection();
@@ -716,11 +798,46 @@ public sealed partial class RecommendationPage : Page, INavigationAware
     private CancellationToken CurrentToken
         => _navigationCancellation?.Token ?? CancellationToken.None;
 
-    private Task RunActionAsync(Func<CancellationToken, Task> action, bool serialize = true)
+    private Task RunActionAsync(
+        Func<CancellationToken, Task> action,
+        bool serialize = true,
+        bool transientFeedback = true)
     {
         if (_navigationCancellation is not { } navigation)
             return Task.CompletedTask;
 
+#if UNO_DESKTOP
+        if (transientFeedback)
+            return RunFeedbackActionAsync(action, navigation, serialize);
+#endif
         return ViewModel.RunActionAsync(action, navigation.Token, serialize);
     }
+
+#if UNO_DESKTOP
+    private async Task RunFeedbackActionAsync(
+        Func<CancellationToken, Task> action,
+        CancellationTokenSource navigation,
+        bool serialize)
+    {
+        var previousMessage = ViewModel.Message;
+        var previousError = ViewModel.HasError;
+        ++_feedbackOperationDepth;
+        ViewModel.HasError = false;
+        try
+        {
+            await ViewModel.RunActionAsync(action, navigation.Token, serialize);
+        }
+        finally
+        {
+            var changed = ViewModel.Message != previousMessage;
+            if (!changed && !ViewModel.HasError)
+                ViewModel.HasError = previousError;
+            --_feedbackOperationDepth;
+            if (ReferenceEquals(_navigationCancellation, navigation)
+                && !navigation.IsCancellationRequested
+                && (changed || ViewModel.HasError != previousError))
+                UpdateStatusFeedback(transient: true);
+        }
+    }
+#endif
 }

@@ -63,7 +63,21 @@ internal static class ServiceRegistration
         services.AddSingleton<PrivacyService>();
         services.AddSingleton<StartupDialogCoordinator>();
         services.AddSingleton<TrayIconService>();
+#if UNO_SKIA
+        var notificationDispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread()
+            ?? throw new InvalidOperationException("应用初始化需要界面线程。");
+        services.AddSingleton(provider => new WindowsAppNotificationService(
+            provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<WindowsAppNotificationService>>(),
+            action =>
+            {
+                if (!notificationDispatcher.HasThreadAccess)
+                    return notificationDispatcher.TryEnqueue(() => action());
+                action();
+                return true;
+            }));
+#else
         services.AddSingleton<WindowsAppNotificationService>();
+#endif
         services.AddSingleton<IAppNotificationService>(provider =>
             provider.GetRequiredService<WindowsAppNotificationService>());
         services.AddSingleton<Contracts.IPluginNavigator>(sp => sp.GetRequiredService<NavigationService>());

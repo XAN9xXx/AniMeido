@@ -11,6 +11,9 @@ using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Foundation;
 using Windows.UI.ViewManagement;
+#if UNO_SKIA
+using AniMeido.Plugin.Base.Services;
+#endif
 
 namespace AniMeido.Plugin.Base.Views;
 
@@ -119,6 +122,8 @@ public sealed partial class TodayPage
             };
         }
 
+        if (XamlRoot is not { } root)
+            return;
         var origin = PlanSurface.TransformToVisual(null).TransformPoint(new Point());
         _collapsedStackHeight = PlanSurface.ActualHeight;
         var width = PlanSurface.ActualWidth;
@@ -135,8 +140,8 @@ public sealed partial class TodayPage
         // 点击层覆盖整个客户区（含侧栏），真实卡包仍在原坐标；不复制底下页面。
         PlanStackPopup.HorizontalOffset = -popupOrigin.X;
         PlanStackPopup.VerticalOffset = -popupOrigin.Y;
-        PlanDismissCanvas.Width = Math.Max(XamlRoot.Size.Width, origin.X + width);
-        PlanDismissCanvas.Height = Math.Max(XamlRoot.Size.Height, origin.Y + _expandedStackHeight);
+        PlanDismissCanvas.Width = Math.Max(root.Size.Width, origin.X + width);
+        PlanDismissCanvas.Height = Math.Max(root.Size.Height, origin.Y + _expandedStackHeight);
         Canvas.SetLeft(PlanVisual, origin.X);
         Canvas.SetTop(PlanVisual, origin.Y);
 
@@ -163,7 +168,9 @@ public sealed partial class TodayPage
 
     private double AvailablePlanStackHeight(Point origin)
     {
-        var windowId = XamlRoot.ContentIslandEnvironment.AppWindowId;
+        if (XamlRoot is not { ContentIslandEnvironment: { } environment } root)
+            return 1;
+        var windowId = environment.AppWindowId;
         // 只订阅一次：浮层关闭时退订，展开中途失败时由 TryOpenPlanStackAsync 退订。
         if (_planOwnerWindow is null)
         {
@@ -172,13 +179,18 @@ public sealed partial class TodayPage
             _planActivationListener = InputActivationListener.GetForWindowId(windowId);
             _planActivationListener.InputActivationChanged += OnPlanActivationChanged;
         }
+        var scale = root.RasterizationScale;
+#if UNO_SKIA
+        if (!DesktopShellServices.TryGetWorkAreaAtClientPoint(root, origin, out var point, out var area))
+            return Math.Max(1, root.Size.Height - origin.Y - 12);
+#else
         var handle = Microsoft.UI.Win32Interop.GetWindowFromWindowId(windowId);
-        var scale = XamlRoot.RasterizationScale;
         var point = new Windows.Graphics.PointInt32(
             (int)Math.Round(origin.X * scale), (int)Math.Round(origin.Y * scale));
         if (!PlanClientToScreen(handle, ref point))
-            return Math.Max(1, XamlRoot.Size.Height - origin.Y - 12);
+            return Math.Max(1, root.Size.Height - origin.Y - 12);
         var area = DisplayArea.GetFromPoint(point, DisplayAreaFallback.Nearest).WorkArea;
+#endif
         return Math.Max(1, (area.Y + area.Height - point.Y) / scale - 12);
     }
 
@@ -222,6 +234,9 @@ public sealed partial class TodayPage
 
     private void OnPlanStackOpened(object sender, object e)
     {
+#if UNO_DESKTOP
+        DesktopPlanMoreButton.Content = "收起";
+#endif
         _planPanel?.Focus(FocusState.Programmatic);
         _planStackAnimation?.Begin();
         if (_planStackAnimation is null)
@@ -477,6 +492,9 @@ public sealed partial class TodayPage
 
     private void OnPlanStackClosed(object sender, object e)
     {
+#if UNO_DESKTOP
+        DesktopPlanMoreButton.Content = ViewModel.PlanStackHint;
+#endif
         _ = ViewModel.SetPlanDeckExpandedAsync(false);
         ++_planOpenGeneration;
         CompositionTarget.Rendering -= OnPlanHandoffRendering;

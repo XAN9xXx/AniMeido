@@ -1,0 +1,70 @@
+﻿<Window
+    x:Class="AniMeido.App.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:themes="using:AniMeido.App.Themes"
+    Title="AniMeido">
+    <Grid x:Name="RootGrid" Background="{ThemeResource DesktopNavigationBrush}"
+          RowDefinitions="48,Auto,*" Loaded="OnShellLoaded" SizeChanged="OnShellSizeChanged">
+        <Grid.Resources>
+            <ResourceDictionary>
+                <ResourceDictionary.MergedDictionaries><themes:DesktopShellResources/></ResourceDictionary.MergedDictionaries>
+            </ResourceDictionary>
+        </Grid.Resources>
+
+        <Grid x:Name="TitleBarHost" Background="{ThemeResource DesktopNavigationBrush}">
+            <Border x:Name="TitleNavigationFill" Width="196" HorizontalAlignment="Left"
+                    Background="{ThemeResource DesktopNavigationBrush}"/>
+            <Grid x:Name="AppTitleBar" Margin="56,0,152,0" Background="Transparent">
+                <TextBlock x:Name="AppTitleText" Text="AniMeido" Margin="12,0,0,0"
+                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           Foreground="{ThemeResource DesktopTextBrush}"/>
+            </Grid>
+            <Button x:Name="BackButton" Width="40" Height="36" Margin="8,0,0,0" Padding="0"
+                    HorizontalAlignment="Left" VerticalAlignment="Center"
+                    Style="{StaticResource DesktopSubtleButtonStyle}" Click="OnBackClick"
+                    AutomationProperties.Name="返回" ToolTipService.ToolTip="返回">
+                <FontIcon Glyph="&#xE76B;" FontFamily="{ThemeResource DesktopSymbolFontFamily}" FontSize="14"/>
+            </Button>
+        </Grid>
+
+        <InfoBar x:Name="LegacyInstallationInfoBar" Grid.Row="1" Margin="8,8,8,0"
+                 Visibility="Collapsed" IsOpen="False" IsClosable="True" Severity="Warning"
+                 Title="旧版 AniMeido 仍已安装"
+                 Message="请卸载旧版本，避免误开旧版程序。旧版卸载会保留个人数据。"
+                 Closed="OnLegacyNoticeClosed">
+            <InfoBar.ActionButton>
+                <Button x:Name="UninstallLegacyButton" Content="卸载旧版本" Click="OnUninstallLegacyClick"/>
+            </InfoBar.ActionButton>
+        </InfoBar>
+
+        <Grid x:Name="ShellBody" Grid.Row="2" ColumnDefinitions="196,*">
+            <Grid x:Name="NavigationPane" RowDefinitions="*,Auto" Padding="0,8,0,8"
+                  Background="{ThemeResource DesktopNavigationBrush}">
+                <ScrollViewer HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollMode="Enabled" VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="NavigationItems"/>
+                </ScrollViewer>
+                <StackPanel x:Name="SettingsItems" Grid.Row="1" Margin="0,8,0,0"/>
+            </Grid>
+            <Border x:Name="Workspace" Grid.Column="1" Background="{ThemeResource DesktopPageBrush}"
+                    BorderBrush="{ThemeResource DesktopLineBrush}" BorderThickness="1,1,0,0" CornerRadius="8,0,0,0">
+                <Frame x:Name="ContentFrame"/>
+            </Border>
+        </Grid>
+
+        <Grid x:Name="StartupOverlay" Grid.Row="2" Background="{ThemeResource DesktopPageBrush}">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16" MaxWidth="520" Padding="24">
+                <ProgressRing x:Name="StartupRing" IsActive="True" Width="40" Height="40"/>
+                <TextBlock x:Name="MigrationTitle" Text="正在准备…" Style="{StaticResource AniMeidoSectionTitleStyle}"
+                           HorizontalAlignment="Center" TextWrapping="Wrap"/>
+                <TextBlock x:Name="MigrationStatus" Visibility="Collapsed" TextWrapping="Wrap"
+                           Foreground="{ThemeResource DesktopMutedBrush}"/>
+                <StackPanel x:Name="MigrationActions" Visibility="Collapsed" Orientation="Horizontal" Spacing="12">
+                    <Button x:Name="MigrationRetry" Content="重试" Click="OnRetryMigrationClick"/>
+                    <Button Content="打开备份文件夹" Click="OnOpenMigrationBackupsClick"/>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

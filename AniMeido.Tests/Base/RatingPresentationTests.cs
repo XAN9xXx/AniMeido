@@ -7,6 +7,33 @@ public sealed class RatingPresentationTests
     private static readonly DateOnly Today = new(2026, 10, 21);
 
     [Fact]
+    public void Rows_KeepSourceOrderOriginalScalesAndVotes()
+    {
+        MetadataRating[] ratings = [new("ann", 7.12, 41), new("anilist", 71, 15936, "2026-10-06"),
+            new("mal", 7.52, 55184), new("bangumi", 7.5, 9114)];
+
+        var rows = RatingPresentation.CreateRows(ratings, Today);
+
+        Assert.Collection(rows,
+            row => Assert.Equal(("Bangumi", "7.5", "10", "9,114"), (row.Source, row.Score, row.Scale, row.Votes)),
+            row => Assert.Equal(("MyAnimeList", "7.52", "10", "55,184"), (row.Source, row.Score, row.Scale, row.Votes)),
+            row => Assert.Equal(("AniList", "71", "100", "15,936"), (row.Source, row.Score, row.Scale, row.Votes)),
+            row => Assert.Equal(("Anime News Network", "7.12", "10", "41"), (row.Source, row.Score, row.Scale, row.Votes)));
+    }
+
+    [Fact]
+    public void Rows_HideUnavailableScoresAndKeepSmallValidSamples()
+    {
+        MetadataRating[] ratings = [new("bangumi", 7.5, 49), new("anilist", 99, 900, "2026-10-05"),
+            new("mal", null, 1000), new("kitsu", 8, 0), new("ann", 8, null)];
+
+        var row = Assert.Single(RatingPresentation.CreateRows(ratings, Today));
+        Assert.Equal("Bangumi", row.Source);
+        Assert.Equal("49", row.Votes);
+        Assert.Empty(RatingPresentation.CreateRows([], Today));
+    }
+
+    [Fact]
     public void Presentation_PreservesPlatformScalesOrderAndExactFormatting()
     {
         MetadataRating[] ratings = [new("ann", 7.12, 41), new("kitsu", 7.58, 336), new("anilist", 71, 15936, "2026-10-06"),

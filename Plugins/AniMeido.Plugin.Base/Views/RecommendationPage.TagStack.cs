@@ -10,6 +10,9 @@ using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Foundation;
 using Windows.UI.ViewManagement;
+#if UNO_SKIA
+using AniMeido.Plugin.Base.Services;
+#endif
 
 namespace AniMeido.Plugin.Base.Views;
 
@@ -143,6 +146,8 @@ public sealed partial class RecommendationPage
                 Stretch = Stretch.Fill, IsHitTestVisible = false,
             };
 
+        if (XamlRoot is not { } root)
+            return;
         var origin = TagPackSurface.TransformToVisual(null).TransformPoint(new Point());
         _tagCollapsedHeight = TagPackSurface.ActualHeight;
         var width = TagPackSurface.ActualWidth;
@@ -156,8 +161,8 @@ public sealed partial class RecommendationPage
         var popupOrigin = TagStackPopup.TransformToVisual(null).TransformPoint(new Point());
         TagStackPopup.HorizontalOffset = -popupOrigin.X;
         TagStackPopup.VerticalOffset = -popupOrigin.Y;
-        TagDismissCanvas.Width = Math.Max(XamlRoot.Size.Width, origin.X + width);
-        TagDismissCanvas.Height = Math.Max(XamlRoot.Size.Height, origin.Y + _tagExpandedHeight);
+        TagDismissCanvas.Width = Math.Max(root.Size.Width, origin.X + width);
+        TagDismissCanvas.Height = Math.Max(root.Size.Height, origin.Y + _tagExpandedHeight);
         Canvas.SetLeft(TagPackVisual, origin.X);
         Canvas.SetTop(TagPackVisual, origin.Y);
 
@@ -183,7 +188,9 @@ public sealed partial class RecommendationPage
 
     private double AvailableTagHeight(Point origin)
     {
-        var windowId = XamlRoot.ContentIslandEnvironment.AppWindowId;
+        if (XamlRoot is not { ContentIslandEnvironment: { } environment } root)
+            return 1;
+        var windowId = environment.AppWindowId;
         if (_tagWindow is null)
         {
             _tagWindow = AppWindow.GetFromWindowId(windowId);
@@ -191,13 +198,18 @@ public sealed partial class RecommendationPage
             _tagActivation = InputActivationListener.GetForWindowId(windowId);
             _tagActivation.InputActivationChanged += OnTagActivationChanged;
         }
+        var scale = root.RasterizationScale;
+#if UNO_SKIA
+        if (!DesktopShellServices.TryGetWorkAreaAtClientPoint(root, origin, out var point, out var area))
+            return Math.Max(1, root.Size.Height - origin.Y - 12);
+#else
         var handle = Microsoft.UI.Win32Interop.GetWindowFromWindowId(windowId);
-        var scale = XamlRoot.RasterizationScale;
         var point = new Windows.Graphics.PointInt32(
             (int)Math.Round(origin.X * scale), (int)Math.Round(origin.Y * scale));
         if (!TagClientToScreen(handle, ref point))
-            return Math.Max(1, XamlRoot.Size.Height - origin.Y - 12);
+            return Math.Max(1, root.Size.Height - origin.Y - 12);
         var area = DisplayArea.GetFromPoint(point, DisplayAreaFallback.Nearest).WorkArea;
+#endif
         return Math.Max(1, (area.Y + area.Height - point.Y) / scale - 12);
     }
 
@@ -444,13 +456,13 @@ public sealed partial class RecommendationPage
 
     private void UpdateTagStackSize()
     {
-        if (!TagStackPopup.IsOpen || _tagPanel is null || _tagAnimation is not null) return;
+        if (!TagStackPopup.IsOpen || _tagPanel is null || _tagAnimation is not null || XamlRoot is not { } root) return;
         TagPackList.UpdateLayout();
         var origin = TagPackVisual.TransformToVisual(null).TransformPoint(new Point());
         var rowsHeight = _tagPanel.Children.Take(5).Sum(row => row.DesiredSize.Height);
         _tagExpandedHeight = Math.Max(_tagCollapsedHeight,
             Math.Min(AvailableTagHeight(origin), rowsHeight + _tagChromeHeight));
         TagPackVisual.Height = _tagExpandedHeight;
-        TagDismissCanvas.Height = Math.Max(XamlRoot.Size.Height, origin.Y + _tagExpandedHeight);
+        TagDismissCanvas.Height = Math.Max(root.Size.Height, origin.Y + _tagExpandedHeight);
     }
 }

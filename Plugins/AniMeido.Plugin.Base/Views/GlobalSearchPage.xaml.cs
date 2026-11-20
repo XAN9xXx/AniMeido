@@ -221,11 +221,13 @@ namespace AniMeido.Plugin.Base.Views
             ListViewBase sender,
             ContainerContentChangingEventArgs args)
         {
+#if !UNO_SKIA
             if (!args.InRecycleQueue && args.Phase == 0)
             {
                 args.RegisterUpdateCallback(OnLocalMatchContainerContentChanging);
                 return;
             }
+#endif
 
             if (args.ItemContainer?.ContentTemplateRoot is not FrameworkElement root
                 || root.FindName("LocalMatchCover") is not Image image)

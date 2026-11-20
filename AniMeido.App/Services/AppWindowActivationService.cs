@@ -1,4 +1,4 @@
-using AniMeido.Contracts.Desktop;
+﻿using AniMeido.Contracts.Desktop;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 
@@ -15,7 +15,11 @@ public sealed class AppWindowActivationService
     {
         _window = window;
         _appWindow = appWindow;
+#if UNO_SKIA
+        _windowHandle = DesktopNativeWindow.GetHandle(window);
+#else
         _windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
+#endif
     }
 
     internal void Detach()
@@ -31,11 +35,22 @@ public sealed class AppWindowActivationService
         return handle != 0;
     }
 
-    internal void HideMainWindow() => _appWindow?.Hide();
+    internal void HideMainWindow()
+    {
+#if UNO_SKIA
+        DesktopNativeWindow.Hide(_windowHandle);
+#else
+        _appWindow?.Hide();
+#endif
+    }
 
     public void ActivateMainWindow()
     {
+#if UNO_SKIA
+        DesktopNativeWindow.Show(_windowHandle);
+#else
         _appWindow?.Show();
+#endif
         _window?.Activate();
     }
 }

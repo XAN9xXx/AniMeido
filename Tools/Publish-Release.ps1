@@ -18,10 +18,12 @@ param(
     [string]$PrivateKey,
     [string]$Notes,
     [string]$MinUpdatableFrom = '3.0.0',
-    [string]$IsccPath
+    [string]$IsccPath,
+    [switch]$Uno
 )
 
 $ErrorActionPreference = 'Stop'
+$appProject = if ($Uno) { '.\AniMeido.Desktop' } else { '.\AniMeido.App' }
 Set-StrictMode -Version Latest
 
 function Assert-ReleaseVersion([string]$Value, [string]$ReleaseChannel) {
@@ -137,7 +139,7 @@ try {
     $launcherOutput = Join-Path $output 'launcher'
 
     # 2. Force a production build, never enable UPDATE_TEST_SOURCE.
-    Invoke-DotNet @('publish', '.\AniMeido.App', '-c', 'Release', '-r', 'win-x64',
+    Invoke-DotNet @('publish', $appProject, '-c', 'Release', '-r', 'win-x64',
         '-p:PublishProfile=win-x64', "-p:AniMeidoVersion=$Version", '-p:AniMeidoUpdateTestSource=false', '--output', $payload)
     foreach ($file in @('AniMeido.App.exe', 'PluginHost\AniMeido.PluginHost.exe')) {
         if (-not (Test-Path -LiteralPath (Join-Path $payload $file) -PathType Leaf)) {

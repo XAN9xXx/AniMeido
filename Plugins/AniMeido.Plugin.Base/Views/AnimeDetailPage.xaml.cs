@@ -61,6 +61,9 @@ namespace AniMeido.Plugin.Base.Views
             ViewModel = new AnimeDetailViewModel(dataSource, trackingService, ratingSource, logger);
             DataContext = ViewModel;
             InitializeComponent();
+#if UNO_DESKTOP
+            InitializeDesktopArchiveSummary();
+#endif
             ToolTipService.SetToolTip(DetailScore, RatingPresentation.Explanation);
             UpdatePlaybackAvailability();
             Loaded += OnPageLoaded;
@@ -145,6 +148,10 @@ namespace AniMeido.Plugin.Base.Views
                 _logger.LogError(error, "Personal archive edit failed for {AnimeId}", animeId);
                 if (IsCurrent())
                 {
+#if UNO_DESKTOP
+                    if (DesktopFeedback.TryShow("个人档案操作未完成，请重试。", error: true))
+                        return;
+#endif
                     ErrorInfoBar.Message = "个人档案操作未完成，请重试。";
                     ErrorInfoBar.IsOpen = true;
                 }
@@ -252,6 +259,11 @@ namespace AniMeido.Plugin.Base.Views
                     tags.Text.Split(
                         [',', '，'],
                         StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+#if UNO_DESKTOP
+                if (isCurrent())
+                    await RefreshDesktopArchiveSummaryAsync(
+                        animeId, _navigationVersion, CancellationToken.None);
+#endif
             }
             finally
             {
@@ -314,6 +326,9 @@ namespace AniMeido.Plugin.Base.Views
         private void OnPageUnloaded(object sender, RoutedEventArgs e)
         {
             _navigationVersion++;
+#if UNO_DESKTOP
+            CancelDesktopArchiveSummary();
+#endif
             CancelPersonalArchiveEdit();
             _navigationInterrupted |= _navigationTask is { IsCompleted: false }
                 || ViewModel.LoadDetailCommand.IsRunning;
@@ -344,6 +359,9 @@ namespace AniMeido.Plugin.Base.Views
                 _savedTagNames.Clear();
                 TagContainer.Children.Clear();
                 TagContainer.Visibility = Visibility.Collapsed;
+#if UNO_DESKTOP
+                ResetDesktopArchiveSummary();
+#endif
 
                 _navigationTask = LoadCurrentAnimeAsync(animeID, version);
                 await _navigationTask;
@@ -362,7 +380,11 @@ namespace AniMeido.Plugin.Base.Views
                 ViewModel.LoadDetailCommand.Cancel();
                 await Task.WhenAll(
                     ViewModel.LoadDetailCommand.ExecuteAsync(animeId),
-                    LoadBangumiTagsAsync(animeId, version, cancellation.Token));
+                    LoadBangumiTagsAsync(animeId, version, cancellation.Token)
+#if UNO_DESKTOP
+                    , RefreshDesktopArchiveSummaryAsync(animeId, version, cancellation.Token)
+#endif
+                    );
             }
             finally
             {
@@ -398,6 +420,10 @@ namespace AniMeido.Plugin.Base.Views
                     .OfType<string>()
                     .ToArray();
                 await RefreshSavedTagsAsync(animeId, currentVersion, names);
+#if UNO_DESKTOP
+                await RefreshDesktopArchiveSummaryAsync(
+                    animeId, currentVersion, CancellationToken.None);
+#endif
             }
             catch (OperationCanceledException)
             {
@@ -452,7 +478,7 @@ namespace AniMeido.Plugin.Base.Views
                 LoadingFailedImage.Visibility = Visibility.Visible;
                 LoadingRing.Visibility = Visibility.Collapsed;
                 LoadingHint.Text = $"{ViewModel.ErrorMessage}\n\n点击重试";
-                ErrorInfoBar.Message = ViewModel.ErrorMessage;
+                ErrorInfoBar.Message = ViewModel.ErrorMessage ?? string.Empty;
                 ErrorInfoBar.IsOpen = true;
             }
             else
@@ -493,8 +519,13 @@ namespace AniMeido.Plugin.Base.Views
         private void UpdateScore()
         {
             DetailScore.Text = ViewModel.RatingText;
+#if UNO_DESKTOP
+            DetailScore.Visibility = Visibility.Collapsed;
+            ToolTipService.SetToolTip(RatingsSection, RatingPresentation.Explanation);
+#else
             DetailScore.Visibility = string.IsNullOrEmpty(ViewModel.RatingText)
                 ? Visibility.Collapsed : Visibility.Visible;
+#endif
         }
 
         private void UpdateStudios()
@@ -568,6 +599,15 @@ namespace AniMeido.Plugin.Base.Views
                 MaxLines = 1,
                 HorizontalAlignment = HorizontalAlignment.Center,
             };
+#if UNO_DESKTOP
+            avatarBorder.Background = (Brush)Application.Current.Resources["DesktopFieldBrush"];
+            nameText.ClearValue(TextBlock.FontSizeProperty);
+            nameText.ClearValue(TextBlock.FontWeightProperty);
+            nameText.Style = (Style)Application.Current.Resources["DesktopEmphasisTextStyle"];
+            cvText.ClearValue(TextBlock.FontSizeProperty);
+            cvText.Style = (Style)Application.Current.Resources["DesktopDataTextStyle"];
+            cvText.Foreground = (Brush)Application.Current.Resources["DesktopMutedBrush"];
+#endif
 
             if (character.Actors.Count > 0)
                 cvText.Text = $"CV: {character.Actors[0].Name}";
@@ -591,6 +631,9 @@ namespace AniMeido.Plugin.Base.Views
                 Child = stack,
                 Tag = character,
             };
+#if UNO_DESKTOP
+            card.Background = (Brush)Application.Current.Resources["DesktopCardBrush"];
+#endif
 
             // 设置 CenterPoint 使缩放以卡片中心为基准
             card.SizeChanged += (s, e) =>
@@ -747,6 +790,12 @@ namespace AniMeido.Plugin.Base.Views
                 VerticalAlignment = VerticalAlignment.Center,
             };
 
+#if UNO_DESKTOP
+            var savedBg = (Brush)Application.Current.Resources["DesktopAccentBrush"];
+            var unsavedBg = (Brush)Application.Current.Resources["DesktopCardBrush"];
+            var unsavedFg = (Brush)Application.Current.Resources["DesktopTextBrush"];
+            var whiteBrush = (Brush)Application.Current.Resources["DesktopOnAccentBrush"];
+#else
             var accentColor = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
             var accentBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(accentColor);
             var savedBg = new Microsoft.UI.Xaml.Media.SolidColorBrush(
@@ -757,6 +806,7 @@ namespace AniMeido.Plugin.Base.Views
                 Windows.UI.Color.FromArgb(200, 128, 128, 128));
             var whiteBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(
                 Windows.UI.Color.FromArgb(255, 255, 255, 255));
+#endif
 
             var border = new Border
             {
@@ -834,6 +884,10 @@ namespace AniMeido.Plugin.Base.Views
                         {
                             return;
                         }
+#if UNO_DESKTOP
+                        if (DesktopFeedback.TryShow($"收藏标签更新失败：{ex.Message}", error: true))
+                            return;
+#endif
                         ErrorInfoBar.Message = $"收藏标签更新失败：{ex.Message}";
                         ErrorInfoBar.IsOpen = true;
                     }

@@ -21,7 +21,11 @@ namespace AniMeido.Plugin.Base.Views
         private readonly IPluginNavigator _pluginNavigator;
         private readonly ILogger<ManagementPage> _logger;
         private bool _isBatchMode;
+#if UNO_DESKTOP
+        private bool _isGridLayout = true;
+#else
         private bool _isGridLayout;
+#endif
         private int _visitVersion;
         private ContentDialog? _batchRemoveDialog;
 
@@ -49,6 +53,9 @@ namespace AniMeido.Plugin.Base.Views
             InitializeSortControls();
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
             Unloaded += OnPageUnloaded;
+#if UNO_DESKTOP
+            UpdateLayoutState();
+#endif
         }
 
         public async Task OnNavigatedToAsync(object? parameter)
@@ -110,6 +117,11 @@ namespace AniMeido.Plugin.Base.Views
                 _logger.LogError(ex, "My anime page failed to {Operation}", operation);
                 if (IsLoaded && visit == _visitVersion)
                 {
+#if UNO_DESKTOP
+                    if (operation is "change status" or "confirm status removal" or "remove tag"
+                        && DesktopFeedback.TryShow($"操作失败：{ex.Message}", error: true))
+                        return;
+#endif
                     ViewModel.ErrorMessage = $"操作失败：{ex.Message}";
                     ViewModel.IsError = true;
                 }
@@ -237,7 +249,17 @@ namespace AniMeido.Plugin.Base.Views
         }
 
         private void OnSelectAllClick(object sender, RoutedEventArgs e)
+#if UNO_SKIA
+        {
+            foreach (var item in MineList.Items)
+            {
+                if (!MineList.SelectedItems.Contains(item))
+                    MineList.SelectedItems.Add(item);
+            }
+        }
+#else
             => MineList.SelectAll();
+#endif
 
         private void OnBatchMenuOpening(object sender, object e)
         {
@@ -351,9 +373,14 @@ namespace AniMeido.Plugin.Base.Views
                     if (!IsLoaded || visit != _visitVersion)
                         return;
 
-                    ViewModel.ErrorMessage = result.Succeeded > 0
+                    var message = result.Succeeded > 0
                         ? $"已修改 {result.Succeeded} 部，另有 {result.Failed} 部修改失败，请稍后重试。"
                         : "修改失败，请稍后重试。";
+#if UNO_DESKTOP
+                    if (DesktopFeedback.TryShow(message, error: true))
+                        return;
+#endif
+                    ViewModel.ErrorMessage = message;
                     ViewModel.IsError = true;
                 }
             }, "change status");

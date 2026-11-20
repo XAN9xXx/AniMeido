@@ -326,6 +326,31 @@ public sealed partial class ArchivePage : Page, INavigationAware
         await EnsureActivePanelAsync();
     }
 
+#if UNO_DESKTOP
+    private int _desktopScreenshotPage;
+    private int _desktopScreenshotPageCount = 1;
+
+    private void OnScreenshotUnassignedChanged(object sender, RoutedEventArgs e)
+    {
+        _desktopScreenshotPage = 0;
+        ApplyScreenshotFilter();
+    }
+
+    private void OnPreviousScreenshotPage(object sender, RoutedEventArgs e)
+    {
+        if (_desktopScreenshotPage == 0) return;
+        --_desktopScreenshotPage;
+        ApplyScreenshotFilter();
+    }
+
+    private void OnNextScreenshotPage(object sender, RoutedEventArgs e)
+    {
+        if (_desktopScreenshotPage + 1 >= _desktopScreenshotPageCount) return;
+        ++_desktopScreenshotPage;
+        ApplyScreenshotFilter();
+    }
+#endif
+
     private void ApplyScreenshotFilter()
     {
         if (_screenshotGroups is null || ScreenshotList is null)
@@ -338,12 +363,32 @@ public sealed partial class ArchivePage : Page, INavigationAware
         var year = double.IsNaN(ScreenshotYearFilter.Value)
             ? null
             : (int?)ScreenshotYearFilter.Value;
+#if UNO_DESKTOP
+        var filtered = ViewModels.ArchiveBrowse.FilterScreenshots(
+            _panels.Screenshots, _panels.ScreenshotTags, ScreenshotFilter.Text.Trim(), year);
+        if (ScreenshotUnassignedOnly.IsChecked == true)
+            filtered = filtered.Where(item => item.AnimeId is null).ToArray();
+        var requestedScreenshotId = _requestedScreenshotId;
+        var page = requestedScreenshotId is null
+            ? ViewModels.DesktopScreenshotPaging.Select(filtered, _desktopScreenshotPage)
+            : ViewModels.DesktopScreenshotPaging.SelectContaining(
+                filtered, item => item.ScreenshotId == requestedScreenshotId, _desktopScreenshotPage);
+        _requestedScreenshotId = null;
+        _desktopScreenshotPage = page.Index;
+        _desktopScreenshotPageCount = page.PageCount;
+        ScreenshotPageText.Text = $"{page.Index + 1} / {page.PageCount}";
+        ScreenshotPreviousButton.IsEnabled = page.HasPrevious;
+        ScreenshotNextButton.IsEnabled = page.HasNext;
+        var restoredSelection = _gallery.ApplyFilter(
+            page.Items, _panels.ScreenshotTags, string.Empty, null, selectedIds);
+#else
         var restoredSelection = _gallery.ApplyFilter(
             _panels.Screenshots,
             _panels.ScreenshotTags,
             ScreenshotFilter.Text,
             year,
             selectedIds);
+#endif
 
         _suppressScreenshotSelectionChanged = true;
         try
@@ -372,7 +417,11 @@ public sealed partial class ArchivePage : Page, INavigationAware
 
         _gallery.CompleteFilterSelection(
             (ScreenshotList.SelectedItem as AnimeScreenshot)?.ScreenshotId);
+#if UNO_DESKTOP
+        ScreenshotCountText.Text = $"截图 {page.TotalCount} 张";
+#else
         ScreenshotCountText.Text = $"截图 · {_gallery.VisibleScreenshots.Count} 张";
+#endif
         ScreenshotEmptyState.Visibility = _gallery.VisibleScreenshots.Count == 0
             ? Visibility.Visible : Visibility.Collapsed;
         UpdateScreenshotDetails();
@@ -479,12 +528,22 @@ public sealed partial class ArchivePage : Page, INavigationAware
     private void OnScreenshotFilterChanged(
         object sender,
         TextChangedEventArgs e)
-        => ApplyScreenshotFilter();
+    {
+#if UNO_DESKTOP
+        _desktopScreenshotPage = 0;
+#endif
+        ApplyScreenshotFilter();
+    }
 
     private void OnScreenshotYearFilterChanged(
         NumberBox sender,
         NumberBoxValueChangedEventArgs args)
-        => ApplyScreenshotFilter();
+    {
+#if UNO_DESKTOP
+        _desktopScreenshotPage = 0;
+#endif
+        ApplyScreenshotFilter();
+    }
 
     private void RenderStatistics(ArchiveStatistics statistics)
     {
@@ -716,16 +775,22 @@ public sealed partial class ArchivePage : Page, INavigationAware
                 // 作品 ID 是内部标识（迁移后已不是 Bangumi 条目号，负数表示资料里没有），不显示给用户。
                 ArchiveAnimeMetadata.Text = anime is null || animeId < 0
                     ? "资料不可用"
-                    : string.Join(" · ", new[]
+                    : string.Join("   ", new[]
                     {
                         anime.AirDate?.Year.ToString(),
+#if UNO_DESKTOP
+                        ViewModels.AnimeReleaseClassifier.GetMediaFormatText(anime.MediaFormat),
+#else
                         anime.Studio,
+#endif
                     }.Where(value => !string.IsNullOrWhiteSpace(value)));
+#if !UNO_DESKTOP
                 ManagedImageLoader.ConfigureCover(
                     ArchiveHeroCover,
                     animeId,
                     anime?.CoverURL,
                     150);
+#endif
             }
         }
         catch (OperationCanceledException)
@@ -830,7 +895,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
                     args.Cancel = true;
                     _logger.LogError(ex, "Archive edit failed to save for {AnimeId}", archive.Archive.AnimeId);
                     if (IsNavigationCurrent(navigationVersion, lifetime))
-                        ShowStatus("档案未保存，请稍后重试。", InfoBarSeverity.Error);
+                        ShowStatus("档案未保存，请稍后重试。", InfoBarSeverity.Error, transient: true);
                     return;
                 }
 
@@ -850,7 +915,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
                     {
                         ShowStatus(
                             refreshed ? "档案已保存。" : "档案已保存，但列表未能刷新。请点刷新查看。",
-                            refreshed ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
+                            refreshed ? InfoBarSeverity.Success : InfoBarSeverity.Warning, transient: true);
                     }
                 }
                 catch (Exception ex) when (ex is SqliteException
@@ -860,7 +925,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
                     _logger.LogWarning(ex, "Archive was saved but its panels failed to refresh for {AnimeId}",
                         archive.Archive.AnimeId);
                     if (IsNavigationCurrent(navigationVersion, lifetime))
-                        ShowStatus("档案已保存，但列表未能刷新。请点刷新查看。", InfoBarSeverity.Warning);
+                        ShowStatus("档案已保存，但列表未能刷新。请点刷新查看。", InfoBarSeverity.Warning, transient: true);
                 }
             }
             finally
@@ -873,13 +938,13 @@ public sealed partial class ArchivePage : Page, INavigationAware
 
     private async void OnEditNoteClick(object sender, RoutedEventArgs e)
     {
-        if (_details.SelectedArchive is not { } selected)
+        if (_details.SelectedArchive is not { } selected || XamlRoot is not { } root)
             return;
 
-        var availableWidth = Math.Max(420, XamlRoot.Size.Width - 96);
+        var availableWidth = Math.Max(420, root.Size.Width - 96);
         var editorWidth = Math.Min(1080, availableWidth);
         var sideBySide = editorWidth >= 760;
-        var editorHeight = Math.Clamp(XamlRoot.Size.Height - 250, 260, 560);
+        var editorHeight = Math.Clamp(root.Size.Height - 250, 260, 560);
         if (!sideBySide)
             editorHeight = Math.Min(editorHeight / 2, 300);
 
@@ -987,7 +1052,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
             {
                 args.Cancel = true;
                 _logger.LogWarning(ex, "Archive note failed to save");
-                ShowStatus($"笔记保存失败：{ex.Message}", InfoBarSeverity.Error);
+                ShowStatus($"笔记保存失败：{ex.Message}", InfoBarSeverity.Error, transient: true);
             }
             finally
             {
@@ -1400,6 +1465,9 @@ public sealed partial class ArchivePage : Page, INavigationAware
                 ArchiveTimelineFilter.SelectedIndex = 0;
             _details.ApplyPlaybackAvailability(false);
         }
+#if UNO_DESKTOP
+        ApplyDesktopArchiveSupplementalLayout();
+#endif
     }
 
     private async void OnExportReviewClick(
@@ -1441,7 +1509,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         {
             _logger.LogError(ex, "Annual review export failed.");
             if (navigationVersion == _navigationVersion)
-                ShowStatus("年度回顾未能导出，请重试。", InfoBarSeverity.Error);
+                ShowStatus("年度回顾未能导出，请重试。", InfoBarSeverity.Error, transient: true);
         }
         finally
         {
@@ -1458,15 +1526,20 @@ public sealed partial class ArchivePage : Page, INavigationAware
         {
             try
             {
+#if UNO_SKIA
+                await DesktopShellServices.OpenPath(item.FilePath);
+#else
                 var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(
                     item.FilePath);
                 await Windows.System.Launcher.LaunchFileAsync(file);
+#endif
             }
             catch (Exception ex) when (ex is IOException
                 or UnauthorizedAccessException
-                or System.Runtime.InteropServices.COMException)
+                or System.Runtime.InteropServices.COMException
+                or System.ComponentModel.Win32Exception)
             {
-                ShowStatus("原图当前无法打开。", InfoBarSeverity.Warning);
+                ShowStatus("原图当前无法打开。", InfoBarSeverity.Warning, transient: true);
             }
         }
     }
@@ -1570,7 +1643,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
                 ShowStatus(saved
                     ? "标签已保存，但列表未能刷新。"
                     : ex.Message,
-                    saved ? InfoBarSeverity.Warning : InfoBarSeverity.Error);
+                    saved ? InfoBarSeverity.Warning : InfoBarSeverity.Error, transient: true);
         }
     }
 
@@ -1607,7 +1680,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
                 ShowStatus(saved
                     ? "标签已移除，但列表未能刷新。"
                     : ex.Message,
-                    saved ? InfoBarSeverity.Warning : InfoBarSeverity.Error);
+                    saved ? InfoBarSeverity.Warning : InfoBarSeverity.Error, transient: true);
             button.IsEnabled = true;
         }
     }
@@ -1706,7 +1779,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
                 ? $"已复制 {exported} 张原图。"
                 : $"已复制 {exported} 张，{selected.Count - exported} 张未成功。",
             exported == selected.Count
-                ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
+                ? InfoBarSeverity.Success : InfoBarSeverity.Warning, transient: true);
     }
 
     private async void OnDeleteScreenshotClick(
@@ -1734,7 +1807,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
                 : $"已删除 {deleted} 张，{failed} 张失败且保留记录。",
             failed == 0
                 ? InfoBarSeverity.Success
-                : InfoBarSeverity.Warning);
+                : InfoBarSeverity.Warning, transient: true);
     }
 
     private async void OnCleanupScreenshotsClick(
@@ -1783,7 +1856,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         {
             _logger.LogError(error, "Screenshot settings edit failed");
             if (IsNavigationCurrent(navigationVersion, lifetime))
-                ShowStatus("截图设置未能完成，请重试。", InfoBarSeverity.Error);
+                ShowStatus("截图设置未能完成，请重试。", InfoBarSeverity.Error, transient: true);
         }
 #pragma warning restore CA1031
         finally
@@ -1873,8 +1946,14 @@ public sealed partial class ArchivePage : Page, INavigationAware
             DefaultButton = ContentDialogButton.Primary,
         };
 
-    private void ShowStatus(string message, InfoBarSeverity severity)
+    private void ShowStatus(string message, InfoBarSeverity severity, bool transient = false)
     {
+#if UNO_DESKTOP
+        if ((transient || severity == InfoBarSeverity.Success)
+            && DesktopFeedback.TryShow(message,
+                error: severity is InfoBarSeverity.Error or InfoBarSeverity.Warning))
+            return;
+#endif
         StatusInfoBar.Message = message;
         StatusInfoBar.Severity = severity;
         StatusInfoBar.IsOpen = true;

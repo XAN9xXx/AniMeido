@@ -1,5 +1,7 @@
 ﻿using System.Globalization;
 
+using AniMeido.Plugin.Base.ViewModels;
+
 namespace AniMeido.Plugin.Base.Services;
 
 internal static class RatingPresentation
@@ -33,15 +35,26 @@ internal static class RatingPresentation
             var sampleNotice = composite.IsEligible() ? "" : "（评分人数较少）";
             lines.Add("综合评分　" + composite.Score.ToString("F1", CultureInfo.InvariantCulture) + sampleNotice);
         }
+        foreach (var row in CreateRows(ratings, today))
+        {
+            var scale = row.Scale == "100" ? "满分 100，" : "";
+            lines.Add($"{row.Source}　{row.Score} 分（{scale}{row.Votes} 人评分）");
+        }
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    internal static IReadOnlyList<RatingSourceRow> CreateRows(IReadOnlyList<MetadataRating> ratings, DateOnly today)
+    {
+        var rows = new List<RatingSourceRow>();
         foreach (var (platform, name, format) in Platforms)
         {
             var rating = ratings.FirstOrDefault(rating => rating.Platform == platform && CompositeRating.IsAvailable(rating, today));
             if (rating is null) continue;
-            var score = rating.Score.GetValueOrDefault().ToString(format, CultureInfo.InvariantCulture);
-            var votes = rating.Votes.GetValueOrDefault().ToString("N0", CultureInfo.InvariantCulture);
-            var scale = platform == "anilist" ? "满分 100，" : "";
-            lines.Add($"{name}　{score} 分（{scale}{votes} 人评分）");
+            rows.Add(new RatingSourceRow(name,
+                rating.Score.GetValueOrDefault().ToString(format, CultureInfo.InvariantCulture),
+                platform == "anilist" ? "100" : "10",
+                rating.Votes.GetValueOrDefault().ToString("N0", CultureInfo.InvariantCulture)));
         }
-        return string.Join(Environment.NewLine, lines);
+        return rows;
     }
 }

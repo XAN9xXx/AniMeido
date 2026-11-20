@@ -1,0 +1,33 @@
+﻿<Project Sdk="Uno.Sdk">
+  <PropertyGroup>
+    <Version>$(AniMeidoVersion)</Version>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>AniMeido.Plugin.Base</RootNamespace>
+    <AssemblyName>AniMeido.Plugin.Base</AssemblyName>
+    <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
+    <DefineConstants>$(DefineConstants);UNO_DESKTOP;UNO_SKIA</DefineConstants>
+    <UnoFeatures>Skia</UnoFeatures>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../AniMeido.Plugin.Base/Models/**/*.cs" Link="Models/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="../AniMeido.Plugin.Base/ViewModels/**/*.cs" Link="ViewModels/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="../AniMeido.Plugin.Base/Services/**/*.cs"
+             Exclude="../AniMeido.Plugin.Base/Services/AnimeCardDragTokenVisualFactory.cs;../AniMeido.Plugin.Base/Services/PlanReminderNavigation.cs;../AniMeido.Plugin.Base/Services/ScreenshotShortcutAction.cs"
+             Link="Services/%(RecursiveDir)%(Filename)%(Extension)" />
+    <None Remove="**/*.xaml" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Markdig" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <PackageReference Include="ToolGood.Words.Pinyin" />
+    <ProjectReference Include="../../AniMeido.Contracts/AniMeido.Contracts.csproj" />
+    <ProjectReference Include="../AniMeido.Plugin.Base.Core/AniMeido.Plugin.Base.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>AniMeido.Desktop.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>

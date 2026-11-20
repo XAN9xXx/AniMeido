@@ -1,0 +1,358 @@
+<ResourceDictionary x:Class="AniMeido.App.Themes.DesktopInteractionControls"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:services="using:AniMeido.App.Services">
+    <ControlTemplate x:Key="DesktopButtonTemplate" TargetType="Button">
+        <ContentPresenter x:Name="Surface"
+                          Background="{TemplateBinding Background}"
+                          Foreground="{TemplateBinding Foreground}"
+                          BorderBrush="{TemplateBinding BorderBrush}"
+                          BorderThickness="{TemplateBinding BorderThickness}"
+                          CornerRadius="{TemplateBinding CornerRadius}"
+                          Padding="{TemplateBinding Padding}"
+                          FontFamily="{TemplateBinding FontFamily}"
+                          FontSize="{TemplateBinding FontSize}"
+                          FontWeight="{TemplateBinding FontWeight}"
+                          Content="{TemplateBinding Content}"
+                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                          ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}"
+                          ContentTransitions="{TemplateBinding ContentTransitions}"
+                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                          VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                          Control.IsTemplateFocusTarget="True"
+                          AutomationProperties.AccessibilityView="Raw">
+            <ContentPresenter.BackgroundTransition><BrushTransition Duration="0:0:0.12"/></ContentPresenter.BackgroundTransition>
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal"/>
+                    <VisualState x:Name="PointerOver">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Background" Value="{ThemeResource DesktopButtonHoverBrush}"/>
+                            <Setter Target="Surface.BorderBrush" Value="{ThemeResource DesktopButtonHoverEdgeBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Pressed">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Background" Value="{ThemeResource DesktopButtonPressedBrush}"/>
+                            <Setter Target="Surface.BorderBrush" Value="{ThemeResource DesktopButtonPressedEdgeBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Disabled">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Opacity" Value="{ThemeResource DesktopDisabledOpacity}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+        </ContentPresenter>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="DesktopAccentButtonTemplate" TargetType="Button">
+        <ContentPresenter x:Name="Surface"
+                          Background="{TemplateBinding Background}"
+                          Foreground="{TemplateBinding Foreground}"
+                          BorderBrush="{TemplateBinding BorderBrush}"
+                          BorderThickness="{TemplateBinding BorderThickness}"
+                          CornerRadius="{TemplateBinding CornerRadius}"
+                          Padding="{TemplateBinding Padding}"
+                          FontFamily="{TemplateBinding FontFamily}"
+                          FontSize="{TemplateBinding FontSize}"
+                          FontWeight="{TemplateBinding FontWeight}"
+                          Content="{TemplateBinding Content}"
+                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                          ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}"
+                          ContentTransitions="{TemplateBinding ContentTransitions}"
+                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                          VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                          Control.IsTemplateFocusTarget="True"
+                          AutomationProperties.AccessibilityView="Raw">
+            <ContentPresenter.BackgroundTransition><BrushTransition Duration="0:0:0.12"/></ContentPresenter.BackgroundTransition>
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal"/>
+                    <VisualState x:Name="PointerOver">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Background" Value="{ThemeResource DesktopPrimaryButtonHoverBrush}"/>
+                            <Setter Target="Surface.BorderBrush" Value="{ThemeResource DesktopPrimaryButtonHoverEdgeBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Pressed">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Background" Value="{ThemeResource DesktopPrimaryButtonPressedBrush}"/>
+                            <Setter Target="Surface.BorderBrush" Value="{ThemeResource DesktopPrimaryButtonPressedEdgeBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Disabled">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Opacity" Value="{ThemeResource DesktopDisabledOpacity}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+        </ContentPresenter>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="DesktopSubtleButtonTemplate" TargetType="Button">
+        <ContentPresenter x:Name="Surface"
+                          Background="{TemplateBinding Background}"
+                          Foreground="{TemplateBinding Foreground}"
+                          BorderBrush="{TemplateBinding BorderBrush}"
+                          BorderThickness="{TemplateBinding BorderThickness}"
+                          CornerRadius="{TemplateBinding CornerRadius}"
+                          Padding="{TemplateBinding Padding}"
+                          FontFamily="{TemplateBinding FontFamily}"
+                          FontSize="{TemplateBinding FontSize}"
+                          FontWeight="{TemplateBinding FontWeight}"
+                          Content="{TemplateBinding Content}"
+                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                          ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}"
+                          ContentTransitions="{TemplateBinding ContentTransitions}"
+                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                          VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                          Control.IsTemplateFocusTarget="True"
+                          AutomationProperties.AccessibilityView="Raw">
+            <ContentPresenter.BackgroundTransition><BrushTransition Duration="0:0:0.12"/></ContentPresenter.BackgroundTransition>
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal"/>
+                    <VisualState x:Name="PointerOver">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Background" Value="{ThemeResource DesktopButtonHoverBrush}"/>
+                            <Setter Target="Surface.BorderBrush" Value="{ThemeResource DesktopSubtleButtonBackgroundBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Pressed">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Background" Value="{ThemeResource DesktopButtonPressedBrush}"/>
+                            <Setter Target="Surface.BorderBrush" Value="{ThemeResource DesktopSubtleButtonBackgroundBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Disabled">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Opacity" Value="{ThemeResource DesktopDisabledOpacity}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+        </ContentPresenter>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="DesktopCardButtonTemplate" TargetType="Button">
+        <ContentPresenter x:Name="Surface"
+                          Background="{TemplateBinding Background}"
+                          Foreground="{TemplateBinding Foreground}"
+                          BorderBrush="{TemplateBinding BorderBrush}"
+                          BorderThickness="{TemplateBinding BorderThickness}"
+                          CornerRadius="{TemplateBinding CornerRadius}"
+                          Padding="{TemplateBinding Padding}"
+                          FontFamily="{TemplateBinding FontFamily}"
+                          FontSize="{TemplateBinding FontSize}"
+                          FontWeight="{TemplateBinding FontWeight}"
+                          Content="{TemplateBinding Content}"
+                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                          ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}"
+                          ContentTransitions="{TemplateBinding ContentTransitions}"
+                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                          VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                          Control.IsTemplateFocusTarget="True"
+                          AutomationProperties.AccessibilityView="Raw">
+            <ContentPresenter.BackgroundTransition><BrushTransition Duration="0:0:0.12"/></ContentPresenter.BackgroundTransition>
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal"/>
+                    <VisualState x:Name="PointerOver">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Background" Value="{ThemeResource DesktopCardHoverBrush}"/>
+                            <Setter Target="Surface.BorderBrush" Value="{ThemeResource DesktopLineBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Pressed">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Background" Value="{ThemeResource DesktopCardPressedBrush}"/>
+                            <Setter Target="Surface.BorderBrush" Value="{ThemeResource DesktopLineBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Disabled">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Opacity" Value="{ThemeResource DesktopDisabledOpacity}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+        </ContentPresenter>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="DesktopToggleButtonTemplate" TargetType="ToggleButton">
+        <ContentPresenter x:Name="Surface"
+                          Background="{TemplateBinding Background}"
+                          Foreground="{TemplateBinding Foreground}"
+                          BorderBrush="{TemplateBinding BorderBrush}"
+                          BorderThickness="{TemplateBinding BorderThickness}"
+                          CornerRadius="{TemplateBinding CornerRadius}"
+                          Padding="{TemplateBinding Padding}"
+                          FontFamily="{TemplateBinding FontFamily}"
+                          FontSize="{TemplateBinding FontSize}"
+                          FontWeight="{TemplateBinding FontWeight}"
+                          Content="{TemplateBinding Content}"
+                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                          ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}"
+                          ContentTransitions="{TemplateBinding ContentTransitions}"
+                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                          VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                          Control.IsTemplateFocusTarget="True"
+                          AutomationProperties.AccessibilityView="Raw">
+            <ContentPresenter.BackgroundTransition><BrushTransition Duration="0:0:0.12"/></ContentPresenter.BackgroundTransition>
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal"/>
+                    <VisualState x:Name="PointerOver">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Background" Value="{ThemeResource DesktopButtonHoverBrush}"/>
+                            <Setter Target="Surface.BorderBrush" Value="{ThemeResource DesktopButtonHoverEdgeBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Pressed">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Background" Value="{ThemeResource DesktopButtonPressedBrush}"/>
+                            <Setter Target="Surface.BorderBrush" Value="{ThemeResource DesktopButtonPressedEdgeBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Disabled">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Opacity" Value="{ThemeResource DesktopDisabledOpacity}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Checked">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Background" Value="{ThemeResource DesktopCheckedButtonBrush}"/>
+                            <Setter Target="Surface.BorderBrush" Value="{ThemeResource DesktopCheckedButtonEdgeBrush}"/>
+                            <Setter Target="Surface.Foreground" Value="{ThemeResource DesktopCheckedButtonTextBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="CheckedPointerOver">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Background" Value="{ThemeResource DesktopCheckedButtonHoverBrush}"/>
+                            <Setter Target="Surface.BorderBrush" Value="{ThemeResource DesktopCheckedButtonEdgeBrush}"/>
+                            <Setter Target="Surface.Foreground" Value="{ThemeResource DesktopCheckedButtonTextBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="CheckedPressed">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Background" Value="{ThemeResource DesktopCheckedButtonPressedBrush}"/>
+                            <Setter Target="Surface.BorderBrush" Value="{ThemeResource DesktopCheckedButtonEdgeBrush}"/>
+                            <Setter Target="Surface.Foreground" Value="{ThemeResource DesktopCheckedButtonTextBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="CheckedDisabled">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Background" Value="{ThemeResource DesktopCheckedButtonDisabledBrush}"/>
+                            <Setter Target="Surface.BorderBrush" Value="{ThemeResource DesktopCheckedButtonEdgeBrush}"/>
+                            <Setter Target="Surface.Foreground" Value="{ThemeResource DesktopCheckedButtonTextBrush}"/>
+                            <Setter Target="Surface.Opacity" Value="{ThemeResource DesktopDisabledOpacity}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Indeterminate">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Background" Value="{ThemeResource DesktopCheckedButtonBrush}"/>
+                            <Setter Target="Surface.BorderBrush" Value="{ThemeResource DesktopCheckedButtonEdgeBrush}"/>
+                            <Setter Target="Surface.Foreground" Value="{ThemeResource DesktopCheckedButtonTextBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="IndeterminatePointerOver">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Background" Value="{ThemeResource DesktopCheckedButtonHoverBrush}"/>
+                            <Setter Target="Surface.BorderBrush" Value="{ThemeResource DesktopCheckedButtonEdgeBrush}"/>
+                            <Setter Target="Surface.Foreground" Value="{ThemeResource DesktopCheckedButtonTextBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="IndeterminatePressed">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Background" Value="{ThemeResource DesktopCheckedButtonPressedBrush}"/>
+                            <Setter Target="Surface.BorderBrush" Value="{ThemeResource DesktopCheckedButtonEdgeBrush}"/>
+                            <Setter Target="Surface.Foreground" Value="{ThemeResource DesktopCheckedButtonTextBrush}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="IndeterminateDisabled">
+                        <VisualState.Setters>
+                            <Setter Target="Surface.Background" Value="{ThemeResource DesktopCheckedButtonDisabledBrush}"/>
+                            <Setter Target="Surface.BorderBrush" Value="{ThemeResource DesktopCheckedButtonEdgeBrush}"/>
+                            <Setter Target="Surface.Foreground" Value="{ThemeResource DesktopCheckedButtonTextBrush}"/>
+                            <Setter Target="Surface.Opacity" Value="{ThemeResource DesktopDisabledOpacity}"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+        </ContentPresenter>
+    </ControlTemplate>
+
+    <Style x:Key="DesktopButtonStyle" TargetType="Button">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Control"/>
+        <Setter Property="Background" Value="{ThemeResource DesktopButtonBrush}"/>
+        <Setter Property="Foreground" Value="{ThemeResource DesktopTextBrush}"/>
+        <Setter Property="BorderBrush" Value="{ThemeResource DesktopButtonEdgeBrush}"/>
+        <Setter Property="BorderThickness" Value="{ThemeResource DesktopButtonBorderThickness}"/>
+        <Setter Property="CornerRadius" Value="{ThemeResource DesktopControlRadius}"/>
+        <Setter Property="Padding" Value="{ThemeResource DesktopControlPadding}"/>
+        <Setter Property="MinHeight" Value="{ThemeResource DesktopControlMinHeight}"/>
+        <Setter Property="MinWidth" Value="{ThemeResource DesktopControlMinWidth}"/>
+        <Setter Property="FontFamily" Value="{ThemeResource DesktopUiFontFamily}"/>
+        <Setter Property="FontSize" Value="{ThemeResource DesktopControlTextSize}"/>
+        <Setter Property="FontWeight" Value="Normal"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="UseSystemFocusVisuals" Value="True"/>
+        <Setter Property="FocusVisualPrimaryThickness" Value="{ThemeResource DesktopFocusThickness}"/>
+        <Setter Property="FocusVisualMargin" Value="{ThemeResource DesktopFocusMargin}"/>
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource DesktopFocusVisualBrush}"/>
+        <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource DesktopPageBrush}"/>
+        <Setter Property="Template" Value="{StaticResource DesktopButtonTemplate}"/>
+    </Style>
+    <Style x:Key="DesktopAccentButtonStyle" TargetType="Button" BasedOn="{StaticResource DesktopButtonStyle}">
+        <Setter Property="Background" Value="{ThemeResource DesktopPrimaryButtonBrush}"/>
+        <Setter Property="Foreground" Value="{ThemeResource DesktopOnAccentBrush}"/>
+        <Setter Property="BorderBrush" Value="{ThemeResource DesktopPrimaryButtonEdgeBrush}"/>
+        <Setter Property="Template" Value="{StaticResource DesktopAccentButtonTemplate}"/>
+    </Style>
+    <Style x:Key="DesktopSubtleButtonStyle" TargetType="Button" BasedOn="{StaticResource DesktopButtonStyle}">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="SubtleControl"/>
+        <Setter Property="Background" Value="{ThemeResource DesktopSubtleButtonBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{ThemeResource DesktopSubtleButtonBackgroundBrush}"/>
+        <Setter Property="BorderThickness" Value="{ThemeResource DesktopSubtleButtonBorderThickness}"/>
+        <Setter Property="Template" Value="{StaticResource DesktopSubtleButtonTemplate}"/>
+    </Style>
+    <Style x:Key="DesktopCardButtonStyle" TargetType="Button" BasedOn="{StaticResource DesktopButtonStyle}">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="CardControl"/>
+        <Setter Property="Background" Value="{ThemeResource DesktopCardBrush}"/>
+        <Setter Property="BorderBrush" Value="{ThemeResource DesktopLineBrush}"/>
+        <Setter Property="BorderThickness" Value="{ThemeResource DesktopCardBorderThickness}"/>
+        <Setter Property="CornerRadius" Value="{ThemeResource DesktopControlRadius}"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="Template" Value="{StaticResource DesktopCardButtonTemplate}"/>
+    </Style>
+    <Style x:Key="DesktopToggleButtonStyle" TargetType="ToggleButton">
+        <Setter Property="services:DesktopElementAppearance.Role" Value="Control"/>
+        <Setter Property="Background" Value="{ThemeResource DesktopButtonBrush}"/>
+        <Setter Property="Foreground" Value="{ThemeResource DesktopTextBrush}"/>
+        <Setter Property="BorderBrush" Value="{ThemeResource DesktopButtonEdgeBrush}"/>
+        <Setter Property="BorderThickness" Value="{ThemeResource DesktopButtonBorderThickness}"/>
+        <Setter Property="CornerRadius" Value="{ThemeResource DesktopControlRadius}"/>
+        <Setter Property="Padding" Value="{ThemeResource DesktopControlPadding}"/>
+        <Setter Property="MinHeight" Value="{ThemeResource DesktopControlMinHeight}"/>
+        <Setter Property="MinWidth" Value="{ThemeResource DesktopControlMinWidth}"/>
+        <Setter Property="FontFamily" Value="{ThemeResource DesktopUiFontFamily}"/>
+        <Setter Property="FontSize" Value="{ThemeResource DesktopControlTextSize}"/>
+        <Setter Property="FontWeight" Value="Normal"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="UseSystemFocusVisuals" Value="True"/>
+        <Setter Property="FocusVisualPrimaryThickness" Value="{ThemeResource DesktopFocusThickness}"/>
+        <Setter Property="FocusVisualMargin" Value="{ThemeResource DesktopFocusMargin}"/>
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource DesktopFocusVisualBrush}"/>
+        <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource DesktopPageBrush}"/>
+        <Setter Property="Template" Value="{StaticResource DesktopToggleButtonTemplate}"/>
+    </Style>
+</ResourceDictionary>

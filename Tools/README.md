@@ -189,6 +189,21 @@ try {
 在“待确认记录”执行一次 C2b 操作，再确认真实 `%APPDATA%\AniMeido` 和 `%LOCALAPPDATA%\AniMeido` 的修改时间未变化。
 以上是维护者人工验收步骤，不由脚本或测试自动启动 UI。
 
+## Uno 桌面开发安装
+
+`New-DevInstall.ps1` 和 `Publish-Release.ps1` 新增 `-Uno`，选择 `AniMeido.Desktop`；省略时仍选择 `AniMeido.App`。新外壳与原 WinUI 分别输出，启动文件名继续使用 `AniMeido.App.exe`，启动器、数据目录和插件宿主规则保持一致。
+
+在仓库根目录生成一份独立开发安装：
+
+```powershell
+.\Tools\New-DevInstall.ps1 -Root D:\AniMeidoDev\uno-install -DataRoot D:\AniMeidoDev\uno-data -Version 3.0.0-uno.1 -Uno
+& D:\AniMeidoDev\uno-install\Start-Dev.cmd
+```
+
+两个目录须为本次验收选定的新路径。脚本仅生成开发安装，启动由维护者执行。新外壳的全面页面验收、安装更新和回滚复验仍在进行。
+
+`Publish-Release.ps1 -Uno` 同样选择新外壳，只由维护者按下文的签名、安装验收和发布流程执行。
+
 ## U3 应用内更新人工验收（本地签名源）
 
 以下全部由维护者手动执行。构建、单元测试不代表 WinUI、托盘退出或版本切换已验收。

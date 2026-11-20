@@ -86,36 +86,7 @@
     输出位置由 PluginHost 项目自己报告（GetTargetPath），这里不再手写目标框架、RID 或目录结构，
     以免 PluginHost 的输出位置变化后静默复制到旧文件或什么都不复制。
   -->
-  <Target Name="ResolvePluginHostOutput">
-    <MSBuild Projects="..\AniMeido.PluginHost\AniMeido.PluginHost.csproj"
-             Targets="GetTargetPath"
-             BuildInParallel="$(BuildInParallel)">
-      <Output TaskParameter="TargetOutputs" ItemName="_PluginHostTargetPath" />
-    </MSBuild>
-    <PropertyGroup>
-      <_PluginHostOutputDir>@(_PluginHostTargetPath->'%(RootDir)%(Directory)')</_PluginHostOutputDir>
-    </PropertyGroup>
-    <ItemGroup Condition="Exists('@(_PluginHostTargetPath)')">
-      <PluginHostOutput Include="$(_PluginHostOutputDir)**\*"
-                        Exclude="$(_PluginHostOutputDir)**\*.pdb" />
-    </ItemGroup>
-  </Target>
-
-  <Target Name="CopyPluginHostOutput" AfterTargets="Build" DependsOnTargets="ResolvePluginHostOutput">
-    <Warning Condition="'@(PluginHostOutput)' == ''"
-             Text="未找到 PluginHost 构建产物（@(_PluginHostTargetPath)），可选插件将无法启动。请确认 AniMeido.PluginHost 已成功构建。" />
-    <Copy SourceFiles="@(PluginHostOutput)"
-          DestinationFiles="@(PluginHostOutput->'$(OutDir)PluginHost\%(RecursiveDir)%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true" />
-  </Target>
-
-  <Target Name="CopyPluginHostPublishOutput" AfterTargets="Publish" DependsOnTargets="ResolvePluginHostOutput">
-    <Error Condition="'@(PluginHostOutput)' == ''"
-           Text="未找到 PluginHost 构建产物（@(_PluginHostTargetPath)），发布已中止：缺少 PluginHost 的发布目录无法运行可选插件。" />
-    <Copy SourceFiles="@(PluginHostOutput)"
-          DestinationFiles="@(PluginHostOutput->'$(PublishDir)PluginHost\%(RecursiveDir)%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true" />
-  </Target>
+  <Import Project="../Shared/PluginHostOutput.targets" />
   <ItemGroup>
     <Compile Include="..\Shared\AppDataRoots.cs" Link="Shared\AppDataRoots.cs" />
     <Compile Include="..\Shared\DiagnosticFileStore.cs" Link="Shared\DiagnosticFileStore.cs" />
