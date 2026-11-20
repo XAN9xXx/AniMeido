@@ -24,7 +24,7 @@
 
 ### 迁移到 Uno，支持更多平台
 
-客户端计划从 WinUI 迁移到 [Uno Platform](https://platform.uno/)。更新机制、资料服务接入和业务核心重构已完成主线实现。下一步先验证少量页面、控件和业务核心的复用，再迁移完整界面。
+Windows 桌面端已使用 [Uno Platform](https://platform.uno/) 和 Skia，旧 WinUI 3 工程已移除。其他平台仍待移植与验收。
 
 ## 3.0 目标
 

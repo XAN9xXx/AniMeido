@@ -39,9 +39,9 @@ public sealed class InstalledUpdateFailureWiringTests
     [InlineData("Services", "UpdatePromptDialog.cs",
         "public static async Task ShowAsync(\n        InstalledUpdateResult result,",
         "private static Task ResumeSkippedAsync(", "service")]
-    [InlineData("Views", "AppSettingsPage.xaml.cs",
+    [InlineData("Views", "AppSettingsPage.Updates.cs",
         "private async void OnRestoreRollbackDataClick(",
-        "private async void OnDeleteRollbackDataClick(", "_installedUpdates")]
+        "\n}", "_installedUpdates")]
     public void RestartCallersAwaitTheCompleteRestartOperation(
         string directory, string file, string declaration, string followingDeclaration, string service)
     {
@@ -53,25 +53,21 @@ public sealed class InstalledUpdateFailureWiringTests
     [Fact]
     public void RestoreReportsRestartFailuresAfterTheRequestHasBeenSaved()
     {
-        var source = ReadSource("Views", "AppSettingsPage.xaml.cs");
+        var source = ReadSource("Views", "AppSettingsPage.Updates.cs");
         var restore = Between(
             source,
             "private async void OnRestoreRollbackDataClick(",
-            "private async void OnDeleteRollbackDataClick(");
+            "\n}");
         var request = restore.IndexOf("await _installedApp.RequestRestoreAsync(", StringComparison.Ordinal);
-        var committed = restore.IndexOf("restoreRequested = true;", StringComparison.Ordinal);
         var restart = restore.IndexOf("await _installedUpdates.RestartAsync(", StringComparison.Ordinal);
-
-        Assert.Contains("var restoreRequested = false;", restore, StringComparison.Ordinal);
-        Assert.True(request >= 0 && committed > request && restart > committed);
-        Assert.Matches(
-            @"if\s*\(\s*restoreRequested\s*\|\|\s*ex\s+is\s+not\s+(?:AniMeido\.Updates\.Install\.)?InstallException\s*\)\s*(?:\{\s*)?Serilog\.Log\.Error\(\s*ex\s*,",
-            restore);
+        var report = restore.IndexOf("Serilog.Log.Error(ex,", StringComparison.Ordinal);
+        var message = restore.IndexOf("恢复请求已保存，请关闭应用后重新打开", StringComparison.Ordinal);
+        Assert.True(request >= 0 && restart > request && report > restart && message > report);
     }
 
     private static string ReadSource(params string[] relative)
         => File.ReadAllText(Path.Combine(
-            new[] { AppDataRootsTests.RepositoryRoot, "AniMeido.App" }
+            new[] { AppDataRootsTests.RepositoryRoot, "AniMeido.Desktop" }
                 .Concat(relative).ToArray())).Replace("\r\n", "\n", StringComparison.Ordinal);
 
     private static string Between(string source, string declaration, string followingDeclaration)

@@ -6,6 +6,25 @@ namespace AniMeido.Desktop.Tests;
 public sealed class DesktopSkiaBaseTests
 {
     [Fact]
+    public void RepositoryProjectsDoNotBuildTheNativeWinUiFramework()
+    {
+        var root = RepositoryRoot();
+        var projects = XDocument.Load(Path.Combine(root, "AniMeido.slnx")).Descendants("Project")
+            .Select(node => Path.Combine(root, (string)node.Attribute("Path")!))
+            .Concat(Directory.EnumerateDirectories(root).SelectMany(dir => Directory.EnumerateFiles(dir, "*.csproj")))
+            .Concat(Directory.EnumerateDirectories(Path.Combine(root, "Plugins"))
+                .SelectMany(dir => Directory.EnumerateFiles(dir, "*.csproj")))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in projects)
+        {
+            var project = XDocument.Load(file);
+            Assert.False(project.Descendants("UseWinUI").Any(node => node.Value == "true")
+                || project.Descendants("PackageReference").Any(node =>
+                    (string?)node.Attribute("Include") == "Microsoft.WindowsAppSDK"), file);
+        }
+    }
+
+    [Fact]
     public void BasePresentationUsesUnoReferenceApisWithoutWindowsAppSdk()
     {
         var project = XDocument.Load(Path.Combine(RepositoryRoot(), "Plugins",
@@ -25,9 +44,6 @@ public sealed class DesktopSkiaBaseTests
     public void DesktopDragVisualUsesTheImplementedBitmapImageApi()
     {
         var root = RepositoryRoot();
-        var legacy = File.ReadAllText(Path.Combine(root, "Plugins", "AniMeido.Plugin.Base",
-            "Services", "AnimeCardDragTokenVisualFactory.cs"));
-        Assert.StartsWith("#if !UNO_DESKTOP", legacy.TrimStart('\uFEFF'));
         var desktop = File.ReadAllText(Path.Combine(root, "Plugins", "AniMeido.Plugin.Base.Desktop",
             "Services", "AnimeCardDragTokenVisualFactory.cs"));
         Assert.Contains("SetContentFromBitmapImage", desktop);

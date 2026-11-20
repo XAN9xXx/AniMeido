@@ -7,7 +7,7 @@ public sealed class InstalledUpdateSchedulingWiringTests
     public void PrimaryActionBecomesBusyBeforeEitherRestartOrDownloadCanAwait()
     {
         var source = File.ReadAllText(Path.Combine(
-            AppDataRootsTests.RepositoryRoot, "AniMeido.App", "Services", "UpdatePromptDialog.cs"));
+            AppDataRootsTests.RepositoryRoot, "AniMeido.Desktop", "Services", "UpdatePromptDialog.cs"));
         var declaration = source.IndexOf("async Task HandlePrimaryAsync()", StringComparison.Ordinal);
         Assert.True(declaration >= 0);
         var action = source[declaration..];

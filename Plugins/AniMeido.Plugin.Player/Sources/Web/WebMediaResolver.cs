@@ -1,6 +1,7 @@
+extern alias PlayerWebView2;
 using AniMeido.Plugin.Player.Views;
 using AniMeido.Plugin.Player.Diagnostics;
-using Microsoft.Web.WebView2.Core;
+using PlayerWebView2::Microsoft.Web.WebView2.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Runtime.InteropServices;
@@ -733,7 +734,7 @@ internal sealed class WebMediaResolver : IAsyncDisposable
                 && !interactionCompletion.Task.IsCompleted;
 
         void OnResponse(
-            CoreWebView2 sender,
+            object? sender,
             CoreWebView2WebResourceResponseReceivedEventArgs args)
         {
             if (!IsCurrentAttempt())
@@ -805,10 +806,10 @@ internal sealed class WebMediaResolver : IAsyncDisposable
         }
 
         void OnWebMessageReceived(
-            CoreWebView2 sender,
+            object? eventSender,
             CoreWebView2WebMessageReceivedEventArgs args)
         {
-            if (!IsCurrentAttempt())
+            if (!IsCurrentAttempt() || eventSender is not CoreWebView2 sender)
             {
                 return;
             }
@@ -867,7 +868,7 @@ internal sealed class WebMediaResolver : IAsyncDisposable
         }
 
         async void OnNavigationCompleted(
-            CoreWebView2 sender,
+            object? eventSender,
             CoreWebView2NavigationCompletedEventArgs args)
         {
             using var registration = navigationCallbacks.TryEnter();
@@ -875,6 +876,8 @@ internal sealed class WebMediaResolver : IAsyncDisposable
             {
                 return;
             }
+            if (eventSender is not CoreWebView2 sender)
+                return;
 
             _diagnostics.Record(
                 "webview",
@@ -1241,24 +1244,19 @@ internal sealed class WebMediaResolver : IAsyncDisposable
         }
 
         _environment ??= await _sessionManager.GetEnvironmentAsync();
-        var parentWindow =
-            CoreWebView2ControllerWindowReference.CreateFromWindowHandle(
-                unchecked((ulong)hostWindowHandle.ToInt64()));
-        var controller = await _environment.CreateCoreWebView2ControllerAsync(
-            parentWindow);
+        var controller = await _environment.CreateCoreWebView2ControllerAsync(hostWindowHandle);
         _controller = controller;
         try
         {
-            controller.Bounds = new Windows.Foundation.Rect(0, 0, 1, 1);
+            controller.Bounds = new System.Drawing.Rectangle(0, 0, 1, 1);
             controller.IsVisible = false;
             _coreWebView = controller.CoreWebView2;
             _coreWebView.NavigationStarting += OnHiddenNavigationStarting;
             _coreWebView.NavigationCompleted += OnHiddenNavigationCompleted;
             await _coreWebView.AddScriptToExecuteOnDocumentCreatedAsync(
                 WebMediaCaptureScripts.Install);
-            _coreWebView.AddWebResourceRequestedFilter(
-                "*",
-                CoreWebView2WebResourceContext.All);
+            _coreWebView.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All,
+                CoreWebView2WebResourceRequestSourceKinds.All);
             _webViewReady = true;
         }
 #pragma warning disable CA1031 // 初始化失败仍须收尾；关闭失败保留资源引用和两个原始异常。
@@ -1279,7 +1277,7 @@ internal sealed class WebMediaResolver : IAsyncDisposable
     }
 
     private void OnHiddenNavigationStarting(
-        CoreWebView2 sender,
+        object? sender,
         CoreWebView2NavigationStartingEventArgs args)
     {
         if (!ReferenceEquals(sender, _coreWebView))
@@ -1291,7 +1289,7 @@ internal sealed class WebMediaResolver : IAsyncDisposable
     }
 
     private void OnHiddenNavigationCompleted(
-        CoreWebView2 sender,
+        object? sender,
         CoreWebView2NavigationCompletedEventArgs args)
     {
         if (!ReferenceEquals(sender, _coreWebView))

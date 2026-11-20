@@ -29,36 +29,4 @@ public sealed class PersonalArchiveEditIntegrationTests : DbTestBase
         Assert.True(shown);
         Assert.False(editor.IsEditing);
     }
-
-    [Fact]
-    [Trait("Category", "Mechanism")]
-    public void TheActualClickAndBothNavigationExitsUseTheEditorLifetime()
-    {
-        var directory = Path.Combine(AppDataRootsTests.RepositoryRoot, "Plugins", "AniMeido.Plugin.Base", "Views");
-        var page = File.ReadAllText(Path.Combine(directory, "AnimeDetailPage.xaml.cs"));
-        var xaml = File.ReadAllText(Path.Combine(directory, "AnimeDetailPage.xaml"));
-        Assert.Contains("Click=\"OnPersonalArchiveClick\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("x:Name=\"PersonalArchiveButton\"", xaml, StringComparison.Ordinal);
-        var click = Method("private async void OnPersonalArchiveClick(", "private void UpdatePersonalArchiveAvailability(");
-        Assert.Contains("_personalArchiveEdit.EditAsync(", click, StringComparison.Ordinal);
-        Assert.Contains("cancellation.Token", click, StringComparison.Ordinal);
-        Assert.Contains("CancelPersonalArchiveEdit();",
-            Method("private void OnPageUnloaded(", "private void UpdatePlaybackAvailability("), StringComparison.Ordinal);
-        Assert.Contains("CancelPersonalArchiveEdit();",
-            Method("public async Task OnNavigatedToAsync(", "private async Task LoadCurrentAnimeAsync("), StringComparison.Ordinal);
-        var cancel = Method("private void CancelPersonalArchiveEdit(", "private async Task ShowPersonalArchiveAsync(");
-        Assert.Contains("_personalArchiveCancellation?.Cancel();", cancel, StringComparison.Ordinal);
-        Assert.Contains("_personalArchiveDialog?.Hide();", cancel, StringComparison.Ordinal);
-        var dialog = Method("private async Task ShowPersonalArchiveAsync(", "private async void OnOnlinePlayClick(");
-        Assert.DoesNotContain("_currentAnimeId", dialog, StringComparison.Ordinal);
-
-        string Method(string start, string next)
-        {
-            var begin = page.IndexOf(start, StringComparison.Ordinal);
-            Assert.True(begin >= 0);
-            var end = page.IndexOf(next, begin + start.Length, StringComparison.Ordinal);
-            Assert.True(end > begin);
-            return page[begin..end];
-        }
-    }
 }

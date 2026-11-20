@@ -230,7 +230,7 @@ public class RecommendationLoadMoreTests : DbTestBase
         Assert.False(vm.HasError);
         Assert.Empty(vm.Items);
         Assert.Equal("已从推荐中隐藏，可在“已隐藏”中恢复。", vm.Message);
-        Assert.Contains("这次结果没有采用", vm.RefreshNotice);
+        Assert.Contains("已保留上次结果", vm.RefreshNotice);
     }
 
     [Fact]
@@ -265,12 +265,12 @@ public class RecommendationLoadMoreTests : DbTestBase
         Assert.Equal(snapshot.Items.Select(item => item.Anime.ID),
             vm.Items.Select(item => item.Anime.ID));
         Assert.Contains("已关注", vm.Message);
-        Assert.Contains("这次结果没有采用", vm.RefreshNotice);
+        Assert.Contains("已保留上次结果", vm.RefreshNotice);
 
         await vm.SetPreferenceAsync(snapshot.RoundProfile![0].Feature,
             RecommendationAdjustment.Like);
         Assert.Equal("偏好已保存，刷新推荐后生效。", vm.Message);
-        Assert.Contains("这次结果没有采用", vm.RefreshNotice);
+        Assert.Contains("已保留上次结果", vm.RefreshNotice);
     }
 
     [Fact]

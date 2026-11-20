@@ -1,25 +1,27 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Uno.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
-    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <TargetFramework>net10.0-desktop</TargetFramework>
     <RootNamespace>AniMeido.PluginHost</RootNamespace>
     <AssemblyName>AniMeido.PluginHost</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <UseWinUI>true</UseWinUI>
-    <WindowsPackageType>None</WindowsPackageType>
-    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <UnoFeatures>Skia</UnoFeatures>
+    <UnoDisableHotDesign>true</UnoDisableHotDesign>
+    <UnoDisableMCPSupport>true</UnoDisableMCPSupport>
+    <UnoDisableWinAppRunSupport>true</UnoDisableWinAppRunSupport>
     <!-- App 以 self-contained 方式发布；作为进程依赖的 Host 必须采用相同部署模型。 -->
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <Using Include="System.IO.FileAttributes" Alias="FileAttributes" />
+    <ApplicationDefinition Include="App.xaml" />
+    <None Remove="App.xaml" />
   </ItemGroup>
 
   <ItemGroup>

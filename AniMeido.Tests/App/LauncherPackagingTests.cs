@@ -2,8 +2,60 @@
 
 namespace AniMeido.Tests;
 
+using System.Xml.Linq;
+
 public sealed class LauncherPackagingTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DesktopPublishRequiresTheHostExecutableInItsBuildOutput(bool hasExecutable)
+    {
+        using var temporary = new MockAppDataPaths();
+        var consumer = Directory.CreateDirectory(Path.Combine(temporary.RootDirectory, "Desktop")).FullName;
+        var host = Directory.CreateDirectory(Path.Combine(temporary.RootDirectory, "AniMeido.PluginHost")).FullName;
+        var output = Directory.CreateDirectory(Path.Combine(host, "bin")).FullName;
+        const string exe = "AniMeido.PluginHost.exe";
+        await File.WriteAllTextAsync(Path.Combine(output, "AniMeido.PluginHost.dll"), "managed");
+        if (hasExecutable)
+            await File.WriteAllTextAsync(Path.Combine(output, exe), "new host");
+        await File.WriteAllTextAsync(Path.Combine(host, "AniMeido.PluginHost.csproj"), """
+            <Project>
+              <Target Name="GetTargetPath" Returns="@(_Dll)">
+                <ItemGroup><_Dll Include="$(MSBuildProjectDirectory)/bin/AniMeido.PluginHost.dll" /></ItemGroup>
+              </Target>
+            </Project>
+            """);
+        var destination = Directory.CreateDirectory(Path.Combine(consumer, "publish", "PluginHost")).FullName;
+        if (!hasExecutable)
+            await File.WriteAllTextAsync(Path.Combine(destination, exe), "stale host");
+        var project = Path.Combine(consumer, "Package.proj");
+        new XDocument(new XElement("Project",
+            new XElement("PropertyGroup", new XElement("PublishDir", "publish/")),
+            new XElement("Target", new XAttribute("Name", "Publish")),
+            new XElement("Import", new XAttribute("Project", Path.Combine(AppDataRootsTests.RepositoryRoot,
+                "Shared", "PluginHostOutput.targets"))))).Save(project);
+
+        var start = new ProcessStartInfo("dotnet")
+        {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true,
+            ArgumentList = { "msbuild", project, "-t:Publish", "-nologo", "-v:q" },
+        };
+        using var process = Process.Start(start)!;
+        var log = process.StandardOutput.ReadToEndAsync();
+        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));
+        if (hasExecutable)
+        {
+            Assert.True(process.ExitCode == 0, await log);
+            Assert.Equal("new host", await File.ReadAllTextAsync(Path.Combine(destination, exe)));
+        }
+        else
+        {
+            Assert.NotEqual(0, process.ExitCode);
+            Assert.Contains(exe, await log);
+        }
+    }
+
     [Theory]
     [InlineData("Publish-Release.ps1")]
     [InlineData("New-DevInstall.ps1")]

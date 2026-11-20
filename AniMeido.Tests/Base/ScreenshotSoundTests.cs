@@ -78,5 +78,5 @@ public sealed class ScreenshotSoundTests
     private static string ReadSource()
         => File.ReadAllText(Path.Combine(
             AppDataRootsTests.RepositoryRoot,
-            "Plugins", "AniMeido.Plugin.Base", "Services", "ScreenshotSound.cs"));
+            "Plugins", "AniMeido.Plugin.Base.Desktop", "Services", "ScreenshotSound.cs"));
 }

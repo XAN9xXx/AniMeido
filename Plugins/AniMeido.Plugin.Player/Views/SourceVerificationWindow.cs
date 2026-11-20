@@ -1,17 +1,17 @@
+extern alias PlayerWebView2;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.Web.WebView2.Core;
+using PlayerWebView2::Microsoft.Web.WebView2.Core;
 using AniMeido.Plugin.Player.Sources.Web;
 using System.Text.Json;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using Windows.Foundation;
 using Windows.Graphics;
-using WinRT.Interop;
 
 namespace AniMeido.Plugin.Player.Views;
 
@@ -62,15 +62,17 @@ internal sealed class SourceVerificationWindow : Window
         Content = BuildLayout();
         ResizeWindow();
         _root.SizeChanged += OnRootSizeChanged;
+        AppWindow.Changed += OnAppWindowChanged;
+        AppWindow.Closing += OnNativeWindowClosing;
         Closed += OnClosed;
     }
 
     public async Task<bool> ShowAsync(CancellationToken cancellationToken)
     {
-        Activate();
-        TrackDpiChanges();
         try
         {
+            Activate();
+            TrackDpiChanges();
             using var registration = cancellationToken.Register(CancelAndClose);
             await InitializeBrowserAsync();
             return await _completion.Task;
@@ -115,6 +117,9 @@ internal sealed class SourceVerificationWindow : Window
                 finally
                 {
                     _lifetimeCancellation.Dispose();
+                    // 页面检查和控制器持有 HWND；先排空并释放控制器，再销毁窗口。
+                    AppWindow.Closing -= OnNativeWindowClosing;
+                    Close();
                 }
             }
         }
@@ -196,12 +201,8 @@ internal sealed class SourceVerificationWindow : Window
             return;
         }
 
-        var windowHandle = WindowNative.GetWindowHandle(this);
-        var parentWindow =
-            CoreWebView2ControllerWindowReference.CreateFromWindowHandle(
-                unchecked((ulong)windowHandle.ToInt64()));
-        var controller = await _environment.CreateCoreWebView2ControllerAsync(
-            parentWindow);
+        var windowHandle = PlayerNativeWindow.GetHandle(this);
+        var controller = await _environment.CreateCoreWebView2ControllerAsync(windowHandle);
         if (_closed)
         {
             TryCloseController(controller);
@@ -210,8 +211,8 @@ internal sealed class SourceVerificationWindow : Window
 
         _controller = controller;
         _webView = controller.CoreWebView2;
-        controller.IsVisible = true;
         UpdateBrowserBounds();
+        controller.IsVisible = true;
 
         if (_headers.TryGetValue("User-Agent", out var userAgent)
             && !string.IsNullOrWhiteSpace(userAgent))
@@ -281,7 +282,7 @@ internal sealed class SourceVerificationWindow : Window
     }
 
     private void OnNavigationStarting(
-        CoreWebView2 sender,
+        object? sender,
         CoreWebView2NavigationStartingEventArgs args)
     {
         if (_closed)
@@ -299,7 +300,7 @@ internal sealed class SourceVerificationWindow : Window
     }
 
     private async void OnNavigationCompleted(
-        CoreWebView2 sender,
+        object? sender,
         CoreWebView2NavigationCompletedEventArgs args)
     {
         using var registration = _navigationCallbacks.TryEnter();
@@ -326,7 +327,7 @@ internal sealed class SourceVerificationWindow : Window
                 return;
             }
 
-            var needsInteraction = await PageStillNeedsInteractionAsync(sender);
+            var needsInteraction = await PageStillNeedsInteractionAsync((CoreWebView2)sender!);
             if (_closed || navigationId != _navigationId)
             {
                 return;
@@ -354,7 +355,7 @@ internal sealed class SourceVerificationWindow : Window
     }
 
     private void OnDocumentTitleChanged(
-        CoreWebView2 sender,
+        object? sender,
         object args)
     {
         if (_closed)
@@ -362,14 +363,14 @@ internal sealed class SourceVerificationWindow : Window
             return;
         }
 
-        var title = sender.DocumentTitle;
+        var title = ((CoreWebView2)sender!).DocumentTitle;
         Title = string.IsNullOrWhiteSpace(title)
             ? "AniMeido 源站验证"
             : $"{title} - AniMeido 源站验证";
     }
 
     private void OnNewWindowRequested(
-        CoreWebView2 sender,
+        object? sender,
         CoreWebView2NewWindowRequestedEventArgs args)
     {
         args.Handled = true;
@@ -381,7 +382,7 @@ internal sealed class SourceVerificationWindow : Window
         if (Uri.TryCreate(args.Uri, UriKind.Absolute, out var uri)
             && uri.Scheme is "http" or "https")
         {
-            sender.Navigate(uri.AbsoluteUri);
+            ((CoreWebView2)sender!).Navigate(uri.AbsoluteUri);
         }
     }
 
@@ -428,6 +429,18 @@ internal sealed class SourceVerificationWindow : Window
     private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args)
         => UpdateBrowserBounds();
 
+    private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
+    {
+        if (!_closed && args.DidPositionChange)
+            _controller?.NotifyParentWindowPositionChanged();
+    }
+
+    private void OnNativeWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        args.Cancel = true;
+        CloseWindow();
+    }
+
     private void UpdateBrowserBounds()
     {
         if (_closed || _controller is null)
@@ -438,11 +451,8 @@ internal sealed class SourceVerificationWindow : Window
         var scale = _root.XamlRoot?.RasterizationScale ?? 1d;
         var top = _browserPlaceholder.TransformToVisual(_root)
             .TransformPoint(new Point()).Y;
-        _controller.Bounds = new Rect(
-            0,
-            top * scale,
-            Math.Max(1, _root.ActualWidth * scale),
-            Math.Max(1, (_root.ActualHeight - top) * scale));
+        _controller.Bounds = PlayerDesktopWebView.ToPixelBounds(
+            new Rect(0, top, _browserPlaceholder.ActualWidth, _browserPlaceholder.ActualHeight), scale);
     }
 
     private void OnClosed(object sender, WindowEventArgs args)
@@ -459,6 +469,7 @@ internal sealed class SourceVerificationWindow : Window
         _navigationCallbacks.StopAccepting();
         Closed -= OnClosed;
         _root.SizeChanged -= OnRootSizeChanged;
+        AppWindow.Changed -= OnAppWindowChanged;
         _retryButton.Click -= OnCompleteClick;
         if (_trackedXamlRoot is not null)
         {
@@ -591,15 +602,7 @@ internal sealed class SourceVerificationWindow : Window
             return;
         }
 
-        try
-        {
-            Close();
-        }
-        catch (Exception ex)
-            when (ex is COMException or InvalidOperationException)
-        {
-            PrepareClose();
-        }
+        PrepareClose();
     }
 
     private void ResizeWindow()

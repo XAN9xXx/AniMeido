@@ -5,15 +5,11 @@
   -->
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <WinAppSdkVersion>2.5.1</WinAppSdkVersion>
-    <WinAppSdkBuildToolsVersion>10.0.28000.2957</WinAppSdkBuildToolsVersion>
     <MicrosoftLoggingVersion>10.0.12</MicrosoftLoggingVersion>
   </PropertyGroup>
 
   <!-- Windows App SDK 与 UI -->
   <ItemGroup>
-    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="$(WinAppSdkVersion)" />
-    <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="$(WinAppSdkBuildToolsVersion)" />
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
   </ItemGroup>
 
@@ -41,7 +37,7 @@
   </ItemGroup>
 
   <!-- 使用与桌面宿主一致的渲染库验证实际字体。 -->
-  <ItemGroup Condition="'$(MSBuildProjectName)' == 'AniMeido.Desktop.Tests'">
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'AniMeido.Desktop.Tests' Or '$(MSBuildProjectName)' == 'AniMeido.Tests'">
     <PackageVersion Include="Uno.WinUI.Composition.Skia" Version="7.0.65" />
     <PackageVersion Include="Uno.WinUI.Runtime.Headless" Version="7.0.65" />
   </ItemGroup>
@@ -51,6 +47,7 @@
     <PackageVersion Include="AngleSharp" Version="1.5.2" />
     <PackageVersion Include="HtmlAgilityPack" Version="1.12.4" />
     <PackageVersion Include="Jint" Version="4.13.0" />
+    <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.3719.77" />
   </ItemGroup>
 
   <!-- 测试 -->

@@ -1,11 +1,16 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Uno.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+        <TargetFramework>net10.0-desktop</TargetFramework>
         <IsPackable>false</IsPackable>
         <IsTestProject>true</IsTestProject>
         <AssemblyName>AniMeido.Tests</AssemblyName>
-        <PlatformTarget>x64</PlatformTarget>
+        <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+        <SelfContained>true</SelfContained>
+        <UnoFeatures>Skia</UnoFeatures>
+        <UnoDisableHotDesign>true</UnoDisableHotDesign>
+        <UnoDisableMCPSupport>true</UnoDisableMCPSupport>
+        <UnoDisableWinAppRunSupport>true</UnoDisableWinAppRunSupport>
         <EnableExperimentalAiTests Condition="'$(EnableExperimentalAiTests)' == ''">false</EnableExperimentalAiTests>
     </PropertyGroup>
 
@@ -16,7 +21,7 @@
     <!-- 由本次构建报告路径，测试不扫描可能混有旧发布产物的 bin 目录。 -->
     <Target Name="RecordTestBuildOutputs" BeforeTargets="GetAssemblyAttributes" DependsOnTargets="ResolveProjectReferences">
         <ItemGroup>
-            <TestOutputProject Include="..\AniMeido.App\AniMeido.App.csproj;..\Plugins\AniMeido.Plugin.Base\AniMeido.Plugin.Base.csproj;..\Plugins\AniMeido.Plugin.Base.Core\AniMeido.Plugin.Base.Core.csproj;..\AniMeido.Launcher\AniMeido.Launcher.csproj;..\AniMeido.PluginHost\AniMeido.PluginHost.csproj;..\Plugins\AniMeido.Plugin.AI\AniMeido.Plugin.AI.csproj" />
+            <TestOutputProject Include="..\AniMeido.Desktop\AniMeido.Desktop.csproj;..\Plugins\AniMeido.Plugin.Base.Desktop\AniMeido.Plugin.Base.Desktop.csproj;..\Plugins\AniMeido.Plugin.Base.Core\AniMeido.Plugin.Base.Core.csproj;..\AniMeido.Launcher\AniMeido.Launcher.csproj;..\AniMeido.PluginHost\AniMeido.PluginHost.csproj;..\Plugins\AniMeido.Plugin.AI\AniMeido.Plugin.AI.csproj" />
         </ItemGroup>
         <MSBuild Projects="@(TestOutputProject)" Targets="GetTargetPath" Properties="Configuration=$(Configuration);Platform=$(Platform)">
             <Output TaskParameter="TargetOutputs" ItemName="TestBuildOutput" />
@@ -30,6 +35,8 @@
     </Target>
 
     <ItemGroup>
+        <Compile Include="../AniMeido.Desktop.Tests/UnoHeadlessTestHost.cs" Link="UnoHeadlessTestHost.cs" />
+        <PackageReference Include="Uno.WinUI.Runtime.Headless" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" />
         <PackageReference Include="xunit" />
         <PackageReference Include="xunit.runner.visualstudio">
@@ -41,8 +48,8 @@
 
     <ItemGroup>
         <ProjectReference Include="..\AniMeido.Contracts\AniMeido.Contracts.csproj" />
-        <ProjectReference Include="..\AniMeido.App\AniMeido.App.csproj" />
-        <ProjectReference Include="..\Plugins\AniMeido.Plugin.Base\AniMeido.Plugin.Base.csproj" />
+        <ProjectReference Include="..\AniMeido.Desktop\AniMeido.Desktop.csproj" />
+        <ProjectReference Include="..\Plugins\AniMeido.Plugin.Base.Desktop\AniMeido.Plugin.Base.Desktop.csproj" />
         <!-- 播放器暂时下线，保留专用用例源码，不纳入基础版测试程序集。 -->
         <Compile Remove="Player\**\*.cs;App\LibMpvPreparationScriptTests.cs" />
         <ProjectReference Include="..\AniMeido.Launcher\AniMeido.Launcher.csproj" ReferenceOutputAssembly="false" />

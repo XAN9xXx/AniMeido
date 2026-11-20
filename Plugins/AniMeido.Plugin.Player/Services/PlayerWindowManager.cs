@@ -37,7 +37,6 @@ internal sealed class PlayerWindowManager :
     private readonly ILogger<PlayerWindowManager> _logger;
     private PlayerWindow? _playerWindow;
     private SourceManagementWindow? _settingsWindow;
-    private bool _endingSession;
     private bool _disposed;
     private Task? _endSessionTask;
 
@@ -198,7 +197,7 @@ internal sealed class PlayerWindowManager :
     private void EnsureSessionAvailable(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (_endingSession)
+        if (_endSessionTask is not null)
         {
             throw new InvalidOperationException("播放器会话正在退出，请稍后重试。");
         }
@@ -297,6 +296,9 @@ internal sealed class PlayerWindowManager :
         try
         {
             await EndSessionCoreAsync();
+            // 宿主保留同一个管理器。只有普通关窗成功收尾后，才允许下一次启动。
+            if (!_disposed)
+                _endSessionTask = null;
             completion.TrySetResult();
         }
 #pragma warning disable CA1031 // 先公布共享任务，再把原始收尾结果交给事件与宿主。
@@ -309,7 +311,6 @@ internal sealed class PlayerWindowManager :
 
     private async Task EndSessionCoreAsync()
     {
-        _endingSession = true;
         var playerWindow = _playerWindow;
         var settingsWindow = _settingsWindow;
         DetachSettingsWindow();

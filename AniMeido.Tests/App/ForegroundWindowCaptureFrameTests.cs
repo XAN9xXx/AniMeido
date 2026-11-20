@@ -8,7 +8,7 @@ public sealed class ForegroundWindowCaptureFrameTests
     [Trait("Category", "Mechanism")]
     public void EmptyFrameReturnsBeforePublishingOrDisposingTheFrame()
     {
-        var path = Path.Combine(AppDataRootsTests.RepositoryRoot, "AniMeido.App",
+        var path = Path.Combine(AppDataRootsTests.RepositoryRoot, "AniMeido.Platform.Windows",
             "Services", "ForegroundWindowCaptureService.cs");
         var source = Regex.Replace(File.ReadAllText(path), @"//[^\r\n]*|/\*[\s\S]*?\*/", string.Empty);
         var header = Regex.Match(source, @"\bvoid\s+OnFrameArrived\s*\([^)]*\)\s*\{");

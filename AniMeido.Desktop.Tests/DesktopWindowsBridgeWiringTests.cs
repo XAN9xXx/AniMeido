@@ -17,12 +17,11 @@ public sealed class DesktopWindowsBridgeWiringTests
     }
 
     [Fact]
-    public void WindowsBridgeReusesTheProductionCaptureAndNotificationImplementations()
+    public void WindowsBridgeOwnsCaptureAndNotificationImplementations()
     {
-        var sources = ReadProject().Descendants().Where(element => element.Name.LocalName == "Compile")
-            .Select(element => (string?)element.Attribute("Include")).ToArray();
-        Assert.Contains("../AniMeido.App/Services/ForegroundWindowCaptureService.cs", sources);
-        Assert.Contains("../AniMeido.App/Services/WindowsAppNotificationService.cs", sources);
+        var assembly = typeof(AniMeido.App.Services.WindowsAppNotificationService).Assembly;
+        Assert.Equal("AniMeido.Platform.Windows", assembly.GetName().Name);
+        Assert.Same(assembly, typeof(AniMeido.App.Services.ForegroundWindowCaptureService).Assembly);
     }
 
     private static XDocument ReadProject()

@@ -128,7 +128,11 @@ public sealed partial class DataManagementSettingsPage : Page
     private async void OnBackupNowClick(object sender, RoutedEventArgs e) => await RunAsync(async visit =>
     {
         await _transfer.BackupAsync();
-        if (Current(visit)) Feedback("数据库已备份。");
+        if (!Current(visit)) return;
+        // 备份已经写入磁盘，提示窗口关闭不应把备份报告成失败。
+        try { Feedback("数据库已备份。"); }
+        catch (Exception error) when (error is InvalidOperationException or System.Runtime.InteropServices.COMException)
+        { _logger.LogWarning(error, "Backup succeeded but its notification could not be shown"); }
     });
     private async void OnExportClick(object sender, RoutedEventArgs e) => await ExportAsync(false);
     private async void OnExportBundleClick(object sender, RoutedEventArgs e) => await ExportAsync(true);

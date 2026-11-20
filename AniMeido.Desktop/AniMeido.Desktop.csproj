@@ -6,7 +6,7 @@
     <RootNamespace>AniMeido.App</RootNamespace>
     <AssemblyName>AniMeido.App</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>../AniMeido.App/Assets/icon.ico</ApplicationIcon>
+    <ApplicationIcon>Assets/Icon.ico</ApplicationIcon>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
@@ -14,7 +14,6 @@
     <UnoDisableMCPSupport>true</UnoDisableMCPSupport>
     <UnoDisableWinAppRunSupport>true</UnoDisableWinAppRunSupport>
     <DefaultLanguage>zh-CN</DefaultLanguage>
-    <DefineConstants>$(DefineConstants);UNO_DESKTOP;UNO_SKIA</DefineConstants>
     <UnoFeatures>Skia</UnoFeatures>
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
@@ -23,14 +22,8 @@
   </PropertyGroup>
   <ItemGroup>
     <ApplicationDefinition Include="App.xaml" />
-    <Compile Include="../AniMeido.App/Services/**/*.cs"
-             Exclude="../AniMeido.App/Services/ThemeService.cs;../AniMeido.App/Services/ForegroundWindowCaptureService.cs;../AniMeido.App/Services/WindowsAppNotificationService.cs;../AniMeido.App/Services/ServiceRegistration.cs;../AniMeido.App/Services/PluginStartup.cs;../AniMeido.App/Services/AppWindowActivationService.cs;../AniMeido.App/Services/TitleBarHelper.cs;../AniMeido.App/Services/StartupDialogCoordinator.cs;../AniMeido.App/Services/UpdatePromptDialog.cs"
-             Link="Services/%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="../Shared/AppDataRoots.cs;../Shared/DiagnosticFileStore.cs" Link="Shared/%(Filename)%(Extension)" />
-    <Compile Include="../AniMeido.App/Models/**/*.cs" Link="Models/%(RecursiveDir)%(Filename)%(Extension)" />
-    <Compile Include="../AniMeido.App/Helpers/**/*.cs" Link="Helpers/%(RecursiveDir)%(Filename)%(Extension)" />
-    <Content Include="../AniMeido.App/Assets/**" Link="Assets/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="Assets/Fonts/**" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets/**" CopyToOutputDirectory="PreserveNewest" />
     <None Remove="**/*.xaml" />
   </ItemGroup>
   <ItemGroup>
@@ -50,6 +43,9 @@
   </ItemGroup>
   <Import Project="../Shared/PluginHostOutput.targets" />
   <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>AniMeido.Tests</_Parameter1>
+    </AssemblyAttribute>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
       <_Parameter1>AniMeido.Desktop.Tests</_Parameter1>
     </AssemblyAttribute>

@@ -80,8 +80,7 @@ internal sealed class SourceManagementWindow : Window
         Title = "AniMeido 播放源管理";
         Content = BuildLayout();
         ResizeWindow();
-        var windowId = Win32Interop.GetWindowIdFromWindow(WindowNative.GetWindowHandle(this));
-        _appWindow = AppWindow.GetFromWindowId(windowId);
+        _appWindow = AppWindow;
         _appWindow.Closing += OnWindowClosing;
         Activated += OnActivated;
         Closed += OnWindowClosed;
@@ -460,7 +459,7 @@ internal sealed class SourceManagementWindow : Window
         try
         {
             var picker = new FileOpenPicker();
-            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+            InitializeWithWindow.Initialize(picker, PlayerNativeWindow.GetHandle(this));
             picker.FileTypeFilter.Add(".animeido-source");
             var file = await picker.PickSingleFileAsync();
             if (file is null || IsInactive)

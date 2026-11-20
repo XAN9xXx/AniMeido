@@ -445,7 +445,7 @@ internal sealed class PlayerWindow : Window
 
     private void InitializeNativePlayer()
     {
-        var windowHandle = WindowNative.GetWindowHandle(this);
+        var windowHandle = PlayerNativeWindow.GetHandle(this);
         _nativeVideoHost = new NativeVideoHost(windowHandle);
         if (!LibMpvClient.TryCreate(
             _nativeVideoHost.Handle,
@@ -1601,7 +1601,7 @@ internal sealed class PlayerWindow : Window
                     [".zip"]);
                 InitializeWithWindow.Initialize(
                     picker,
-                    WindowNative.GetWindowHandle(this));
+                    PlayerNativeWindow.GetHandle(this));
                 var file = await picker.PickSaveFileAsync();
                 if (file is null)
                 {
@@ -1777,6 +1777,8 @@ internal sealed class PlayerWindow : Window
         }
 
         _openDialogs.Add(dialog);
+        // 子 HWND 在 Skia 内容之上；打开 XAML 对话框时只暂时隐藏视频，不中断播放。
+        _nativeVideoHost?.SetVisible(false);
         try
         {
             return await dialog.ShowAsync();
@@ -1784,6 +1786,8 @@ internal sealed class PlayerWindow : Window
         finally
         {
             _openDialogs.Remove(dialog);
+            if (_openDialogs.Count == 0 && !IsClosing)
+                _nativeVideoHost?.SetVisible(true);
         }
     }
 
@@ -1919,9 +1923,7 @@ internal sealed class PlayerWindow : Window
 
     private void ResizeWindow()
     {
-        var windowHandle = WindowNative.GetWindowHandle(this);
-        var windowId = Win32Interop.GetWindowIdFromWindow(windowHandle);
-        _appWindow = AppWindow.GetFromWindowId(windowId);
+        _appWindow = AppWindow;
         DpiWindowSizing.Resize(this, 1200, 780);
     }
 }

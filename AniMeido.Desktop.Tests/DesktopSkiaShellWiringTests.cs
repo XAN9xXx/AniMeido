@@ -5,39 +5,27 @@ namespace AniMeido.Desktop.Tests;
 [Trait("Category", "Mechanism")]
 public sealed class DesktopSkiaShellWiringTests
 {
-    [Theory]
-    [InlineData("TodayPage.PlanStack.cs")]
-    [InlineData("RecommendationPage.TagStack.cs")]
-    public void ExpandedDecksUseTheNativeMonitorWorkAreaOnSkia(string file)
-    {
-        var source = Read("Plugins/AniMeido.Plugin.Base/Views/" + file);
-        Assert.Contains("#if UNO_SKIA", source);
-        Assert.Contains("DesktopShellServices.TryGetWorkAreaAtClientPoint", source);
-        Assert.Contains("InputActivationChanged +=", source);
-        Assert.Contains("InputActivationChanged -=", source);
-    }
-
     [Fact]
     public void ScreenshotFeedbackUsesImplementedMoveAndResizeMethods()
     {
-        var source = Read("Plugins/AniMeido.Plugin.Base/Views/CaptureFeedbackWindow.cs");
+        var source = Read("Plugins/AniMeido.Plugin.Base.Desktop/Views/CaptureFeedbackWindow.cs");
         Assert.Contains("DesktopShellServices.GetWindowHandle(this)", source);
         Assert.Contains("DesktopShellServices.GetWorkArea(handle)", source);
-        Assert.Contains("appWindow.Move(", source);
-        Assert.Contains("appWindow.Resize(", source);
-        Assert.Contains("appWindow.Show(activateWindow: false)", source);
+        Assert.Contains("AppWindow.Move(", source);
+        Assert.Contains("AppWindow.Resize(", source);
+        Assert.Contains("AppWindow.Show(activateWindow: false)", source);
     }
 
     [Fact]
     public void FilesAndFoldersUseTheWindowsShellOnSkia()
     {
-        var archive = Read("Plugins/AniMeido.Plugin.Base/Views/ArchivePage.xaml.cs");
+        var archive = Read("Plugins/AniMeido.Plugin.Base.Desktop/Views/ArchivePage.Screenshots.cs");
         Assert.Contains("DesktopShellServices.OpenPath(item.FilePath)", archive);
-        var settings = Read("Plugins/AniMeido.Plugin.Base/Views/DataManagementSettingsPage.xaml.cs");
-        Assert.Contains("OpenDirectoryAsync(dir)", settings);
+        var settings = Read("Plugins/AniMeido.Plugin.Base.Desktop/Views/DataManagementSettingsPage.xaml.cs");
+        Assert.Contains("OpenDirectoryAsync(Path.GetDirectoryName(_paths.DatabasePath)!", settings);
         Assert.Contains("OpenDirectoryAsync(_paths.BackupDirectory)", settings);
         Assert.Contains("OpenDirectoryAsync(_paths.LogDirectory)", settings);
-        Assert.Contains("DesktopShellServices.OpenPath(directory)", settings);
+        Assert.Contains("DesktopShellServices.OpenPath(path)", settings);
         var shell = Read("Plugins/AniMeido.Plugin.Base.Desktop/Services/DesktopShellServices.cs");
         Assert.Contains("UseShellExecute = true", shell);
         Assert.Contains("FileName = path", shell);

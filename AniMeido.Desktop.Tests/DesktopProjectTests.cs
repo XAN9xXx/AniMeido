@@ -44,7 +44,7 @@ public sealed class DesktopProjectTests
     }
 
     [Fact]
-    public void WindowsHeadUsesUnoAndKeepsTheExistingAppAvailable()
+    public void WindowsHeadUsesUnoWithoutTheLegacyHead()
     {
         var root = FindRepository();
         var desktop = XDocument.Load(Path.Combine(root, "AniMeido.Desktop", "AniMeido.Desktop.csproj"));
@@ -55,7 +55,7 @@ public sealed class DesktopProjectTests
             .Select(item => (string)item.Attribute("Include")!).ToArray();
         Assert.Contains(references, path => path.Contains("AniMeido.Plugin.Base.Desktop"));
         Assert.DoesNotContain(references, path => path.Contains("AniMeido.Plugin.Player"));
-        Assert.True(File.Exists(Path.Combine(root, "AniMeido.App", "AniMeido.App.csproj")));
+        Assert.False(File.Exists(Path.Combine(root, "AniMeido.App", "AniMeido.App.csproj")));
     }
 
     [Fact]

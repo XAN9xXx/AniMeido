@@ -18,11 +18,11 @@ param(
     [switch]$AsPending,
     [switch]$Broken,
     [switch]$UpdateTestSource,
-    [switch]$Uno
+    [switch]$Uno # 兼容旧调用；桌面安装统一使用 Uno。
 )
 
 $ErrorActionPreference = 'Stop'
-$appProject = if ($Uno) { '.\AniMeido.Desktop' } else { '.\AniMeido.App' }
+$appProject = '.\AniMeido.Desktop'
 $testSourceProperty = "-p:AniMeidoUpdateTestSource=$($UpdateTestSource.IsPresent.ToString().ToLowerInvariant())"
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $installRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Root))

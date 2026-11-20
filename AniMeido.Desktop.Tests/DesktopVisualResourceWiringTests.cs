@@ -56,30 +56,20 @@ public sealed class DesktopVisualResourceWiringTests
 
     [Fact]
     [Trait("Category", "Mechanism")]
-    public void SavedDetailTagsUseTheSharedDesktopAccentBrushWhileTheOriginalHeadKeepsItsPath()
+    public void SavedDetailTagsUseTheDesktopAccentEdge()
     {
-        var source = File.ReadAllText(Path.Combine(FindRepository(), "Plugins", "AniMeido.Plugin.Base",
+        var source = File.ReadAllText(Path.Combine(FindRepository(), "Plugins", "AniMeido.Plugin.Base.Desktop",
             "Views", "AnimeDetailPage.xaml.cs"));
-        var tagMethod = source[source.IndexOf("private Border CreateTagButton", StringComparison.Ordinal)..];
-        var desktopStart = tagMethod.IndexOf("#if UNO_DESKTOP", StringComparison.Ordinal);
-        var originalStart = tagMethod.IndexOf("#else", desktopStart, StringComparison.Ordinal);
-        Assert.True(originalStart > desktopStart);
-        var desktop = tagMethod[desktopStart..originalStart];
-        Assert.Contains("DesktopAccentBrush", desktop);
-        Assert.Contains("DesktopCardBrush", desktop);
-        Assert.Contains("DesktopTextBrush", desktop);
-        Assert.DoesNotContain("SystemAccentColor", desktop);
-        Assert.Contains("SystemAccentColor", tagMethod[originalStart..]);
+        Assert.Contains("saved ? \"DesktopAccentBrush\" : \"DesktopButtonEdgeBrush\"", source);
     }
 
     [Fact]
-    [Trait("Category", "Mechanism")]
-    public void DynamicallyCreatedCharacterCardsUseTheDesktopSurfaceRoles()
+    public void CharacterCardsUseTheDesktopSurfaceRoles()
     {
-        var source = File.ReadAllText(Path.Combine(FindRepository(), "Plugins", "AniMeido.Plugin.Base",
-            "Views", "AnimeDetailPage.xaml.cs"));
-        Assert.Contains("avatarBorder.Background = (Brush)Application.Current.Resources[\"DesktopFieldBrush\"]", source);
-        Assert.Contains("card.Background = (Brush)Application.Current.Resources[\"DesktopCardBrush\"]", source);
+        var card = ReadDesktopPage("AnimeDetailPage.xaml").Descendants().Single(node =>
+            (string?)node.Attribute("Click") == "OnCharacterClick");
+        Assert.Equal("{StaticResource DesktopCardButtonStyle}", (string?)card.Attribute("Style"));
+        Assert.Contains(card.Descendants(), node => (string?)node.Attribute("Background") == "{ThemeResource DesktopFieldBrush}");
     }
 
     private static XDocument ReadDesktopPage(string file)

@@ -16,6 +16,10 @@
 
 ## 打包 Player 插件
 
+在线播放器已暂停提供。以下命令留作维护参考，当前不分发 Player 包，也不把实际播放列为发布验收项。
+
+默认解决方案不构建新旧 Player，也不运行其播放、播放源、libmpv 和插件包专用测试。基础版仍测试旧 Player 停用、个人数据保留，以及通用插件宿主的启动和退出。CI 使用同一解决方案。
+
 1. 首次打包前准备 libmpv（需要网络和 7-Zip；libmpv 不入库，由脚本按固定版本和 SHA-256 下载）：
 
    ```powershell
@@ -25,7 +29,7 @@
 2. 构建并打包：
 
    ```powershell
-   dotnet msbuild .\Plugins\AniMeido.Plugin.Player\AniMeido.Plugin.Player.csproj -restore -t:PackPlugin -p:Configuration=Release -p:Platform=x64
+   dotnet msbuild .\Plugins\AniMeido.Plugin.Player.Desktop\AniMeido.Plugin.Player.Desktop.csproj -restore -t:PackPlugin -p:Configuration=Release -p:Platform=x64
    ```
 
    输出：`artifacts\plugins\AniMeido.Plugin.Player-<版本>.animeido-plugin`。同名文件会先被删除再重新生成。
@@ -191,7 +195,7 @@ try {
 
 ## Uno 桌面开发安装
 
-`New-DevInstall.ps1` 和 `Publish-Release.ps1` 新增 `-Uno`，选择 `AniMeido.Desktop`；省略时仍选择 `AniMeido.App`。新外壳与原 WinUI 分别输出，启动文件名继续使用 `AniMeido.App.exe`，启动器、数据目录和插件宿主规则保持一致。
+`New-DevInstall.ps1` 和 `Publish-Release.ps1` 默认选择 `AniMeido.Desktop`。已有命令仍可带 `-Uno`。主程序仍叫 `AniMeido.App.exe`，可选插件使用独立的 Uno 宿主 `PluginHost/AniMeido.PluginHost.exe`。基础安装不内置 Player。
 
 在仓库根目录生成一份独立开发安装：
 
@@ -202,7 +206,7 @@ try {
 
 两个目录须为本次验收选定的新路径。脚本仅生成开发安装，启动由维护者执行。新外壳的全面页面验收、安装更新和回滚复验仍在进行。
 
-`Publish-Release.ps1 -Uno` 同样选择新外壳，只由维护者按下文的签名、安装验收和发布流程执行。
+`Publish-Release.ps1` 同样使用 Uno 外壳；签名、安装验收和正式发布仍由维护者执行。
 
 ## U3 应用内更新人工验收（本地签名源）
 
@@ -252,7 +256,7 @@ foreach ($release in @(
     $payload = Join-Path $acceptance "payload-$version"
     $channelRoot = Join-Path $source "win-x64\$channel"
     New-Item -ItemType Directory -Path $channelRoot -Force | Out-Null
-    dotnet publish .\AniMeido.App -c Release -r win-x64 -p:PublishProfile=win-x64 "-p:AniMeidoVersion=$version" -p:AniMeidoUpdateTestSource=true "-p:RestoreSources=$cache" -p:NuGetAudit=false --output $payload
+    dotnet publish .\AniMeido.Desktop -c Release -r win-x64 -p:PublishProfile=win-x64 "-p:AniMeidoVersion=$version" -p:AniMeidoUpdateTestSource=true "-p:RestoreSources=$cache" -p:NuGetAudit=false --output $payload
     if ($LASTEXITCODE -ne 0) { throw "发布 $version 失败" }
     $name = "AniMeido-$version-win-x64.zip"
     $zip = Join-Path $channelRoot $name

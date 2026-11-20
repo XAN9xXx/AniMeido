@@ -8,10 +8,8 @@ public sealed class DesktopFeedbackTests
 {
     [Theory]
     [Trait("Category", "Mechanism")]
-    [InlineData("CurrentSeasonPage.xaml.cs", "ToggleTimeMachineStatusSafelyAsync")]
-    [InlineData("CurrentSeasonPage.xaml.cs", "ToggleStatusSafelyAsync")]
-    [InlineData("AnimeDetailPage.xaml.cs", "OnPersonalArchiveClick")]
-    [InlineData("AnimeDetailPage.xaml.cs", "CreateTagButton")]
+    [InlineData("CurrentSeasonPage.xaml.cs", "ShowFailure")]
+    [InlineData("AnimeDetailPage.xaml.cs", "Notify")]
     public void OperationFailuresOfferDesktopFeedbackAndKeepTheExistingFallback(string file, string method)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -19,14 +17,13 @@ public sealed class DesktopFeedbackTests
             directory = directory.Parent;
         Assert.NotNull(directory);
         var source = File.ReadAllText(Path.Combine(directory.FullName, "Plugins",
-            "AniMeido.Plugin.Base", "Views", file));
+            "AniMeido.Plugin.Base.Desktop", "Views", file));
         var declaration = Regex.Match(source, $@"(?m)^\s*private [^\r\n]+\b{method}\s*\(");
         Assert.True(declaration.Success);
         var remainder = source[(declaration.Index + declaration.Length)..];
         var nextMethod = Regex.Match(remainder, @"(?m)^ {4,8}private ");
         var body = nextMethod.Success ? remainder[..nextMethod.Index] : remainder;
 
-        Assert.Contains("#if UNO_DESKTOP", body);
         Assert.Contains("DesktopFeedback.TryShow", body);
         Assert.Contains("error: true", body);
         Assert.Contains("ErrorInfoBar.IsOpen = true", body);

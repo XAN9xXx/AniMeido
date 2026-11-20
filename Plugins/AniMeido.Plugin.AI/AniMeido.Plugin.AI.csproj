@@ -1,25 +1,23 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Uno.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
-    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>AniMeido.Plugin.AI</RootNamespace>
     <AssemblyName>AniMeido.Plugin.AI</AssemblyName>
     <Title>AI 工作台（实验性，暂不启用）</Title>
     <Version>0.2.7</Version>
     <PluginMinAppVersion>1.7.0</PluginMinAppVersion>
-    <UseWinUI>true</UseWinUI>
+    <UnoFeatures>Skia</UnoFeatures>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <PluginPackageStage>$(BaseIntermediateOutputPath)plugin-package</PluginPackageStage>
     <PluginPackageOutput>$(MSBuildProjectDirectory)\..\..\artifacts\plugins\$(AssemblyName)-$(Version).animeido-plugin</PluginPackageOutput>
   </PropertyGroup>
 
   <ItemGroup>
+    <Using Include="System.IO.FileAttributes" Alias="FileAttributes" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <!-- 覆盖 Microsoft.Data.Sqlite 带入的原生 SQLite 版本，见 Directory.Packages.props。 -->
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" />
   </ItemGroup>
 
   <ItemGroup>

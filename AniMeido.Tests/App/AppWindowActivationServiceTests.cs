@@ -5,6 +5,7 @@ using System.Reflection;
 
 namespace AniMeido.Tests;
 
+[Collection(AniMeido.Desktop.Tests.UnoHeadlessTestHost.CollectionName)]
 public sealed class AppWindowActivationServiceTests
 {
     [Fact]
@@ -30,17 +31,19 @@ public sealed class AppWindowActivationServiceTests
     }
 
     [Fact]
-    public void WindowHandleProviderAndActivationUseTheSameSingleton()
-    {
-        using var provider = new ServiceCollection()
-            .AddAppServices()
-            .BuildServiceProvider();
+    public Task WindowHandleProviderAndActivationUseTheSameSingleton()
+        => AniMeido.Desktop.Tests.UnoHeadlessTestHost.RunAsync(testRoot =>
+        {
+            using var provider = new ServiceCollection()
+                .AddAppServices()
+                .BuildServiceProvider();
 
-        var activation = provider
-            .GetRequiredService<IAppWindowActivationService>();
-        var handleProvider = provider
-            .GetRequiredService<IWindowHandleProvider>();
+            var activation = provider
+                .GetRequiredService<IAppWindowActivationService>();
+            var handleProvider = provider
+                .GetRequiredService<IWindowHandleProvider>();
 
-        Assert.Same(activation, handleProvider);
-    }
+            Assert.Same(activation, handleProvider);
+            return Task.CompletedTask;
+        });
 }

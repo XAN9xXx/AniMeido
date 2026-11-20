@@ -1,7 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <DefineConstants>$(DefineConstants);WINDOWS_PLATFORM_BRIDGE</DefineConstants>
     <WindowsProjectionVersion>10.0.19041.87</WindowsProjectionVersion>
     <WindowsFoundationVersion>2.3.12</WindowsFoundationVersion>
     <WindowsProjectionDirectory>$(NuGetPackageRoot)/microsoft.windows.sdk.net.ref/$(WindowsProjectionVersion)/lib/net9.0</WindowsProjectionDirectory>
@@ -23,12 +22,13 @@
                HintPath="$(WindowsFoundationDirectory)/lib/net6.0-windows10.0.17763.0/Microsoft.Windows.AppNotifications.Builder.Projection.dll" />
     <Content Include="$(WindowsFoundationDirectory)/runtimes-framework/win-x64/native/Microsoft.WindowsAppRuntime.dll"
              Link="Microsoft.WindowsAppRuntime.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Compile Include="../AniMeido.App/Services/ForegroundWindowCaptureService.cs" Link="ForegroundWindowCaptureService.cs" />
-    <Compile Include="../AniMeido.App/Services/WindowsAppNotificationService.cs" Link="WindowsAppNotificationService.cs" />
   </ItemGroup>
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatform">
       <_Parameter1>windows10.0.18362</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>AniMeido.Tests</_Parameter1>
     </AssemblyAttribute>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
       <_Parameter1>AniMeido.App</_Parameter1>

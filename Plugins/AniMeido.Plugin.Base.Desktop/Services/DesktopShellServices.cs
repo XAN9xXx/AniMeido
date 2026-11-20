@@ -1,5 +1,4 @@
-﻿#if UNO_SKIA
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
@@ -106,4 +105,3 @@ internal static class DesktopShellServices
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool ClientToScreen(nint window, ref NativePoint point);
 }
-#endif

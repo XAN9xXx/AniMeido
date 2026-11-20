@@ -7,7 +7,7 @@ namespace AniMeido.Tests;
 public sealed class PluginPackagePickerTests
 {
     [Fact]
-    public void AppUsesDesktopPickerThatSupportsElevatedProcesses()
+    public void AppUsesTheUnoFilePickerWithoutTheNativeWindowsAppSdkPicker()
     {
         // 只核对实际构建的 API 依赖，不打开文件选择窗口。
         using var assembly = File.OpenRead(AppDataRootsTests.BuildOutput("AniMeido.App"));
@@ -18,7 +18,7 @@ public sealed class PluginPackagePickerTests
             .Select(type => $"{metadata.GetString(type.Namespace)}.{metadata.GetString(type.Name)}")
             .ToArray();
 
-        Assert.Contains("Microsoft.Windows.Storage.Pickers.FileOpenPicker", referencedTypes);
-        Assert.DoesNotContain("Windows.Storage.Pickers.FileOpenPicker", referencedTypes);
+        Assert.DoesNotContain("Microsoft.Windows.Storage.Pickers.FileOpenPicker", referencedTypes);
+        Assert.Contains("Windows.Storage.Pickers.FileOpenPicker", referencedTypes);
     }
 }

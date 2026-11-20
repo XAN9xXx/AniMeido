@@ -26,9 +26,6 @@
     <Project Path="Plugins/AniMeido.Plugin.AI/AniMeido.Plugin.AI.csproj">
       <Platform Project="x64" />
     </Project>
-    <Project Path="Plugins/AniMeido.Plugin.Base/AniMeido.Plugin.Base.csproj" Id="70cbece3-4de2-4b18-b9c6-a07dd5c7a53c">
-      <Platform Project="x64" />
-    </Project>
   </Folder>
   <Folder Name="/Tools/">
     <Project Path="Tools/AniMeido.UpdateSigner/AniMeido.UpdateSigner.csproj">
@@ -52,10 +49,6 @@
       <Platform Project="x64" />
     </Project>
   </Folder>
-  <Project Path="AniMeido.App/AniMeido.App.csproj">
-    <Platform Project="x64" />
-    <Deploy />
-  </Project>
   <Folder Name="/Uno Desktop/">
     <Project Path="AniMeido.Platform.Windows/AniMeido.Platform.Windows.csproj">
       <Platform Project="x64" />

@@ -4,24 +4,27 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace AniMeido.Tests;
 
+[Collection(AniMeido.Desktop.Tests.UnoHeadlessTestHost.CollectionName)]
 public sealed class InstallationRegistrationServiceTests
 {
     [Fact]
-    public void AppRegistrationResolvesMigrationServicesUsingInjectedRegistry()
-    {
-        using var paths = new MockAppDataPaths();
-        var context = LegacyInstallationServiceTests.CreateContext(paths, true);
-        var registry = new FakeInstallationRegistry();
-        using var provider = new ServiceCollection()
-            .AddAppServices()
-            .AddSingleton(context)
-            .AddSingleton<IInstallationRegistry>(registry)
-            .BuildServiceProvider();
-        Assert.Empty(provider.GetRequiredService<LegacyInstallationService>().Detect());
-        provider.GetRequiredService<InstallationRegistrationService>().UpdateDisplayVersion();
-        Assert.Equal("3.0.0", registry.WrittenVersion);
-        Assert.NotEmpty(typeof(InstallationRegistry).GetConstructors());
-    }
+    public Task AppRegistrationResolvesMigrationServicesUsingInjectedRegistry()
+        => AniMeido.Desktop.Tests.UnoHeadlessTestHost.RunAsync(testRoot =>
+        {
+            using var paths = new MockAppDataPaths();
+            var context = LegacyInstallationServiceTests.CreateContext(paths, true);
+            var registry = new FakeInstallationRegistry();
+            using var provider = new ServiceCollection()
+                .AddAppServices()
+                .AddSingleton(context)
+                .AddSingleton<IInstallationRegistry>(registry)
+                .BuildServiceProvider();
+            Assert.Empty(provider.GetRequiredService<LegacyInstallationService>().Detect());
+            provider.GetRequiredService<InstallationRegistrationService>().UpdateDisplayVersion();
+            Assert.Equal("3.0.0", registry.WrittenVersion);
+            Assert.NotEmpty(typeof(InstallationRegistry).GetConstructors());
+            return Task.CompletedTask;
+        });
 
     [Theory]
     [InlineData(true, true)]

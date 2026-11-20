@@ -19,11 +19,11 @@ param(
     [string]$Notes,
     [string]$MinUpdatableFrom = '3.0.0',
     [string]$IsccPath,
-    [switch]$Uno
+    [switch]$Uno # 兼容旧调用；发布入口统一使用 Uno。
 )
 
 $ErrorActionPreference = 'Stop'
-$appProject = if ($Uno) { '.\AniMeido.Desktop' } else { '.\AniMeido.App' }
+$appProject = '.\AniMeido.Desktop'
 Set-StrictMode -Version Latest
 
 function Assert-ReleaseVersion([string]$Value, [string]$ReleaseChannel) {

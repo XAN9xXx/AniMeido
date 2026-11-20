@@ -1,5 +1,4 @@
-﻿#if UNO_SKIA
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using System.Diagnostics;
 using Microsoft.UI.Xaml;
 using Uno.UI.NativeElementHosting;
@@ -51,4 +50,3 @@ internal static class DesktopNativeWindow
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool IsIconic(nint handle);
 }
-#endif

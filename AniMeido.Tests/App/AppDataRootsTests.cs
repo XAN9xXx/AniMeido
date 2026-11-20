@@ -1,4 +1,5 @@
-﻿using AniMeido.App.Services;
+﻿using AppDataPaths = AniMeido.App.Services.AppDataPaths;
+using AniMeido.App.Services;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using Microsoft.Extensions.Logging.Abstractions;

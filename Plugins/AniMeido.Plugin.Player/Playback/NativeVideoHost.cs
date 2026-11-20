@@ -14,8 +14,10 @@ internal sealed class NativeVideoHost : IDisposable
     private const int WsClipSiblings = 0x04000000;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpShowWindow = 0x0040;
+    private const uint SwpHideWindow = 0x0080;
     private readonly nint _parentWindow;
     private nint _window;
+    private bool _visible = true;
 
     public NativeVideoHost(nint parentWindow)
     {
@@ -42,6 +44,14 @@ internal sealed class NativeVideoHost : IDisposable
 
     public nint Handle => _window;
 
+    public void SetVisible(bool visible)
+    {
+        if (_visible == visible) return;
+        _visible = visible;
+        if (_window != 0)
+            _ = ShowWindow(_window, visible ? 4 : 0);
+    }
+
     public void UpdateBounds(FrameworkElement element, UIElement root)
     {
         if (_window == 0
@@ -55,7 +65,7 @@ internal sealed class NativeVideoHost : IDisposable
             .TransformToVisual(root)
             .TransformPoint(new Point());
         var dpi = GetDpiForWindow(_parentWindow);
-        var scale = (dpi == 0 ? 96 : dpi) / 96d;
+        var scale = element.XamlRoot?.RasterizationScale ?? (dpi == 0 ? 96 : dpi) / 96d;
         _ = SetWindowPos(
             _window,
             0,
@@ -63,7 +73,7 @@ internal sealed class NativeVideoHost : IDisposable
             (int)Math.Round(origin.Y * scale),
             Math.Max(1, (int)Math.Round(element.ActualWidth * scale)),
             Math.Max(1, (int)Math.Round(element.ActualHeight * scale)),
-            SwpNoActivate | SwpShowWindow);
+            SwpNoActivate | (_visible ? SwpShowWindow : SwpHideWindow));
     }
 
     public void Dispose()
@@ -109,6 +119,10 @@ internal sealed class NativeVideoHost : IDisposable
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(nint window);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShowWindow(nint window, int command);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

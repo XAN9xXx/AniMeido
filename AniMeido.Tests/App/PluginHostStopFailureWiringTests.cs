@@ -35,7 +35,7 @@ public sealed class PluginHostStopFailureWiringTests
         var report = closing.IndexOf(
             "Log.Error(ex, \"应用关闭清理失败\")", StringComparison.Ordinal);
         var finish = closing.IndexOf("finally", StringComparison.Ordinal);
-        var close = closing.IndexOf("_window?.Close();", StringComparison.Ordinal);
+        var close = closing.IndexOf("_window?.QueueFinalClose();", StringComparison.Ordinal);
 
         Assert.True(report >= 0 && finish > report && close > finish);
         Assert.Contains("Log.CloseAndFlush();", closing[finish..], StringComparison.Ordinal);
@@ -59,7 +59,7 @@ public sealed class PluginHostStopFailureWiringTests
 
     private static string ReadSource(params string[] relative)
         => File.ReadAllText(Path.Combine(
-            new[] { AppDataRootsTests.RepositoryRoot, "AniMeido.App" }
+            new[] { AppDataRootsTests.RepositoryRoot, "AniMeido.Desktop" }
                 .Concat(relative).ToArray()));
 
     private static string Between(string source, string start, string end)

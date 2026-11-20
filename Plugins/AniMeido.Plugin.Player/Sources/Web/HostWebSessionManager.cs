@@ -1,5 +1,6 @@
+extern alias PlayerWebView2;
 using AniMeido.Plugin.Player.Sources.Packages;
-using Microsoft.Web.WebView2.Core;
+using PlayerWebView2::Microsoft.Web.WebView2.Core;
 using System.Text.Json;
 
 namespace AniMeido.Plugin.Player.Sources.Web;
@@ -43,11 +44,7 @@ internal sealed class HostWebSessionManager
             }
 
             Directory.CreateDirectory(_userDataDirectory);
-            _environment =
-                await CoreWebView2Environment.CreateWithOptionsAsync(
-                    string.Empty,
-                    _userDataDirectory,
-                    new CoreWebView2EnvironmentOptions());
+            _environment = await PlayerDesktopWebView.CreateEnvironmentAsync(_userDataDirectory);
             return _environment;
         }
         finally

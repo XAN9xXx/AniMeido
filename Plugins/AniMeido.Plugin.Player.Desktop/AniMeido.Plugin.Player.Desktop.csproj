@@ -1,0 +1,56 @@
+<Project Sdk="Uno.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <RootNamespace>AniMeido.Plugin.Player</RootNamespace>
+    <AssemblyName>AniMeido.Plugin.Player</AssemblyName>
+    <Title>在线播放器</Title>
+    <Version>0.5.1</Version>
+    <PluginMinAppVersion>2.1.3</PluginMinAppVersion>
+    <UnoFeatures>Skia</UnoFeatures>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <PluginPackageOutput Condition="'$(PluginPackageOutput)' == ''">$(MSBuildProjectDirectory)\..\..\artifacts\plugins\$(AssemblyName)-$(Version).animeido-plugin</PluginPackageOutput>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="System.IO.FileAttributes" Alias="FileAttributes" />
+    <Compile Include="../AniMeido.Plugin.Player/**/*.cs"
+             Exclude="../AniMeido.Plugin.Player/bin/**;../AniMeido.Plugin.Player/obj/**"
+             Link="%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="../../Shared/AppDataRoots.cs" Link="Shared/AppDataRoots.cs" />
+    <ProjectReference Include="../../AniMeido.Contracts/AniMeido.Contracts.csproj" Private="false" />
+    <PackageReference Include="AngleSharp" />
+    <PackageReference Include="HtmlAgilityPack" />
+    <PackageReference Include="Jint" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <!-- 只引用 .NET Win32 Core；不要引入 WindowsAppSDK 的同名原生组件或 WPF/WinForms。 -->
+    <PackageReference Include="Microsoft.Web.WebView2" ExcludeAssets="all" GeneratePathProperty="true" />
+    <Reference Include="Microsoft.Web.WebView2.Core">
+      <HintPath>$(PkgMicrosoft_Web_WebView2)/lib_manual/netcoreapp3.0/Microsoft.Web.WebView2.Core.dll</HintPath>
+      <Aliases>PlayerWebView2</Aliases>
+      <Private>true</Private>
+    </Reference>
+    <None Include="$(PkgMicrosoft_Web_WebView2)/runtimes/win-x64/native/WebView2Loader.dll"
+          Link="WebView2Loader.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="PackPlugin" DependsOnTargets="Build">
+    <PropertyGroup>
+      <_PluginStage>$(IntermediateOutputPath)plugin-package-$([System.Guid]::NewGuid().ToString('N'))</_PluginStage>
+    </PropertyGroup>
+    <ItemGroup>
+      <_PluginPayload Include="$(TargetPath);
+                                $(TargetDir)Acornima.dll;
+                                $(TargetDir)AngleSharp.dll;
+                                $(TargetDir)HtmlAgilityPack.dll;
+                                $(TargetDir)Jint.dll;
+                                $(TargetDir)Microsoft.Web.WebView2.Core.dll;
+                                $(TargetDir)WebView2Loader.dll;
+                                $(MSBuildProjectDirectory)/../AniMeido.Plugin.Player/runtimes/win-x64/native/libmpv-2.dll" />
+    </ItemGroup>
+    <Error Condition="!Exists('%(_PluginPayload.Identity)')" Text="Player 打包缺少 %(_PluginPayload.Filename)%(_PluginPayload.Extension)。请检查构建产物及 win-x64 的 libmpv。" />
+    <MakeDir Directories="$(_PluginStage)" />
+    <Copy SourceFiles="@(_PluginPayload)" DestinationFolder="$(_PluginStage)" />
+    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildProjectDirectory)\..\..\Tools\pack-plugin.ps1&quot; -PluginDir &quot;$(_PluginStage)&quot; -PluginId &quot;$(AssemblyName)&quot; -DisplayName &quot;$(Title)&quot; -Version &quot;$(Version)&quot; -MinAppVersion &quot;$(PluginMinAppVersion)&quot; -EntryAssembly &quot;$(AssemblyName).dll&quot; -OutputPath &quot;$(PluginPackageOutput)&quot; -ManifestTemplatePath &quot;$(MSBuildProjectDirectory)\plugin.manifest.json&quot;" />
+  </Target>
+</Project>

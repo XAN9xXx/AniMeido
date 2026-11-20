@@ -13,6 +13,40 @@ namespace AniMeido.Desktop.Tests;
 [Collection(UnoHeadlessTestHost.CollectionName)]
 public sealed class DesktopDataDragPageTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task ManualBackupCommitsOnceEvenIfItsSuccessNotificationCannotBeShown(bool rejectNotification)
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var page = fixture.DataSettings();
+            var messages = new List<(string Text, bool Error)>();
+            void Notify(string text, bool error)
+            {
+                messages.Add((text, error));
+                if (rejectNotification && !error) throw new InvalidOperationException("测试通知窗口已关闭");
+            }
+
+            await AttachAsync(root, page);
+            await page.PendingActivation;
+            DesktopFeedback.Requested += Notify;
+            try
+            {
+                var backup = (Button)page.FindName("BackupNowButton");
+                Invoke(backup);
+                await page.PendingOperation;
+                Assert.Single(Directory.GetFiles(fixture.BackupDirectory, "*.db"));
+                Assert.Equal(("数据库已备份。", false), Assert.Single(messages));
+                Assert.True(backup.IsEnabled);
+            }
+            finally
+            {
+                DesktopFeedback.Requested -= Notify;
+                await DetachAsync(root, page);
+            }
+        });
+
     [Fact]
     public Task DragZonesReadOnlyAfterMounting()
         => UnoHeadlessTestHost.RunAsync(async _ =>

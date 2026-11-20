@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 
 namespace AniMeido.Tests;
 
+[Collection(AniMeido.Desktop.Tests.UnoHeadlessTestHost.CollectionName)]
 public sealed class LegacyDesktopSettingsImporterTests
 {
     [Fact]
@@ -130,41 +131,49 @@ public sealed class LegacyDesktopSettingsImporterTests
     }
 
     [Fact]
-    public async Task Services_UpdateOnlyTheirOwnFields()
-    {
-        using var paths = new MockAppDataPaths();
-        var store = new DesktopSettingsStore(paths);
-        await Importer(store, null, false, false).ImportAsync();
-        await using var theme = new ThemeService(store);
-        var privacy = new PrivacyService(store);
+    public Task Services_UpdateOnlyTheirOwnFields()
+        => AniMeido.Desktop.Tests.UnoHeadlessTestHost.RunAsync(async testRoot =>
+        {
+            using var paths = new MockAppDataPaths();
+            var store = new DesktopSettingsStore(paths);
+            await Importer(store, null, false, false).ImportAsync();
+            await using var theme = new ThemeService(store);
+            var privacy = new PrivacyService(store);
 
-        await Task.WhenAll(
-            theme.SetThemeAsync(ElementTheme.Dark),
-            privacy.AcceptAsync(),
-            store.UpdateAsync(value => value with { KeepInTrayOnClose = true, AnnouncementShown = true }));
+            await Task.WhenAll(
+                theme.SetThemeAsync(ElementTheme.Dark),
+                privacy.AcceptAsync(),
+                store.UpdateAsync(value => value with { KeepInTrayOnClose = true, AnnouncementShown = true }));
 
-        var saved = await new DesktopSettingsStore(paths).LoadAsync();
-        Assert.Equal("Dark", saved.ThemeSetting);
-        Assert.True(await privacy.IsAcceptedAsync());
-        Assert.True(saved.AnnouncementShown);
-        Assert.True(saved.KeepInTrayOnClose);
-        Assert.True(saved.LegacyUiSettingsImported);
-    }
+            var saved = await new DesktopSettingsStore(paths).LoadAsync();
+            Assert.Equal("Dark", saved.ThemeSetting);
+            Assert.True(await privacy.IsAcceptedAsync());
+            Assert.True(saved.AnnouncementShown);
+            Assert.True(saved.KeepInTrayOnClose);
+            Assert.True(saved.LegacyUiSettingsImported);
+        });
 
     [Fact]
-    public async Task Theme_SaveFailureDoesNotApplyAnUnpersistedChoice()
-    {
-        using var paths = new MockAppDataPaths();
-        var store = new DesktopSettingsStore(paths);
-        await using var theme = new ThemeService(store);
-        await theme.SetThemeAsync(ElementTheme.Light);
-        Directory.CreateDirectory(Path.Combine(paths.RootDirectory, "desktop-settings.json.tmp"));
+    public Task Theme_SaveFailureKeepsTheVisibleChoiceAndTheOldFileUntilRetry()
+        => AniMeido.Desktop.Tests.UnoHeadlessTestHost.RunAsync(async testRoot =>
+        {
+            using var paths = new MockAppDataPaths();
+            var store = new DesktopSettingsStore(paths);
+            await using var theme = new ThemeService(store);
+            await theme.SetThemeAsync(ElementTheme.Light);
+            Directory.CreateDirectory(Path.Combine(paths.RootDirectory, "desktop-settings.json.tmp"));
 
-        await Assert.ThrowsAnyAsync<UnauthorizedAccessException>(() => theme.SetThemeAsync(ElementTheme.Dark));
+            await Assert.ThrowsAnyAsync<UnauthorizedAccessException>(() => theme.SetThemeAsync(ElementTheme.Dark));
 
-        Assert.Equal(ElementTheme.Light, theme.GetCurrentTheme());
-        Assert.Equal("Light", (await store.LoadAsync()).ThemeSetting);
-    }
+            Assert.Equal(ElementTheme.Dark, theme.GetCurrentTheme());
+            Assert.True(theme.HasSettingsSaveFailure);
+            Assert.Equal("Light", (await store.LoadAsync()).ThemeSetting);
+
+            Directory.Delete(Path.Combine(paths.RootDirectory, "desktop-settings.json.tmp"));
+            Assert.True(await theme.RetrySettingsSaveAsync());
+            Assert.False(theme.HasSettingsSaveFailure);
+            Assert.Equal("Dark", (await store.LoadAsync()).ThemeSetting);
+        });
 
     [Fact]
     public async Task ConcurrentImports_KeepTheFirstCommittedMigration()

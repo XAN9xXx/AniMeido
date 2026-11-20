@@ -1,6 +1,6 @@
 ﻿using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
-using WinRT.Interop;
+using AniMeido.Plugin.Player.Views;
 
 namespace AniMeido.Plugin.Player.Sources.Web;
 
@@ -26,7 +26,7 @@ internal sealed class WebViewHostBinding
     {
         ArgumentNullException.ThrowIfNull(window);
         var dispatcher = window.DispatcherQueue;
-        return new WebViewHostBinding(WindowNative.GetWindowHandle(window),
+        return new WebViewHostBinding(PlayerNativeWindow.GetHandle(window),
             (action, token) => DispatchAsync(dispatcher, action, token));
     }
 

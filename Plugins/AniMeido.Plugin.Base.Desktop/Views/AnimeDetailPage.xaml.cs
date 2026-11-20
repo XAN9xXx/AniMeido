@@ -212,8 +212,21 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
     private void UpdatePlayback() => OnlinePlayButton.Visibility = _playback?.IsAvailable == true ? Visibility.Visible : Visibility.Collapsed;
     private void OnOnlinePlayClick(object sender, RoutedEventArgs args)
     {
-        if (_playback?.IsAvailable == true && ViewModel.AnimeDetail is { } anime)
-            _ = Write(_ => _playback.LaunchAsync(new(anime.ID, anime.Title, anime.AlternateTitles)));
+        if (_playback?.IsAvailable == true && ViewModel.AnimeDetail is { } anime && _visit is { } visit)
+            _operations.Track(OpenPlayerAsync(anime, _navigationVersion, visit.Token));
+    }
+
+    private async Task OpenPlayerAsync(Anime anime, int version, CancellationToken token)
+    {
+        try { await _playback!.LaunchAsync(new(anime.ID, anime.Title, anime.AlternateTitles), token); }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+#pragma warning disable CA1031 // 插件启动失败在播放入口反馈，离页后不再显示旧消息。
+        catch (Exception error)
+        {
+            _logger.LogError(error, "未能打开在线播放器 {AnimeId}。", anime.ID);
+            if (!token.IsCancellationRequested && IsCurrentNavigation(version, anime.ID)) Notify("播放器未能打开，请重试。");
+        }
+#pragma warning restore CA1031
     }
 
     private Task Write(Func<CancellationToken, Task> write)

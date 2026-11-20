@@ -6,19 +6,18 @@ namespace AniMeido.Desktop.Tests;
 public sealed class DesktopSkiaWindowWiringTests
 {
     [Theory]
-    [InlineData("AniMeido.App/App.xaml.cs", "_mainAppWindow = _window.AppWindow")]
-    [InlineData("AniMeido.App/Services/TitleBarHelper.cs", "window.AppWindow.SetIcon(iconPath)")]
+    [InlineData("AniMeido.Desktop/App.xaml.cs", "_mainAppWindow = _window.AppWindow")]
+    [InlineData("AniMeido.Desktop/Services/TitleBarHelper.cs", "window.AppWindow.SetIcon(iconPath)")]
     public void SkiaUsesTheWindowOwnedAppWindow(string path, string expected)
     {
         var source = Read(path);
-        Assert.Contains("#if UNO_SKIA", source);
         Assert.Contains(expected, source);
     }
 
     [Fact]
     public void SkiaActivationRetainsTheRealNativeWindowForTrayAndShortcuts()
     {
-        var service = Read("AniMeido.App/Services/AppWindowActivationService.cs");
+        var service = Read("AniMeido.Desktop/Services/AppWindowActivationService.cs");
         Assert.Contains("DesktopNativeWindow.GetHandle(window)", service);
         Assert.Contains("DesktopNativeWindow.Hide(_windowHandle)", service);
         Assert.Contains("DesktopNativeWindow.Show(_windowHandle)", service);
@@ -33,23 +32,22 @@ public sealed class DesktopSkiaWindowWiringTests
     [Fact]
     public void SkiaPluginPickerUsesTheUnoNativeFilePickerAndKeepsItsPackageFilter()
     {
-        var source = Read("AniMeido.App/Views/AppSettingsPage.xaml.cs");
-        Assert.Contains("#if UNO_SKIA", source);
+        var source = Read("AniMeido.Desktop/Views/AppSettingsPage.xaml.cs");
         Assert.Contains("using Windows.Storage.Pickers;", source);
         Assert.Contains("new FileOpenPicker();", source);
         Assert.Contains("picker.FileTypeFilter.Add(\".animeido-plugin\")", source);
-        Assert.Contains("navigationVersion != _navigationVersion || !IsLoaded", source);
+        Assert.Contains("IsCurrent(visit)", source);
     }
 
     [Fact]
-    public void BothHeadsKeepTheExistingCloseCancellationAndDrainSequence()
+    public void ShellCancelsClosingUntilServiceShutdownHasCompleted()
     {
-        var source = Read("AniMeido.App/App.xaml.cs");
+        var source = Read("AniMeido.Desktop/App.xaml.cs");
         Assert.Contains("_mainAppWindow.Closing += OnMainAppWindowClosing", source);
         Assert.Contains("args.Cancel = true", source);
         Assert.Contains(".HideMainWindow()", source);
         Assert.Contains("await StopApplicationServicesAsync(provider, restorePreparation)", source);
-        Assert.Contains("_window?.Close()", source);
+        Assert.Contains("_window?.QueueFinalClose()", source);
     }
 
     [Fact]
@@ -76,7 +74,7 @@ public sealed class DesktopSkiaWindowWiringTests
 
     [Theory]
     [InlineData("AniMeido.Desktop/MainWindow.xaml.cs", "_migrationBackupDirectory")]
-    [InlineData("AniMeido.App/Views/AppSettingsPage.xaml.cs", "directory")]
+    [InlineData("AniMeido.Desktop/Views/AppSettingsPage.Updates.cs", "directory")]
     public void BackupFolderActionsUseTheWindowsShellOnSkia(string path, string argument)
     {
         Assert.Contains($"await DesktopNativeWindow.OpenFolderAsync({argument})", Read(path));

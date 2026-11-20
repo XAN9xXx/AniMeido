@@ -109,7 +109,7 @@ public sealed class TrayIconRecoveryWiringTests
 
     private static string ReadSource(params string[] relative)
     {
-        var path = Path.Combine(new[] { AppDataRootsTests.RepositoryRoot, "AniMeido.App" }.Concat(relative).ToArray());
+        var path = Path.Combine(new[] { AppDataRootsTests.RepositoryRoot, "AniMeido.Desktop" }.Concat(relative).ToArray());
         return Regex.Replace(File.ReadAllText(path), @"//[^\r\n]*|/\*.*?\*/", string.Empty, RegexOptions.Singleline);
     }
 

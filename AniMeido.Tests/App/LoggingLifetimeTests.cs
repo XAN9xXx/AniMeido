@@ -11,28 +11,29 @@ namespace AniMeido.Tests;
 public sealed class LoggingLifetimeTests
 {
     [Fact]
-    public async Task DisposingServices_LeavesTheApplicationLoggerAvailableForFinalShutdownReporting()
-    {
-        var previous = Log.Logger;
-        var sink = new OwnedSink();
-        using var logger = new LoggerConfiguration().WriteTo.Sink(sink).CreateLogger();
-        Log.Logger = logger;
-        try
+    public Task DisposingServices_LeavesTheApplicationLoggerAvailableForFinalShutdownReporting()
+        => AniMeido.Desktop.Tests.UnoHeadlessTestHost.RunAsync(async testRoot =>
         {
-            await using var provider = new ServiceCollection().AddAppServices().BuildServiceProvider();
-            _ = provider.GetRequiredService<ILogger<LoggingLifetimeTests>>();
+            var previous = Log.Logger;
+            var sink = new OwnedSink();
+            using var logger = new LoggerConfiguration().WriteTo.Sink(sink).CreateLogger();
+            Log.Logger = logger;
+            try
+            {
+                await using var provider = new ServiceCollection().AddAppServices().BuildServiceProvider();
+                _ = provider.GetRequiredService<ILogger<LoggingLifetimeTests>>();
 
-            await provider.DisposeAsync();
+                await provider.DisposeAsync();
 
-            Assert.False(sink.Disposed);
-            Log.Warning("fixture final shutdown result");
-            Assert.Single(sink.Events);
-        }
-        finally
-        {
-            Log.Logger = previous;
-        }
-    }
+                Assert.False(sink.Disposed);
+                Log.Warning("fixture final shutdown result");
+                Assert.Single(sink.Events);
+            }
+            finally
+            {
+                Log.Logger = previous;
+            }
+        });
 
     private sealed class OwnedSink : ILogEventSink, IDisposable
     {

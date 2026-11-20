@@ -83,7 +83,7 @@ public sealed class FrontendSelectionTests
     [Theory]
     [InlineData("New-DevInstall.ps1")]
     [InlineData("Publish-Release.ps1")]
-    public async Task PackagingCanSelectUnoAndKeepsWinUiAsTheDefault(string script)
+    public async Task PackagingUsesUnoByDefaultAndAcceptsThePreviousUnoSwitch(string script)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "AniMeido.slnx")))
@@ -111,10 +111,12 @@ public sealed class FrontendSelectionTests
                 $node.Left.VariablePath.UserPath -eq 'appProject'
             }, $true)
             if ($null -eq $selection) { throw 'No frontend selection' }
+            if ('Uno' -notin $ast.ParamBlock.Parameters.Name.VariablePath.UserPath) {
+                throw 'Existing calls with -Uno must still bind'
+            }
             foreach ($Uno in @($false, $true)) {
                 . ([scriptblock]::Create($selection.Extent.Text))
-                $expected = if ($Uno) { 'AniMeido.Desktop' } else { 'AniMeido.App' }
-                if ((Split-Path -Leaf $appProject) -ne $expected) { throw "Unexpected project: $appProject" }
+                if ((Split-Path -Leaf $appProject) -ne 'AniMeido.Desktop') { throw "Unexpected project: $appProject" }
             }
             """);
         start.Environment["ANIMEIDO_FRONTEND_SCRIPT"] = Path.Combine(directory!.FullName, "Tools", script);

@@ -10,7 +10,7 @@
 #endif
 
 [Setup]
-; Keep in sync with AniMeido.App/Services/InstallationRegistry.cs: InstallationIdentity.AppId.
+; Keep in sync with AniMeido.Desktop/Services/InstallationRegistry.cs: InstallationIdentity.AppId.
 AppId={{0978F867-ECE7-4110-9BEB-E976B7B8AC25}
 AppName=AniMeido
 AppVersion={#AppVersion}
@@ -29,7 +29,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\AniMeido.exe
 OutputDir={#OutputDirectory}
 OutputBaseFilename=AniMeido_setup_{#AppVersion}
-SetupIconFile=..\AniMeido.App\Assets\icon.ico
+SetupIconFile=..\AniMeido.Desktop\Assets\Icon.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
