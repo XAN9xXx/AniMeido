@@ -47,13 +47,15 @@ internal static class ManagedImageLoader
     public static void ConfigureLocal(
         Image image,
         string? filePath,
-        double logicalWidth)
+        double logicalWidth,
+        bool releaseOffscreenPixels = false)
         => GetState(image).Configure(new ImageRequest(
             ImageRequestKind.Local,
             0,
             filePath,
             logicalWidth,
-            null));
+            null,
+            releaseOffscreenPixels));
 
     public static void Cancel(Image image, bool clearSource = true)
     {
@@ -92,7 +94,8 @@ internal static class ManagedImageLoader
         int AnimeId,
         string? Source,
         double LogicalWidth,
-        Action<ManagedImageLoadState>? StateChanged);
+        Action<ManagedImageLoadState>? StateChanged,
+        bool ReleaseOffscreenPixels = false);
 
     private sealed class ImageState
     {
@@ -106,6 +109,11 @@ internal static class ManagedImageLoader
         private BitmapImage? _managedBitmap;
         private bool _imageOpened;
         private bool _resizeQueued;
+#if UNO_DESKTOP
+        private XamlRoot? _xamlRoot;
+        private FrameworkElement? _viewport;
+        private double _rasterizationScale;
+#endif
 
         public ImageState(Image image)
         {
@@ -122,6 +130,9 @@ internal static class ManagedImageLoader
 
             CancelCurrent();
             _request = request;
+#if UNO_DESKTOP
+            UpdatePresentationSubscriptions();
+#endif
             _decodeRetryUsed = false;
             // 已有磁盘缓存时直接挂到 Image，让 WinUI 加载；不先切一遍占位图。
             // 换作品仍立即替换 Source，不把上一部作品的封面留到异步请求完成。
@@ -140,6 +151,9 @@ internal static class ManagedImageLoader
         {
             CancelCurrent();
             _request = null;
+#if UNO_DESKTOP
+            UpdatePresentationSubscriptions();
+#endif
             if (clearSource)
             {
                 _showingManagedImage = false;
@@ -167,12 +181,21 @@ internal static class ManagedImageLoader
             Start();
         }
 
-        private void OnLoaded(object sender, RoutedEventArgs e) => Start();
+        private void OnLoaded(object sender, RoutedEventArgs e)
+        {
+#if UNO_DESKTOP
+            UpdatePresentationSubscriptions();
+#endif
+            Start();
+        }
 
         private void OnUnloaded(object sender, RoutedEventArgs e)
         {
             // 跨浮层迁移可能交错触发事件；不取消已经重新进入可视树的请求。
             if (_image.IsLoaded) return;
+#if UNO_DESKTOP
+            UpdatePresentationSubscriptions();
+#endif
             CancelCurrent();
             // 仅保留这个控件已成功显示的同一图片，不新建缓存，也不保留失败/在途图片。
             if (_imageOpened && _showingManagedImage && ReferenceEquals(_image.Source, _managedBitmap))
@@ -193,6 +216,48 @@ internal static class ManagedImageLoader
         }
 
         private void OnSizeChanged(object sender, SizeChangedEventArgs e)
+        {
+#if UNO_DESKTOP
+            UpdatePresentationSubscriptions();
+#endif
+            QueueResize();
+        }
+
+#if UNO_DESKTOP
+        private void UpdatePresentationSubscriptions()
+        {
+            var active = _image.IsLoaded && _request is { Kind: ImageRequestKind.Cover or ImageRequestKind.Avatar };
+            var root = active ? _image.XamlRoot : null;
+            if (!ReferenceEquals(root, _xamlRoot))
+            {
+                if (_xamlRoot is not null) _xamlRoot.Changed -= OnXamlRootChanged;
+                _xamlRoot = root;
+                _rasterizationScale = root?.RasterizationScale ?? 1;
+                if (root is not null) root.Changed += OnXamlRootChanged;
+            }
+
+            var viewport = active && !HasExplicitWidth(_image)
+                && _image.Parent is FrameworkElement parent && HasExplicitWidth(parent) ? parent : null;
+            if (!ReferenceEquals(viewport, _viewport))
+            {
+                if (_viewport is not null) _viewport.SizeChanged -= OnSizeChanged;
+                _viewport = viewport;
+                if (viewport is not null) viewport.SizeChanged += OnSizeChanged;
+            }
+        }
+
+        private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args)
+        {
+            if (!ReferenceEquals(sender, _xamlRoot) || sender.RasterizationScale == _rasterizationScale) return;
+            _rasterizationScale = sender.RasterizationScale;
+            QueueResize();
+        }
+
+        private static bool HasExplicitWidth(FrameworkElement element)
+            => double.IsFinite(element.Width) && element.Width > 0;
+#endif
+
+        private void QueueResize()
         {
             if (_resizeQueued || !_image.IsLoaded || !_showingManagedImage || _request is null)
                 return;
@@ -334,6 +399,11 @@ internal static class ManagedImageLoader
             _showingManagedImage = true;
             _imageOpened = false;
             var bitmap = new BitmapImage { DecodePixelWidth = _decodePixelWidth };
+#if UNO_DESKTOP
+            // 共享解码画面会跳过 Uno 的离屏释放队列；磁盘缓存仍由图片下载器复用。
+            if (request.Kind is ImageRequestKind.Cover or ImageRequestKind.Avatar || request.ReleaseOffscreenPixels)
+                bitmap.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
+#endif
             SetManagedBitmap(bitmap);
             _image.Source = bitmap;
             bitmap.UriSource = new Uri(path);
@@ -378,10 +448,20 @@ internal static class ManagedImageLoader
         }
 
         private int GetDecodePixelWidth(ImageRequest request)
-            => CalculateDecodePixelWidth(
+        {
+            var width = _image.ActualWidth;
+#if UNO_DESKTOP
+            // UniformToFill 的 ActualWidth 随解码结果和空图变化；视口宽度由调用方或显式 Width 提供。
+            if (request.Kind is ImageRequestKind.Cover or ImageRequestKind.Avatar)
+                width = HasExplicitWidth(_image) ? _image.Width
+                    : _image.Parent is FrameworkElement parent && HasExplicitWidth(parent) ? parent.Width
+                    : request.LogicalWidth;
+#endif
+            return CalculateDecodePixelWidth(
                 request.LogicalWidth,
-                _image.ActualWidth,
+                width,
                 _image.XamlRoot?.RasterizationScale ?? 1);
+        }
 
         private static void Report(
             ImageRequest request,

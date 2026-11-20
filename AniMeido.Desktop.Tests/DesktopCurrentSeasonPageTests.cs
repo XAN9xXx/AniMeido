@@ -8,12 +8,91 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Xunit;
+using Xunit.Abstractions;
+using AniMeido.Plugin.Base.Views.Controls;
+using System.Reflection;
 
 namespace AniMeido.Desktop.Tests;
 
 [Collection(UnoHeadlessTestHost.CollectionName)]
-public sealed class DesktopCurrentSeasonPageTests
+public sealed class DesktopCurrentSeasonPageTests(ITestOutputHelper output)
 {
+    [Theory]
+    [InlineData(600, 900)]
+    [InlineData(600, 600)]
+    [InlineData(900, 600)]
+    public Task NarrowCalendarAndDailyPickStopReplacingSourcesAfterResizeAndHover(int pixelWidth, int pixelHeight)
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await CalendarFixture.CreateAsync();
+            var cached = Enumerable.Range(0, 4).Select(_ => new DesktopManagedImageLifetimeTests.CachedImage(false, pixelWidth, pixelHeight)).ToArray();
+            var source = new CalendarSource
+            {
+                ReadSchedule = _ => Task.FromResult(cached.Select((entry, index) => Item(entry.Id, $"日历封面{index}", 9 - index) with
+                { CoverURL = entry.Url, Weekday = 4 }).ToList()),
+            };
+            var page = fixture.Page(source);
+            page.Width = 650;
+            page.Height = 720;
+            var traces = new Dictionary<Image, DesktopManagedImageLifetimeTests.ImageReloadTrace>();
+            var cards = new List<AnimeCard>();
+            var dailyPick = (Image)page.FindName("DailyPickCover");
+            traces.Add(dailyPick, new(dailyPick));
+            var shelf = (ItemsRepeater)page.FindName("ShelfRepeater");
+            shelf.ElementPrepared += (_, args) =>
+            {
+                if (args.Element is Grid row && row.Children.OfType<AnimeCard>().FirstOrDefault() is { } card)
+                {
+                    cards.Add(card);
+                    var image = (Image)card.FindName("CoverImage");
+                    if (!traces.ContainsKey(image)) traces.Add(image, new(image));
+                }
+            };
+            try
+            {
+                await AttachAsync(root, page);
+                await page.PendingActivation;
+                page.ViewModel.SelectDay(4);
+                using var work = new DesktopManagedImageLifetimeTests.ImageWorkSample();
+                for (var frame = 0; frame < 80; frame++)
+                {
+                    if (frame is 15 or 25)
+                    {
+                        foreach (var card in cards)
+                        {
+                            const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+                            typeof(AnimeCard).GetField("_pointerOver", flags)!.SetValue(card, frame == 15);
+                            typeof(AnimeCard).GetMethod("RefreshInteraction", flags)!.Invoke(card, null);
+                        }
+                    }
+                    if (frame == 30) page.Width = 620;
+                    if (frame == 40) page.Width = 680;
+                    root.UpdateLayout();
+                    await Task.Delay(16);
+                }
+                output.WriteLine($"image={pixelWidth}x{pixelHeight}; cards={cards.Count}; dailyPick={page.ViewModel.DailyPick?.Anime.ID}; {work}");
+                foreach (var (image, trace) in traces)
+                    output.WriteLine($"{(ReferenceEquals(image, dailyPick) ? "dailyPick" : "shelf")}: {trace}");
+                Assert.NotEmpty(cards);
+                Assert.NotNull(page.ViewModel.DailyPick);
+                Assert.InRange(traces[dailyPick].Widths.Count, 1, 4);
+                Assert.All(traces.Values, trace => Assert.InRange(trace.Widths.Count, 1, 6));
+                var settled = traces.Values.Sum(trace => trace.Widths.Count);
+                using var idle = new DesktopManagedImageLifetimeTests.ImageWorkSample();
+                for (var frame = 0; frame < 40; frame++) { root.UpdateLayout(); await Task.Delay(16); }
+                output.WriteLine($"idleSourceChanges={traces.Values.Sum(trace => trace.Widths.Count) - settled}; idle: {idle}");
+                Assert.Equal(settled, traces.Values.Sum(trace => trace.Widths.Count));
+            }
+            finally
+            {
+                await fixture.StopPageAsync(root, page);
+                foreach (var image in traces.Keys) ManagedImageLoader.Cancel(image);
+                foreach (var trace in traces.Values) trace.Dispose();
+                await Task.Delay(1500);
+                foreach (var entry in cached) entry.Dispose();
+            }
+        });
+
     [Fact]
     public Task ADetachedPageRejectsAnOldScheduleAndLoadsAgainOnReturn()
         => UnoHeadlessTestHost.RunAsync(async root =>
