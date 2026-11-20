@@ -266,7 +266,7 @@ public sealed partial class TodayPage : Page, INavigationAware
         Grid.SetColumnSpan(DesktopThemeTitle, beside ? 1 : 2);
         Grid.SetRow(DesktopThemeStatus, beside ? 1 : 2);
         Grid.SetRow(PlaybackCard, beside ? 2 : 3);
-        PlaybackCard.Margin = new(0, ViewModel.IsPlaybackAvailable ? 22 : 0, 0, 0);
+        PlaybackCard.Margin = new(0, 22, 0, 0);
     }
 
     internal async Task OpenPlansAsync()

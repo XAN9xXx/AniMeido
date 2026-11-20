@@ -73,10 +73,10 @@
             </Grid>
         </DataTemplate>
 
-        <!-- 整行可点击进入详情；“打开播放器”叠放在行上，而不是嵌套在行按钮里 -->
+        <!-- 作品进入详情；播放是独立操作。 -->
         <DataTemplate x:Key="PlaybackEntryTemplate" x:DataType="vm:TodayAnimeEntry">
-            <Grid Margin="0,0,0,8">
-                <Button Tag="{x:Bind Anime}" Click="OnAnimeButtonClick" Style="{StaticResource TodayTileButtonStyle}" Padding="10,10,150,10" AutomationProperties.Name="{x:Bind Anime.Title}">
+            <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                <Button Tag="{x:Bind Anime}" Click="OnAnimeButtonClick" Style="{StaticResource TodayTileButtonStyle}" Padding="10" AutomationProperties.Name="{x:Bind Anime.Title}">
                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
                         <Border Width="48" Height="68" CornerRadius="{ThemeResource DesktopCoverRadius}" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}">
                             <Image Tag="{x:Bind Anime}" Stretch="UniformToFill" Loaded="OnCoverLoaded" DataContextChanged="OnCoverDataContextChanged" Unloaded="OnCoverUnloaded"/>
@@ -89,7 +89,7 @@
                         <TextBlock Grid.Column="2" Text="{x:Bind Trailing}" Visibility="{x:Bind HasTrailing}" Style="{StaticResource DesktopDataTextStyle}" VerticalAlignment="Center"/>
                     </Grid>
                 </Button>
-                <Button Tag="{x:Bind Anime}" Click="OnPlaybackClick" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0">
+                <Button Grid.Column="1" Visibility="{x:Bind CanPlay}" Tag="{x:Bind Anime}" Click="OnPlaybackClick" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE768;" FontSize="13"/>
                         <TextBlock Text="打开播放器"/>
@@ -217,7 +217,7 @@
                     </Grid>
                 </Border>
 
-                    <Border x:Name="PlaybackCard" Grid.Row="2" Grid.ColumnSpan="2" Style="{StaticResource TodaySectionCardStyle}" BorderThickness="0,1,0,0" Padding="0,14,0,0" VerticalAlignment="Top" Visibility="{x:Bind ViewModel.IsPlaybackAvailable, Mode=OneWay}">
+                    <Border x:Name="PlaybackCard" Grid.Row="2" Grid.ColumnSpan="2" Style="{StaticResource TodaySectionCardStyle}" BorderThickness="0,1,0,0" Padding="0,14,0,0" VerticalAlignment="Top" Visibility="{x:Bind ViewModel.ShowWatchSection, Mode=OneWay}">
                         <StackPanel Spacing="12">
                             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
                                 <TextBlock Text="最近观看" Style="{StaticResource AniMeidoSectionTitleStyle}"/>

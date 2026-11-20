@@ -17,6 +17,7 @@ public sealed record TodayAnimeEntry(
     public string DisplaySubtitle => PersonalAnimeDataSource.IsUnavailable(Anime) ? Subtitle + " · 资料不可用" : Subtitle;
     public double ProgressPercent { get; init; }
     public bool HasProgress { get; init; }
+    public bool CanPlay { get; init; }
 
     /// <summary>个人状态徽标，例如“追番中”；为空时不显示。</summary>
     public string Badge { get; init; } = "";
@@ -111,6 +112,7 @@ public partial class TodayViewModel : ObservableObject
     public bool HasBroadcastDays => BroadcastDays.Count > 0;
     public bool HasNextBroadcast => NextBroadcastText.Length > 0;
     public bool HasNoPlans => Plans.Count == 0;
+    public bool ShowWatchSection => IsPlaybackAvailable || RecentActivity.Count > 0;
     public bool HasNoRecentActivity => RecentActivity.Count == 0;
     public bool HasUnstarted => ContinueWatching.Count > 0;
     public bool HasNoBrowsed => RecentBrowsed.Count == 0;
@@ -150,7 +152,11 @@ public partial class TodayViewModel : ObservableObject
         OnPropertyChanged(nameof(SecondStackTitle));
         OnPropertyChanged(nameof(ThirdStackTitle));
     }
-    partial void OnRecentActivityChanged(ObservableCollection<TodayAnimeEntry> value) => OnPropertyChanged(nameof(HasNoRecentActivity));
+    partial void OnRecentActivityChanged(ObservableCollection<TodayAnimeEntry> value)
+    {
+        OnPropertyChanged(nameof(HasNoRecentActivity));
+        OnPropertyChanged(nameof(ShowWatchSection));
+    }
     partial void OnContinueWatchingChanged(ObservableCollection<TodayAnimeEntry> value) => OnPropertyChanged(nameof(HasUnstarted));
     partial void OnRecentBrowsedChanged(ObservableCollection<TodayBrowseEntry> value)
     {
@@ -184,6 +190,7 @@ public partial class TodayViewModel : ObservableObject
     private bool _isLoading;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowWatchSection))]
     private bool _isPlaybackAvailable;
 
     [ObservableProperty]
@@ -331,23 +338,12 @@ public partial class TodayViewModel : ObservableObject
             ApplyPlanEntries(BuildPlanEntries(visiblePlans, reminderCountByAnime, knownPlanAnime, todayDate));
             await EnsurePlanDetailsAsync(loadVersion, cancellationToken);
             if (!IsCurrentLoad(loadVersion, cancellationToken)) return;
-            var playbackTask = IsPlaybackAvailable
-                ? LoadPlaybackActivityAsync(
-                    statusById,
-                    seasonal,
-                    plans.Select(plan => plan.AnimeId).ToHashSet(),
-                    loadVersion,
-                    cancellationToken)
-                : Task.CompletedTask;
+            var playbackTask = LoadPlaybackActivityAsync(
+                statusById, seasonal, plans.Select(plan => plan.AnimeId).ToHashSet(),
+                loadVersion, cancellationToken);
             await Task.WhenAll(browseTask, playbackTask);
             if (!IsCurrentLoad(loadVersion, cancellationToken))
                 return;
-
-            if (!IsPlaybackAvailable)
-            {
-                ContinueWatching = [];
-                RecentActivity = [];
-            }
 
             try
             {
@@ -565,19 +561,19 @@ public partial class TodayViewModel : ObservableObject
             cancellationToken);
         var seasonalById = seasonal.ToDictionary(item => item.ID);
         // 仍有待开始计划的作品已列在补番计划里，“还没开始看”不再重复列出。
-        var watchingIds = statusById
+        var watchingIds = IsPlaybackAvailable ? statusById
             .Where(pair => pair.Value is AnimeTrackingStatus.Watching or AnimeTrackingStatus.PlanToWatch)
             .Where(pair => !progress.ContainsKey(pair.Key))
             .Where(pair => !activePlanIds.Contains(pair.Key))
             .Select(pair => pair.Key)
-            .ToList();
+            .ToList() : [];
         var watchingAnime = await ResolveAnimeAsync(
             watchingIds,
             seasonalById,
             loadVersion,
             cancellationToken);
         var continueWatching = new ObservableCollection<TodayAnimeEntry>(
-            watchingAnime.Select(anime => new TodayAnimeEntry(anime, "尚无播放记录")));
+            watchingAnime.Select(anime => new TodayAnimeEntry(anime, "尚无播放记录") { CanPlay = true }));
         var visibleProgress = progress
             .Where(pair => statusById.GetValueOrDefault(pair.Key)
                 != AnimeTrackingStatus.Blocked)
@@ -601,6 +597,7 @@ public partial class TodayViewModel : ObservableObject
                         anime,
                         BuildProgressSubtitle(item))
                     {
+                        CanPlay = IsPlaybackAvailable,
                         Trailing = FormatRelativeTime(item.LastWatchedAt.ToLocalTime().DateTime, DateTime.Now),
                         HasProgress = double.IsFinite(item.DurationSeconds) && item.DurationSeconds > 0
                             && double.IsFinite(item.PositionSeconds),

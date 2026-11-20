@@ -549,7 +549,11 @@ public sealed class DesktopSettingsAdmissionTests
                 await AttachAsync(root, page); await page.PendingActivation; await page.PendingRead;
                 Call(page, "OnEditScreenshotClick"); await DialogAsync(page);
                 var dialog = (ContentDialog)Field(page, "_dialog")!;
-                Assert.IsType<StackPanel>(dialog.Content).Children.OfType<TextBox>().Single(t => t.Header as string == "截图备注").Text = "新备注";
+                var fields = Assert.IsType<StackPanel>(dialog.Content).Children;
+                fields.OfType<TextBox>().Single(t => t.Header as string == "截图备注").Text = "新备注";
+                var episode = Assert.Single(fields.OfType<NumberBox>());
+                Assert.Equal(Visibility.Visible, episode.Visibility);
+                episode.Value = 3;
                 using (var blocker = await LockDatabaseAsync(fixture))
                 {
                     Invoke(Find<Button>(dialog, b => b.Name == "PrimaryButton")); await Task.Delay(20);
@@ -558,7 +562,9 @@ public sealed class DesktopSettingsAdmissionTests
                     Assert.Equal(1, targets); Assert.Equal(0, settings);
                 }
                 await page.PendingOperation; await page.PendingRead;
-                Assert.Equal("新备注", Assert.Single(await new ArchiveService(fixture.Factory).GetScreenshotsAsync()).ContextNote);
+                var saved = Assert.Single(await new ArchiveService(fixture.Factory).GetScreenshotsAsync());
+                Assert.Equal("新备注", saved.ContextNote);
+                Assert.Equal(3, saved.EpisodeNumber);
             }
             finally { await DetachAsync(root, page); await page.PendingOperation; await page.PendingRead; }
         });

@@ -294,7 +294,7 @@
                                     <StackPanel Spacing="12">
                                         <Grid ColumnDefinitions="*,Auto">
                                             <TextBlock x:Name="ArchiveTimelineTitle"
-                                                       Text="观看时间线"
+                                                       Text="档案时间线"
                                                        Style="{StaticResource AniMeidoSectionTitleStyle}"/>
                                             <Button Grid.Column="1" Content="写感想"
                                                     Style="{StaticResource AccentButtonStyle}"

@@ -28,7 +28,7 @@ public sealed class ArchiveDetailsViewModelTests : DbTestBase
             await archive.InsertScreenshotAsync(Screenshot($"shot-{index}", 42, index < 3) with { FilePath = path });
         }
         var selected = Assert.Single(await archive.GetArchiveListAsync());
-        var model = new ArchiveDetailsViewModel(new ArchiveQueryService(archive), () => true);
+        var model = new ArchiveDetailsViewModel(new ArchiveQueryService(archive));
         var publications = new List<string>();
         model.SelectionChanged += (_, _) => publications.Add("selection");
         model.TimelinePublished += () => publications.Add("timeline");
@@ -63,7 +63,7 @@ public sealed class ArchiveDetailsViewModelTests : DbTestBase
         var selectionVersion = 0;
         var first = Detail(1);
         var next = Detail(2);
-        var model = CreateModel((id, _, _) => id == 1 ? Task.FromResult(first) : pendingDetail.Task);
+        var model = CreateModel((id, _) => id == 1 ? Task.FromResult(first) : pendingDetail.Task);
         Task selecting = Task.CompletedTask;
         Task cover = Task.CompletedTask;
         model.SelectionChanged += (item, version) =>
@@ -125,7 +125,7 @@ public sealed class ArchiveDetailsViewModelTests : DbTestBase
         var pending = NewCompletion<ArchiveDetailData>();
         var failure = new IOException("替换详情读取失败");
         var failures = new List<Exception>();
-        var model = CreateModel((id, _, _) => id == 1 ? Task.FromResult(Detail(1)) : pending.Task);
+        var model = CreateModel((id, _) => id == 1 ? Task.FromResult(Detail(1)) : pending.Task);
         model.LoadFailed += failures.Add;
         Task selecting = Task.CompletedTask;
 
@@ -156,7 +156,7 @@ public sealed class ArchiveDetailsViewModelTests : DbTestBase
     {
         var second = NewCompletion<ArchiveDetailData>();
         var third = NewCompletion<ArchiveDetailData>();
-        var model = CreateModel((id, _, _) => id switch
+        var model = CreateModel((id, _) => id switch
         {
             2 => second.Task,
             3 => third.Task,
@@ -197,7 +197,7 @@ public sealed class ArchiveDetailsViewModelTests : DbTestBase
         var pending = NewCompletion<ArchiveDetailData>();
         var oldToken = CancellationToken.None;
         var failures = new List<Exception>();
-        var model = CreateModel((id, _, token) =>
+        var model = CreateModel((id, token) =>
         {
             if (id != 1)
                 return Task.FromResult(Detail(id));
@@ -238,7 +238,7 @@ public sealed class ArchiveDetailsViewModelTests : DbTestBase
         var version = 0;
         var oldToken = CancellationToken.None;
         var failures = new List<Exception>();
-        var model = CreateModel((_, _, token) =>
+        var model = CreateModel((_, token) =>
         {
             if (++calls != 1)
                 return Task.FromResult(Detail(1, "返回后的感想"));
@@ -292,7 +292,7 @@ public sealed class ArchiveDetailsViewModelTests : DbTestBase
         var error = KnownFailure(kind);
         var calls = 0;
         var failures = new List<Exception>();
-        var model = CreateModel((_, _, _) => ++calls == 1
+        var model = CreateModel((_, _) => ++calls == 1
             ? Task.FromException<ArchiveDetailData>(error)
             : Task.FromResult(Detail(1)));
         model.LoadFailed += failures.Add;
@@ -324,10 +324,10 @@ public sealed class ArchiveDetailsViewModelTests : DbTestBase
         var calls = 0;
         var failures = new List<Exception>();
         var model = CreateModel(
-            (_, _, _) => ++calls == 1
+            (_, _) => ++calls == 1
                 ? Task.FromException<ArchiveDetailData>(unknown)
                 : Task.FromResult(Detail(1)),
-            (_, _, _) => Task.FromException<ArchiveTimelineData>(refreshFailure));
+            (_, _) => Task.FromException<ArchiveTimelineData>(refreshFailure));
         model.LoadFailed += failures.Add;
 
         try
@@ -355,8 +355,8 @@ public sealed class ArchiveDetailsViewModelTests : DbTestBase
         var calls = 0;
         var oldToken = CancellationToken.None;
         var model = CreateModel(
-            (id, _, _) => Task.FromResult(Detail(id)),
-            (id, _, token) =>
+            (id, _) => Task.FromResult(Detail(id)),
+            (id, token) =>
             {
                 Assert.Equal(1, id);
                 calls++;
@@ -393,51 +393,16 @@ public sealed class ArchiveDetailsViewModelTests : DbTestBase
         }
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task QueriesUseAvailabilityAtStartAndProjectionUsesAvailabilityAtPublication(bool initiallyAvailable)
+    [Fact]
+    public async Task RefreshKeepsLocalWatchHistory()
     {
-        var available = initiallyAvailable;
-        var pending = NewCompletion<ArchiveDetailData>();
-        var detailFlags = new List<bool>();
-        var refreshFlags = new List<bool>();
-        var model = new ArchiveDetailsViewModel(
-            (_, includePlayback, _) =>
-            {
-                detailFlags.Add(includePlayback);
-                return pending.Task;
-            },
-            (_, includePlayback, _) =>
-            {
-                refreshFlags.Add(includePlayback);
-                return Task.FromResult(Timeline(1, includePlayback: includePlayback));
-            },
-            () => available);
-        var loading = model.SelectAsync(Archive(1));
-
-        try
-        {
-            available = !initiallyAvailable;
-            pending.TrySetResult(Detail(1, includePlayback: initiallyAvailable));
-            await loading.WaitAsync(Budget);
-            Assert.Equal([initiallyAvailable], detailFlags);
-            Assert.DoesNotContain(model.TimelineItems, item => item.Kind == "观看记录");
-
-            available = true;
-            await model.RefreshTimelineAsync(1).WaitAsync(Budget);
-            Assert.Equal([true], refreshFlags);
-            Assert.Contains(model.TimelineItems, item => item.Kind == "观看记录");
-            available = false;
-            model.ApplyPlaybackAvailability(false);
-            Assert.DoesNotContain(model.TimelineItems, item => item.Kind == "观看记录");
-        }
-        finally
-        {
-            pending.TrySetResult(Detail(1));
-            await ObserveAsync(loading).WaitAsync(Budget);
-            await model.CancelInflightAsync().WaitAsync(Budget);
-        }
+        var model = CreateModel((id, _) => Task.FromResult(Detail(id, includePlayback: true)),
+            (id, _) => Task.FromResult(Timeline(id, includePlayback: true)));
+        await model.SelectAsync(Archive(1));
+        Assert.Contains(model.TimelineItems, item => item.Kind == "观看记录");
+        await model.RefreshTimelineAsync(1);
+        Assert.Contains(model.TimelineItems, item => item.Kind == "观看记录");
+        await model.CancelInflightAsync();
     }
 
     [Fact]
@@ -449,12 +414,12 @@ public sealed class ArchiveDetailsViewModelTests : DbTestBase
         var detailToken = CancellationToken.None;
         var timelineToken = CancellationToken.None;
         var model = CreateModel(
-            (_, _, token) =>
+            (_, token) =>
             {
                 detailToken = token;
                 return detail.Task;
             },
-            (_, _, token) =>
+            (_, token) =>
             {
                 timelineToken = token;
                 return timeline.Task;
@@ -494,7 +459,7 @@ public sealed class ArchiveDetailsViewModelTests : DbTestBase
     public async Task SelectionCallbackCanReplaceTheSelectionBeforeTheOldQueryStarts()
     {
         var queriedIds = new List<int>();
-        var model = CreateModel((id, _, _) =>
+        var model = CreateModel((id, _) =>
         {
             queriedIds.Add(id);
             return Task.FromResult(Detail(id));
@@ -525,7 +490,7 @@ public sealed class ArchiveDetailsViewModelTests : DbTestBase
     [Fact]
     public async Task TimelineCallbackCannotLetOldScreenshotsOverwriteItsReplacementSelection()
     {
-        var model = CreateModel((id, _, _) => Task.FromResult(Detail(id)));
+        var model = CreateModel((id, _) => Task.FromResult(Detail(id)));
         var detailPublications = new List<int?>();
         Task replacement = Task.CompletedTask;
         model.TimelinePublished += () =>
@@ -558,7 +523,7 @@ public sealed class ArchiveDetailsViewModelTests : DbTestBase
         var callbackStarted = NewCompletion();
         var failure = new InvalidOperationException("取消回调失败");
         var token = CancellationToken.None;
-        var model = CreateModel((id, _, cancellationToken) =>
+        var model = CreateModel((id, cancellationToken) =>
         {
             if (id != 1)
                 return Task.FromResult(Detail(id));
@@ -597,12 +562,11 @@ public sealed class ArchiveDetailsViewModelTests : DbTestBase
     }
 
     private static ArchiveDetailsViewModel CreateModel(
-        Func<int, bool, CancellationToken, Task<ArchiveDetailData>> loadDetail,
-        Func<int, bool, CancellationToken, Task<ArchiveTimelineData>>? loadTimeline = null)
+        Func<int, CancellationToken, Task<ArchiveDetailData>> loadDetail,
+        Func<int, CancellationToken, Task<ArchiveTimelineData>>? loadTimeline = null)
         => new(
             loadDetail,
-            loadTimeline ?? ((id, _, _) => Task.FromResult(Timeline(id))),
-            () => false);
+            loadTimeline ?? ((id, _) => Task.FromResult(Timeline(id))));
 
     private static ArchiveListItem Archive(int id)
         => new(new AnimeArchive(id, $"作品{id}", 8, "笔记", RecordedAt, RecordedAt), ["标签"], 1, 1, null);

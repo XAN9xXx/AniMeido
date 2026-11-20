@@ -449,10 +449,43 @@ public sealed class PluginPackageManagerTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData("0.4.6")]
+    [InlineData("0.5.1")]
+    public async Task PausedPlayerRemainsOnDiskButCannotInstallEnableOrRollBack(string version)
+    {
+        const string player = "AniMeido.Plugin.Player";
+        var paths = new PluginInstallationPaths(_rootDirectory);
+        paths.EnsureDirectories();
+        var directory = paths.GetVersionDirectory(player, version);
+        var oldPackage = await CreatePackageAsync(version, pluginId: player);
+        ZipFile.ExtractToDirectory(oldPackage, directory);
+        var previous = paths.GetVersionDirectory(player, "0.4.5");
+        ZipFile.ExtractToDirectory(await CreatePackageAsync("0.4.5", pluginId: player), previous);
+        var settings = Path.Combine(_rootDirectory, "player-settings.json");
+        await File.WriteAllTextAsync(settings, "retain");
+        await File.WriteAllTextAsync(paths.StateFile, JsonSerializer.Serialize(new PluginRegistry
+        {
+            Plugins = [new() { PluginId = player, CurrentVersion = version, PreviousVersion = "0.4.5", Enabled = true }],
+        }));
+
+        Assert.Empty(await _manager.PrepareForStartupAsync());
+        var legacy = Assert.Single(await _manager.GetInstalledPluginsAsync());
+        Assert.Contains("暂时停用", legacy.LastError);
+        Assert.True(File.Exists(Path.Combine(directory, $"{PluginId}.dll")));
+        await Assert.ThrowsAsync<PluginOperationException>(() => _manager.SetEnabledAsync(player, true));
+        await Assert.ThrowsAsync<PluginOperationException>(() => _manager.InstallPackageAsync(oldPackage));
+        await Assert.ThrowsAsync<PluginOperationException>(() => _manager.RollbackAsync(player));
+        Assert.Equal("retain", await File.ReadAllTextAsync(settings));
+        await _manager.InstallPackageAsync(await CreatePackageAsync("1.0.0"));
+        Assert.Equal(PluginId, Assert.Single(await _manager.PrepareForStartupAsync()).Manifest.PluginId);
+    }
+
     private async Task<string> CreatePackageAsync(
         string version,
         string? tamperFileAfterManifestCreation = null,
-        PluginPackageFile? additionalManifestFile = null)
+        PluginPackageFile? additionalManifestFile = null,
+        string pluginId = PluginId)
     {
         Directory.CreateDirectory(_rootDirectory);
         var packagePath = Path.Combine(
@@ -465,6 +498,7 @@ public sealed class PluginPackageManagerTests : IDisposable
             ["Assets/icon.txt"] = Encoding.UTF8.GetBytes("asset"),
         };
         var manifest = CreateManifest(version, contents);
+        manifest.PluginId = pluginId;
         if (additionalManifestFile is not null)
         {
             manifest.Files.Add(additionalManifestFile);

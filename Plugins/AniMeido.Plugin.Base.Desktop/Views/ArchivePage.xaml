@@ -267,7 +267,7 @@
                                     <StackPanel Spacing="12">
                                         <Grid ColumnDefinitions="*,Auto">
                                             <TextBlock x:Name="ArchiveTimelineTitle"
-                                                       Text="观看时间线"
+                                                       Text="档案时间线"
                                                        Style="{StaticResource AniMeidoSectionTitleStyle}"/>
                                             <Button Grid.Column="1" Content="写感想"
                                                     Style="{StaticResource AccentButtonStyle}"
@@ -372,7 +372,7 @@
                                 </ItemsControl>
                             </StackPanel>
                         </Border>
-                        <Border x:Name="StatisticsWatchCard" Grid.Column="1" Style="{StaticResource DesktopArchiveSectionStyle}" Visibility="Collapsed">
+                        <Border x:Name="StatisticsWatchCard" Grid.Column="1" Style="{StaticResource DesktopArchiveSectionStyle}">
                             <StackPanel Spacing="16">
                                 <TextBlock Text="观看记录" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
                                 <StackPanel Spacing="6">
@@ -419,13 +419,13 @@
                         </StackPanel>
                         <Button x:Name="DesktopReviewExportButton" Grid.Column="1" Content="导出 HTML" HorizontalAlignment="Right" Click="OnExportReviewClick"/>
                     </Grid>
-                    <Grid x:Name="DesktopReviewHero" ColumnDefinitions="*,0" ColumnSpacing="24">
+                    <Grid x:Name="DesktopReviewHero" ColumnDefinitions="*,*" ColumnSpacing="24">
                         <StackPanel Spacing="7" VerticalAlignment="Center">
                             <TextBlock x:Name="ReviewHeroYear" FontSize="36" FontWeight="SemiBold"/>
                             <TextBlock x:Name="ReviewYearState" Style="{StaticResource DesktopDataTextStyle}"/>
                             <TextBlock x:Name="ReviewRecordingStart" Style="{StaticResource DesktopDataTextStyle}"/>
                         </StackPanel>
-                        <Grid x:Name="DesktopReviewCoversPane" Grid.Column="1" Height="160" Visibility="Collapsed">
+                        <Grid x:Name="DesktopReviewCoversPane" Grid.Column="1" Height="160">
                             <TextBlock x:Name="ReviewCoversEmpty" Text="这一年还没有新增档案" Style="{StaticResource DesktopDataTextStyle}" TextWrapping="Wrap" VerticalAlignment="Center"/>
                             <controls:DesktopWheelShelf HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
                                 <ItemsControl x:Name="ReviewCovers">
@@ -450,11 +450,11 @@
                             <TextBlock Text="写下感想" Style="{StaticResource DesktopDataTextStyle}"/>
                             <TextBlock x:Name="ReviewEntryCount" FontSize="28"/>
                         </StackPanel>
-                        <StackPanel x:Name="ReviewScreenshotStat" Grid.Column="2" Spacing="8" Visibility="Collapsed">
+                        <StackPanel x:Name="ReviewScreenshotStat" Grid.Column="2" Spacing="8">
                             <TextBlock Text="截图记录" Style="{StaticResource DesktopDataTextStyle}"/>
                             <TextBlock x:Name="ReviewScreenshotCount" FontSize="28"/>
                         </StackPanel>
-                        <StackPanel x:Name="ReviewWatchStat" Grid.Column="3" Spacing="8" Visibility="Collapsed">
+                        <StackPanel x:Name="ReviewWatchStat" Grid.Column="3" Spacing="8">
                             <TextBlock Text="估算观看时长" Style="{StaticResource DesktopDataTextStyle}"/>
                             <TextBlock x:Name="ReviewWatchDuration" FontSize="24"/>
                         </StackPanel>
@@ -479,7 +479,7 @@
                                 </ItemsControl>
                             </StackPanel>
                         </Border>
-                        <Border x:Name="ReviewScreenshotsCard" Grid.Column="1" Style="{StaticResource DesktopArchiveSectionStyle}" Visibility="Collapsed">
+                        <Border x:Name="ReviewScreenshotsCard" Grid.Column="1" Style="{StaticResource DesktopArchiveSectionStyle}">
                             <StackPanel Spacing="14">
                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                                     <TextBlock Text="这一年的截图" Style="{StaticResource AniMeidoSectionTitleStyle}"/>

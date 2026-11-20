@@ -1,10 +1,6 @@
 ﻿using AniMeido.App.Services;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
-using AniMeido.Plugin.Player.Playback;
-using AniMeido.Plugin.Player.Sources.Managed;
-using AniMeido.Plugin.Player.Sources.Packages;
-using AniMeido.Plugin.Player.Sources.Rules;
 using Microsoft.Extensions.Logging.Abstractions;
 using Serilog;
 using System.Diagnostics;
@@ -22,7 +18,7 @@ public sealed class AppDataRootsTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void AllTwelveLocations_KeepTheirOriginalSuffixes(bool isolated)
+    public void BaseInstallationLocations_KeepTheirOriginalSuffixes(bool isolated)
     {
         var root = Path.Combine(_temporary.RootDirectory, "验收");
         using var environment = new DevDataRootEnvironment(isolated ? root : null);
@@ -40,11 +36,6 @@ public sealed class AppDataRootsTests : IDisposable
         Assert.Equal(Path.Combine(roaming, "logs"), Read<string>(BuildAssembly("AniMeido.PluginHost"), "AniMeido.PluginHost.HostLog", "Root"));
         Assert.Equal(Path.Combine(roaming, "cache", "images"), ImageCacheHelper.CacheDirectory);
         Assert.Equal(Path.Combine(pictures, "Screenshots"), ScreenshotSettings.CreateDefault().RootDirectory);
-        Assert.Equal(Path.Combine(roaming, "id-migration-v9.json"), PlayerPublicIds.SharedMigrationPath);
-        Assert.Equal(Path.Combine(roaming, "id-remap-log.json"), PlayerPublicIds.SharedRemapPath);
-        Assert.Equal(Path.Combine(local, "Player", "Sources"), ManagedSourceLoader.SourcesDirectory);
-        Assert.Equal(Path.Combine(local, "Player", "Sources"), SourcePackageInstaller.GetSourcesDirectory());
-        Assert.Equal(Path.Combine(local, "Player", "Sources"), SourceRuleLoader.SourcesDirectory);
         Assert.Equal(Path.Combine(local, "Plugins", "AniMeido.Plugin.AI"),
             Read<string>(BuildAssembly("Plugins/AniMeido.Plugin.AI"), "AniMeido.Plugin.AI.Services.AiPluginPaths", "DefaultRootDirectory"));
 
@@ -61,7 +52,7 @@ public sealed class AppDataRootsTests : IDisposable
     }
 
     [Fact]
-    public async Task BasePublishesRemaps_AndPlayerReadsTheSameIsolatedFile()
+    public async Task BasePublishesRemapsInTheIsolatedDataDirectory()
     {
         var root = Path.Combine(_temporary.RootDirectory, "remap");
         using var environment = new DevDataRootEnvironment(root);
@@ -79,10 +70,10 @@ public sealed class AppDataRootsTests : IDisposable
             await command.ExecuteNonQueryAsync();
         }
         await new PersonalIdRemapService(factory, NullLogger<PersonalIdRemapService>.Instance).FlushLogAsync();
-        Assert.Equal(Path.Combine(Path.GetDirectoryName(paths.DatabasePath)!, "id-remap-log.json"), PlayerPublicIds.SharedRemapPath);
-        var entry = Assert.Single(await PlayerPublicIds.ReadRemapsAsync(PlayerPublicIds.SharedRemapPath, 0, default));
-        Assert.Equal(-7, entry.From);
-        Assert.Equal(8, entry.To);
+        using var json = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(root, "Roaming", "id-remap-log.json")));
+        var entry = Assert.Single(json.RootElement.EnumerateArray());
+        Assert.Equal(-7, entry.GetProperty("from").GetInt32());
+        Assert.Equal(8, entry.GetProperty("to").GetInt32());
     }
 
     [Fact]
@@ -216,7 +207,6 @@ public sealed class AppDataRootsTests : IDisposable
     {
         yield return typeof(AppDataPaths).Assembly;
         yield return typeof(ScreenshotSettings).Assembly;
-        yield return typeof(PlayerPublicIds).Assembly;
         yield return BuildAssembly("AniMeido.Launcher", "AniMeido");
         yield return BuildAssembly("AniMeido.PluginHost");
         yield return BuildAssembly("Plugins/AniMeido.Plugin.AI");

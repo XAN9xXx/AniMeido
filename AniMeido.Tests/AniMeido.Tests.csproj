@@ -43,7 +43,8 @@
         <ProjectReference Include="..\AniMeido.Contracts\AniMeido.Contracts.csproj" />
         <ProjectReference Include="..\AniMeido.App\AniMeido.App.csproj" />
         <ProjectReference Include="..\Plugins\AniMeido.Plugin.Base\AniMeido.Plugin.Base.csproj" />
-        <ProjectReference Include="..\Plugins\AniMeido.Plugin.Player\AniMeido.Plugin.Player.csproj" />
+        <!-- 播放器暂时下线，保留专用用例源码，不纳入基础版测试程序集。 -->
+        <Compile Remove="Player\**\*.cs;App\LibMpvPreparationScriptTests.cs" />
         <ProjectReference Include="..\AniMeido.Launcher\AniMeido.Launcher.csproj" ReferenceOutputAssembly="false" />
         <ProjectReference Include="..\Plugins\AniMeido.Plugin.AI\AniMeido.Plugin.AI.csproj"
                           ReferenceOutputAssembly="false" Condition="'$(EnableExperimentalAiTests)' != 'true'" />

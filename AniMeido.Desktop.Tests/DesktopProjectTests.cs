@@ -5,6 +5,21 @@ namespace AniMeido.Desktop.Tests;
 
 public sealed class DesktopProjectTests
 {
+    [Fact]
+    public void BaseSolutionDoesNotBuildPlayerOrItsDedicatedTests()
+    {
+        var root = FindRepository();
+        var projects = XDocument.Load(Path.Combine(root, "AniMeido.slnx")).Descendants("Project")
+            .Select(node => (string)node.Attribute("Path")!).ToArray();
+        Assert.Contains("AniMeido.PluginHost/AniMeido.PluginHost.csproj", projects);
+        Assert.DoesNotContain(projects, name => name.Contains("AniMeido.Plugin.Player", StringComparison.OrdinalIgnoreCase));
+        foreach (var project in projects)
+        {
+            Assert.DoesNotContain(XDocument.Load(Path.Combine(root, project)).Descendants("ProjectReference"),
+                reference => ((string?)reference.Attribute("Include"))?.Contains("AniMeido.Plugin.Player", StringComparison.OrdinalIgnoreCase) == true);
+        }
+    }
+
     [Theory]
     [InlineData("AniMeido.Desktop")]
     [InlineData("Plugins/AniMeido.Plugin.Base.Desktop")]

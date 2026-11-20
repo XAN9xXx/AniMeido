@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $settings = Join-Path $root 'coverage.runsettings'
 $run = Join-Path $root ("TestResults/coverage/{0}-{1}" -f (Get-Date -Format 'yyyyMMdd-HHmmss'), [guid]::NewGuid().ToString('N'))
-$modules = @('AniMeido.App', 'AniMeido.Contracts', 'AniMeido.PluginProtocol', 'AniMeido.Updates', 'AniMeido.Plugin.Base.Core', 'AniMeido.Plugin.Base', 'AniMeido.Plugin.Player')
+$modules = @('AniMeido.App', 'AniMeido.Contracts', 'AniMeido.PluginProtocol', 'AniMeido.Updates', 'AniMeido.Plugin.Base.Core', 'AniMeido.Plugin.Base')
 
 try {
     Push-Location $root

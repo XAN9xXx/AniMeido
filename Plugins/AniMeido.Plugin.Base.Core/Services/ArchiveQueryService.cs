@@ -29,20 +29,20 @@ public sealed class ArchiveQueryService(ArchiveService archive)
             await archive.GetAllScreenshotTagsAsync(ct).ConfigureAwait(false)), ct);
 
     public Task<ArchiveTimelineData> LoadTimelineAsync(
-        int animeId, bool includePlayback, CancellationToken ct = default)
-        => ReadAsync(() => ReadTimelineAsync(animeId, includePlayback, ct), ct);
+        int animeId, CancellationToken ct = default)
+        => ReadAsync(() => ReadTimelineAsync(animeId, ct), ct);
 
     public Task<ArchiveDetailData> LoadDetailAsync(
-        int animeId, bool includePlayback, CancellationToken ct = default)
+        int animeId, CancellationToken ct = default)
         => ReadAsync(async () => new ArchiveDetailData(
-            await ReadTimelineAsync(animeId, includePlayback, ct).ConfigureAwait(false),
+            await ReadTimelineAsync(animeId, ct).ConfigureAwait(false),
             await archive.GetScreenshotsAsync(animeId, ct).ConfigureAwait(false)), ct);
 
     private async Task<ArchiveTimelineData> ReadTimelineAsync(
-        int animeId, bool includePlayback, CancellationToken ct)
+        int animeId, CancellationToken ct)
         => new(
             await archive.GetEntriesAsync(animeId, ct).ConfigureAwait(false),
-            includePlayback ? await archive.GetWatchHistoryAsync(animeId, ct).ConfigureAwait(false) : [],
+            await archive.GetWatchHistoryAsync(animeId, ct).ConfigureAwait(false),
             await archive.GetTrackingChangesAsync(animeId, ct).ConfigureAwait(false));
 
     internal static Task<T> ReadAsync<T>(Func<Task<T>> read, CancellationToken ct)

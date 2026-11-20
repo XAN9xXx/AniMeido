@@ -37,19 +37,16 @@ public sealed class ArchiveBrowseTests
     }
 
     [Fact]
-    public void Timeline_PreservesChronologyAndOptionalPlayback()
+    public void Timeline_PreservesChronologyAcrossPersonalRecords()
     {
         var entry = new ArchiveEntry("entry", 1, Date, 2, "感想", Date, Date);
         var history = new WatchHistoryItem("watch", 1, "作品", Date.AddDays(1), 1, 2, null, "", true);
         var change = new ArchiveTrackingChange(Date.AddDays(2), AnimeTrackingStatus.Completed);
 
-        var withoutPlayer = ArchiveBrowse.BuildTimeline([entry], [history], [change], false);
-        Assert.Equal(["状态变更", "感想"], withoutPlayer.Select(item => item.Kind));
-        Assert.Equal("标记为已看完", withoutPlayer[0].Heading);
-        Assert.Equal(entry, withoutPlayer[1].Entry);
-
-        var withPlayer = ArchiveBrowse.BuildTimeline([entry], [history], [change], true);
-        Assert.Equal(["状态变更", "观看记录", "感想"], withPlayer.Select(item => item.Kind));
+        var timeline = ArchiveBrowse.BuildTimeline([entry], [history], [change]);
+        Assert.Equal(["状态变更", "观看记录", "感想"], timeline.Select(item => item.Kind));
+        Assert.Equal("标记为已看完", timeline[0].Heading);
+        Assert.Equal(entry, timeline[2].Entry);
     }
 
     private static ArchiveListItem Archive(int id, string title, AnimeTrackingStatus status, string[] tags)

@@ -7,16 +7,14 @@ namespace AniMeido.Plugin.Base.Services;
 /// <summary>年度回顾导出：查询、HTML 呈现与文件替换由一次后台操作完成，选择器仍属于页面。</summary>
 public sealed class ArchiveReviewExporter(ArchiveService archive)
 {
-    public Task ExportAsync(string path, int year, bool includePlayback, CancellationToken ct = default)
+    public Task ExportAsync(string path, int year, CancellationToken ct = default)
         => Task.Run(async () =>
         {
             var statistics = await archive.GetStatisticsAsync(year, ct).ConfigureAwait(false);
             var moments = await archive.GetReviewMomentsAsync(year, 8, ct).ConfigureAwait(false);
-            var screenshots = includePlayback
-                ? (await archive.GetScreenshotsAsync(year: year, cancellationToken: ct).ConfigureAwait(false))
-                    .Where(item => item.FileExists).Take(12).ToArray()
-                : [];
-            var html = await BuildReviewHtmlAsync(year, statistics, moments, screenshots, includePlayback, ct)
+            var screenshots = (await archive.GetScreenshotsAsync(year: year, cancellationToken: ct).ConfigureAwait(false))
+                .Where(item => item.FileExists).Take(12).ToArray();
+            var html = await BuildReviewHtmlAsync(year, statistics, moments, screenshots, ct)
                 .ConfigureAwait(false);
             var temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try
@@ -37,7 +35,6 @@ public sealed class ArchiveReviewExporter(ArchiveService archive)
         ArchiveStatistics statistics,
         IReadOnlyList<AnnualReviewMoment> moments,
         IReadOnlyList<AnimeScreenshot> screenshots,
-        bool playbackAvailable,
         CancellationToken ct)
     {
         var title = WebUtility.HtmlEncode($"{year} 年 AniMeido 年度回顾");
@@ -72,13 +69,9 @@ public sealed class ArchiveReviewExporter(ArchiveService archive)
             }
         }
         var duration = $"{statistics.EstimatedWatchMinutes / 60} 小时 {statistics.EstimatedWatchMinutes % 60} 分钟";
-        var playbackCards = playbackAvailable
-            ? $"<div class=\"card\"><strong>{statistics.ScreenshotCount}</strong><small>截图记录</small></div>"
-                + $"<div class=\"card\"><strong>{duration}</strong><small>估算观看时长</small></div>"
-            : string.Empty;
-        var gallery = playbackAvailable
-            ? $"<h2>这一年的截图</h2><div class=\"gallery\">{images}</div>"
-            : string.Empty;
+        var playbackCards = $"<div class=\"card\"><strong>{statistics.ScreenshotCount}</strong><small>截图记录</small></div>"
+            + $"<div class=\"card\"><strong>{duration}</strong><small>估算观看时长</small></div>";
+        var gallery = $"<h2>这一年的截图</h2><div class=\"gallery\">{images}</div>";
         return $$"""
             <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
             <title>{{title}}</title><style>

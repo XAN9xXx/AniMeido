@@ -155,7 +155,7 @@ public sealed partial class ArchivePage
 
     private async void OnAddManualEventClick(object sender, RoutedEventArgs e)
     {
-        if (!_playbackLauncher.IsAvailable || _details.SelectedArchive is not { } selected) return;
+        if (_details.SelectedArchive is not { } selected) return;
         var archive = selected.Archive;
         var date = new CalendarDatePicker { Header = "观看日期", Date = DateTimeOffset.Now };
         var time = new TimePicker { Header = "观看时间", Time = DateTimeOffset.Now.TimeOfDay };

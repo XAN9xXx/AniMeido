@@ -7,9 +7,8 @@ namespace AniMeido.Plugin.Base.ViewModels;
 /// <summary>拥有档案详情的选择、查询和发布，不持有控件或页面封面任务。</summary>
 internal sealed class ArchiveDetailsViewModel
 {
-    private readonly Func<int, bool, CancellationToken, Task<ArchiveDetailData>> _loadDetail;
-    private readonly Func<int, bool, CancellationToken, Task<ArchiveTimelineData>> _loadTimeline;
-    private readonly Func<bool> _isPlaybackAvailable;
+    private readonly Func<int, CancellationToken, Task<ArchiveDetailData>> _loadDetail;
+    private readonly Func<int, CancellationToken, Task<ArchiveTimelineData>> _loadTimeline;
     private readonly object _retirementSync = new();
     private readonly List<Task> _retiredStops = [];
     private SelectionRequest? _selection;
@@ -25,19 +24,17 @@ internal sealed class ArchiveDetailsViewModel
     public event Action? DetailsPublished;
     public event Action<Exception>? LoadFailed;
 
-    public ArchiveDetailsViewModel(ArchiveQueryService queries, Func<bool> isPlaybackAvailable)
-        : this(queries.LoadDetailAsync, queries.LoadTimelineAsync, isPlaybackAvailable)
+    public ArchiveDetailsViewModel(ArchiveQueryService queries)
+        : this(queries.LoadDetailAsync, queries.LoadTimelineAsync)
     {
     }
 
     internal ArchiveDetailsViewModel(
-        Func<int, bool, CancellationToken, Task<ArchiveDetailData>> loadDetail,
-        Func<int, bool, CancellationToken, Task<ArchiveTimelineData>> loadTimeline,
-        Func<bool> isPlaybackAvailable)
+        Func<int, CancellationToken, Task<ArchiveDetailData>> loadDetail,
+        Func<int, CancellationToken, Task<ArchiveTimelineData>> loadTimeline)
     {
         _loadDetail = loadDetail;
         _loadTimeline = loadTimeline;
-        _isPlaybackAvailable = isPlaybackAvailable;
     }
 
     public Task SelectAsync(ArchiveListItem? selected)
@@ -71,15 +68,6 @@ internal sealed class ArchiveDetailsViewModel
     public bool IsCurrentSelection(int version)
         => _selection?.Version == version;
 
-    public void ApplyPlaybackAvailability(bool available)
-    {
-        if (available)
-            return;
-
-        TimelineItems = TimelineItems.Where(item => item.Kind != "观看记录").ToArray();
-        TimelinePublished?.Invoke();
-    }
-
     public async Task RefreshTimelineAsync(int animeId)
     {
         var selection = _selection;
@@ -89,7 +77,7 @@ internal sealed class ArchiveDetailsViewModel
         using var operation = selection.Operations.Begin();
         try
         {
-            var timeline = await _loadTimeline(animeId, _isPlaybackAvailable(), operation.Token);
+            var timeline = await _loadTimeline(animeId, operation.Token);
             if (!IsCurrentSelection(selection.Version))
                 return;
 
@@ -138,7 +126,7 @@ internal sealed class ArchiveDetailsViewModel
         try
         {
             var detail = await _loadDetail(
-                selected.Archive.AnimeId, _isPlaybackAvailable(), operation.Token);
+                selected.Archive.AnimeId, operation.Token);
             if (!IsCurrentSelection(selection.Version))
                 return;
 
@@ -161,9 +149,8 @@ internal sealed class ArchiveDetailsViewModel
 
     private void PublishTimeline(ArchiveTimelineData timeline)
     {
-        // 查询开始后 Player 仍可能启停；投影采用发布时的可用性，不恢复已经隐藏的观看记录。
         TimelineItems = ArchiveBrowse.BuildTimeline(
-            timeline.Entries, timeline.WatchHistory, timeline.TrackingChanges, _isPlaybackAvailable());
+            timeline.Entries, timeline.WatchHistory, timeline.TrackingChanges);
         TimelinePublished?.Invoke();
     }
 

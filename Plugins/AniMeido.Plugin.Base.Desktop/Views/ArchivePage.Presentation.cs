@@ -363,7 +363,6 @@ public sealed partial class ArchivePage
         ReviewScreenshots.ItemsSource = images;
         ReviewScreenshotsEmpty.Visibility = images.Length == 0
             ? Visibility.Visible : Visibility.Collapsed;
-        ApplyPlaybackAvailability();
     }
 
     private void OnArchiveDetailsSelectionChanged(ArchiveListItem? selectedArchive, int selectionVersion)
@@ -597,43 +596,6 @@ public sealed partial class ArchivePage
         ReviewYear.Value = Math.Min(2100, year + 1);
     }
 
-    private void ApplyPlaybackAvailability()
-    {
-        var available = _playbackLauncher.IsAvailable;
-        var playbackVisibility = available
-            ? Visibility.Visible : Visibility.Collapsed;
-        ScreenshotDetailEpisodeLabel.Visibility = playbackVisibility;
-        ScreenshotDetailEpisode.Visibility = playbackVisibility;
-        ScreenshotDetailPositionLabel.Visibility = playbackVisibility;
-        ScreenshotDetailPosition.Visibility = playbackVisibility;
-        StatisticsWatchCard.Visibility = available
-            ? Visibility.Visible : Visibility.Collapsed;
-        Grid.SetColumnSpan(StatisticsTagsCard, available ? 1 : 2);
-        ReviewScreenshotsCard.Visibility = available
-            ? Visibility.Visible : Visibility.Collapsed;
-        Grid.SetColumnSpan(ReviewMomentsCard, available ? 1 : 2);
-        ReviewScreenshotStat.Visibility = available
-            ? Visibility.Visible : Visibility.Collapsed;
-        ReviewWatchStat.Visibility = available
-            ? Visibility.Visible : Visibility.Collapsed;
-        var statWidth = available
-            ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
-        ReviewStatsGrid.ColumnDefinitions[2].Width = statWidth;
-        ReviewStatsGrid.ColumnDefinitions[3].Width = statWidth;
-        ArchiveTimelineTitle.Text = available
-            ? "观看时间线" : "档案时间线";
-        AddManualWatchButton.Visibility = available
-            ? Visibility.Visible : Visibility.Collapsed;
-        WatchHistoryFilterItem.Visibility = available
-            ? Visibility.Visible : Visibility.Collapsed;
-        if (!available)
-        {
-            if (ArchiveTimelineFilter.SelectedIndex == 2)
-                ArchiveTimelineFilter.SelectedIndex = 0;
-            _details.ApplyPlaybackAvailability(false);
-        }
-        ApplyDesktopArchiveSupplementalLayout();
-    }
 
     private void ShowStatus(string message, InfoBarSeverity severity, bool transient = false)
     {

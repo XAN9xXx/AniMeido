@@ -62,8 +62,7 @@ internal static class ArchiveBrowse
     internal static IReadOnlyList<ArchiveTimelineItem> BuildTimeline(
         IReadOnlyList<ArchiveEntry> entries,
         IReadOnlyList<WatchHistoryItem> history,
-        IReadOnlyList<ArchiveTrackingChange> changes,
-        bool includePlayback)
+        IReadOnlyList<ArchiveTrackingChange> changes)
     {
         return entries.Select(entry => new ArchiveTimelineItem(
                 entry.OccurredAt,
@@ -73,7 +72,7 @@ internal static class ArchiveBrowse
                     : entry.EpisodeText,
                 entry.Body,
                 entry))
-            .Concat((includePlayback ? history : [])
+            .Concat(history
                 .Select(item => new ArchiveTimelineItem(
                 item.OccurredAt,
                 "观看记录",

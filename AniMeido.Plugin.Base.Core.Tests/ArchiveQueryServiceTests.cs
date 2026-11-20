@@ -12,7 +12,7 @@ public sealed class ArchiveQueryServiceTests : IAsyncLifetime
     public Task DisposeAsync() => _database.DisposeAsync();
 
     [Fact]
-    public async Task PanelQueries_ReturnCompleteDataAndRespectOptionalPlayback()
+    public async Task PanelQueries_ReturnCompleteDataIncludingManualWatching()
     {
         var archive = new ArchiveService(DbFactory);
         await archive.UpsertArchiveAsync(42, "作品", 8, "感想");
@@ -27,14 +27,15 @@ public sealed class ArchiveQueryServiceTests : IAsyncLifetime
                 """;
             await command.ExecuteNonQueryAsync();
         }
+        await archive.AddManualWatchEventAsync(new("manual", 42, "作品", DateTimeOffset.Now, 1, 2, 24, "手动补录", DateTimeOffset.Now));
         var queries = new ArchiveQueryService(archive);
 
         Assert.Equal(42, Assert.Single(await queries.LoadArchivesAsync()).Archive.AnimeId);
         var review = await queries.LoadReviewAsync(2025);
         Assert.Equal(42, Assert.Single(review.Covers).AnimeId);
         Assert.Equal(1, review.Statistics.ArchiveCount);
-        var detail = await queries.LoadDetailAsync(42, includePlayback: false);
-        Assert.Empty(detail.Timeline.WatchHistory);
+        var detail = await queries.LoadDetailAsync(42);
+        Assert.Equal("手动补录", Assert.Single(detail.Timeline.WatchHistory).Note);
         Assert.Empty(detail.Screenshots);
         var gallery = await queries.LoadScreenshotsAsync();
         Assert.Empty(gallery.Screenshots);

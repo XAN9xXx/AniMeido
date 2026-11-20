@@ -182,7 +182,7 @@ public sealed class DesktopArchivePageTests
             {
                 await AttachAsync(root, page); await page.PendingActivation; await page.PendingRead;
                 Assert.Equal("作品1", ((TextBlock)page.FindName("ArchiveTitle")).Text);
-                Assert.Equal(Visibility.Collapsed, ((Button)page.FindName("AddManualWatchButton")).Visibility);
+                Assert.Equal(Visibility.Visible, ((Button)page.FindName("AddManualWatchButton")).Visibility);
                 await DetachAsync(root, page); await page.PendingRead;
                 await archive.AddEntryAsync(1, DateTimeOffset.Now, 2, "再看一集");
                 await AttachAsync(root, page); await page.PendingActivation; await page.PendingRead;
@@ -355,10 +355,11 @@ public sealed class DesktopArchivePageTests
                 Invoke((ButtonBase(page, "StatisticsSectionButton"))); await page.PendingRead;
                 Assert.Equal("1 部", ((TextBlock)page.FindName("StatisticsArchiveCountText")).Text);
                 Assert.Equal("100%", ((TextBlock)page.FindName("StatisticsCoveragePercentText")).Text);
-                Assert.Equal(Visibility.Collapsed, ((Border)page.FindName("StatisticsWatchCard")).Visibility);
+                Assert.Equal(Visibility.Visible, ((Border)page.FindName("StatisticsWatchCard")).Visibility);
                 Invoke((ButtonBase(page, "ReviewSectionButton"))); await page.PendingRead;
                 Assert.Equal("1 条", ((TextBlock)page.FindName("ReviewEntryCount")).Text);
                 Assert.Single(((ItemsControl)page.FindName("ReviewMoments")).Items);
+                Assert.Equal(Visibility.Visible, ((Border)page.FindName("ReviewScreenshotsCard")).Visibility);
             }
             finally { await DetachAsync(root, page); await page.PendingRead; }
         });

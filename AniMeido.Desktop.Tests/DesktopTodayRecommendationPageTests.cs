@@ -735,7 +735,7 @@ public sealed class DesktopTodayRecommendationPageTests
             ScreenshotShortcut = new(screenshots, archive, new WindowActivation(), Navigation);
             _registrations.Add(ScreenshotShortcut);
             return new(archive, new ArchiveQueryService(archive), new ArchiveReviewExporter(archive), source,
-                new Playback(), screenshots, ScreenshotShortcut, new NoWindow(), NullLogger<ArchivePage>.Instance,
+                screenshots, ScreenshotShortcut, new NoWindow(), NullLogger<ArchivePage>.Instance,
                 new PendingReviewService(Factory, remap), remap);
         }
 

@@ -1,6 +1,5 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Desktop;
-using AniMeido.Contracts.Playback;
 using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
@@ -17,7 +16,6 @@ public sealed partial class ArchivePage : Page, INavigationAware, IDesktopManual
 {
     private readonly ArchiveService _archive;
     private readonly ArchiveReviewExporter _reviewExporter;
-    private readonly IAnimePlaybackLauncher _playbackLauncher;
     private readonly IAnimeDataSource _animeDataSource;
     private readonly ScreenshotArchiveService _screenshots;
     private readonly ScreenshotShortcutAction _shortcut;
@@ -52,7 +50,7 @@ public sealed partial class ArchivePage : Page, INavigationAware, IDesktopManual
     internal Task PendingRead => _reads.DrainAsync();
 
     public ArchivePage(ArchiveService archive, ArchiveQueryService queries, ArchiveReviewExporter reviewExporter,
-        IAnimeDataSource animeDataSource, IAnimePlaybackLauncher playbackLauncher, ScreenshotArchiveService screenshots,
+        IAnimeDataSource animeDataSource, ScreenshotArchiveService screenshots,
         ScreenshotShortcutAction shortcut, IWindowHandleProvider windowHandleProvider, ILogger<ArchivePage> logger,
         PendingReviewService pendingReview, PersonalIdRemapService idRemap)
     {
@@ -60,7 +58,6 @@ public sealed partial class ArchivePage : Page, INavigationAware, IDesktopManual
         ReadScreenshotSettingsAsync = archive.GetScreenshotSettingsAsync;
         _reviewExporter = reviewExporter;
         _animeDataSource = animeDataSource;
-        _playbackLauncher = playbackLauncher;
         _screenshots = screenshots;
         _shortcut = shortcut;
         _windowHandleProvider = windowHandleProvider;
@@ -69,7 +66,7 @@ public sealed partial class ArchivePage : Page, INavigationAware, IDesktopManual
         _pendingReview = new(pendingReview, idRemap, animeDataSource);
         ReadScreenshotTargetsAsync = token => _pendingReview.GetTargetsAsync(0, token);
         _panels = new(queries);
-        _details = new(queries, () => playbackLauncher.IsAvailable);
+        _details = new(queries);
         _coverRequests = new(animeDataSource.GetAnimeDetailAsync, logger);
         _panels.PanelPublished += OnPanelPublished;
         _panels.PanelLoadCompleted += (_, error) => { if (error is not null) ReportReadFailure(error); };
@@ -83,7 +80,6 @@ public sealed partial class ArchivePage : Page, INavigationAware, IDesktopManual
         ReviewYear.Value = DateTime.Today.Year;
         _suppressReviewYearChanged = false;
         ShowPanel("archives");
-        ApplyPlaybackAvailability();
         Loaded += OnPageLoaded;
         Unloaded += OnPageUnloaded;
     }
@@ -105,8 +101,6 @@ public sealed partial class ArchivePage : Page, INavigationAware, IDesktopManual
         var lifetime = _pageLifetime = new();
         var version = ++_navigationVersion;
         _idRemap.Changed += OnPendingRecordsChanged;
-        _playbackLauncher.AvailabilityChanged += OnPlaybackAvailabilityChanged;
-        ApplyPlaybackAvailability();
         await _operations.DrainAsync();
         if (!IsNavigationCurrent(version, lifetime)) return;
         _panels.InvalidateAll();
@@ -130,7 +124,6 @@ public sealed partial class ArchivePage : Page, INavigationAware, IDesktopManual
     {
         ++_navigationVersion;
         _idRemap.Changed -= OnPendingRecordsChanged;
-        _playbackLauncher.AvailabilityChanged -= OnPlaybackAvailabilityChanged;
         _pageLifetime?.Cancel();
         _pageLifetime?.Dispose();
         _pageLifetime = null;
@@ -298,14 +291,4 @@ public sealed partial class ArchivePage : Page, INavigationAware, IDesktopManual
     { if (_desktopScreenshotPage > 0) { --_desktopScreenshotPage; ApplyScreenshotFilter(); } }
     private void OnNextScreenshotPage(object sender, RoutedEventArgs e)
     { if (_desktopScreenshotPage + 1 < _desktopScreenshotPageCount) { ++_desktopScreenshotPage; ApplyScreenshotFilter(); } }
-    private void OnPlaybackAvailabilityChanged(object? sender, EventArgs e)
-    {
-        var lifetime = _pageLifetime;
-        DispatcherQueue.TryEnqueue(() =>
-        {
-            if (lifetime is null || !ReferenceEquals(lifetime, _pageLifetime)) return;
-            ApplyPlaybackAvailability();
-            if (_details.SelectedArchive is { } selected) _ = ReadAsync(() => _details.RefreshTimelineAsync(selected.Archive.AnimeId));
-        });
-    }
 }

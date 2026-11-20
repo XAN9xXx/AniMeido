@@ -92,7 +92,7 @@ public sealed partial class TodayPage : Page, INavigationAware
                 PlanStackPopup.IsOpen = false;
             }
             else if (args.PropertyName
-                == nameof(TodayViewModel.IsPlaybackAvailable))
+                == nameof(TodayViewModel.ShowWatchSection))
             {
                 ApplyLayout();
             }
@@ -383,7 +383,7 @@ public sealed partial class TodayPage : Page, INavigationAware
 
     /// <summary>
     /// 按内容宽度调整布局：本周条带宽时在今日放送右侧、窄时移到下方。
-    /// 宽度足够时左栏是最近观看（播放器可用时）和今日主题，右栏是补番计划，
+    /// 宽度足够时左栏是最近观看和今日主题，右栏是补番计划，
     /// 窄时从上到下依次排列，计划区始终保留三项完整卡片。
     /// </summary>
     private void ApplyLayout()
@@ -409,7 +409,7 @@ public sealed partial class TodayPage : Page, INavigationAware
         Grid.SetRow(DesktopThemeStatus, beside ? 1 : 2);
         Grid.SetRow(PlaybackCard, beside ? 2 : 3);
         Grid.SetColumnSpan(PlaybackCard, 2);
-        PlaybackCard.Margin = new Thickness(0, ViewModel.IsPlaybackAvailable ? 22 : 0, 0, 0);
+        PlaybackCard.Margin = new Thickness(0, 22, 0, 0);
         Grid.SetColumnSpan(TodayContent, 2);
         Grid.SetRow(WeekStrip, 2);
         Grid.SetColumn(WeekStrip, 0);
@@ -427,7 +427,7 @@ public sealed partial class TodayPage : Page, INavigationAware
             : new Thickness(0, 16, 0, 0);
 
         var sideBySide = _contentWidth >= ActivitySideBySideWidth;
-        var themeRow = ViewModel.IsPlaybackAvailable ? 1 : 0;
+        var themeRow = ViewModel.ShowWatchSection ? 1 : 0;
         Grid.SetColumnSpan(PlaybackCard, sideBySide ? 1 : 2);
         Grid.SetRow(ThemeCard, themeRow);
         Grid.SetColumnSpan(ThemeCard, sideBySide ? 1 : 2);

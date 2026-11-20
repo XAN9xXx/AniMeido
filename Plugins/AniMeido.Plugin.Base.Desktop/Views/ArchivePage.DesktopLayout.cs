@@ -97,7 +97,6 @@ public sealed partial class ArchivePage
     {
         var width = _desktopArchiveContentWidth;
         if (width <= 0) return;
-        var playbackAvailable = _playbackLauncher.IsAvailable;
         var split = width >= 760;
         var fourMetrics = width >= 720;
         DesktopStatisticsMetrics.ColumnDefinitions[2].Width = fourMetrics ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
@@ -109,10 +108,10 @@ public sealed partial class ArchivePage
         Grid.SetRow(DesktopStatisticsScreenshotMetric, fourMetrics ? 0 : 1);
         Grid.SetColumn(DesktopStatisticsScreenshotMetric, fourMetrics ? 3 : 1);
 
-        DesktopStatisticsDetails.ColumnDefinitions[1].Width = playbackAvailable && split
+        DesktopStatisticsDetails.ColumnDefinitions[1].Width = split
             ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
-        DesktopStatisticsDetails.RowSpacing = playbackAvailable && !split ? 20 : 0;
-        Grid.SetColumnSpan(StatisticsTagsCard, playbackAvailable && split ? 1 : 2);
+        DesktopStatisticsDetails.RowSpacing = !split ? 20 : 0;
+        Grid.SetColumnSpan(StatisticsTagsCard, split ? 1 : 2);
         Grid.SetRow(StatisticsWatchCard, split ? 0 : 1);
         Grid.SetColumn(StatisticsWatchCard, split ? 1 : 0);
         Grid.SetColumnSpan(StatisticsWatchCard, split ? 1 : 2);
@@ -130,23 +129,20 @@ public sealed partial class ArchivePage
         Grid.SetRow(DesktopReviewExportButton, reviewToolbarStacked ? 1 : 0);
         Grid.SetColumn(DesktopReviewExportButton, reviewToolbarStacked ? 0 : 1);
         DesktopReviewExportButton.HorizontalAlignment = reviewToolbarStacked ? HorizontalAlignment.Left : HorizontalAlignment.Right;
-        DesktopReviewHero.ColumnDefinitions[1].Width = playbackAvailable
-            ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
-        DesktopReviewCoversPane.Visibility = playbackAvailable ? Visibility.Visible : Visibility.Collapsed;
 
-        var fourReviewMetrics = playbackAvailable && reviewWidth >= 680;
+        var fourReviewMetrics = reviewWidth >= 680;
         ReviewStatsGrid.ColumnDefinitions[2].Width = fourReviewMetrics ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
         ReviewStatsGrid.ColumnDefinitions[3].Width = fourReviewMetrics ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
-        ReviewStatsGrid.RowDefinitions[1].Height = playbackAvailable && !fourReviewMetrics ? GridLength.Auto : new GridLength(0);
-        ReviewStatsGrid.RowSpacing = playbackAvailable && !fourReviewMetrics ? 20 : 0;
+        ReviewStatsGrid.RowDefinitions[1].Height = !fourReviewMetrics ? GridLength.Auto : new GridLength(0);
+        ReviewStatsGrid.RowSpacing = !fourReviewMetrics ? 20 : 0;
         Grid.SetRow(ReviewScreenshotStat, fourReviewMetrics ? 0 : 1);
         Grid.SetColumn(ReviewScreenshotStat, fourReviewMetrics ? 2 : 0);
         Grid.SetRow(ReviewWatchStat, fourReviewMetrics ? 0 : 1);
         Grid.SetColumn(ReviewWatchStat, fourReviewMetrics ? 3 : 1);
 
-        var splitReview = playbackAvailable && reviewWidth >= 720;
+        var splitReview = reviewWidth >= 720;
         DesktopReviewDetails.ColumnDefinitions[1].Width = splitReview ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
-        DesktopReviewDetails.RowSpacing = playbackAvailable && !splitReview ? 24 : 0;
+        DesktopReviewDetails.RowSpacing = !splitReview ? 24 : 0;
         Grid.SetColumnSpan(ReviewMomentsCard, splitReview ? 1 : 2);
         Grid.SetRow(ReviewScreenshotsCard, splitReview ? 0 : 1);
         Grid.SetColumn(ReviewScreenshotsCard, splitReview ? 1 : 0);

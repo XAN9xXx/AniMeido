@@ -50,6 +50,11 @@ internal sealed partial class PluginPackageVerifier
             throw new PluginOperationException("插件版本格式无效。");
         }
 
+        if (string.Equals(manifest.PluginId, "AniMeido.Plugin.Player", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new PluginOperationException("在线播放器暂时停用。已有播放设置和观看记录会保留。");
+        }
+
         if (!Version.TryParse(manifest.MinAppVersion, out var minimumAppVersion))
         {
             throw new PluginOperationException("最低应用版本格式无效。");

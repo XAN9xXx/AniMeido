@@ -35,9 +35,9 @@ public sealed class StartupDialogCoordinator
         var dialog = new ContentDialog
         {
             Title = "隐私声明",
-            Content = "AniMeido 会联网获取番剧资料、图片和更新信息。搜索与资料查询会向相应服务发送关键词、作品编号等必要参数；使用播放插件时，会访问你选择的播放源。\n\n"
+            Content = "AniMeido 会联网获取番剧资料、图片和更新信息。搜索与资料查询会向相应服务发送关键词、作品编号等必要参数。\n\n"
                 + "追番状态、个人评分、计划、笔记、浏览历史和截图保存在本机。当前应用不提供这些个人记录的云端同步。应用设置也保存在当前数据目录中。\n\n"
-                + "播放源由第三方提供；在源站登录或完成验证时，相关信息按该网站的规则处理。请只安装和使用你信任的插件与播放源。",
+                + "请只安装和使用你信任的插件。",
 
             PrimaryButtonText = "同意",
             CloseButtonText = "拒绝",

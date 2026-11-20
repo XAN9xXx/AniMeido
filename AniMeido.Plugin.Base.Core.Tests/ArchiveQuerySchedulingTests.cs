@@ -75,8 +75,8 @@ public sealed class ArchiveQuerySchedulingTests : IAsyncLifetime
             QueryKind.Statistics => queries.LoadStatisticsAsync(ct),
             QueryKind.Review => queries.LoadReviewAsync(2026, ct),
             QueryKind.Screenshots => queries.LoadScreenshotsAsync(ct),
-            QueryKind.Timeline => queries.LoadTimelineAsync(42, includePlayback: true, ct),
-            QueryKind.Detail => queries.LoadDetailAsync(42, includePlayback: true, ct),
+            QueryKind.Timeline => queries.LoadTimelineAsync(42, ct),
+            QueryKind.Detail => queries.LoadDetailAsync(42, ct),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 }

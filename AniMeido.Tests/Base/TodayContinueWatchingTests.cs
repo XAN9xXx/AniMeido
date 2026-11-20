@@ -23,6 +23,25 @@ public sealed class TodayContinueWatchingTests : DbTestBase
         _featureState = new PersonalFeatureStateStore(DbFactory);
     }
 
+    [Fact]
+    public async Task WithoutPlayer_LocalHistoryOpensAsDetailsAndUnstartedPlaybackIsHidden()
+    {
+        await RunProductionMigrationAsync();
+        var at = DateTimeOffset.UtcNow;
+        await SeedTrackingAsync([(1, AnimeTrackingStatus.Watching, at), (2, AnimeTrackingStatus.Watching, at)]);
+        using var fixture = CreateFixture(new WatchingSource { Schedule = [Item(1), Item(2)] });
+        var vm = fixture.ViewModel;
+        vm.IsPlaybackAvailable = false;
+        await fixture.ActionCenter.RecordAsync(new AnimePlaybackProgress("existing", 1, 2, 120, 1200, false, at));
+        await LoadAsync(fixture);
+        var recent = Assert.Single(vm.RecentActivity);
+        Assert.Equal(1, recent.Anime.ID);
+        Assert.True(recent.HasProgress);
+        Assert.False(recent.CanPlay);
+        Assert.True(vm.ShowWatchSection);
+        Assert.Empty(vm.ContinueWatching);
+    }
+
     [Theory]
     [InlineData(100)]
     [InlineData(1000)]

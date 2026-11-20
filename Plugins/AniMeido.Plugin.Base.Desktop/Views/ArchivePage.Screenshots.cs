@@ -69,8 +69,7 @@ public sealed partial class ArchivePage
                     finally { search.IsEnabled = true; }
                 };
                 var title = new TextBox { Header = "显示标题", Text = item.AnimeTitle ?? "" };
-                var episode = new NumberBox { Header = "集数（可选）", Minimum = 1, Value = item.EpisodeNumber ?? double.NaN,
-                    Visibility = _playbackLauncher.IsAvailable ? Visibility.Visible : Visibility.Collapsed };
+                var episode = new NumberBox { Header = "集数（可选）", Minimum = 1, Value = item.EpisodeNumber ?? double.NaN };
                 var note = new TextBox { Header = "截图备注", Text = GetScreenshotNote(item), AcceptsReturn = true, TextWrapping = TextWrapping.Wrap };
                 try
                 {
@@ -81,7 +80,7 @@ public sealed partial class ArchivePage
                         if (assigned.IsChecked == true && target is null) throw new ArgumentException("请选择关联作品。");
                         return _archive.UpdateScreenshotMetadataAsync(item.ScreenshotId, target?.AnimeId,
                             string.IsNullOrWhiteSpace(title.Text) ? target?.Title : title.Text,
-                            _playbackLauncher.IsAvailable ? double.IsNaN(episode.Value) ? null : (int)episode.Value : item.EpisodeNumber, note.Text);
+                            double.IsNaN(episode.Value) ? null : (int)episode.Value, note.Text);
                     }));
                     if (saving is not null) await saving;
                 }
@@ -158,13 +157,12 @@ public sealed partial class ArchivePage
     {
         if (_pageLifetime is not { } lifetime) return;
         var year = double.IsNaN(ReviewYear.Value) ? DateTime.Today.Year : (int)ReviewYear.Value;
-        var playback = _playbackLauncher.IsAvailable;
         var picker = new FileSavePicker { SuggestedFileName = $"AniMeido-{year}-年度回顾" };
         picker.FileTypeChoices.Add("HTML", [".html"]);
         if (!InitializePicker(picker)) return;
         var file = await picker.PickSaveFileAsync();
         if (file is not null && !lifetime.IsCancellationRequested)
-            await SaveAsync(() => _reviewExporter.ExportAsync(file.Path, year, playback));
+            await SaveAsync(() => _reviewExporter.ExportAsync(file.Path, year));
     });
 
     private bool InitializePicker(object picker)

@@ -1,6 +1,5 @@
 ﻿using AniMeido.Contracts;
 using AniMeido.Contracts.Desktop;
-using AniMeido.Contracts.Playback;
 using AniMeido.Plugin.Base.Exceptions;
 using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
@@ -20,7 +19,6 @@ public sealed partial class ArchivePage : Page, INavigationAware
 {
     private readonly ArchiveService _archive;
     private readonly ArchiveReviewExporter _reviewExporter;
-    private readonly IAnimePlaybackLauncher _playbackLauncher;
     private readonly IAnimeDataSource _animeDataSource;
     private readonly ScreenshotArchiveService _screenshots;
     private readonly ScreenshotShortcutAction _shortcut;
@@ -42,14 +40,12 @@ public sealed partial class ArchivePage : Page, INavigationAware
     private bool _suppressReviewYearChanged = true;
     private bool _navigationInitialized;
     private int _navigationVersion;
-    private bool _isPlaybackAvailabilitySubscribed;
 
     public ArchivePage(
         ArchiveService archive,
         ArchiveQueryService queries,
         ArchiveReviewExporter reviewExporter,
         IAnimeDataSource animeDataSource,
-        IAnimePlaybackLauncher playbackLauncher,
         ScreenshotArchiveService screenshots,
         ScreenshotShortcutAction shortcut,
         IWindowHandleProvider windowHandleProvider,
@@ -65,8 +61,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         _reviewExporter = reviewExporter;
         _animeDataSource = animeDataSource;
         _coverRequests = new ArchiveCoverRequests(animeDataSource.GetAnimeDetailAsync, logger);
-        _playbackLauncher = playbackLauncher;
-        _details = new ViewModels.ArchiveDetailsViewModel(queries, () => playbackLauncher.IsAvailable);
+        _details = new ViewModels.ArchiveDetailsViewModel(queries);
         _details.SelectionChanged += OnArchiveDetailsSelectionChanged;
         _details.TimelinePublished += ApplyTimelineFilter;
         _details.DetailsPublished += OnArchiveDetailsPublished;
@@ -81,9 +76,6 @@ public sealed partial class ArchivePage : Page, INavigationAware
         _screenshotGroups = (CollectionViewSource)Resources["ScreenshotGroupsSource"];
         StatusFilter.SelectedIndex = 0;
         ArchiveTimelineFilter.SelectedIndex = 0;
-        ApplyPlaybackAvailability();
-        _playbackLauncher.AvailabilityChanged += OnPlaybackAvailabilityChanged;
-        _isPlaybackAvailabilitySubscribed = true;
         ReviewYear.Value = DateTime.Now.Year;
         _suppressReviewYearChanged = false;
         ShowPanel("archives");
@@ -620,7 +612,6 @@ public sealed partial class ArchivePage : Page, INavigationAware
         ReviewScreenshots.ItemsSource = images;
         ReviewScreenshotsEmpty.Visibility = images.Length == 0
             ? Visibility.Visible : Visibility.Collapsed;
-        ApplyPlaybackAvailability();
     }
 
     private void ApplyArchiveFilter()
@@ -1181,9 +1172,6 @@ public sealed partial class ArchivePage : Page, INavigationAware
         object sender,
         RoutedEventArgs e)
     {
-        if (!_playbackLauncher.IsAvailable)
-            return;
-
         if (_details.SelectedArchive is not { } selected)
         {
             ShowStatus("请先选择一部番剧。", InfoBarSeverity.Warning);
@@ -1374,12 +1362,6 @@ public sealed partial class ArchivePage : Page, INavigationAware
         EnsurePageLifetime();
         SubscribePendingChanges();
         _ = RefreshPendingAsync();
-        if (!_isPlaybackAvailabilitySubscribed)
-        {
-            _playbackLauncher.AvailabilityChanged += OnPlaybackAvailabilityChanged;
-            _isPlaybackAvailabilitySubscribed = true;
-        }
-        ApplyPlaybackAvailability();
         // 离开时取消了选中作品的时间线、截图与封面请求；返回后重新读取，
         // 之后追加或修改感想时时间线也能照常刷新。
         if (_details.SelectedArchive is { } selected && !_details.HasActiveSelection)
@@ -1401,11 +1383,6 @@ public sealed partial class ArchivePage : Page, INavigationAware
         _pageLifetime = null;
         UpdatePendingPanelAvailability();
         _panels.CancelInflight();
-        if (_isPlaybackAvailabilitySubscribed)
-        {
-            _playbackLauncher.AvailabilityChanged -= OnPlaybackAvailabilityChanged;
-            _isPlaybackAvailabilitySubscribed = false;
-        }
         // 已取到的详情只是数据，返回页面时继续复用；未完成或失败的请求随页面一起作废。
         _coverRequests.DiscardIncomplete();
         ManagedImageLoader.Cancel(ArchiveHeroCover);
@@ -1422,61 +1399,12 @@ public sealed partial class ArchivePage : Page, INavigationAware
 #pragma warning restore CA1031
     }
 
-    private void OnPlaybackAvailabilityChanged(object? sender, EventArgs e)
-        => DispatcherQueue.TryEnqueue(() =>
-        {
-            ApplyPlaybackAvailability();
-            if (_details.SelectedArchive is { } selected)
-                _ = RefreshSelectedTimelineAsync(selected.Archive.AnimeId);
-        });
-
-    private void ApplyPlaybackAvailability()
-    {
-        var available = _playbackLauncher.IsAvailable;
-        var playbackVisibility = available
-            ? Visibility.Visible : Visibility.Collapsed;
-        ScreenshotDetailEpisodeLabel.Visibility = playbackVisibility;
-        ScreenshotDetailEpisode.Visibility = playbackVisibility;
-        ScreenshotDetailPositionLabel.Visibility = playbackVisibility;
-        ScreenshotDetailPosition.Visibility = playbackVisibility;
-        StatisticsWatchCard.Visibility = available
-            ? Visibility.Visible : Visibility.Collapsed;
-        Grid.SetColumnSpan(StatisticsTagsCard, available ? 1 : 2);
-        ReviewScreenshotsCard.Visibility = available
-            ? Visibility.Visible : Visibility.Collapsed;
-        Grid.SetColumnSpan(ReviewMomentsCard, available ? 1 : 2);
-        ReviewScreenshotStat.Visibility = available
-            ? Visibility.Visible : Visibility.Collapsed;
-        ReviewWatchStat.Visibility = available
-            ? Visibility.Visible : Visibility.Collapsed;
-        var statWidth = available
-            ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
-        ReviewStatsGrid.ColumnDefinitions[2].Width = statWidth;
-        ReviewStatsGrid.ColumnDefinitions[3].Width = statWidth;
-        ArchiveTimelineTitle.Text = available
-            ? "观看时间线" : "档案时间线";
-        AddManualWatchButton.Visibility = available
-            ? Visibility.Visible : Visibility.Collapsed;
-        WatchHistoryFilterItem.Visibility = available
-            ? Visibility.Visible : Visibility.Collapsed;
-        if (!available)
-        {
-            if (ArchiveTimelineFilter.SelectedIndex == 2)
-                ArchiveTimelineFilter.SelectedIndex = 0;
-            _details.ApplyPlaybackAvailability(false);
-        }
-#if UNO_DESKTOP
-        ApplyDesktopArchiveSupplementalLayout();
-#endif
-    }
-
     private async void OnExportReviewClick(
         object sender,
         RoutedEventArgs e)
     {
         var year = double.IsNaN(ReviewYear.Value)
             ? DateTime.Now.Year : (int)ReviewYear.Value;
-        var playbackAvailable = _playbackLauncher.IsAvailable;
         var navigationVersion = _navigationVersion;
         var picker = new FileSavePicker
         {
@@ -1496,7 +1424,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
             button.IsEnabled = false;
         try
         {
-            await _reviewExporter.ExportAsync(file.Path, year, playbackAvailable);
+            await _reviewExporter.ExportAsync(file.Path, year);
             if (navigationVersion == _navigationVersion)
                 ShowStatus("年度回顾已导出。", InfoBarSeverity.Success);
         }
@@ -1564,16 +1492,12 @@ public sealed partial class ArchivePage : Page, INavigationAware
             Header = "番剧标题",
             Text = item.AnimeTitle ?? string.Empty,
         };
-        NumberBox? episode = null;
-        if (_playbackLauncher.IsAvailable)
+        var episode = new NumberBox
         {
-            episode = new NumberBox
-            {
-                Header = "集数",
-                Minimum = 1,
-                Value = item.EpisodeNumber ?? double.NaN,
-            };
-        }
+            Header = "集数",
+            Minimum = 1,
+            Value = item.EpisodeNumber ?? double.NaN,
+        };
         var context = new TextBox
         {
             Header = "截图备注（可选）",
@@ -1583,8 +1507,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         var panel = new StackPanel { Spacing = 8 };
         panel.Children.Add(animeId);
         panel.Children.Add(title);
-        if (episode is not null)
-            panel.Children.Add(episode);
+        panel.Children.Add(episode);
         panel.Children.Add(context);
         var dialog = CreateDialog("编辑截图", panel, "保存");
         if (await dialog.ShowAsync() != ContentDialogResult.Primary)
@@ -1596,8 +1519,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
             item.ScreenshotId,
             double.IsNaN(animeId.Value) ? null : (int)animeId.Value,
             title.Text,
-            episode is null ? item.EpisodeNumber
-                : double.IsNaN(episode.Value) ? null : (int)episode.Value,
+            double.IsNaN(episode.Value) ? null : (int)episode.Value,
             context.Text);
         await RefreshPanelsAsync(
             ArchivePanelKind.Screenshots,
