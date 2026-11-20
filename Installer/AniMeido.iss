@@ -72,9 +72,21 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "{#InstallImage}\AniMeido.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#InstallImage}\e_sqlite3.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#InstallImage}\app-{#AppVersion}\*"; DestDir: "{app}\app-{#AppVersion}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#InstallImage}\app-{#AppVersion}\*"; DestDir: "{app}\app-{#AppVersion}"; Excludes: "*.pdb"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Always replace the packaged initial state; previous and pending are null in this image.
 Source: "{#InstallImage}\state.json"; DestDir: "{app}"; Flags: ignoreversion
+
+[InstallDelete]
+; Remove only symbols shipped by earlier builds of this same version. Leave other files and rollback versions alone.
+Type: files; Name: "{app}\app-{#AppVersion}\AniMeido.App.pdb"
+Type: files; Name: "{app}\app-{#AppVersion}\AniMeido.Contracts.pdb"
+Type: files; Name: "{app}\app-{#AppVersion}\AniMeido.Platform.Windows.pdb"
+Type: files; Name: "{app}\app-{#AppVersion}\AniMeido.Plugin.Base.Core.pdb"
+Type: files; Name: "{app}\app-{#AppVersion}\AniMeido.Plugin.Base.pdb"
+Type: files; Name: "{app}\app-{#AppVersion}\AniMeido.PluginProtocol.pdb"
+Type: files; Name: "{app}\app-{#AppVersion}\AniMeido.Updates.pdb"
+Type: files; Name: "{app}\app-{#AppVersion}\libHarfBuzzSharp.pdb"
+Type: files; Name: "{app}\app-{#AppVersion}\libSkiaSharp.pdb"
 
 [Icons]
 Name: "{userprograms}\AniMeido"; Filename: "{app}\AniMeido.exe"; AppUserModelID: "AniMeido.Desktop"

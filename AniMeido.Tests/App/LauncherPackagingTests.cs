@@ -6,6 +6,33 @@ using System.Xml.Linq;
 
 public sealed class LauncherPackagingTests
 {
+    [Fact]
+    public async Task WindowsReleaseProfileFiltersManagedAndNativeSymbolsButKeepsTheBinaries()
+    {
+        using var temporary = new MockAppDataPaths();
+        var project = Path.Combine(temporary.RootDirectory, "Symbols.proj");
+        var profile = Path.Combine(AppDataRootsTests.RepositoryRoot, "AniMeido.Desktop", "Properties",
+            "PublishProfiles", "win-x64.pubxml");
+        new XDocument(new XElement("Project",
+            new XElement("Import", new XAttribute("Project", profile)),
+            new XElement("Target", new XAttribute("Name", "ComputeFilesToPublish"),
+                new XElement("ItemGroup", new XElement("ResolvedFileToPublish", new XAttribute("Include",
+                    "AniMeido.App.dll;AniMeido.App.pdb;native/libSkiaSharp.PDB;native/libSkiaSharp.dll")))),
+            new XElement("Target", new XAttribute("Name", "Check"), new XAttribute("DependsOnTargets", "ComputeFilesToPublish"),
+                new XElement("WriteLinesToFile", new XAttribute("File", "selected.txt"),
+                    new XAttribute("Lines", "@(ResolvedFileToPublish)"))))).Save(project);
+        using var process = Process.Start(new ProcessStartInfo("dotnet")
+        {
+            UseShellExecute = false, CreateNoWindow = true,
+            ArgumentList = { "msbuild", project, "-t:Check", "-nologo", "-v:q" },
+        })!;
+        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal(0, process.ExitCode);
+        var selected = await File.ReadAllLinesAsync(Path.Combine(temporary.RootDirectory, "selected.txt"));
+        Assert.Equal(new[] { "AniMeido.App.dll", "native/libSkiaSharp.dll" },
+            selected.Select(item => item.Replace(Path.DirectorySeparatorChar, '/')));
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
