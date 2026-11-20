@@ -40,7 +40,7 @@ public sealed class DesktopInteractionRenderTests
                 root.UpdateLayout();
                 await Task.Delay(20);
                 var surface = FindSurface(button);
-                Assert.Equal(TimeSpan.FromMilliseconds(120), surface.BackgroundTransition!.Duration);
+                Assert.Null(surface.BackgroundTransition); // 真实指针进入后才启用，详见首帧回归。
                 var normal = ColorOf(surface.Background);
                 Assert.True(VisualStateManager.GoToState(button, "PointerOver", false));
                 Assert.Equal(ColorOf((Brush)resources[hover]), ColorOf(surface.Background));
@@ -205,7 +205,8 @@ public sealed class DesktopInteractionRenderTests
         return Color.FromArgb(bytes[offset + 3], bytes[offset + 2], bytes[offset + 1], bytes[offset]);
     }
 
-    internal static async Task WithThemeAsync(DesktopVisualStyle visual, bool dark, Func<Grid, Task> action)
+    internal static async Task WithThemeAsync(DesktopVisualStyle visual, bool dark, Func<Grid, Task> action,
+        DesktopFontStyle font = DesktopFontStyle.System)
     {
         var directory = Path.Combine(Path.GetTempPath(), "AniMeido-ui-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -214,7 +215,7 @@ public sealed class DesktopInteractionRenderTests
             await UnoHeadlessTestHost.RunAsync(async root =>
             {
                 var store = new DesktopSettingsStore(new TestPaths(directory));
-                await store.SaveAsync(new DesktopSettings { VisualStyle = visual.ToString(), ThemeSetting = dark ? "Dark" : "Light" });
+                await store.SaveAsync(new DesktopSettings { VisualStyle = visual.ToString(), ThemeSetting = dark ? "Dark" : "Light", FontStyle = font.ToString() });
                 await using var theme = new ThemeService(store);
                 await theme.InitializeThemeAsync(root);
                 await action(root);

@@ -30,6 +30,9 @@ public sealed class AnimeCardTrackingActionEventArgs(Anime anime, AnimeTrackingS
 
 public sealed partial class AnimeCard : UserControl
 {
+    internal const double PosterWidth = 172;
+    internal const double RecommendationCoverWidth = 124;
+    private const double DetailedCoverWidth = 130;
     private static readonly IReadOnlyDictionary<AnimeTrackingStatus, string> StatusLabels =
         TrackingActionDescriptor.CreateDefaults().ToDictionary(action => action.Status, action => action.ActiveLabel);
     private bool _pointerOver;
@@ -53,7 +56,7 @@ public sealed partial class AnimeCard : UserControl
     public AnimeCardDisplayMode DisplayMode { get => (AnimeCardDisplayMode)GetValue(DisplayModeProperty); set => SetValue(DisplayModeProperty, value); }
 
     public static readonly DependencyProperty CardWidthProperty = DependencyProperty.Register(
-        nameof(CardWidth), typeof(double), typeof(AnimeCard), new PropertyMetadata(150d, OnCardWidthChanged));
+        nameof(CardWidth), typeof(double), typeof(AnimeCard), new PropertyMetadata(PosterWidth, OnCardWidthChanged));
     public double CardWidth { get => (double)GetValue(CardWidthProperty); set => SetValue(CardWidthProperty, value); }
 
     public static readonly DependencyProperty TrackingStatusProperty = DependencyProperty.Register(
@@ -62,6 +65,8 @@ public sealed partial class AnimeCard : UserControl
 
     public static readonly DependencyProperty ShowQuickActionsProperty = RegisterFlag(nameof(ShowQuickActions));
     public bool ShowQuickActions { get => (bool)GetValue(ShowQuickActionsProperty); set => SetValue(ShowQuickActionsProperty, value); }
+    public static readonly DependencyProperty IsSelectedProperty = RegisterFlag(nameof(IsSelected));
+    public bool IsSelected { get => (bool)GetValue(IsSelectedProperty); set => SetValue(IsSelectedProperty, value); }
     public static readonly DependencyProperty ShowWatchActionProperty = RegisterFlag(nameof(ShowWatchAction), true);
     public bool ShowWatchAction { get => (bool)GetValue(ShowWatchActionProperty); set => SetValue(ShowWatchActionProperty, value); }
     public static readonly DependencyProperty IsTrackingActionPendingProperty = RegisterFlag(nameof(IsTrackingActionPending));
@@ -84,7 +89,11 @@ public sealed partial class AnimeCard : UserControl
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
         CoverHost.SizeChanged += (_, _) => CoverClip.Rect = new Rect(0, 0, CoverHost.ActualWidth, CoverHost.ActualHeight);
-        PointerEntered += (_, _) => { _pointerOver = true; RefreshInteraction(); };
+        PointerEntered += (_, _) =>
+        {
+            _pointerOver = true;
+            RefreshInteraction();
+        };
         PointerExited += (_, _) => { _pointerOver = false; ResetPress(); RefreshInteraction(); };
         PointerPressed += OnPointerPressed;
         PointerReleased += OnPointerReleased;
@@ -157,38 +166,38 @@ public sealed partial class AnimeCard : UserControl
         var serif = font.Source.Contains("DesktopSerif", StringComparison.Ordinal);
         var compact = DisplayMode == AnimeCardDisplayMode.Compact;
         var detailed = DisplayMode == AnimeCardDisplayMode.Detailed;
-        var controlSize = (double)resources["DesktopControlTextSize"];
         var dataSize = (double)resources["DesktopDataTextSize"];
         var radius = (CornerRadius)resources["DesktopCoverRadius"];
-        var coverWidth = CardWidth > 0 ? CardWidth : 150;
+        var coverWidth = CardWidth > 0 ? CardWidth : PosterWidth;
+        var paper = (bool)resources["DesktopUseSegmentedChoices"];
         FontFamily = font;
         Foreground = (Brush)resources["DesktopTextBrush"];
         foreach (var text in new[] { TitleText, AirDateText, DetailedTitle, DetailedMetadata, DetailedStatus,
                      DetailedScore, ScoreText, StatusText, WeekdayTextBlock, MediaFormatText })
             text.FontFamily = font;
-        CardSurface.CornerRadius = radius;
-        CardSurface.BorderBrush = (Brush)resources["DesktopLineBrush"];
+        CardSurface.CornerRadius = detailed ? (CornerRadius)resources["DesktopControlRadius"] : radius;
+        CardSurface.BorderThickness = detailed ? (Thickness)resources["DesktopCardBorderThickness"] : new Thickness(0);
         CardSurface.Width = detailed ? double.NaN : coverWidth;
-        CardSurface.MinHeight = detailed ? 225 : 0;
-        ContentLayout.ColumnDefinitions[0].Width = new GridLength(detailed ? 150 : 0);
-        ContentLayout.RowDefinitions[0].Height = detailed ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+        CardSurface.MinHeight = detailed ? 196 : 0;
+        ContentLayout.ColumnDefinitions[0].Width = new GridLength(detailed ? DetailedCoverWidth : 0);
         Grid.SetColumnSpan(CoverHost, detailed ? 1 : 2);
-        CoverHost.Height = detailed ? double.NaN : DesktopAnimeCardPresentation.CompactCoverHeightFor(coverWidth);
-        CoverFrame.CornerRadius = detailed ? new CornerRadius(radius.TopLeft, 0, 0, radius.BottomLeft)
-            : new CornerRadius(radius.TopLeft, radius.TopRight, 0, 0);
+        CoverHost.Width = detailed ? DetailedCoverWidth : coverWidth;
+        CoverHost.Height = DesktopAnimeCardPresentation.CompactCoverHeightFor(CoverHost.Width);
+        CoverFrame.CornerRadius = CoverEdge.CornerRadius = radius;
+        CoverSelection.CornerRadius = new CornerRadius(radius.TopLeft + 4);
+        CoverSelection.Margin = paper ? new Thickness(-4) : new Thickness(0);
+        CoverSelection.Background = paper ? (Brush)resources["DesktopSelectedBrush"] : null;
         CaptionHost.Visibility = detailed ? Visibility.Collapsed : Visibility.Visible;
-        CaptionHost.Padding = compact ? new Thickness(6, 6, 6, 8) : new Thickness(10, 8);
+        CaptionHost.Padding = compact ? new Thickness(2, 6, 2, 0) : new Thickness(2, 8, 2, 0);
         DetailedHost.Visibility = detailed ? Visibility.Visible : Visibility.Collapsed;
-        TitleText.FontSize = compact ? 12 : controlSize;
-        TitleText.LineHeight = compact ? 17 : Math.Ceiling(controlSize * 1.4);
-        TitleText.MinHeight = 2 * TitleText.LineHeight;
+        TitleText.FontSize = compact ? 13 : 14;
+        TitleText.LineHeight = Math.Ceiling(TitleText.FontSize * 1.4);
         TitleText.FontWeight = DetailedTitle.FontWeight = compact || serif ? FontWeights.Normal : FontWeights.SemiBold;
-        DetailedTitle.FontSize = 17;
         foreach (var text in new[] { AirDateText, DetailedMetadata, DetailedStatus, ScoreText }) text.FontSize = dataSize;
         AirDateText.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
         DescriptionText.FontFamily = (FontFamily)resources["DesktopReadingFontFamily"];
         DescriptionText.FontSize = (double)resources["DesktopBodySize"];
-        DescriptionText.LineHeight = (double)resources["DesktopBodyLineHeight"];
+        DescriptionText.LineHeight = Math.Ceiling(DescriptionText.FontSize * 1.45);
         RetryRing.Foreground = (Brush)resources["DesktopAccentBrush"];
         UpdateBadgeColors();
         RefreshInteraction();
@@ -205,7 +214,9 @@ public sealed partial class AnimeCard : UserControl
         DetailedMetadata.Text = anime is null ? string.Empty
             : $"{AnimeReleaseClassifier.GetMediaFormatText(anime.MediaFormat)}  {anime.AirDate}";
         ScoreText.Text = DetailedScore.Text = DesktopAnimeCardPresentation.FormatScore(anime?.Score);
+        DetailedScore.Visibility = Visible(DetailedScore.Text.Length != 0);
         DetailedStatus.Text = MineBrowse.StatusLabel(TrackingStatus);
+        DetailedStatus.Visibility = Visible(TrackingStatus != AnimeTrackingStatus.None);
         AutomationProperties.SetName(this, anime?.Title ?? string.Empty);
 
         var label = StatusLabels.GetValueOrDefault(TrackingStatus);
@@ -256,9 +267,16 @@ public sealed partial class AnimeCard : UserControl
         NotYetAiredBadge.Visibility = Visible(ShowNotYetAiredBadge && !show);
         ScoreBadge.Visibility = Visible(!show && DisplayMode == AnimeCardDisplayMode.Poster && Anime?.Score is > 0);
         if (!IsLoaded) return;
+        var resources = Application.Current.Resources;
+        var paper = (bool)resources["DesktopUseSegmentedChoices"];
+        CoverSelection.Visibility = Visible(IsSelected && paper);
+        CoverEdge.BorderThickness = new Thickness(IsSelected && !paper ? 2 : 1);
+        CoverEdge.BorderBrush = (Brush)resources[IsSelected && !paper ? "DesktopAccentBrush" : "DesktopLineBrush"];
+        var detailed = DisplayMode == AnimeCardDisplayMode.Detailed;
         var key = _pressed ? "DesktopCardPressedBrush" : _pointerOver ? "DesktopCardHoverBrush" : "DesktopCardBrush";
-        // 过渡只改本卡片的刷子，避免兄弟卡片共用资源时一起变色。
-        CardSurface.Background = new SolidColorBrush(((SolidColorBrush)Application.Current.Resources[key]).Color);
+        // 使用既有主题色；焦点、标签等更新时保持当前底色，不重新播放整卡背景过渡。
+        var background = detailed || _pressed || _pointerOver ? (Brush)resources[key] : null;
+        if (!ReferenceEquals(CardSurface.Background, background)) CardSurface.Background = background;
     }
 
     private static Visibility Visible(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
@@ -267,7 +285,7 @@ public sealed partial class AnimeCard : UserControl
     {
         if (Anime is { } anime)
             ManagedImageLoader.ConfigureCover(CoverImage, anime.ID, anime.CoverURL,
-                DisplayMode == AnimeCardDisplayMode.Detailed ? 150 : CardWidth, OnCoverStateChanged);
+                DisplayMode == AnimeCardDisplayMode.Detailed ? DetailedCoverWidth : CardWidth, OnCoverStateChanged);
         else
         {
             ManagedImageLoader.Cancel(CoverImage);

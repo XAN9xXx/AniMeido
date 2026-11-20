@@ -37,7 +37,6 @@ public sealed class DesktopSettingsAdmissionTests
             var store = new DesktopSettingsStore(fixture);
             await store.SaveAsync(new DesktopSettings { ShowPlanReminders = true, PrivacyAccepted = true, AnnouncementShown = true, VisualStyle = "Paper" });
             await using var theme = new ThemeService(store, reminders);
-            await theme.InitializeThemeAsync(root);
             using var provider = new ServiceCollection().BuildServiceProvider();
             var navigation = new NavigationService(new PageFactory(provider), Microsoft.Extensions.Logging.Abstractions.NullLogger<NavigationService>.Instance);
             var registry = new PluginContributionRegistry();
@@ -46,6 +45,7 @@ public sealed class DesktopSettingsAdmissionTests
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<DragDropService>.Instance);
             var window = new AniMeido.App.MainWindow(registry, navigation, theme, new StartupDialogCoordinator(new PrivacyService(store), store), new MainWindowDragDropAdapter(drag));
             var shell = Assert.IsType<Grid>(window.Content);
+            await theme.InitializeThemeAsync(shell, window.FeedbackSurface);
             var loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             shell.Loaded += (_, _) => loaded.TrySetResult();
             root.Children.Add(shell);
@@ -56,14 +56,17 @@ public sealed class DesktopSettingsAdmissionTests
                 Assert.True(window.DataReady.Task.IsCompletedSuccessfully);
                 Assert.IsType<DesktopBackNavigationTests.SearchStatePage>(((Frame)shell.FindName("ContentFrame")).Content);
                 Assert.Equal(Visibility.Collapsed, ((Grid)shell.FindName("StartupOverlay")).Visibility);
-                var message = Find<TextBlock>(root, text => text.Text == "补番提醒尚未完成，请重试。");
-                var toast = Assert.IsType<Grid>(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(message));
+                TextBlock? message = null;
+                await UnoVisualEvidence.WaitForAsync(() => (message = UnoVisualEvidence
+                    .Descendants(window.FeedbackSurface).OfType<TextBlock>()
+                    .FirstOrDefault(text => text.IsLoaded && text.Text == "补番提醒尚未完成，请重试。")) is not null);
+                var toast = Assert.IsType<Grid>(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(message!));
                 Assert.Null(Assert.Single(await action.GetRemindersAsync()).CatchUpSentAt);
                 notifications.Supported = true;
                 notifications.Scheduling = Task.CompletedTask;
                 Invoke(toast.Children.OfType<Button>().Single(button => button.Content as string == "重试"));
                 await DesktopUiWork.DrainAsync();
-                Assert.False(message.IsLoaded);
+                Assert.False(message!.IsLoaded);
                 Assert.NotNull(Assert.Single(await action.GetRemindersAsync()).CatchUpSentAt);
                 Assert.IsType<DesktopBackNavigationTests.SearchStatePage>(((Frame)shell.FindName("ContentFrame")).Content);
             }

@@ -115,8 +115,6 @@ public sealed partial class ManagementPage : Page, INavigationAware
             if (ViewModel.IsTagsView) SetBatchMode(false);
             UpdateLayoutState();
         }
-        if (args.PropertyName == nameof(ManagementViewModel.IsHiddenExpanded))
-            HiddenChevron.Glyph = ViewModel.IsHiddenExpanded ? "\uE70E" : "\uE70D";
     }
 
     private void OnStatusNavClick(object sender, RoutedEventArgs args)
@@ -187,7 +185,7 @@ public sealed partial class ManagementPage : Page, INavigationAware
         menu.Items.Clear();
         foreach (var section in ViewModel.StatusSections)
         {
-            var item = new ToggleMenuFlyoutItem { Text = section.Label, IsChecked = current == section.Status, Icon = new FontIcon { Glyph = section.Glyph } };
+            var item = new ToggleMenuFlyoutItem { Text = section.Label, IsChecked = current == section.Status };
             item.Click += (_, _) => _ = apply(section.Status);
             menu.Items.Add(item);
         }

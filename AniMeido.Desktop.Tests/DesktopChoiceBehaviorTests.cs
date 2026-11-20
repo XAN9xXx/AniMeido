@@ -33,29 +33,13 @@ public sealed class DesktopChoiceBehaviorTests
             Assert.Same(Application.Current.Resources["DesktopSegmentItemStyle"], selected.Style);
             Assert.True(selected.Padding.Left >= 10 && selected.ActualWidth >= selected.MinWidth);
             Assert.True(selected.ActualHeight >= 32);
-            var surface = FindSurface(selected);
+            var surface = UnoVisualEvidence.Descendants(segments).OfType<Border>().Single(border => border.Name == "SegmentSelection");
             Assert.Equal(Assert.IsType<SolidColorBrush>(Application.Current.Resources["DesktopSegmentSelectedBrush"]).Color,
                 Assert.IsType<SolidColorBrush>(surface.Background).Color);
             Assert.True(surface.CornerRadius.TopLeft > 0);
+            Assert.InRange(Math.Abs(surface.TransformToVisual(segments).TransformPoint(default).X
+                - selected.TransformToVisual(segments).TransformPoint(default).X), 0, 1);
             segments.SelectedIndex = 2;
             Assert.Equal(2, choice.SelectedIndex);
         });
-
-    private static Border FindSurface(DependencyObject node)
-    {
-        if (node is Border { Name: "SegmentSurface" } surface) return surface;
-        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(node); index++)
-        {
-            var child = TryFind(VisualTreeHelper.GetChild(node, index));
-            if (child is not null) return child;
-        }
-        throw new InvalidOperationException("分段项缺少自己的 SegmentSurface。");
-        Border? TryFind(DependencyObject child)
-        {
-            if (child is Border { Name: "SegmentSurface" } result) return result;
-            for (var index = 0; index < VisualTreeHelper.GetChildrenCount(child); index++)
-                if (TryFind(VisualTreeHelper.GetChild(child, index)) is { } found) return found;
-            return null;
-        }
-    }
 }

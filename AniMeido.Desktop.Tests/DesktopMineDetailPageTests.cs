@@ -42,10 +42,12 @@ public sealed class DesktopMineDetailPageTests
                 Assert.True(button.Focus(FocusState.Keyboard));
                 await page.ToggleSavedTagAsync("旅行");
                 root.UpdateLayout(); await Task.Delay(20);
-                button = Find<Button>(tags, item => item.Tag as string == "旅行");
+                Assert.Same(button, Find<Button>(tags, item => item.Tag as string == "旅行"));
                 Assert.Equal(FocusState.Keyboard, button.FocusState);
                 Assert.Equal("已收藏", Microsoft.UI.Xaml.Automation.AutomationProperties.GetItemStatus(button));
-                Assert.Same(Application.Current.Resources["AccentButtonStyle"], button.Style);
+                Assert.Same(Application.Current.Resources["DesktopButtonStyle"], button.Style);
+                Assert.Same(Application.Current.Resources["DesktopSelectedBrush"], button.Background);
+                Assert.Same(Application.Current.Resources["DesktopAccentBrush"], button.BorderBrush);
                 Invoke(button);
                 Assert.Equal(typeof(TagSearchResultPage), fixture.Navigation.Page);
                 Assert.Equal("旅行", fixture.Navigation.Parameter);

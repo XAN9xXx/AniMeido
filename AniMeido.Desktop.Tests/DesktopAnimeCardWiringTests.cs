@@ -38,10 +38,14 @@ public sealed class DesktopAnimeCardWiringTests
     [Fact]
     public void PosterAndDetailedCardsKeepAContinuousSurfaceIncludingCaptionSpacing()
     {
-        var source = ReadCard();
-        Assert.Equal("{ThemeResource DesktopCardBrush}", (string?)FindPart("CardSurface").Attribute("Background"));
-        Assert.Equal("Transparent", (string?)FindPart("CardRoot").Attribute("Background"));
-        Assert.Contains("CardSurface.Background = new SolidColorBrush", source);
+        var root = FindPart("CardRoot");
+        Assert.Equal("Transparent", (string?)root.Attribute("Background"));
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var surface = Assert.Single(root.Elements(), element => (string?)element.Attribute(x + "Name") == "CardSurface");
+        foreach (var name in new[] { "CoverHost", "CaptionHost", "DetailedHost" })
+            Assert.Single(surface.Descendants(), element => (string?)element.Attribute(x + "Name") == name);
+        Assert.Equal("False", (string?)FindPart("CoverEdge").Attribute("IsHitTestVisible"));
+        Assert.Equal("False", (string?)FindPart("CoverSelection").Attribute("IsHitTestVisible"));
     }
 
     [Fact]
@@ -55,25 +59,24 @@ public sealed class DesktopAnimeCardWiringTests
             var card = Assert.Single(template.Elements());
             Assert.Equal("AnimeCard", card.Name.LocalName);
             Assert.Equal(presentation, (string?)card.Attribute("DisplayMode"));
-            Assert.Equal("{x:Bind Anime}", (string?)card.Attribute("Anime"));
+            Assert.Equal(presentation == "Detailed" ? "{Binding Anime, Mode=OneWay}" : "{x:Bind Anime}", (string?)card.Attribute("Anime"));
             Assert.Null(card.Attribute("DataContext"));
-            Assert.Equal("{x:Bind Status}", (string?)card.Attribute("TrackingStatus"));
+            Assert.Equal(presentation == "Detailed" ? "{Binding Status, Mode=OneWay}" : "{x:Bind Status}", (string?)card.Attribute("TrackingStatus"));
             Assert.Equal("False", (string?)card.Attribute("ShowQuickActions"));
             Assert.Equal("OnAnimeCardClicked", (string?)card.Attribute("CardClicked"));
         }
     }
 
     [Fact]
-    public void DetailedCardKeepsBoundTextAndSevenReadableLinesWithoutAPixelHeightClamp()
+    public void DetailedCardKeepsBoundTextAndFourReadableLinesWithoutAPixelHeightClamp()
     {
         var source = ReadCard();
         Assert.Contains("TitleText.Text = DetailedTitle.Text = anime?.Title", source);
         Assert.Contains("DescriptionText.Text = anime?.Description", source);
-        Assert.Equal("7", (string?)FindPart("DescriptionText").Attribute("MaxLines"));
+        Assert.Equal("4", (string?)FindPart("DescriptionText").Attribute("MaxLines"));
         Assert.Null(FindPart("DescriptionText").Attribute("MaxHeight"));
-        Assert.Contains("CoverHost.Height = detailed ? double.NaN", source);
-        Assert.Contains("CoverHost.SizeChanged", source);
-        Assert.Equal("17", (string?)FindPart("DetailedTitle").Attribute("FontSize"));
+        Assert.Null(FindPart("DescriptionText").Attribute("Height"));
+        Assert.Equal("16", (string?)FindPart("DetailedTitle").Attribute("FontSize"));
     }
 
     [Fact]
@@ -100,7 +103,8 @@ public sealed class DesktopAnimeCardWiringTests
         Assert.DoesNotContain(document.Descendants(), element => ((string?)element.Attribute(x + "Name"))?.StartsWith("DesktopShelf", StringComparison.Ordinal) == true);
         var scroller = Assert.Single(document.Descendants(), element => (string?)element.Attribute(x + "Name") == "ShelfScroller");
         Assert.Equal("Enabled", (string?)scroller.Attribute("HorizontalScrollMode"));
-        Assert.Equal("OnShelfPointerWheelChanged", (string?)scroller.Attribute("PointerWheelChanged"));
+        Assert.Equal("DesktopWheelShelf", scroller.Name.LocalName);
+        Assert.Null(scroller.Attribute("PointerWheelChanged"));
     }
 
     private static string Read(string path)

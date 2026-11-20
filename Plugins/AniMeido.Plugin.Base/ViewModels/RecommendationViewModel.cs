@@ -516,7 +516,11 @@ public partial class RecommendationViewModel : ObservableObject
             }
             if (result is null)
             {
+#if UNO_DESKTOP
+                RefreshNotice = "刷新时你的记录有变化，已保留上次结果。请再按 F5。";
+#else
                 RefreshNotice = "刷新时你的记录有变化，这次结果没有采用。请再点一次“刷新推荐”。";
+#endif
                 return false;
             }
 

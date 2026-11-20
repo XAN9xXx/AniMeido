@@ -13,8 +13,8 @@ internal sealed class DesktopToastPresenter : IDisposable
     private readonly Grid _layer;
     private readonly StackPanel _functional;
     private readonly StackPanel _errors;
-    private readonly ScrollViewer _functionalViewport;
-    private readonly ScrollViewer _errorViewport;
+    private readonly ScrollView _functionalViewport;
+    private readonly ScrollView _errorViewport;
     private readonly Dictionary<string, Border> _messages = [];
     private readonly Dictionary<Border, DispatcherQueueTimer> _timers = [];
 
@@ -45,11 +45,13 @@ internal sealed class DesktopToastPresenter : IDisposable
             Foreground = (Brush)resources["DesktopTextBrush"], FontFamily = (FontFamily)resources["DesktopUiFontFamily"],
             VerticalAlignment = VerticalAlignment.Center };
         AutomationProperties.SetLiveSetting(text, error ? AutomationLiveSetting.Assertive : AutomationLiveSetting.Polite);
-        var close = new Button { Content = "×", Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-            BorderThickness = new Thickness(0), Padding = new Thickness(6), MinWidth = 28, MinHeight = 28,
-            FontSize = 18, Foreground = (Brush)resources["DesktopMutedBrush"] };
+        var close = new Button { Content = "×", Style = (Style)resources["DesktopSmallActionButtonStyle"],
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0), Padding = new Thickness(error ? 6 : 2),
+            MinWidth = error ? 28 : 24, MinHeight = error ? 28 : 24, VerticalAlignment = VerticalAlignment.Center,
+            FontSize = error ? 18 : 14, Foreground = (Brush)resources["DesktopMutedBrush"] };
         AutomationProperties.SetName(close, "关闭提示");
-        var content = new Grid { ColumnSpacing = 12 };
+        var content = new Grid { ColumnSpacing = error ? 12 : 4 };
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var closeColumn = 1;
@@ -79,7 +81,9 @@ internal sealed class DesktopToastPresenter : IDisposable
         Grid.SetColumn(close, closeColumn);
         content.Children.Add(text);
         content.Children.Add(close);
-        var border = new Border { Child = content, Padding = new Thickness(16, 12, 12, 12),
+        var border = new Border { Child = content,
+            HorizontalAlignment = error ? HorizontalAlignment.Stretch : HorizontalAlignment.Right,
+            Padding = error ? new Thickness(16, 12, 12, 12) : new Thickness(10, 5, 6, 5),
             Background = (Brush)resources["DesktopOverlayBrush"], BorderBrush = (Brush)resources["DesktopLineBrush"],
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(style switch
             {
@@ -91,6 +95,7 @@ internal sealed class DesktopToastPresenter : IDisposable
             target.Children.Add(border);
         else
             target.Children.Insert(0, border);
+        (error ? _errorViewport : _functionalViewport).Visibility = Visibility.Visible;
         border.Loaded += ScrollToNewMessage;
         close.Click += (_, _) => Remove(key, border, target);
         if (!error)
@@ -126,7 +131,7 @@ internal sealed class DesktopToastPresenter : IDisposable
         {
             border.Loaded -= ScrollToNewMessage;
             var viewport = error ? _errorViewport : _functionalViewport;
-            viewport.ChangeView(null, error ? viewport.ScrollableHeight : 0, null, disableAnimation: true);
+            viewport.ScrollTo(0, error ? viewport.ScrollableHeight : 0, new ScrollingScrollOptions(ScrollingAnimationMode.Disabled));
         }
     }
 
@@ -147,14 +152,16 @@ internal sealed class DesktopToastPresenter : IDisposable
         _root.Children.Remove(_layer);
     }
 
-    private static ScrollViewer CreateViewport(StackPanel content, VerticalAlignment alignment)
+    private static ScrollView CreateViewport(StackPanel content, VerticalAlignment alignment)
         => new()
         {
             Content = content, MaxWidth = 380,
             HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = alignment,
+            Background = null, Visibility = Visibility.Collapsed,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            HorizontalScrollMode = ScrollMode.Disabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            VerticalScrollMode = ScrollMode.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            ContentOrientation = ScrollingContentOrientation.Vertical,
+            HorizontalScrollMode = ScrollingScrollMode.Disabled, HorizontalScrollBarVisibility = ScrollingScrollBarVisibility.Hidden,
+            VerticalScrollMode = ScrollingScrollMode.Auto, VerticalScrollBarVisibility = ScrollingScrollBarVisibility.Auto,
         };
 
     private void OnRootSizeChanged(object sender, SizeChangedEventArgs args) => UpdateMaximumStackHeights();
@@ -172,5 +179,7 @@ internal sealed class DesktopToastPresenter : IDisposable
             timer.Stop();
         _messages.Remove(key);
         target.Children.Remove(border);
+        if (target.Children.Count == 0)
+            (ReferenceEquals(target, _errors) ? _errorViewport : _functionalViewport).Visibility = Visibility.Collapsed;
     }
 }

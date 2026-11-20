@@ -1,16 +1,17 @@
 ﻿<Page x:Class="AniMeido.Plugin.Base.Views.DragZoneSettingsPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Background="{ThemeResource DesktopPageBrush}">
     <ScrollViewer HorizontalScrollBarVisibility="Disabled">
         <StackPanel Spacing="16" Padding="0,0,4,28">
             <TextBlock Text="拖放标记" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
             <TextBlock Text="拖动区域调整位置，拖动边缘调整大小。点击区域切换动作。" TextWrapping="Wrap" Style="{StaticResource DesktopDataTextStyle}"/>
             <InfoBar x:Name="ZoneStatus" IsClosable="True"/>
-            <Button x:Name="RetrySave" Content="重试保存" Click="OnRetrySave" Visibility="Collapsed"/>
+            <Button x:Name="RetrySave" Content="重试保存" Style="{StaticResource DesktopSmallActionButtonStyle}" Click="OnRetrySave" Visibility="Collapsed"/>
             <Border x:Name="PreviewBorder" Height="360" CornerRadius="{ThemeResource DesktopCardRadius}" Background="{ThemeResource DesktopSurfaceBrush}" BorderBrush="{ThemeResource DesktopLineBrush}" BorderThickness="1" SizeChanged="OnPreviewSizeChanged">
                 <Grid><ContentControl x:Name="PreviewFrame" IsHitTestVisible="False"/><Canvas x:Name="PreviewCanvas" SizeChanged="OnPreviewSizeChanged"/></Grid>
             </Border>
-            <Button x:Name="AddZoneButton" Content="添加区域" Click="OnAddZone"/>
+            <Button x:Name="AddZoneButton" Content="添加区域" Style="{StaticResource DesktopButtonStyle}" Click="OnAddZone"/>
             <TextBlock Text="区域动作" Style="{StaticResource DesktopEmphasisTextStyle}"/>
             <ItemsControl x:Name="ZoneConfigList">
                 <ItemsControl.ItemTemplate>
@@ -20,12 +21,12 @@
                             <ComboBox Grid.Column="1" SelectedIndex="{Binding ActionIndex, Mode=TwoWay}" SelectionChanged="OnConfigChanged" HorizontalAlignment="Stretch">
                                 <x:String>禁用</x:String><x:String>追番</x:String><x:String>补番</x:String><x:String>不感兴趣</x:String><x:String>关注</x:String><x:String>已看完</x:String><x:String>已弃番</x:String><x:String>屏蔽</x:String>
                             </ComboBox>
-                            <Button Grid.Column="2" Content="删除" Click="OnDeleteZone"/>
+                            <Button Grid.Column="2" Content="删除" Style="{StaticResource DesktopSmallActionButtonStyle}" Click="OnDeleteZone"/>
                         </Grid>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <Button Content="恢复默认" Click="OnResetDragZones" HorizontalAlignment="Right"/>
+            <Button Content="恢复默认" Style="{StaticResource DesktopSmallActionButtonStyle}" Click="OnResetDragZones" HorizontalAlignment="Right"/>
         </StackPanel>
     </ScrollViewer>
 </Page>

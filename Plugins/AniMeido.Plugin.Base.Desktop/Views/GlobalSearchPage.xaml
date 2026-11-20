@@ -134,10 +134,10 @@
                             <TextBlock Text="最近搜索" FontWeight="SemiBold"/>
                         </StackPanel>
                         <Button Grid.Column="1" Content="清除记录" Style="{StaticResource AniMeidoNavigateButtonStyle}" Click="OnClearRecentClick"/>
-                        <ScrollViewer Grid.Row="1"
+                        <controls:DesktopWheelShelf Grid.Row="1"
                                       Grid.ColumnSpan="2"
                                       HorizontalScrollMode="Auto"
-                                      HorizontalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Hidden"
                                       VerticalScrollMode="Disabled"
                                       VerticalScrollBarVisibility="Disabled">
                             <ItemsControl ItemsSource="{x:Bind ViewModel.RecentSearches}" ItemTemplate="{StaticResource RecentChipTemplate}">
@@ -147,7 +147,7 @@
                                     </ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                             </ItemsControl>
-                        </ScrollViewer>
+                        </controls:DesktopWheelShelf>
                     </Grid>
                 </Border>
 
@@ -158,8 +158,8 @@
                             <TextBlock Text="收藏的标签" FontWeight="SemiBold"/>
 
                         </StackPanel>
-                        <ScrollViewer HorizontalScrollMode="Auto"
-                                      HorizontalScrollBarVisibility="Auto"
+                        <controls:DesktopWheelShelf HorizontalScrollMode="Auto"
+                                      HorizontalScrollBarVisibility="Hidden"
                                       VerticalScrollMode="Disabled"
                                       VerticalScrollBarVisibility="Disabled">
                             <ItemsControl ItemsSource="{x:Bind ViewModel.SavedTags}" ItemTemplate="{StaticResource SavedTagChipTemplate}">
@@ -169,7 +169,7 @@
                                     </ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                             </ItemsControl>
-                        </ScrollViewer>
+                        </controls:DesktopWheelShelf>
                     </StackPanel>
                 </Border>
 
@@ -287,7 +287,7 @@
                     <CheckBox x:Name="IncludeLowVotes" Content="包含评分人数较少的作品"
                               Checked="OnIncludeLowVotesChanged" Unchecked="OnIncludeLowVotesChanged"/>
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <ScrollViewer HorizontalScrollMode="Auto"
+                        <controls:DesktopWheelShelf HorizontalScrollMode="Auto"
                                       HorizontalScrollBarVisibility="Hidden"
                                       VerticalScrollMode="Disabled"
                                       VerticalScrollBarVisibility="Disabled">
@@ -298,7 +298,7 @@
                                     </ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                             </ItemsControl>
-                        </ScrollViewer>
+                        </controls:DesktopWheelShelf>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
                             <ComboBox x:Name="SortComboBox" MinWidth="110" AutomationProperties.Name="排序方式"/>
                         </StackPanel>

@@ -58,7 +58,8 @@
                                 </VisualState>
                             </VisualStateGroup>
                         </VisualStateManager.VisualStateGroups>
-                        <Border x:Name="NavigationSurface" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}">
+                        <Border x:Name="NavigationSurface" controls:DesktopButtonSurfaceMotion.Enable="True"
+                                Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}">
                             <ContentPresenter Content="{TemplateBinding Content}" Padding="{TemplateBinding Padding}"
                                               Foreground="{TemplateBinding Foreground}"
                                               HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"

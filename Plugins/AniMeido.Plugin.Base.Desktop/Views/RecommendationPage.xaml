@@ -13,20 +13,7 @@
     <Grid Padding="32,28,32,32"
           RowDefinitions="Auto,Auto,Auto,*"
           RowSpacing="16" SizeChanged="OnDesktopRecommendationSizeChanged">
-        <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
-            <StackPanel Spacing="2">
-                <TextBlock Text="推荐"
-                           Style="{StaticResource AniMeidoPageTitleStyle}"/>
-            </StackPanel>
-            <Button x:Name="RefreshButton"
-                    Grid.Column="1"
-                    Click="OnRefreshClick">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <FontIcon Glyph="&#xE72C;" FontSize="14"/>
-                    <TextBlock Text="刷新推荐"/>
-                </StackPanel>
-            </Button>
-        </Grid>
+        <TextBlock Text="推荐" Style="{StaticResource AniMeidoPageTitleStyle}" VerticalAlignment="Center"/>
 
         <InfoBar x:Name="StatusInfoBar"
                  Grid.Row="1"
@@ -109,6 +96,8 @@
                                             HorizontalAlignment="Right"
                                             Spacing="8">
                                     <Button Content="换一批"
+                                            Style="{StaticResource DesktopSmallActionButtonStyle}"
+                                            FontSize="14"
                                             Click="OnRefreshSuggestedTagsClick"/>
                                     <Button x:Name="GenerateFromTagsButton"
                                             Content="使用所选标签生成推荐"
@@ -126,24 +115,25 @@
                         <ColumnDefinition x:Name="PreviewColumn" Width="0"/>
                     </Grid.ColumnDefinitions>
                     <Grid Grid.Row="2" Grid.ColumnSpan="2" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" Padding="0,14,0,0">
-                        <ScrollViewer x:Name="CandidateScroll" HorizontalScrollBarVisibility="Auto" HorizontalScrollMode="Enabled"
+                        <controls:DesktopWheelShelf x:Name="CandidateScroll" HorizontalScrollBarVisibility="Hidden" HorizontalScrollMode="Enabled"
                                       VerticalScrollBarVisibility="Disabled" VerticalScrollMode="Disabled" ViewChanged="OnCandidateScrollChanged">
-                        <ItemsRepeater x:Name="RecommendationCandidates" ItemsSource="{x:Bind ViewModel.Items, Mode=OneWay}" AutomationProperties.Name="候选作品">
+                        <ItemsRepeater x:Name="RecommendationCandidates" Margin="4" ItemsSource="{x:Bind ViewModel.Items, Mode=OneWay}" AutomationProperties.Name="候选作品">
                             <ItemsRepeater.Layout><StackLayout Orientation="Horizontal" Spacing="12"/></ItemsRepeater.Layout>
                             <ItemsRepeater.ItemTemplate>
                                 <DataTemplate x:DataType="models:RecommendationItem">
-                                    <Border Tag="{x:Bind}" Padding="6" CornerRadius="5" Loaded="OnCandidateLoaded" Unloaded="OnCandidateUnloaded">
-                                        <controls:AnimeCard Anime="{x:Bind Anime}" CardWidth="92" DisplayMode="Compact" CardClicked="OnCandidateClick"/>
-                                    </Border>
+                                    <controls:AnimeCard Anime="{x:Bind Anime, Mode=OneWay}" CardWidth="124" DisplayMode="Compact"
+                                                        VerticalAlignment="Top" CardClicked="OnCandidateClick"
+                                                        Loaded="OnCandidateLoaded" Unloaded="OnCandidateUnloaded"
+                                                        DataContextChanged="OnCandidateDataContextChanged"/>
                                 </DataTemplate>
                             </ItemsRepeater.ItemTemplate>
                         </ItemsRepeater>
-                        </ScrollViewer>
+                        </controls:DesktopWheelShelf>
                         <StackPanel x:Name="EmptyRecommendations" Visibility="Collapsed"
                                     HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
                             <FontIcon Glyph="&#xE734;" FontSize="30"/>
                             <TextBlock Text="本轮暂无推荐作品" FontSize="18"/>
-                            <TextBlock Text="调整偏好或刷新推荐后再看看。"/>
+                            <TextBlock Text="调整偏好或按 F5 刷新后再看看。"/>
                         </StackPanel>
                     </Grid>
                     <StackPanel Grid.Row="3" Grid.ColumnSpan="2" HorizontalAlignment="Center" Spacing="8" Margin="0,0,0,12">

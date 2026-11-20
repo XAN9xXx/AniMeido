@@ -12,6 +12,7 @@ public enum DesktopElementRole
 {
     None, Control, SubtleControl, CardControl, Title, Section, Emphasis, Data, EmphasisData, Reading,
     Symbol, SectionSurface, SettingRow, UnderlinedSection, FilledSection, Segments, SegmentItem,
+    StatusSelection, StatusSelectionMarker, ScoreBadge, DailyPickScoreBadge, ArchiveListIndicator, DropDownControl,
 }
 
 public sealed class DesktopElementAppearance : DependencyObject
@@ -105,6 +106,15 @@ public sealed class DesktopElementAppearance : DependencyObject
         {
             var resources = Application.Current.Resources;
             var role = GetRole(element);
+            if (role == DesktopElementRole.DropDownControl && element is DropDownButton dropDown)
+            {
+                var paperTemplate = (ControlTemplate)resources["DesktopPaperDropDownButtonTemplate"];
+                if (resources["DesktopUseSegmentedChoices"] is true)
+                    dropDown.Template = paperTemplate;
+                else if (ReferenceEquals(dropDown.ReadLocalValue(Control.TemplateProperty), paperTemplate))
+                    dropDown.ClearValue(Control.TemplateProperty);
+                return;
+            }
             var family = (FontFamily)resources[role == DesktopElementRole.Reading
                 ? "DesktopReadingFontFamily" : role == DesktopElementRole.Symbol ? "DesktopSymbolFontFamily" : "DesktopUiFontFamily"];
             var serif = ((FontFamily)resources["DesktopUiFontFamily"]).Source.Contains("DesktopSerif", StringComparison.Ordinal);
@@ -184,6 +194,23 @@ public sealed class DesktopElementAppearance : DependencyObject
                     border.Padding = (Thickness)resources["DesktopSettingRowPadding"];
                     border.Margin = (Thickness)resources["DesktopSettingRowMargin"];
                 }
+            }
+            if (element is Border geometry)
+            {
+                if (role == DesktopElementRole.ArchiveListIndicator)
+                {
+                    geometry.Width = (double)resources["DesktopArchiveListIndicatorWidth"];
+                    geometry.CornerRadius = new CornerRadius(geometry.Width == 3 ? 2 : 0);
+                }
+                if (role == DesktopElementRole.StatusSelectionMarker)
+                    geometry.Height = (double)resources["DesktopStatusSelectionMarkerHeight"];
+                if (role is DesktopElementRole.StatusSelection or DesktopElementRole.ScoreBadge or DesktopElementRole.DailyPickScoreBadge)
+                    geometry.CornerRadius = (CornerRadius)resources[role switch
+                    {
+                        DesktopElementRole.StatusSelection => "DesktopControlRadius",
+                        DesktopElementRole.ScoreBadge => "DesktopScoreBadgeRadius",
+                        _ => "DesktopDailyPickScoreBadgeRadius",
+                    }];
             }
             if (element is RichTextBlock rich) rich.FontFamily = family;
         }

@@ -256,11 +256,13 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
             await _trackingQueue.WaitAsync();
             try
             {
-                var previous = await _tracking.GetStatusAsync(id);
-                var target = previous == status ? AnimeTrackingStatus.None : status;
-                if (target == AnimeTrackingStatus.None) await _tracking.RemoveStatusAsync(id);
-                else await _tracking.SetStatusAsync(id, target);
-                if (!token.IsCancellationRequested && IsCurrentNavigation(version, id)) ViewModel.CurrentStatus = target;
+                var previous = await _tracking.GetStatusAsync(id) ?? AnimeTrackingStatus.None;
+                if (previous != status)
+                {
+                    if (status == AnimeTrackingStatus.None) await _tracking.RemoveStatusAsync(id);
+                    else await _tracking.SetStatusAsync(id, status);
+                }
+                if (!token.IsCancellationRequested && IsCurrentNavigation(version, id)) ViewModel.CurrentStatus = status;
             }
             finally { _trackingQueue.Release(); }
         });
@@ -288,8 +290,11 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
 
     private void RenderTags()
     {
-        var focusedTag = XamlRoot is { } root && FocusManager.GetFocusedElement(root) is Button { FocusState: FocusState.Keyboard, Tag: string tag } focused
-            && TagContainer.Children.Contains(focused) ? tag : null;
+        if (TagContainer.Children.OfType<Button>().Select(button => button.Tag as string).SequenceEqual(_tagNames))
+        {
+            UpdateTagStatuses();
+            return;
+        }
         TagContainer.Children.Clear();
         TagContainer.Visibility = _tagNames.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         foreach (var name in _tagNames)
@@ -297,11 +302,11 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
             var button = new Button
             {
                 Content = name, Tag = name, Margin = new(0, 0, 6, 4),
-                Style = (Style)Application.Current.Resources[_savedTagNames.Contains(name) ? "AccentButtonStyle" : "DesktopButtonStyle"],
+                Style = (Style)Application.Current.Resources["DesktopButtonStyle"],
                 KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden,
             };
             AutomationProperties.SetName(button, name);
-            AutomationProperties.SetItemStatus(button, _savedTagNames.Contains(name) ? "已收藏" : "未收藏");
+            UpdateTagStatus(button, name);
             button.Click += (_, _) => _navigator.Navigate(typeof(TagSearchResultPage), name);
             button.RightTapped += (_, args) => { args.Handled = true; _ = ToggleSavedTagAsync(name); };
             foreach (var (key, modifiers) in new[] { (VirtualKey.Application, VirtualKeyModifiers.None), (VirtualKey.F10, VirtualKeyModifiers.Shift) })
@@ -310,15 +315,23 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
                 shortcut.Invoked += (accelerator, args) => { args.Handled = true; _ = ToggleSavedTagAsync(name); };
                 button.KeyboardAccelerators.Add(shortcut);
             }
-            if (name == focusedTag) button.Loaded += RestoreFocus;
             TagContainer.Children.Add(button);
-
-            void RestoreFocus(object sender, RoutedEventArgs args)
-            {
-                button.Loaded -= RestoreFocus;
-                button.Focus(FocusState.Keyboard);
-            }
         }
+    }
+
+    private void UpdateTagStatuses()
+    {
+        foreach (var button in TagContainer.Children.OfType<Button>())
+            if (button.Tag is string name) UpdateTagStatus(button, name);
+    }
+
+    private void UpdateTagStatus(Button button, string name)
+    {
+        var saved = _savedTagNames.Contains(name);
+        var resources = Application.Current.Resources;
+        button.Background = (Brush)resources[saved ? "DesktopSelectedBrush" : "DesktopButtonBrush"];
+        button.BorderBrush = (Brush)resources[saved ? "DesktopAccentBrush" : "DesktopButtonEdgeBrush"];
+        AutomationProperties.SetItemStatus(button, saved ? "已收藏" : "未收藏");
     }
     internal Task ToggleSavedTagAsync(string name)
     {
@@ -333,12 +346,12 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
                 else await _savedTags.SaveTagAsync(name);
                 var saved = await _savedTags.GetAllSavedTagsAsync();
                 if (token.IsCancellationRequested || !IsCurrentNavigation(version, id)) return;
-                _savedTagNames.Clear(); _savedTagNames.UnionWith(saved); RenderTags();
+                _savedTagNames.Clear(); _savedTagNames.UnionWith(saved); UpdateTagStatuses();
             }
             finally { _tagQueue.Release(); _savingTags.Remove(name); }
         });
     }
-    private void OnAppearanceChanged(object? sender, EventArgs args) => RenderTags();
+    private void OnAppearanceChanged(object? sender, EventArgs args) => UpdateTagStatuses();
     private void OnCharactersChanged(object? sender, NotifyCollectionChangedEventArgs args)
         => CharacterSection.Visibility = ViewModel.Characters.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     public static string ActorLabel(IReadOnlyList<VoiceActor> actors) => actors.Count > 0 ? actors[0].Name : "配音资料待补充";

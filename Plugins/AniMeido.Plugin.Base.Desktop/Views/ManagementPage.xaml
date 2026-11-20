@@ -11,7 +11,7 @@
 
     <Page.Resources>
         <!-- 左侧导航项：沿用共用的轻量按钮（悬停出浅底），改为正文色、铺满整行；选中底色由内容里的 Border 显示 -->
-        <Style x:Key="MineNavButtonStyle" TargetType="Button" BasedOn="{StaticResource AniMeidoSubtleButtonStyle}">
+        <Style x:Key="MineNavButtonStyle" TargetType="Button" BasedOn="{StaticResource DesktopSubtleButtonStyle}">
             <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="Padding" Value="0"/>
@@ -25,10 +25,10 @@
                     Click="OnStatusNavClick"
                     AutomationProperties.Name="{x:Bind Label}">
                 <Grid Height="36">
-                    <Border CornerRadius="{ThemeResource DesktopControlRadius}"
+                    <Border Style="{StaticResource DesktopStatusSelectionStyle}"
                             Background="{ThemeResource DesktopSelectedBrush}"
                             Visibility="{x:Bind IsSelected, Mode=OneWay}"/>
-                    <Border Height="{ThemeResource NavigationViewSelectionIndicatorWidth}"
+                    <Border Style="{StaticResource DesktopStatusSelectionMarkerStyle}"
                             HorizontalAlignment="Stretch" VerticalAlignment="Bottom" Margin="12,0"
                             CornerRadius="2"
                             Background="{ThemeResource AccentFillColorDefaultBrush}"
@@ -92,7 +92,7 @@
         <DataTemplate x:Key="MineCardTemplate" x:DataType="vm:MineEntry">
             <controls:AnimeCard Anime="{x:Bind Anime}"
                                 DisplayMode="Poster"
-                                CardWidth="160"
+                                VerticalAlignment="Top"
                                 TrackingStatus="{x:Bind Status}"
                                 ShowMediaFormatBadge="True"
                                 CardClicked="OnAnimeCardClicked"/>
@@ -101,7 +101,7 @@
         <DataTemplate x:Key="TagCardTemplate" x:DataType="vm:PastSeasonEntry">
             <controls:AnimeCard Anime="{x:Bind Anime}"
                                 DisplayMode="Poster"
-                                CardWidth="160"
+                                VerticalAlignment="Top"
                                 TrackingStatus="{x:Bind Status}"
                                 ShowMediaFormatBadge="True"
                                 CardClicked="OnAnimeCardClicked"/>
@@ -203,7 +203,7 @@
 
         <Border Grid.Row="1" BorderBrush="{ThemeResource DesktopLineBrush}" BorderThickness="0,0,0,1" Padding="0,0,0,12">
             <!-- 左侧：五个常用状态平铺，“不想看到”折叠，最后是收藏的标签 -->
-            <ScrollViewer Padding="0,0,0,8" HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+            <controls:DesktopWheelShelf Padding="0,0,0,8" HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <ItemsControl ItemsSource="{x:Bind ViewModel.MainSections}" ItemTemplate="{StaticResource StatusNavTemplate}">
                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="4"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
@@ -218,10 +218,10 @@
                                        VerticalAlignment="Center"
                                        FontSize="12"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <FontIcon x:Name="HiddenChevron"
+                            <controls:DesktopDisclosureChevron x:Name="HiddenChevron"
                                       Grid.Column="1"
                                       FontSize="10"
-                                      Glyph="&#xE70D;"
+                                      IsOpen="{x:Bind ViewModel.IsHiddenExpanded, Mode=OneWay}"
                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </Grid>
                     </Button>
@@ -236,10 +236,10 @@
                             Click="OnTagsNavClick"
                             AutomationProperties.Name="收藏的标签">
                         <Grid Height="36">
-                            <Border CornerRadius="{ThemeResource DesktopControlRadius}"
+                            <Border Style="{StaticResource DesktopStatusSelectionStyle}"
                                     Background="{ThemeResource DesktopSelectedBrush}"
                                     Visibility="{x:Bind ViewModel.IsTagsView, Mode=OneWay}"/>
-                            <Border Height="{ThemeResource NavigationViewSelectionIndicatorWidth}"
+                            <Border Style="{StaticResource DesktopStatusSelectionMarkerStyle}"
                                     HorizontalAlignment="Stretch" VerticalAlignment="Bottom" Margin="12,0"
                                     CornerRadius="2"
                                     Background="{ThemeResource AccentFillColorDefaultBrush}"
@@ -255,7 +255,7 @@
                         </Grid>
                     </Button>
                 </StackPanel>
-            </ScrollViewer>
+            </controls:DesktopWheelShelf>
         </Border>
 
             <!-- 右侧：标题、批量操作栏、列表或网格；标签视图另用一块 -->
@@ -319,7 +319,9 @@
                         <Style TargetType="GridViewItem" BasedOn="{StaticResource DesktopGridViewItemStyle}">
                             <Setter Property="UseSystemFocusVisuals" Value="False"/>
                             <Setter Property="IsTabStop" Value="False"/>
-                            <Setter Property="Margin" Value="0,0,4,8"/>
+                            <Setter Property="Margin" Value="0,0,16,20"/>
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="VerticalContentAlignment" Value="Top"/>
                         </Style>
                     </GridView.ItemContainerStyle>
                 </GridView>
@@ -338,9 +340,9 @@
                       RowDefinitions="Auto,Auto,*"
                       Visibility="{x:Bind ViewModel.IsTagsView, Mode=OneWay}">
                     <!-- 标签宽度不一，放不下时横向滚动 -->
-                    <ScrollViewer Margin="0,0,8,0"
+                    <controls:DesktopWheelShelf Margin="0,0,8,0"
                                   HorizontalScrollMode="Auto"
-                                  HorizontalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Hidden"
                                   VerticalScrollMode="Disabled"
                                   VerticalScrollBarVisibility="Disabled">
                         <ItemsControl ItemsSource="{x:Bind ViewModel.TagList}" ItemTemplate="{StaticResource TagChipTemplate}">
@@ -350,7 +352,7 @@
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                         </ItemsControl>
-                    </ScrollViewer>
+                    </controls:DesktopWheelShelf>
                     <TextBlock Margin="0,12,0,0"
                                TextWrapping="Wrap"
                                Foreground="{ThemeResource AniMeidoMutedTextBrush}"
@@ -378,7 +380,9 @@
                             <Style TargetType="GridViewItem" BasedOn="{StaticResource DesktopGridViewItemStyle}">
                                 <Setter Property="UseSystemFocusVisuals" Value="False"/>
                                 <Setter Property="IsTabStop" Value="False"/>
-                                <Setter Property="Margin" Value="0,0,4,8"/>
+                                <Setter Property="Margin" Value="0,0,16,20"/>
+                                <Setter Property="Padding" Value="0"/>
+                                <Setter Property="VerticalContentAlignment" Value="Top"/>
                             </Style>
                         </GridView.ItemContainerStyle>
                     </GridView>

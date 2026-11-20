@@ -11,6 +11,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using VirtualKey = Windows.System.VirtualKey;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
@@ -37,16 +38,22 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
     private int _loadVersion;
     private int _flyoutYear;
     private int _posterColumns = 1;
-    private double _posterWidth = 150;
+    private double _posterWidth = AnimeCard.PosterWidth;
     private double _scrollOffset;
     private bool _active;
     private bool _syncingControls;
     private bool _layoutQueued;
     private bool _restoreScroll;
+    private bool _scrollRestoreQueued;
+    private readonly DispatcherQueueTimer _settleScrollTimer;
+    private double? _settlingScrollOffset;
     private bool _seasonPending;
     private bool? _detailed;
 
     public PastSeasonViewModel ViewModel { get; }
+    private IReadOnlyList<DesktopCatalogFormatChip> FormatChipSlots { get; } =
+        [new(null, "全部"), .. PastSeasonBrowse.FormatOrder.Select(format =>
+            new DesktopCatalogFormatChip(format, AnimeReleaseClassifier.GetMediaFormatFilterText(format)))];
 
     public PastSeasonPage(IAnimeDataSource dataSource, CacheService cacheService, DragDropService dragDropService,
         TrackingService trackingService, IPluginNavigator pluginNavigator, ILogger<PastSeasonPage> logger)
@@ -58,6 +65,10 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         _logger = logger;
         _selected = LatestSeason();
         InitializeComponent();
+        _settleScrollTimer = Timer(50, FinishScrollRestore);
+        CatalogScroller.AddHandler(PointerWheelChangedEvent, new PointerEventHandler(OnCatalogScrollInput), handledEventsToo: true);
+        CatalogScroller.AddHandler(PointerPressedEvent, new PointerEventHandler(OnCatalogScrollInput), handledEventsToo: true);
+        CatalogScroller.AddHandler(KeyDownEvent, new KeyEventHandler(OnCatalogScrollKey), handledEventsToo: true);
         _seasonTimer = Timer(250, () => _ = LoadAsync());
         _skeletonTimer = Timer(150, () =>
         {
@@ -119,6 +130,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         ViewModel.PropertyChanged += OnViewModelChanged;
         DesktopPresentationPreferences.Changed += OnPreferencesChanged;
         ObserveEntries();
+        UpdateFormatChips();
         _restoreScroll = true;
         QueueLayout();
         _ = ReloadPersonalStateAsync(visit);
@@ -134,6 +146,9 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         if (!_active) return;
         _active = false;
         ++_visit;
+        _scrollRestoreQueued = false;
+        _settleScrollTimer.Stop();
+        _settlingScrollOffset = null;
         CancelLoad();
         _seasonTimer.Stop();
         _skeletonTimer.Stop();
@@ -218,7 +233,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         finally
         {
             if (ReferenceEquals(_loading, cancellation)) _loading = null;
-            if (Current()) { _seasonPending = false; UpdateSeasonHeading(); UpdateLoading(); QueueLayout(); }
+            if (Current()) { _seasonPending = false; UpdateSeasonHeading(); UpdateLoading(); UpdateFormatChips(); QueueLayout(); }
         }
     }
 
@@ -302,6 +317,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
     private void OnViewModelChanged(object? sender, PropertyChangedEventArgs args)
     {
         if (args.PropertyName == nameof(PastSeasonViewModel.Entries)) { ObserveEntries(); QueueLayout(); }
+        if (args.PropertyName == nameof(PastSeasonViewModel.FormatChips)) UpdateFormatChips();
         if (args.PropertyName == nameof(PastSeasonViewModel.SummaryText)) UpdateSeasonHeading();
         if (args.PropertyName is nameof(PastSeasonViewModel.IsLoading) or nameof(PastSeasonViewModel.IsError)) UpdateLoading();
     }
@@ -334,10 +350,18 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         if (_seasonPending || ViewModel.Season != _selected) return;
         var width = CatalogScroller.ViewportWidth > 0 ? CatalogScroller.ViewportWidth : CatalogScroller.ActualWidth;
         if (width <= 0) return;
+        // 空结果只隐藏画面，保留已测量的有效视口；折叠后首次重新显示可能一次实现整个季度。
+        var hasRows = ViewModel.Entries.Count > 0;
+        CatalogRows.Opacity = hasRows ? 1 : 0;
+        CatalogRows.IsHitTestVisible = hasRows;
         var detailed = DesktopPresentationPreferences.UseDetailedCatalogCards;
         if (_detailed != detailed)
         {
             _restoreScroll = true;
+            // 海报行在实现时会改变估算高度。Uno 的纵向锚定会在滚轮途中改写偏移，
+            // 让这次滚动提前结束。海报模式由页面单独恢复导航位置。
+            if (detailed) CatalogScroller.ClearValue(ScrollViewer.VerticalAnchorRatioProperty);
+            else CatalogScroller.VerticalAnchorRatio = double.NaN;
             CatalogRows.ItemsSource = null;
             CatalogRows.ItemTemplate = (DataTemplate)Resources[detailed ? "DesktopDetailedRowTemplate" : "DesktopPosterRowTemplate"];
             _detailed = detailed;
@@ -348,13 +372,15 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
             DesktopCatalogRow.SyncRows(_detailedRows, ViewModel.Entries, twoColumns);
             CatalogRows.ItemsSource = _detailedRows;
             SkeletonLayout.MinItemWidth = twoColumns ? width / 2 : width;
-            SkeletonLayout.MinItemHeight = 330;
+            SkeletonLayout.MinItemHeight = 216;
         }
         else
         {
-            _posterColumns = Math.Max(1, (int)Math.Floor((width + 17) / 153));
-            _posterWidth = Math.Max(92, Math.Floor(width / _posterColumns) - 17);
-            DesktopCatalogPosterRow.SyncRows(_posterRows, ViewModel.Entries, _posterColumns);
+            _posterColumns = Math.Max(1, (int)Math.Floor((width + 16) / (AnimeCard.PosterWidth + 16)));
+            _posterWidth = Math.Min(AnimeCard.PosterWidth, Math.Max(92, width - 16));
+            // 异步模板尚无子控件时也给外层虚拟布局一个行高下限，避免从零开始不断实现离屏行。
+            DesktopCatalogPosterRow.SyncRows(_posterRows, ViewModel.Entries, _posterColumns,
+                Math.Round(_posterWidth * 1.5) + 20);
             CatalogRows.ItemsSource = _posterRows;
             foreach (var card in _visiblePosters) card.CardWidth = _posterWidth;
             SkeletonLayout.MinItemWidth = Math.Floor(width / _posterColumns);
@@ -373,16 +399,71 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
     private void OnCatalogLayoutUpdated(object? sender, object args)
     {
         if (!_active || !_restoreScroll || ViewModel.IsLoading || _seasonPending) return;
-        _restoreScroll = false;
-        CatalogScroller.ChangeView(null, _scrollOffset, null, disableAnimation: true);
+        if (_scrollOffset <= 0)
+        {
+            RestoreCatalogScroll();
+            return;
+        }
+        if (_scrollRestoreQueued) return;
+        var visit = _visit;
+        // 不在首轮 LayoutUpdated 里恢复深处偏移：这轮的虚拟视口仍在发布旧锚点。
+        _scrollRestoreQueued = DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+        {
+            if (!_active || visit != _visit) return;
+            _scrollRestoreQueued = false;
+            if (_restoreScroll && !ViewModel.IsLoading && !_seasonPending) RestoreCatalogScroll();
+        });
     }
+
+    private void RestoreCatalogScroll()
+    {
+        if (_scrollOffset > 0)
+        {
+            // Uno 重挂虚拟列表会在首轮定位后校正估算行高。保留原偏移，稳定后最多补一次。
+            _settlingScrollOffset = _scrollOffset;
+            _settleScrollTimer.Start();
+        }
+        CatalogScroller.ChangeView(null, _scrollOffset, null, disableAnimation: true);
+        _restoreScroll = false;
+    }
+
+    private void FinishScrollRestore()
+    {
+        if (!_active || _settlingScrollOffset is not { } offset) return;
+        _settlingScrollOffset = null;
+        if (_restoreScroll || ViewModel.IsLoading || _seasonPending) return;
+        if (Math.Abs(CatalogScroller.VerticalOffset - offset) > 0.1)
+            CatalogScroller.ChangeView(null, offset, null, disableAnimation: true);
+    }
+
+    private void OnCatalogScrollInput(object sender, PointerRoutedEventArgs args) => YieldScrollRestore();
+
+    private void OnCatalogScrollKey(object sender, KeyRoutedEventArgs args)
+    {
+        if (args.Key is VirtualKey.Up or VirtualKey.Down or VirtualKey.PageUp or VirtualKey.PageDown
+            or VirtualKey.Home or VirtualKey.End)
+            YieldScrollRestore();
+    }
+
+    private void YieldScrollRestore()
+    {
+        if (!_restoreScroll && _settlingScrollOffset is null) return;
+        _restoreScroll = false;
+        _settleScrollTimer.Stop();
+        _settlingScrollOffset = null;
+        _scrollOffset = CatalogScroller.VerticalOffset;
+    }
+
     private void OnCatalogViewChanged(object sender, ScrollViewerViewChangedEventArgs args)
     {
-        if (_active && IsLoaded && !_restoreScroll) _scrollOffset = CatalogScroller.VerticalOffset;
+        if (_active && IsLoaded && !_restoreScroll && _settlingScrollOffset is null)
+            _scrollOffset = CatalogScroller.VerticalOffset;
     }
 
     private void ResetScroll()
     {
+        _settleScrollTimer.Stop();
+        _settlingScrollOffset = null;
         _scrollOffset = 0;
         _restoreScroll = true;
         QueueLayout();
@@ -420,7 +501,21 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         button.IsChecked = true;
         if (chip.IsSelected) return;
         ViewModel.SelectFormat(chip.Format);
+        UpdateFormatChips();
         ResetScroll();
+    }
+
+    private void UpdateFormatChips()
+    {
+        // 过渡期间保留上一批计数和位置，只响应用户选中的形态。新季度到齐后原地更新计数。
+        var loading = _seasonPending || ViewModel.IsLoading;
+        foreach (var slot in FormatChipSlots)
+        {
+            var chip = slot.Chip;
+            var count = loading ? chip.Count
+                : ViewModel.FormatChips.FirstOrDefault(item => item.Format == chip.Format)?.Count ?? 0;
+            slot.Chip = chip with { Count = count, IsSelected = ViewModel.SelectedFormat == chip.Format };
+        }
     }
     private void OnHideCompletedToggled(object sender, RoutedEventArgs args)
     {

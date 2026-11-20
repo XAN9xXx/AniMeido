@@ -25,8 +25,9 @@ public sealed partial class CurrentSeasonPage : Page
     private int _visit;
     private bool _active;
     private bool _refreshing;
-    private bool _arranging;
-    private double _wheelTarget = double.NaN;
+    private DesktopCalendarLayout? _discoveryLayout;
+    private bool _hasPresentedBody;
+    private bool _awaitingInitialLayout;
 
     public CurrentSeasonViewModel ViewModel { get; }
     internal Task PendingActivation { get; private set; } = Task.CompletedTask;
@@ -40,6 +41,7 @@ public sealed partial class CurrentSeasonPage : Page
         _navigator = pluginNavigator;
         _logger = logger;
         InitializeComponent();
+        DiscoverHost.PreparingLayout = PrepareDiscoveryLayout;
         Loaded += OnPageLoaded;
         Unloaded += OnPageUnloaded;
     }
@@ -64,6 +66,7 @@ public sealed partial class CurrentSeasonPage : Page
             await ViewModel.ResumeMainLoadCommand.ExecuteAsync(null);
             await (ViewModel.LoadSeasonalAnimeCommand.ExecutionTask ?? Task.CompletedTask);
             if (!IsCurrent(visit)) return;
+            PresentBodyWhenArranged();
             await _dragDrop.ReloadConfigAsync();
             if (IsCurrent(visit)) await ViewModel.ReloadStatusesAsync();
         }
@@ -86,6 +89,7 @@ public sealed partial class CurrentSeasonPage : Page
         DragOverlay.UnregisterPropertyChangedCallback(VisibilityProperty, _dropVisibilityCallback);
         ViewModel.LoadSeasonalAnimeCommand.Cancel();
         ViewModel.CancelSupplementaryLoads();
+        StopWaitingForInitialLayout();
         LoadingRing.IsActive = false;
         _dropHost?.Dispose();
         _dropHost = null;
@@ -108,6 +112,7 @@ public sealed partial class CurrentSeasonPage : Page
             if (!IsCurrent(visit)) return;
             ViewModel.ResumeSupplementaryLoads();
             await ViewModel.LoadSeasonalAnimeCommand.ExecuteAsync(null);
+            if (IsCurrent(visit)) PresentBodyWhenArranged();
         }
         catch (OperationCanceledException) when (!IsCurrent(visit)) { }
 #pragma warning disable CA1031 // 刷新入口负责显示未知读取失败，已知远端错误由 ViewModel 映射。
@@ -168,7 +173,6 @@ public sealed partial class CurrentSeasonPage : Page
                 UpdateScope();
                 break;
             case nameof(CurrentSeasonViewModel.VisibleEntries):
-                _wheelTarget = double.NaN;
                 ShelfScroller.ChangeView(0, null, null, disableAnimation: true);
                 ResultsScroller.ChangeView(null, 0, null, disableAnimation: true);
                 break;
@@ -177,7 +181,7 @@ public sealed partial class CurrentSeasonPage : Page
                 break;
             case nameof(CurrentSeasonViewModel.DailyPick):
                 UpdateDailyPickCover();
-                ArrangeDiscovery();
+                DiscoverHost.InvalidateMeasure();
                 break;
             case nameof(CurrentSeasonViewModel.IsDailyPickWatching):
                 UpdateDailyPickAction();
@@ -199,11 +203,40 @@ public sealed partial class CurrentSeasonPage : Page
 
     private void UpdateLoading()
     {
-        LoadingOverlay.Visibility = ViewModel.IsLoading || ViewModel.IsError ? Visibility.Visible : Visibility.Collapsed;
-        LoadingRing.IsActive = _active && ViewModel.IsLoading;
-        LoadingRing.Visibility = ViewModel.IsLoading ? Visibility.Visible : Visibility.Collapsed;
+        var loading = !ViewModel.IsError && (ViewModel.IsLoading || !_hasPresentedBody);
+        LoadingOverlay.Visibility = loading || ViewModel.IsError ? Visibility.Visible : Visibility.Collapsed;
+        LoadingRing.IsActive = _active && loading;
+        LoadingRing.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
         LoadingFailedImage.Visibility = ViewModel.IsError ? Visibility.Visible : Visibility.Collapsed;
         LoadingHint.Text = ViewModel.IsError ? $"{ViewModel.ErrorMessage}\n点击重试" : "正在读取…";
+    }
+
+    private void PresentBodyWhenArranged()
+    {
+        if (_hasPresentedBody || _awaitingInitialLayout || ViewModel.IsLoading || ViewModel.IsError) return;
+        // 正文仍正常测量；等最终行列落位再一起显示，避免先画出空列表和横跨两列的时光机。
+        _awaitingInitialLayout = true;
+        BodyScroller.LayoutUpdated += OnInitialBodyLayout;
+        BodyScroller.InvalidateMeasure();
+    }
+
+    private void OnInitialBodyLayout(object? sender, object args)
+    {
+        if (!_active || ViewModel.IsLoading || ViewModel.IsError) return;
+        if (BodyScroller.ActualWidth <= 0 || BodyScroller.ActualHeight <= 0) return;
+        if (ViewModel.IsFiltering ? ResultsScroller.ActualHeight <= 0 : _discoveryLayout is null) return;
+        StopWaitingForInitialLayout();
+        _hasPresentedBody = true;
+        BodyScroller.Opacity = 1;
+        BodyScroller.IsEnabled = true;
+        UpdateLoading();
+    }
+
+    private void StopWaitingForInitialLayout()
+    {
+        if (!_awaitingInitialLayout) return;
+        _awaitingInitialLayout = false;
+        BodyScroller.LayoutUpdated -= OnInitialBodyLayout;
     }
 
     private void UpdateResultSurface()
@@ -216,50 +249,46 @@ public sealed partial class CurrentSeasonPage : Page
         BodyScroller.VerticalScrollMode = filtering ? ScrollMode.Disabled : ScrollMode.Enabled;
         BodyScroller.VerticalScrollBarVisibility = filtering ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto;
         BodyScroller.ChangeView(null, 0, null, disableAnimation: true);
-        ArrangeDiscovery();
+        UpdateBodyHeight();
+        if (filtering) ViewModel.SetDiscoverCapacity(0);
+        else
+        {
+            _discoveryLayout = null;
+            DiscoverHost.InvalidateMeasure();
+        }
     }
 
-    private void OnLayoutSizeChanged(object sender, SizeChangedEventArgs args) => ArrangeDiscovery();
+    private void OnLayoutSizeChanged(object sender, SizeChangedEventArgs args) => UpdateBodyHeight();
 
-    private void ArrangeDiscovery()
+    private void UpdateBodyHeight()
+        => CalendarBodyGrid.Height = ViewModel.IsFiltering ? BodyScroller.ActualHeight : double.NaN;
+
+    private void PrepareDiscoveryLayout(double width)
     {
-        if (_arranging || !_active || BodyScroller.ActualHeight <= 0 || CalendarBodyGrid.ActualWidth <= 0) return;
-        _arranging = true;
-        try
-        {
-            if (ViewModel.IsFiltering)
-            {
-                CalendarBodyGrid.Height = BodyScroller.ActualHeight;
-                ViewModel.SetDiscoverCapacity(0);
-                return;
-            }
-            var layout = DesktopCalendarLayout.Calculate(CalendarBodyGrid.ActualWidth, ViewModel.HasDailyPick);
-            var lowerHeight = DesktopCalendarLayout.PanelHeight * (layout.StackPanels ? 2 : 1)
-                + (layout.StackPanels ? DesktopCalendarLayout.PanelSpacing : 0);
-            CalendarBodyGrid.Height = Math.Max(BodyScroller.ActualHeight,
-                MainPanel.ActualHeight + MainPanel.Margin.Top + DiscoverHost.Margin.Top + lowerHeight);
-            DiscoverHost.RowDefinitions[0].Height = new(DesktopCalendarLayout.PanelHeight);
-            DiscoverHost.RowDefinitions[1].Height = new(layout.StackPanels ? DesktopCalendarLayout.PanelHeight : 0);
-            DiscoverHost.ColumnDefinitions[0].Width = layout.StackPanels ? new(1, GridUnitType.Star) : new(layout.DailyPickWidth);
-            DiscoverHost.ColumnDefinitions[1].Width = new(layout.StackPanels ? 0 : 1, GridUnitType.Star);
-            DiscoverHost.RowSpacing = layout.StackPanels ? DesktopCalendarLayout.PanelSpacing : 0;
-            DiscoverHost.ColumnSpacing = !layout.StackPanels && ViewModel.HasDailyPick ? DesktopCalendarLayout.PanelSpacing : 0;
-            DailyPickPanel.Visibility = ViewModel.HasDailyPick ? Visibility.Visible : Visibility.Collapsed;
-            Grid.SetRow(DiscoverPanel, layout.StackPanels ? 1 : 0);
-            Grid.SetColumn(DiscoverPanel, layout.StackPanels ? 0 : 1);
-            var headerWraps = layout.DiscoverWidth < 700;
-            Grid.SetRow(TimeMachineHeaderActions, headerWraps ? 1 : 0);
-            Grid.SetColumn(TimeMachineHeaderActions, headerWraps ? 0 : 1);
-            Grid.SetColumnSpan(TimeMachineHeaderActions, headerWraps ? 2 : 1);
-            TimeMachineHeader.RowSpacing = headerWraps ? 8 : 0;
-            TimeMachineHeaderActions.HorizontalAlignment = headerWraps ? HorizontalAlignment.Left : HorizontalAlignment.Right;
-            TimeMachineHeaderActions.Orientation = layout.DiscoverWidth < 360 ? Orientation.Vertical : Orientation.Horizontal;
-            TimeMachineHeaderActions.Spacing = layout.DiscoverWidth < 360 ? 4 : 12;
-            TimeMachineLayout.MaximumRowsOrColumns = layout.Columns;
-            TimeMachineLayout.MinItemWidth = DesktopCalendarLayout.TimeMachineMinimumItemWidth(layout.DiscoverWidth, layout.Columns);
-            ViewModel.SetDiscoverCapacity(layout.Capacity);
-        }
-        finally { _arranging = false; }
+        if (ViewModel.IsFiltering) return;
+        var layout = DesktopCalendarLayout.Calculate(width, ViewModel.HasDailyPick);
+        if (_discoveryLayout == layout) return;
+        _discoveryLayout = layout;
+        DiscoverHost.RowDefinitions[0].Height = new(DesktopCalendarLayout.PanelHeight);
+        DiscoverHost.RowDefinitions[1].Height = new(layout.StackPanels ? DesktopCalendarLayout.PanelHeight : 0);
+        DiscoverHost.ColumnDefinitions[0].Width = layout.StackPanels ? new(1, GridUnitType.Star) : new(layout.DailyPickWidth);
+        DiscoverHost.ColumnDefinitions[1].Width = new(layout.StackPanels ? 0 : 1, GridUnitType.Star);
+        DiscoverHost.RowSpacing = layout.StackPanels ? DesktopCalendarLayout.PanelSpacing : 0;
+        DiscoverHost.ColumnSpacing = !layout.StackPanels && ViewModel.HasDailyPick ? DesktopCalendarLayout.PanelSpacing : 0;
+        DailyPickPanel.Visibility = ViewModel.HasDailyPick ? Visibility.Visible : Visibility.Collapsed;
+        Grid.SetRow(DiscoverPanel, layout.StackPanels ? 1 : 0);
+        Grid.SetColumn(DiscoverPanel, layout.StackPanels ? 0 : 1);
+        var headerWraps = layout.DiscoverWidth < 700;
+        Grid.SetRow(TimeMachineHeaderActions, headerWraps ? 1 : 0);
+        Grid.SetColumn(TimeMachineHeaderActions, headerWraps ? 0 : 1);
+        Grid.SetColumnSpan(TimeMachineHeaderActions, headerWraps ? 2 : 1);
+        TimeMachineHeader.RowSpacing = headerWraps ? 8 : 0;
+        TimeMachineHeaderActions.HorizontalAlignment = headerWraps ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+        TimeMachineHeaderActions.Orientation = layout.DiscoverWidth < 360 ? Orientation.Vertical : Orientation.Horizontal;
+        TimeMachineHeaderActions.Spacing = layout.DiscoverWidth < 360 ? 4 : 12;
+        TimeMachineLayout.MaximumRowsOrColumns = layout.Columns;
+        TimeMachineLayout.MinItemWidth = DesktopCalendarLayout.TimeMachineMinimumItemWidth(layout.DiscoverWidth, layout.Columns);
+        ViewModel.SetDiscoverCapacity(layout.Capacity);
     }
 
     private void OnDailyPickDescriptionHostSizeChanged(object sender, SizeChangedEventArgs args)
@@ -294,20 +323,6 @@ public sealed partial class CurrentSeasonPage : Page
     private void OnDayClick(object sender, RoutedEventArgs args)
     {
         if (sender is FrameworkElement { Tag: CalendarDay day }) ViewModel.SelectDay(day.Weekday);
-    }
-
-    private void OnShelfViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
-    {
-        if (!args.IsIntermediate) _wheelTarget = double.NaN;
-    }
-    private void OnShelfPointerWheelChanged(object sender, PointerRoutedEventArgs args)
-    {
-        var wheel = args.GetCurrentPoint(ShelfScroller).Properties;
-        if (wheel.IsHorizontalMouseWheel || wheel.MouseWheelDelta == 0 || ShelfScroller.ScrollableWidth <= 0) return;
-        var from = double.IsNaN(_wheelTarget) ? ShelfScroller.HorizontalOffset : _wheelTarget;
-        _wheelTarget = Math.Clamp(from - wheel.MouseWheelDelta, 0, ShelfScroller.ScrollableWidth);
-        ShelfScroller.ChangeView(_wheelTarget, null, null, disableAnimation: false);
-        args.Handled = true;
     }
 
     private void OnAnimeCardClicked(object? sender, AnimeCardClickedEventArgs args)

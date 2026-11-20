@@ -7,7 +7,8 @@ public sealed class DesktopVisualResourceWiringTests
 {
     [Theory]
     [Trait("Category", "Mechanism")]
-    [InlineData("TodayPage.xaml", "52", "78")]
+    [InlineData("TodayPage.xaml", "56", "84")]
+    [InlineData("TodayPage.xaml", "32", "44")]
     [InlineData("TodayPage.xaml", "48", "68")]
     [InlineData("GlobalSearchPage.xaml", "40", "60")]
     [InlineData("RecommendationPage.xaml", "210", "315")]
@@ -29,7 +30,7 @@ public sealed class DesktopVisualResourceWiringTests
         var candidates = Assert.Single(ReadDesktopPage("RecommendationPage.xaml").Descendants(),
             element => (string?)element.Attribute(xaml + "Name") == "RecommendationCandidates");
         var card = Assert.Single(candidates.Descendants(), element => element.Name.LocalName == "AnimeCard");
-        Assert.Equal("{x:Bind Anime}", (string?)card.Attribute("Anime"));
+        Assert.Equal("{x:Bind Anime, Mode=OneWay}", (string?)card.Attribute("Anime"));
         Assert.Equal("Compact", (string?)card.Attribute("DisplayMode"));
     }
 

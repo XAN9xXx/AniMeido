@@ -51,6 +51,11 @@ internal sealed class ArchiveDetailsViewModel
         return LoadSelectionAsync(selected);
     }
 
+#if UNO_DESKTOP
+    internal Task RefreshSelectionAsync(ArchiveListItem selected)
+        => LoadSelectionAsync(selected, preserveDetails: SelectedArchive?.Archive.AnimeId == selected.Archive.AnimeId);
+#endif
+
     public void ClearSelection()
     {
         var previous = _selection;
@@ -111,14 +116,17 @@ internal sealed class ArchiveDetailsViewModel
         return DrainRetiredAsync(stops);
     }
 
-    private async Task LoadSelectionAsync(ArchiveListItem selected)
+    private async Task LoadSelectionAsync(ArchiveListItem selected, bool preserveDetails = false)
     {
         var previous = _selection;
         var selection = new SelectionRequest(Interlocked.Increment(ref _selectionVersion));
         _selection = selection;
         SelectedArchive = selected;
-        TimelineItems = [];
-        DetailScreenshots = [];
+        if (!preserveDetails)
+        {
+            TimelineItems = [];
+            DetailScreenshots = [];
+        }
 
         // 页面回调可能立即换选中项；先持有本次查询，停止才不会抢先释放它的取消资源。
         using var operation = selection.Operations.Begin();

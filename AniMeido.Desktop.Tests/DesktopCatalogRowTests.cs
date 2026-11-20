@@ -12,7 +12,7 @@ public sealed class DesktopCatalogRowTests
         object[] entries = [new(), new(), new(), new(), new()];
         var rows = new ObservableCollection<DesktopCatalogPosterRow>();
 
-        DesktopCatalogPosterRow.SyncRows(rows, entries, columns: 3);
+        DesktopCatalogPosterRow.SyncRows(rows, entries, columns: 3, minimumHeight: 278);
 
         Assert.Equal(2, rows.Count);
         Assert.Equal(entries.Take(3), rows[0].Entries);
@@ -20,19 +20,21 @@ public sealed class DesktopCatalogRowTests
     }
 
     [Fact]
-    public void PosterRowsRetainTheirIdentityUntilEntriesOrColumnsChange()
+    public void PosterRowsRetainTheirIdentityAndUpdateTheMinimumHeightAtNewWidths()
     {
         object[] entries = [new(), new(), new(), new()];
         var rows = new ObservableCollection<DesktopCatalogPosterRow>();
-        DesktopCatalogPosterRow.SyncRows(rows, entries, columns: 3);
+        DesktopCatalogPosterRow.SyncRows(rows, entries, columns: 3, minimumHeight: 278);
         var first = rows[0];
         var last = rows[1];
-        DesktopCatalogPosterRow.SyncRows(rows, entries.ToArray(), columns: 3);
+        DesktopCatalogPosterRow.SyncRows(rows, entries.ToArray(), columns: 3, minimumHeight: 278);
         Assert.Same(first, rows[0]);
         Assert.Same(last, rows[1]);
 
-        DesktopCatalogPosterRow.SyncRows(rows, entries, columns: 1);
+        DesktopCatalogPosterRow.SyncRows(rows, entries, columns: 1, minimumHeight: 218);
         Assert.Equal(4, rows.Count);
+        Assert.Same(first, rows[0]);
+        Assert.All(rows, row => Assert.Equal(218, row.MinimumHeight));
         Assert.Equal(entries, rows.SelectMany(row => row.Entries));
     }
 
@@ -104,22 +106,28 @@ public sealed class DesktopCatalogRowTests
     }
 
     [Fact]
-    public void AStatusUpdateReplacesOnlyItsRowAndKeepsTheOtherEntries()
+    public void AStatusUpdateChangesOnlyTheMatchingSlot()
     {
         object[] entries = [new(), new(), new(), new()];
         var rows = CreateRows(entries, twoColumns: true);
+        var matching = rows[0];
         var unchanged = rows[1];
         var updatedEntry = new object();
         entries[1] = updatedEntry;
         var changes = 0;
         rows.CollectionChanged += (_, _) => ++changes;
+        var changedSlots = new List<string?>();
+        matching.PropertyChanged += (_, args) => changedSlots.Add(args.PropertyName);
 
         DesktopCatalogRow.SyncRows(rows, entries, twoColumns: true);
 
         Assert.Same(entries[0], rows[0].First);
         Assert.Same(updatedEntry, rows[0].Second);
+        Assert.Same(matching, rows[0]);
         Assert.Same(unchanged, rows[1]);
-        Assert.Equal(1, changes);
+        Assert.Equal(0, changes);
+        Assert.Contains(nameof(DesktopCatalogRow.Second), changedSlots);
+        Assert.DoesNotContain(nameof(DesktopCatalogRow.First), changedSlots);
     }
 
     [Fact]

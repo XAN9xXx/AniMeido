@@ -4,7 +4,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:AniMeido.Plugin.Base.Views.Controls"
-    xmlns:vm="using:AniMeido.Plugin.Base.ViewModels">
+    xmlns:vm="using:AniMeido.Plugin.Base.ViewModels"
+    KeyboardAcceleratorPlacementMode="Hidden">
 
     <Page.KeyboardAccelerators>
         <KeyboardAccelerator Key="F5" Invoked="OnRefreshInvoked"/>
@@ -251,8 +252,12 @@
                                   Click="OnAllScopeClick">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <TextBlock Text="全部"/>
-                            <TextBlock Text="{x:Bind ViewModel.TotalCountText, Mode=OneWay}"
-                                       Opacity="0.7"/>
+                            <Grid>
+                                <TextBlock Text="888" Opacity="0" IsHitTestVisible="False"
+                                           AutomationProperties.AccessibilityView="Raw"/>
+                                <TextBlock Text="{x:Bind ViewModel.TotalCountText, Mode=OneWay}"
+                                           HorizontalAlignment="Right" Opacity="0.7"/>
+                            </Grid>
                         </StackPanel>
                     </ToggleButton>
                     <ToggleButton x:Name="MineScopeButton"
@@ -260,8 +265,12 @@
                                   Click="OnMineScopeClick">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <TextBlock Text="我的"/>
-                            <TextBlock Text="{x:Bind ViewModel.MineCountText, Mode=OneWay}"
-                                       Opacity="0.7"/>
+                            <Grid>
+                                <TextBlock Text="888" Opacity="0" IsHitTestVisible="False"
+                                           AutomationProperties.AccessibilityView="Raw"/>
+                                <TextBlock Text="{x:Bind ViewModel.MineCountText, Mode=OneWay}"
+                                           HorizontalAlignment="Right" Opacity="0.7"/>
+                            </Grid>
                         </StackPanel>
                     </ToggleButton>
                 </StackPanel>
@@ -290,6 +299,8 @@
 
         <ScrollViewer x:Name="BodyScroller"
                       Grid.Row="1"
+                      Opacity="0"
+                      IsEnabled="False"
                       HorizontalScrollMode="Disabled"
                       HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollMode="Enabled"
@@ -297,10 +308,9 @@
                       HorizontalContentAlignment="Stretch"
                       VerticalContentAlignment="Top"
                       SizeChanged="OnLayoutSizeChanged">
-            <Grid x:Name="CalendarBodyGrid" RowDefinitions="Auto,*">
+            <Grid x:Name="CalendarBodyGrid" RowDefinitions="Auto,Auto">
                 <Border x:Name="MainPanel"
                         Grid.Row="0"
-                        SizeChanged="OnLayoutSizeChanged"
                         Style="{StaticResource CalendarPanelStyle}"
                         Padding="16,14,16,12"
                         Margin="0,14,0,0">
@@ -323,15 +333,13 @@
                         </StackPanel>
 
                         <Grid Grid.Row="2">
-                            <!-- 按天：横向一行，滚轮横向滚动。 -->
+                            <!-- 按天：横向一行。 -->
                             <Grid x:Name="ShelfHost">
-                                <ScrollViewer x:Name="ShelfScroller"
+                                <controls:DesktopWheelShelf x:Name="ShelfScroller"
                                               HorizontalScrollMode="Enabled"
                                               HorizontalScrollBarVisibility="Hidden"
                                               VerticalScrollMode="Disabled"
-                                              VerticalScrollBarVisibility="Disabled"
-                                              ViewChanged="OnShelfViewChanged"
-                                              PointerWheelChanged="OnShelfPointerWheelChanged">
+                                              VerticalScrollBarVisibility="Disabled">
                                     <ItemsRepeater x:Name="ShelfRepeater"
                                                    ItemsSource="{x:Bind ViewModel.VisibleEntries, Mode=OneWay}"
                                                    ItemTemplate="{StaticResource ShelfCardTemplate}">
@@ -339,7 +347,7 @@
                                             <StackLayout Orientation="Horizontal"/>
                                         </ItemsRepeater.Layout>
                                     </ItemsRepeater>
-                                </ScrollViewer>
+                                </controls:DesktopWheelShelf>
                             </Grid>
 
                             <!-- 搜索或“我的”：跨星期的结果改为网格，此时关闭正文的外层滚动 -->
@@ -367,12 +375,17 @@
                 </Border>
 
                 <!-- 下方：并排或上下排列，不因尺寸不足隐藏；最少内容由正文滚动保留 -->
-                <Grid x:Name="DiscoverHost"
+                <controls:CalendarDiscoveryGrid x:Name="DiscoverHost"
                       Grid.Row="1"
-                      Margin="0,14,0,0"
-                      RowDefinitions="*,0"
-                      ColumnDefinitions="Auto,*"
-                      SizeChanged="OnLayoutSizeChanged">
+                      Margin="0,14,0,0">
+                    <controls:CalendarDiscoveryGrid.RowDefinitions>
+                        <RowDefinition/>
+                        <RowDefinition Height="0"/>
+                    </controls:CalendarDiscoveryGrid.RowDefinitions>
+                    <controls:CalendarDiscoveryGrid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition/>
+                    </controls:CalendarDiscoveryGrid.ColumnDefinitions>
                     <Border x:Name="DailyPickPanel"
                             Height="272"
                             Style="{StaticResource CalendarPanelStyle}"
@@ -410,7 +423,7 @@
                                         <Border HorizontalAlignment="Right"
                                                 VerticalAlignment="Bottom"
                                                 Padding="6,2"
-                                                CornerRadius="8,0,0,0"
+                                                Style="{StaticResource DesktopDailyPickScoreBadgeStyle}"
                                                 Background="{ThemeResource DesktopAccentBrush}"
                                                 Visibility="{x:Bind ViewModel.HasDailyPickScore, Mode=OneWay}">
                                             <TextBlock Text="{x:Bind ViewModel.DailyPickScoreText, Mode=OneWay}"
@@ -600,13 +613,13 @@
                             </Grid>
                         </Grid>
                     </Border>
-                </Grid>
+                </controls:CalendarDiscoveryGrid>
             </Grid>
         </ScrollViewer>
 
         <Grid Grid.Row="1"
               x:Name="LoadingOverlay"
-              Visibility="Collapsed"
+              Visibility="Visible"
               Background="{ThemeResource DesktopFailedOverlayBrush}"
               Tapped="OnLoadingOverlayTapped">
             <StackPanel HorizontalAlignment="Center"

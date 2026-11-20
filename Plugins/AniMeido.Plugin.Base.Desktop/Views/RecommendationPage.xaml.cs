@@ -10,22 +10,22 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using System.ComponentModel;
-using Windows.System;
 
 namespace AniMeido.Plugin.Base.Views;
 
-public sealed partial class RecommendationPage : Page, INavigationAware
+public sealed partial class RecommendationPage : Page, INavigationAware, IDesktopManualRefresh
 {
     private readonly IPluginNavigator _navigator;
     private readonly ILogger<RecommendationPage> _logger;
     private readonly DesktopPageOperations _operations = new();
-    private readonly HashSet<Border> _candidates = [];
+    private readonly HashSet<AnimeCard> _candidates = [];
     private CancellationTokenSource? _visit;
     private ContentDialog? _dialog;
     private bool _restoring;
     private bool _restorePending;
     private bool _prefetching;
     private int _feedbackDepth;
+    private Task _manualRefresh = Task.CompletedTask;
 
     public RecommendationViewModel ViewModel { get; }
     internal Task PendingActivation { get; private set; } = Task.CompletedTask;
@@ -42,7 +42,6 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         InitializeComponent();
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
-        KeyDown += OnPageKeyDown;
         ShowSection(browse.Section);
     }
 
@@ -54,7 +53,6 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         _visit = new();
         _restorePending = true;
         ViewModel.PropertyChanged += OnViewModelChanged;
-        DesktopPresentationPreferences.AppearanceChanged += OnAppearanceChanged;
         PendingActivation = ActivateAsync(_visit.Token);
     }
 
@@ -68,7 +66,6 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         visit.Dispose();
         ViewModel.Suspend();
         ViewModel.PropertyChanged -= OnViewModelChanged;
-        DesktopPresentationPreferences.AppearanceChanged -= OnAppearanceChanged;
         ManagedImageLoader.Cancel(PreviewCover);
         _candidates.Clear();
         _restorePending = false;
@@ -116,7 +113,6 @@ public sealed partial class RecommendationPage : Page, INavigationAware
             case nameof(RecommendationViewModel.IsLoadingMore):
             case nameof(RecommendationViewModel.HasMoreRecommendations):
             case nameof(RecommendationViewModel.LoadMoreError): UpdateMoreFooter(); break;
-            case nameof(RecommendationViewModel.IsRefreshing): RefreshButton.IsEnabled = !ViewModel.IsRefreshing; break;
             case nameof(RecommendationViewModel.Message):
             case nameof(RecommendationViewModel.HasError):
             case nameof(RecommendationViewModel.RefreshNotice):
@@ -160,22 +156,19 @@ public sealed partial class RecommendationPage : Page, INavigationAware
 
     private void OnCandidateLoaded(object sender, RoutedEventArgs args)
     {
-        if (sender is not Border border) return;
-        _candidates.Add(border);
-        UpdateCandidate(border);
+        if (sender is not AnimeCard card) return;
+        _candidates.Add(card);
+        UpdateCandidate(card);
     }
     private void OnCandidateUnloaded(object sender, RoutedEventArgs args)
     {
-        if (sender is Border border) _candidates.Remove(border);
+        if (sender is AnimeCard card) _candidates.Remove(card);
     }
-    private void UpdateCandidate(Border border)
-        => border.Background = border.Tag is RecommendationItem item && ViewModel.SelectedItem?.Anime.ID == item.Anime.ID
-            ? (Brush)Application.Current.Resources["DesktopSelectedBrush"] : null;
+    private void OnCandidateDataContextChanged(FrameworkElement sender, DataContextChangedEventArgs args)
+        => UpdateCandidate((AnimeCard)sender);
 
-    private void OnAppearanceChanged(object? sender, EventArgs args)
-    {
-        foreach (var candidate in _candidates) UpdateCandidate(candidate);
-    }
+    private void UpdateCandidate(AnimeCard card)
+        => card.IsSelected = card.DataContext is RecommendationItem item && ViewModel.SelectedItem?.Anime.ID == item.Anime.ID;
 
     private void OnSectionButtonClick(object sender, RoutedEventArgs args)
     {
@@ -263,20 +256,23 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         UpdateDesktopRecommendationNavigation();
     }
 
-    internal Task RefreshAsync() => RunActionAsync(async token =>
+    internal Task RefreshAsync(Action<string>? showSuccess = null)
     {
-        if (ViewModel.IsBusy || ViewModel.IsRefreshing) return;
-        if (!await ViewModel.RefreshAsync(token, preferNewBatch: true) || token.IsCancellationRequested) return;
-        ViewModel.BrowseState.VerticalOffset = 0;
-        _restorePending = true;
-        RestoreScroll();
-    }, transient: false);
-    private void OnRefreshClick(object sender, RoutedEventArgs args) => PendingOperation = RefreshAsync();
-    private void OnPageKeyDown(object sender, KeyRoutedEventArgs args)
+        if (!_manualRefresh.IsCompleted || ViewModel.IsBusy || ViewModel.IsRefreshing) return _manualRefresh;
+        return _manualRefresh = RunActionAsync(async token =>
+        {
+            if (!await ViewModel.RefreshAsync(token, preferNewBatch: true) || token.IsCancellationRequested) return;
+            ViewModel.BrowseState.VerticalOffset = 0;
+            _restorePending = true;
+            RestoreScroll();
+        }, showManualRefresh: showSuccess);
+    }
+
+    public bool TryRefreshFromKeyboard(Action<string> showSuccess)
     {
-        if (args.Key != VirtualKey.F5) return;
-        args.Handled = true;
-        PendingOperation = RefreshAsync();
+        if (_visit is null || _dialog is not null) return false;
+        _ = RefreshAsync(showSuccess);
+        return true;
     }
     private void OnSelectedDetailsClick(object sender, RoutedEventArgs args)
     {
@@ -388,31 +384,39 @@ public sealed partial class RecommendationPage : Page, INavigationAware
         }
         finally { if (ReferenceEquals(_dialog, dialog)) _dialog = null; }
     }
-    private Task RunActionAsync(Func<CancellationToken, Task> action, bool serialize = true, bool transient = true)
+    private Task RunActionAsync(Func<CancellationToken, Task> action, bool serialize = true, bool transient = true,
+        Action<string>? showManualRefresh = null)
     {
         if (_visit is not { } visit) return Task.CompletedTask;
-        var operation = ExecuteActionAsync(action, visit.Token, serialize, transient);
+        var operation = ExecuteActionAsync(action, visit.Token, serialize, transient, showManualRefresh);
         _operations.Track(operation);
         return operation;
     }
 
-    private async Task ExecuteActionAsync(Func<CancellationToken, Task> action, CancellationToken token, bool serialize, bool transient)
+    private async Task ExecuteActionAsync(Func<CancellationToken, Task> action, CancellationToken token, bool serialize, bool transient,
+        Action<string>? showManualRefresh)
     {
-        var message = ViewModel.Message;
+        var previous = (ViewModel.Message, ViewModel.RefreshNotice, ViewModel.HasError);
         ++_feedbackDepth;
         try { await ViewModel.RunActionAsync(action, token, serialize); }
         finally
         {
             --_feedbackDepth;
-            if (!token.IsCancellationRequested && message != ViewModel.Message) UpdateStatus(transient);
+            if (!token.IsCancellationRequested && (showManualRefresh is not null
+                || previous != (ViewModel.Message, ViewModel.RefreshNotice, ViewModel.HasError)))
+                UpdateStatus(transient, showManualRefresh);
         }
     }
-    private void UpdateStatus(bool transient = false)
+    private void UpdateStatus(bool transient = false, Action<string>? showManualRefresh = null)
     {
-        if (transient && !string.IsNullOrWhiteSpace(ViewModel.Message) && DesktopFeedback.TryShow(ViewModel.Message, ViewModel.HasError))
+        var message = string.Join(" ", new[] { ViewModel.Message, ViewModel.RefreshNotice }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        var error = ViewModel.HasError || !string.IsNullOrWhiteSpace(ViewModel.RefreshNotice);
+        if (!error && message.Length > 0 && showManualRefresh is not null)
+        { showManualRefresh(message); StatusInfoBar.IsOpen = false; return; }
+        if (transient && message.Length > 0 && DesktopFeedback.TryShow(message, error))
         { StatusInfoBar.IsOpen = false; return; }
-        StatusInfoBar.Message = string.Join(" ", new[] { ViewModel.Message, ViewModel.RefreshNotice }.Where(message => !string.IsNullOrWhiteSpace(message)));
-        StatusInfoBar.Severity = ViewModel.HasError ? InfoBarSeverity.Error : InfoBarSeverity.Informational;
-        StatusInfoBar.IsOpen = !string.IsNullOrWhiteSpace(StatusInfoBar.Message);
+        StatusInfoBar.Message = message;
+        StatusInfoBar.Severity = error ? InfoBarSeverity.Error : InfoBarSeverity.Informational;
+        StatusInfoBar.IsOpen = message.Length > 0;
     }
 }

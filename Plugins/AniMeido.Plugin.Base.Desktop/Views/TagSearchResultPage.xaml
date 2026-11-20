@@ -73,7 +73,7 @@
                     <Style TargetType="GridViewItem" BasedOn="{StaticResource DesktopGridViewItemStyle}">
                         <Setter Property="UseSystemFocusVisuals" Value="False"/>
                         <Setter Property="IsTabStop" Value="False"/>
-                        <Setter Property="Margin" Value="0,0,14,20"/>
+                        <Setter Property="Margin" Value="0,0,16,20"/>
                         <Setter Property="Padding" Value="0"/>
                         <Setter Property="MinWidth" Value="0"/>
                         <Setter Property="MinHeight" Value="0"/>
@@ -82,7 +82,7 @@
                 </GridView.ItemContainerStyle>
                 <GridView.ItemTemplate>
                     <DataTemplate>
-                        <controls:AnimeCard Anime="{Binding}" CardWidth="160" DisplayMode="Poster" ShowQuickActions="False" CardClicked="OnAnimeCardClicked"/>
+                        <controls:AnimeCard Anime="{Binding}" DisplayMode="Poster" ShowQuickActions="False" CardClicked="OnAnimeCardClicked"/>
                     </DataTemplate>
                 </GridView.ItemTemplate>
                 <GridView.Footer>

@@ -10,6 +10,9 @@ public sealed partial class ArchivePage
     private bool? _desktopScreenshotToolsStacked;
     private double _desktopArchiveContentWidth;
 
+    public static string DesktopSidebarRating(double? rating) => rating is { } value ? $"{value:0.0} 分" : "";
+    public static Visibility DesktopSidebarRatingVisibility(double? rating) => rating.HasValue ? Visibility.Visible : Visibility.Collapsed;
+
     private void OnDesktopArchiveSizeChanged(object sender, SizeChangedEventArgs args)
     {
         if (args.NewSize.Width <= 0) return;
@@ -23,7 +26,7 @@ public sealed partial class ArchivePage
         ArchivesPanel.RowSpacing = stacked ? 16 : 0;
 
         ArchivesPanel.ColumnDefinitions[0].Width = stacked
-            ? new GridLength(1, GridUnitType.Star) : new GridLength(240);
+            ? new GridLength(1, GridUnitType.Star) : new GridLength(268);
         ArchivesPanel.ColumnDefinitions[1].Width = stacked
             ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
         ArchivesPanel.RowDefinitions[0].Height = stacked

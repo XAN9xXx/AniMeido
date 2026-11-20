@@ -393,26 +393,20 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Style="{StaticResource DesktopControlTextStyle}" Text="GitHub 仓库"
                                    VerticalAlignment="Center"/>
-                        <Button x:Name="GitHubButton"
-                                Style="{StaticResource DesktopButtonStyle}"
+                        <HyperlinkButton x:Name="GitHubButton"
                                 Grid.Column="1"
                                 VerticalAlignment="Center"
-                                Background="{ThemeResource DesktopFieldBrush}"
-                                CornerRadius="{ThemeResource DesktopControlRadius}"
-                                BorderBrush="{ThemeResource ControlStrokeColorDefault}"
-                                BorderThickness="1"
+                                Padding="6,4"
+                                Foreground="{ThemeResource DesktopAccentBrush}"
+                                AutomationProperties.Name="打开 GitHub 仓库"
                                 Click="OnGitHubClick">
                             <StackPanel Orientation="Horizontal"
-                                        Spacing="6"
-                                        Padding="10,6">
-                                <Image Source="ms-appx:///Assets/GitHub_Invertocat_Black_Clearspace.png"
-                                       Width="18"
-                                       Height="18"
-                                       VerticalAlignment="Center"/>
-                                <TextBlock Style="{StaticResource DesktopEmphasisTextStyle}" Text="XAN9xXx/AniMeido"
+                                        Spacing="8">
+                                <TextBlock Text="XAN9xXx/AniMeido"
                                            VerticalAlignment="Center"/>
+                                <FontIcon Glyph="&#xE8A7;" FontFamily="{ThemeResource SymbolThemeFontFamily}" FontSize="13" VerticalAlignment="Center"/>
                             </StackPanel>
-                        </Button>
+                        </HyperlinkButton>
                     </Grid>
 
                     <Rectangle Height="1"
@@ -427,26 +421,20 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Style="{StaticResource DesktopControlTextStyle}" Text="AniMeido 官网"
                                    VerticalAlignment="Center"/>
-                        <Button x:Name="WebsiteButton"
-                                Style="{StaticResource DesktopButtonStyle}"
+                        <HyperlinkButton x:Name="WebsiteButton"
                                 Grid.Column="1"
                                 VerticalAlignment="Center"
-                                Background="{ThemeResource DesktopFieldBrush}"
-                                CornerRadius="{ThemeResource DesktopControlRadius}"
-                                BorderBrush="{ThemeResource ControlStrokeColorDefault}"
-                                BorderThickness="1"
+                                Padding="6,4"
+                                Foreground="{ThemeResource DesktopAccentBrush}"
+                                AutomationProperties.Name="打开 AniMeido 官网"
                                 Click="OnWebsiteClick">
                             <StackPanel Orientation="Horizontal"
-                                        Spacing="6"
-                                        Padding="10,6">
-                                <Image Source="ms-appx:///Assets/icon.ico"
-                                       Width="18"
-                                       Height="18"
-                                       VerticalAlignment="Center"/>
-                                <TextBlock Style="{StaticResource DesktopEmphasisTextStyle}" Text="animeido.com"
+                                        Spacing="8">
+                                <TextBlock Text="animeido.com"
                                            VerticalAlignment="Center"/>
+                                <FontIcon Glyph="&#xE8A7;" FontFamily="{ThemeResource SymbolThemeFontFamily}" FontSize="13" VerticalAlignment="Center"/>
                             </StackPanel>
-                        </Button>
+                        </HyperlinkButton>
                     </Grid>
                 </StackPanel>
             </Border>

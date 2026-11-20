@@ -71,7 +71,7 @@ public sealed class DesktopSkiaWindowWiringTests
             Assert.Contains(window.Descendants().SelectMany(element => element.Attributes()), attribute =>
                 attribute.Value == "{ThemeResource DesktopNavigationSelected" + state + "Brush}");
         }
-        Assert.Contains("BackgroundTransition", Read("AniMeido.Desktop/Controls/DesktopShellNavigationItem.cs"));
+        Assert.Contains("DesktopButtonSurfaceMotion.Enable", Read("AniMeido.Desktop/Themes/DesktopShellResources.xaml"));
     }
 
     [Theory]

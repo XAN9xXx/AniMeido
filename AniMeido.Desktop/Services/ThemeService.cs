@@ -15,7 +15,7 @@ public sealed class ThemeService : IAsyncDisposable
     private readonly SemaphoreSlim _changes = new(1, 1);
     private readonly ResourceDictionary _resources;
     private readonly Style _nativeToggleSwitchStyle;
-    private readonly UISettings _animationSettings = new();
+    private readonly Func<bool> _readAnimationsEnabled;
     private bool _systemAnimationsEnabled;
     private DesktopAppearanceEditor _appearance;
     private FrameworkElement? _root;
@@ -31,9 +31,15 @@ public sealed class ThemeService : IAsyncDisposable
     private bool? _appliedDark;
 
     public ThemeService(DesktopSettingsStore settings, PlanReminderCoordinator? reminders = null)
+        : this(settings, reminders, ReadMotionPreference())
+    {
+    }
+
+    internal ThemeService(DesktopSettingsStore settings, PlanReminderCoordinator? reminders, Func<bool> readAnimationsEnabled)
     {
         _settings = settings;
         _reminders = reminders;
+        _readAnimationsEnabled = readAnimationsEnabled;
         _appearance = CreateEditor(new());
         var definitions = Application.Current.Resources.MergedDictionaries
             .FirstOrDefault(dictionary => dictionary.ContainsKey("DesktopPageBrush"))
@@ -154,6 +160,19 @@ public sealed class ThemeService : IAsyncDisposable
             _resources[$"ToggleButtonForegroundChecked{state}"] = _resources[disabled ? "DesktopMutedBrush" : "DesktopCheckedButtonTextBrush"];
             _resources[$"ToggleButtonBorderBrushChecked{state}"] = _resources[disabled ? "DesktopTransparentBrush" : "DesktopCheckedButtonEdgeBrush"];
         }
+        foreach (var state in new[] { "Checked", "Indeterminate" })
+        {
+            foreach (var (suffix, brush) in new[]
+            {
+                ("", "DesktopAccentBrush"), ("PointerOver", "DesktopPrimaryButtonHoverBrush"),
+                ("Pressed", "DesktopPrimaryButtonPressedBrush"),
+            })
+            {
+                _resources[$"CheckBoxCheckBackgroundFill{state}{suffix}"] = _resources[brush];
+                _resources[$"CheckBoxCheckBackgroundStroke{state}{suffix}"] = _resources[brush];
+                _resources[$"CheckBoxCheckGlyphForeground{state}{suffix}"] = _resources["DesktopOnAccentBrush"];
+            }
+        }
     }
 
     public event EventHandler<ElementTheme>? ThemeChanged;
@@ -162,7 +181,7 @@ public sealed class ThemeService : IAsyncDisposable
     internal bool HasSettingsSaveFailure => _settingsSaveFailed;
     public DesktopAppearance CurrentAppearance => _appearance.Current;
 
-    public async Task InitializeThemeAsync(FrameworkElement rootElement)
+    public async Task InitializeThemeAsync(FrameworkElement rootElement, Grid? feedbackHost = null)
     {
         ObjectDisposedException.ThrowIf(_disposeTask is not null, this);
         await _changes.WaitAsync();
@@ -177,8 +196,8 @@ public sealed class ThemeService : IAsyncDisposable
                 saved.ShowPlanReminders));
             _root = rootElement;
             _root.ActualThemeChanged += OnActualThemeChanged;
-            _systemAnimationsEnabled = _animationSettings.AnimationsEnabled;
-            if (_root is Grid grid)
+            _systemAnimationsEnabled = _readAnimationsEnabled();
+            if ((feedbackHost ?? rootElement as Grid) is { } grid)
                 _toasts = new DesktopToastPresenter(grid);
             _theme = saved.ThemeSetting switch
             {
@@ -385,13 +404,19 @@ public sealed class ThemeService : IAsyncDisposable
         if (_root is null || _disposeTask is not null)
             return;
         // 从系统设置返回时重新读取；仅变化时通知活动动画，避免切窗时重复遍历整页。
-        var enabled = _animationSettings.AnimationsEnabled;
+        var enabled = _readAnimationsEnabled();
         if (enabled == _systemAnimationsEnabled)
             return;
         _systemAnimationsEnabled = enabled;
         _resources["DesktopMotionEnabled"] = enabled;
         DesktopPresentationPreferences.NotifyAppearanceChanged();
         ThemeChanged?.Invoke(this, _theme);
+    }
+
+    private static Func<bool> ReadMotionPreference()
+    {
+        var settings = new UISettings();
+        return () => settings.AnimationsEnabled;
     }
 
     private void Apply()
@@ -426,6 +451,8 @@ public sealed class ThemeService : IAsyncDisposable
             SetBrush("DesktopListSelectedBrush", classic ? colors.Accent : colors.Selected);
             SetBrush("DesktopListSelectedTextBrush", classic ? "#FFFFFF" : colors.Text);
             SetBrush("DesktopListIndicatorBrush", colors.Accent);
+            SetBrush("DesktopArchiveListIndicatorBrush", classic ? "#FFFFFF" : colors.Accent);
+            _resources["DesktopArchiveListIndicatorWidth"] = paper ? 0d : classic ? 4d : 3d;
             ((Brush)_resources["DesktopListIndicatorBrush"]).Opacity = paper ? 0 : 1;
             SetBrush("DesktopFieldBrush", colors.Field);
             SetBrush("DesktopPlaceholderBrush", colors.Field);
@@ -535,6 +562,9 @@ public sealed class ThemeService : IAsyncDisposable
             SetBrush("DesktopOnAccentBrush", buttonColors.OnPrimary);
             var radius = appearance.VisualStyle switch { DesktopVisualStyle.Fluent10 => 0, DesktopVisualStyle.Paper => 6, _ => 4 };
             _resources["DesktopControlRadius"] = new CornerRadius(radius);
+            _resources["DesktopStatusSelectionMarkerHeight"] = paper ? 0d : 3d;
+            _resources["DesktopScoreBadgeRadius"] = new CornerRadius(paper ? 6 : 0);
+            _resources["DesktopDailyPickScoreBadgeRadius"] = paper ? new CornerRadius(6) : new CornerRadius(8, 0, 0, 0);
             _resources["GridViewItemCornerRadius"] = new CornerRadius(radius);
             _resources["ControlCornerRadius"] = _resources["DesktopControlRadius"];
             _resources["OverlayCornerRadius"] = new CornerRadius(classic ? 0 : paper ? 12 : 8);

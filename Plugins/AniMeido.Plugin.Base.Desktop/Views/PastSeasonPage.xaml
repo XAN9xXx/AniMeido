@@ -12,17 +12,22 @@
 
     <Page.Resources>
         <!-- 形态筛选标签：带本季数量，选中时为强调色 -->
-        <DataTemplate x:Key="FormatChipTemplate" x:DataType="vm:PastSeasonFormatChip">
-            <ToggleButton Tag="{x:Bind}"
-                          IsChecked="{x:Bind IsSelected}"
+        <DataTemplate x:Key="FormatChipTemplate" x:DataType="vm:DesktopCatalogFormatChip">
+            <ToggleButton Tag="{x:Bind Chip, Mode=OneWay}"
+                          IsChecked="{x:Bind Chip.IsSelected, Mode=OneWay}"
+                          IsEnabled="{x:Bind CanSelect, Mode=OneWay}"
                           Click="OnFormatChipClick"
                           CornerRadius="{ThemeResource ControlCornerRadius}"
-                          Padding="12,4"
-                          AutomationProperties.Name="{x:Bind Label}">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBlock Text="{x:Bind Label}"/>
-                    <TextBlock Style="{StaticResource DesktopDataTextStyle}" Text="{x:Bind Count}" Opacity="0.7" VerticalAlignment="Center"/>
-                </StackPanel>
+                          Padding="9,4"
+                          AutomationProperties.Name="{x:Bind Chip.Label}">
+                <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="4">
+                    <TextBlock Text="{x:Bind Chip.Label}"/>
+                    <TextBlock Grid.Column="1" Style="{StaticResource DesktopDataTextStyle}"
+                               Text="{x:Bind Chip.Count, Mode=OneWay}" Opacity="0.7" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                    <!-- 用同字号的数字占位，换季时计数位数变化也不推挤后面的按钮。 -->
+                    <TextBlock Grid.Column="1" Style="{StaticResource DesktopDataTextStyle}" Text="8888" Opacity="0"
+                               IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw"/>
+                </Grid>
             </ToggleButton>
         </DataTemplate>
 
@@ -39,29 +44,29 @@
                                 ShowSeasonDate="True"
                                 Loaded="OnPosterLoaded" Unloaded="OnPosterUnloaded"
                                 CardClicked="OnAnimeCardClicked"
-                                Margin="0,0,17,20"/>
+                                VerticalAlignment="Top" Margin="0,0,16,20"/>
         </DataTemplate>
         <DataTemplate x:Key="DesktopDetailedTemplate" x:DataType="vm:PastSeasonEntry">
-            <controls:AnimeCard Anime="{x:Bind Anime}"
+            <controls:AnimeCard Anime="{Binding Anime, Mode=OneWay}"
                                 DisplayMode="Detailed"
                                 ShowQuickActions="False"
-                                TrackingStatus="{x:Bind Status}"
+                                TrackingStatus="{Binding Status, Mode=OneWay}"
                                 HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                 CardClicked="OnAnimeCardClicked"/>
         </DataTemplate>
         <DataTemplate x:Key="DesktopDetailedRowTemplate" x:DataType="vm:DesktopCatalogRow">
-            <Grid ColumnDefinitions="*,*" ColumnSpacing="24" Margin="0,0,0,24">
-                <ContentPresenter Grid.ColumnSpan="{x:Bind FirstColumnSpan}"
-                                  Content="{x:Bind First}" DataContext="{x:Bind First}" ContentTemplate="{StaticResource DesktopDetailedTemplate}"
+            <Grid x:Name="DetailedRow" ColumnDefinitions="*,*" ColumnSpacing="16" Margin="0,0,0,20">
+                <ContentPresenter Grid.ColumnSpan="{Binding DataContext.FirstColumnSpan, ElementName=DetailedRow}"
+                                  Content="{Binding DataContext.First, ElementName=DetailedRow}" DataContext="{Binding DataContext.First, ElementName=DetailedRow}" ContentTemplate="{StaticResource DesktopDetailedTemplate}"
                                   HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
-                <ContentPresenter Grid.Column="1" Content="{x:Bind Second}" DataContext="{x:Bind Second}"
+                <ContentPresenter Grid.Column="1" Content="{Binding DataContext.Second, ElementName=DetailedRow}" DataContext="{Binding DataContext.Second, ElementName=DetailedRow}"
                                   ContentTemplate="{StaticResource DesktopDetailedTemplate}"
-                                  Visibility="{x:Bind HasSecond}"
+                                  Visibility="{Binding DataContext.HasSecond, ElementName=DetailedRow}"
                                   HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
             </Grid>
         </DataTemplate>
         <DataTemplate x:Key="DesktopPosterRowTemplate" x:DataType="vm:DesktopCatalogPosterRow">
-            <ItemsControl ItemsSource="{x:Bind Entries}">
+            <ItemsControl ItemsSource="{x:Bind Entries}" MinHeight="{x:Bind MinimumHeight, Mode=OneWay}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
@@ -129,7 +134,8 @@
                                            FontSize="12"
                                            VerticalAlignment="Center"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                <FontIcon Glyph="&#xE70D;" FontSize="10" VerticalAlignment="Center"/>
+                                <controls:DesktopDisclosureChevron FontSize="10" VerticalAlignment="Center" PaperOnly="True"
+                                    Flyout="{Binding Flyout, ElementName=SeasonPickerButton}"/>
                             </StackPanel>
                             <Button.Flyout>
                                 <Flyout x:Name="SeasonFlyout" Placement="BottomEdgeAlignedLeft" Opening="OnSeasonFlyoutOpening">
@@ -175,13 +181,13 @@
                     </StackPanel>
 
                     <!-- 形态标签；放不下时横向滚动 -->
-                    <ScrollViewer Grid.Column="1"
+                    <controls:DesktopWheelShelf Grid.Column="1"
                                   HorizontalScrollMode="Auto"
                                   HorizontalScrollBarVisibility="Hidden"
                                   VerticalScrollMode="Disabled"
                                   VerticalScrollBarVisibility="Disabled"
                                   VerticalAlignment="Center">
-                        <ItemsControl ItemsSource="{x:Bind ViewModel.FormatChips, Mode=OneWay}"
+                        <ItemsControl ItemsSource="{x:Bind FormatChipSlots}"
                                       ItemTemplate="{StaticResource FormatChipTemplate}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -189,7 +195,7 @@
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                         </ItemsControl>
-                    </ScrollViewer>
+                    </controls:DesktopWheelShelf>
                 </Grid>
                 </Border>
 
@@ -202,8 +208,7 @@
                     </StackPanel>
                     <ToggleSwitch x:Name="HideCompletedSwitch"
                                   Grid.Column="1"
-                                  OnContent="隐藏看过"
-                                  OffContent="隐藏看过"
+                                  Header="隐藏看过"
                                   MinWidth="0"
                                   VerticalAlignment="Center"
                                   Toggled="OnHideCompletedToggled">

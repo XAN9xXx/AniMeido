@@ -4,8 +4,10 @@ using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
 using Microsoft.Extensions.Logging;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using System.Globalization;
 using System.Text.Json;
 
@@ -13,6 +15,8 @@ namespace AniMeido.Plugin.Base.Views;
 
 public sealed partial class ArchivePage
 {
+    private ArchiveListItem? _presentedArchive;
+    private int _archiveReadingGeneration;
     private void OnArchiveCoverLoaded(object sender, RoutedEventArgs e)
         => _ = ConfigureArchiveCoverAsync(sender as Image);
 
@@ -364,8 +368,15 @@ public sealed partial class ArchivePage
 
     private void OnArchiveDetailsSelectionChanged(ArchiveListItem? selectedArchive, int selectionVersion)
     {
-        EntryList.SelectedItem = null;
-        ApplyTimelineFilter();
+        var previous = _presentedArchive;
+        var changed = previous?.Archive.AnimeId != selectedArchive?.Archive.AnimeId;
+        _presentedArchive = selectedArchive;
+        if (changed)
+        {
+            ++_archiveReadingGeneration;
+            EntryList.SelectedItem = null;
+            ApplyTimelineFilter(preserveOffset: false);
+        }
 
         if (selectedArchive is null)
         {
@@ -382,17 +393,23 @@ public sealed partial class ArchivePage
         ArchiveSelectionEmptyState.Visibility = Visibility.Collapsed;
         ArchiveDetailPanel.Visibility = Visibility.Visible;
         ArchiveTitle.Text = selectedArchive.Archive.TitleSnapshot;
-        ArchiveAnimeMetadata.Text = selectedArchive.Archive.AnimeId < 0 || selectedArchive.Unavailable ? "资料不可用" : "";
+        if (changed || previous?.Unavailable != selectedArchive.Unavailable)
+            ArchiveAnimeMetadata.Text = selectedArchive.Archive.AnimeId < 0 || selectedArchive.Unavailable ? "资料不可用" : "";
         ArchiveRatingText.Text = selectedArchive.RatingText;
         ArchiveStatusText.Text = selectedArchive.StatusText;
         ArchiveTagsText.Text = selectedArchive.Tags.Count == 0
             ? "尚无个人标签"
             : string.Join(" · ", selectedArchive.Tags);
-        ArchiveMarkdownRenderer.Render(ArchiveNotePreview, selectedArchive.Archive.SummaryNote);
-        ArchiveScreenshotStrip.ItemsSource = null;
-        ArchiveScreenshotSection.Visibility = Visibility.Collapsed;
-        ArchiveScreenshotCount.Text = string.Empty;
-        ManagedImageLoader.Cancel(ArchiveHeroCover);
+        if (changed || previous?.Archive.SummaryNote != selectedArchive.Archive.SummaryNote)
+            ArchiveMarkdownRenderer.Render(ArchiveNotePreview, selectedArchive.Archive.SummaryNote);
+        if (changed)
+        {
+            ArchiveScreenshotStrip.ItemsSource = null;
+            ArchiveScreenshotSection.Visibility = Visibility.Collapsed;
+            ArchiveScreenshotCount.Text = string.Empty;
+            ManagedImageLoader.Cancel(ArchiveHeroCover);
+            QueueArchiveTitleReset();
+        }
         if (_pageLifetime is { } lifetime)
         {
             _ = ConfigureHeroCoverAsync(selectedArchive.Archive.AnimeId, selectionVersion, lifetime.Token);
@@ -406,7 +423,9 @@ public sealed partial class ArchivePage
         ArchiveScreenshotSection.Visibility = screenshots.Count > 0
             ? Visibility.Visible
             : Visibility.Collapsed;
-        ArchiveScreenshotStrip.ItemsSource = screenshots.Take(2).ToArray();
+        var visible = screenshots.Take(2).ToArray();
+        if (ArchiveScreenshotStrip.ItemsSource is not IEnumerable<AnimeScreenshot> previous || !previous.SequenceEqual(visible))
+            ArchiveScreenshotStrip.ItemsSource = visible;
     }
 
     private async Task ConfigureHeroCoverAsync(
@@ -448,7 +467,9 @@ public sealed partial class ArchivePage
         SelectionChangedEventArgs e)
         => ApplyTimelineFilter();
 
-    private void ApplyTimelineFilter()
+    private void ApplyTimelineFilter() => ApplyTimelineFilter(preserveOffset: true);
+
+    private void ApplyTimelineFilter(bool preserveOffset)
     {
         if (EntryList is null || ArchiveTimelineFilter is null)
             return;
@@ -460,10 +481,58 @@ public sealed partial class ArchivePage
             3 => "状态变更",
             _ => null,
         };
-        EntryList.ItemsSource = kind is null
+        var items = kind is null
             ? _details.TimelineItems
             : _details.TimelineItems.Where(item => item.Kind == kind).ToArray();
+        if (EntryList.ItemsSource is not IEnumerable<ArchiveTimelineItem> previous || !previous.SequenceEqual(items))
+        {
+            var selected = EntryList.SelectedItem as ArchiveTimelineItem;
+            var generation = _archiveReadingGeneration;
+            ReplaceArchiveListSource(EntryList, items, preserveOffset, () => generation == _archiveReadingGeneration);
+            if (selected is not null)
+                EntryList.SelectedItem = items.FirstOrDefault(item => item == selected
+                    || (item.Entry is not null && item.Entry.EntryId == selected.Entry?.EntryId));
+        }
         UpdateEntryActions();
+    }
+
+    private void QueueArchiveTitleReset()
+    {
+        if (_presentedArchive is null || _pageLifetime is not { } lifetime) return;
+        var visit = _navigationVersion;
+        var generation = _archiveReadingGeneration;
+        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+        {
+            if (!IsNavigationCurrent(visit, lifetime) || generation != _archiveReadingGeneration
+                || _panels.ActivePanel != ArchivePanelKind.Archives) return;
+            // 宽窄布局只移动详情面板所在的格子；两处都用自己的正文滚动区。
+            ArchiveDetailPanel.ChangeView(null, 0, null, disableAnimation: true);
+            FindArchiveScrollViewer(EntryList)?.ChangeView(null, 0, null, disableAnimation: true);
+        });
+    }
+
+    private static void ReplaceArchiveListSource(ListView list, object source, bool preserveOffset = true, Func<bool>? canRestore = null)
+    {
+        var viewer = preserveOffset ? FindArchiveScrollViewer(list) : null;
+        var offset = viewer?.VerticalOffset ?? 0;
+        list.ItemsSource = source;
+        if (offset <= 0 || viewer is null) return;
+        list.DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+        {
+            if (list.IsLoaded && ReferenceEquals(list.ItemsSource, source) && canRestore?.Invoke() != false)
+                viewer.ChangeView(null, Math.Min(offset, viewer.ScrollableHeight), null, disableAnimation: true);
+        });
+    }
+
+    private static ScrollViewer? FindArchiveScrollViewer(DependencyObject parent)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is ScrollViewer viewer) return viewer;
+            if (FindArchiveScrollViewer(child) is { } nested) return nested;
+        }
+        return null;
     }
 
     private void OnEntrySelectionChanged(

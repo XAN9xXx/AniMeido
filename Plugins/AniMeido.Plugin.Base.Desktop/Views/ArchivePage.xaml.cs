@@ -13,7 +13,7 @@ using Microsoft.UI.Xaml.Data;
 
 namespace AniMeido.Plugin.Base.Views;
 
-public sealed partial class ArchivePage : Page, INavigationAware
+public sealed partial class ArchivePage : Page, INavigationAware, IDesktopManualRefresh
 {
     private readonly ArchiveService _archive;
     private readonly ArchiveReviewExporter _reviewExporter;
@@ -40,6 +40,9 @@ public sealed partial class ArchivePage : Page, INavigationAware
     private bool _suppressReviewYearChanged = true;
     private bool _suppressScreenshotSelectionChanged;
     private bool _suppressArchiveSelection;
+    private Task _manualRefresh = Task.CompletedTask;
+    private Task _archiveSelectionRead = Task.CompletedTask;
+    private int _readFailures;
     private int _desktopScreenshotPage;
     private int _desktopScreenshotPageCount = 1;
     internal Task PendingActivation { get; private set; } = Task.CompletedTask;
@@ -131,6 +134,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         _pageLifetime?.Cancel();
         _pageLifetime?.Dispose();
         _pageLifetime = null;
+        _manualRefresh = Task.CompletedTask;
         _dialog?.Hide();
         _panels.CancelInflight();
         _reads.Track(ObserveStopAsync(_details.CancelInflightAsync()));
@@ -168,8 +172,9 @@ public sealed partial class ArchivePage : Page, INavigationAware
 
     private void ReportReadFailure(Exception error)
     {
+        ++_readFailures;
         _logger.LogWarning(error, "Archive read failed");
-        if (_pageLifetime is not null) ShowStatus("读取记录失败，请点刷新再试。", InfoBarSeverity.Warning);
+        if (_pageLifetime is not null) ShowStatus("读取记录失败，按 F5 重试。", InfoBarSeverity.Warning);
     }
 
     private Task<bool> EnsureActivePanelAsync() => _pageLifetime is { } lifetime
@@ -181,7 +186,7 @@ public sealed partial class ArchivePage : Page, INavigationAware
         if (_pageLifetime is null) return;
         switch (panel)
         {
-            case ArchivePanelKind.Archives: ApplyArchiveFilter(); break;
+            case ArchivePanelKind.Archives: ApplyArchiveFilter(refreshDetails: true); break;
             case ArchivePanelKind.Statistics: RenderStatistics(_panels.Statistics!); break;
             case ArchivePanelKind.Review:
                 var review = _panels.Review!;
@@ -190,10 +195,11 @@ public sealed partial class ArchivePage : Page, INavigationAware
         }
     }
 
-    private void ApplyArchiveFilter()
+    private void ApplyArchiveFilter(bool refreshDetails = false)
     {
         if (_pageLifetime is null || ArchiveList is null) return;
-        var selectedId = _details.SelectedArchive?.Archive.AnimeId;
+        var previous = ArchiveList.SelectedItem as ArchiveListItem;
+        var selectedId = previous?.Archive.AnimeId ?? _details.SelectedArchive?.Archive.AnimeId;
         AniMeido.Contracts.Models.AnimeTrackingStatus? status = StatusFilter.SelectedIndex switch
         {
             1 => AniMeido.Contracts.Models.AnimeTrackingStatus.Watching,
@@ -206,17 +212,36 @@ public sealed partial class ArchivePage : Page, INavigationAware
         var filtered = ArchiveBrowse.FilterArchives(_panels.Archives, ArchiveFilter.Text.Trim(), status,
             double.IsNaN(MinimumRatingFilter.Value) ? null : MinimumRatingFilter.Value,
             double.IsNaN(ArchiveYearFilter.Value) ? null : (int?)ArchiveYearFilter.Value);
-        _suppressArchiveSelection = true;
-        try
+        if (ArchiveList.ItemsSource is not IReadOnlyList<ArchiveListItem> existing || !ArchiveRowsMatch(existing, filtered))
         {
-            ArchiveList.ItemsSource = filtered;
-            ArchiveList.SelectedItem = filtered.FirstOrDefault(a => a.Archive.AnimeId == selectedId)
-                ?? (selectedId is null ? filtered.FirstOrDefault() : null);
+            _suppressArchiveSelection = true;
+            try
+            {
+                ReplaceArchiveListSource(ArchiveList, filtered);
+                ArchiveList.SelectedItem = filtered.FirstOrDefault(a => a.Archive.AnimeId == selectedId)
+                    ?? (selectedId is null ? filtered.FirstOrDefault() : null);
+            }
+            finally { _suppressArchiveSelection = false; }
         }
-        finally { _suppressArchiveSelection = false; }
         ArchiveResultCount.Text = $"{filtered.Count} 部";
         ArchiveListEmptyState.Visibility = filtered.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        _ = ReadAsync(() => _details.SelectAsync(ArchiveList.SelectedItem as ArchiveListItem));
+        var selected = ArchiveList.SelectedItem as ArchiveListItem;
+        if (refreshDetails || !ReferenceEquals(previous, selected))
+            _archiveSelectionRead = ReadAsync(() => selected is not null && selected.Archive.AnimeId == selectedId
+                ? _details.RefreshSelectionAsync(selected) : _details.SelectAsync(selected));
+    }
+
+    private static bool ArchiveRowsMatch(IReadOnlyList<ArchiveListItem> previous, IReadOnlyList<ArchiveListItem> next)
+    {
+        if (previous.Count != next.Count) return false;
+        for (var i = 0; i < previous.Count; i++)
+        {
+            var a = previous[i]; var b = next[i];
+            if (a.Archive != b.Archive || a.TrackingStatus != b.TrackingStatus || a.Unavailable != b.Unavailable
+                || a.EntryCount != b.EntryCount || a.ScreenshotCount != b.ScreenshotCount || !a.Tags.SequenceEqual(b.Tags))
+                return false;
+        }
+        return true;
     }
 
     private void OnArchiveSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -229,8 +254,36 @@ public sealed partial class ArchivePage : Page, INavigationAware
         ArchiveFilter.Text = ""; StatusFilter.SelectedIndex = 0;
         MinimumRatingFilter.Value = ArchiveYearFilter.Value = double.NaN; ApplyArchiveFilter();
     }
-    private void OnRefreshClick(object sender, RoutedEventArgs e)
-    { _panels.InvalidateAll(); _ = ReadAsync(async () => await Task.WhenAll(RefreshPendingAsync(), EnsureActivePanelAsync())); }
+    public bool TryRefreshFromKeyboard(Action<string> showSuccess)
+    {
+        if (_pageLifetime is not { } lifetime || _dialog is not null) return false;
+        var version = _navigationVersion;
+        var readingGeneration = _archiveReadingGeneration;
+        if (_manualRefresh.IsCompleted)
+            _manualRefresh = ReadAsync(async () =>
+            {
+                await _operations.DrainAsync();
+                if (!IsNavigationCurrent(version, lifetime)) return;
+                var failures = _readFailures;
+                var panel = _panels.ActivePanel;
+                _panels.InvalidateAll();
+                var load = EnsureActivePanelAsync();
+                await Task.WhenAll(RefreshPendingAsync(), load);
+                if (!await load) return;
+                if (panel == ArchivePanelKind.Archives)
+                    await _archiveSelectionRead;
+                if (IsNavigationCurrent(version, lifetime) && panel == _panels.ActivePanel && failures == _readFailures)
+                {
+                    if (panel == ArchivePanelKind.Archives && readingGeneration == _archiveReadingGeneration)
+                    {
+                        ++_archiveReadingGeneration;
+                        QueueArchiveTitleReset();
+                    }
+                    showSuccess("档案已刷新");
+                }
+            });
+        return true;
+    }
     private void OnSectionButtonClick(object sender, RoutedEventArgs e)
     { if (sender is FrameworkElement { Tag: string tag }) { ShowPanel(tag); _ = ReadAsync(async () => await EnsureActivePanelAsync()); } }
     private void OnReviewYearChanged(NumberBox sender, NumberBoxValueChangedEventArgs e)

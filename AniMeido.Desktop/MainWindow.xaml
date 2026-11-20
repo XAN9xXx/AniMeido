@@ -5,7 +5,7 @@
     xmlns:themes="using:AniMeido.App.Themes"
     Title="AniMeido">
     <Grid x:Name="RootGrid" Background="{ThemeResource DesktopNavigationBrush}"
-          RowDefinitions="48,Auto,*" Loaded="OnShellLoaded" SizeChanged="OnShellSizeChanged">
+          RowDefinitions="48,Auto,*" Loaded="OnShellLoaded" SizeChanged="OnShellSizeChanged" KeyDown="OnShellKeyDown">
         <Grid.Resources>
             <ResourceDictionary>
                 <ResourceDictionary.MergedDictionaries><themes:DesktopShellResources/></ResourceDictionary.MergedDictionaries>
@@ -66,5 +66,6 @@
                 </StackPanel>
             </StackPanel>
         </Grid>
+        <Grid x:Name="FeedbackHost" Grid.Row="2"/>
     </Grid>
 </Window>

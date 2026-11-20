@@ -50,7 +50,7 @@ public sealed partial class RecommendationPage
         var index = ViewModel.Items.IndexOf(selected) + direction;
         if (index < 0 || index >= ViewModel.Items.Count) return;
         ViewModel.SelectedItem = ViewModel.Items[index];
-        CandidateScroll.ChangeView(Math.Max(0, index * 116 - CandidateScroll.ViewportWidth / 2), null, null, true);
+        CandidateScroll.ChangeView(Math.Max(0, index * (AnimeCard.RecommendationCoverWidth + 12) - CandidateScroll.ViewportWidth / 2), null, null, true);
     }
 
     private async void OnDesktopTagPreferenceChanged(object sender, SelectionChangedEventArgs args)

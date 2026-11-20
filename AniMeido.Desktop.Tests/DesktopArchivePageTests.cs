@@ -3,6 +3,7 @@ using AniMeido.Plugin.Base.Models;
 using AniMeido.Plugin.Base.Views;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using System.Reflection;
 using Xunit;
 using static AniMeido.Desktop.Tests.DesktopTodayRecommendationPageTests;
@@ -12,6 +13,150 @@ namespace AniMeido.Desktop.Tests;
 [Collection(UnoHeadlessTestHost.CollectionName)]
 public sealed class DesktopArchivePageTests
 {
+    [Theory]
+    [InlineData(1120, false)]
+    [InlineData(1120, true)]
+    [InlineData(760, false)]
+    [InlineData(760, true)]
+    public Task ArchiveTitleReturnsAfterWorkChangeOrExplicitRefreshWithoutMovingTheList(int width, bool manualRefresh)
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var archive = new ArchiveService(fixture.Factory);
+            var note = LongArchiveNote();
+            for (var i = 1; i <= 32; ++i)
+                await archive.UpsertArchiveAsync(i, $"长档案 {i:D2}", null, note);
+            var page = fixture.Archives(new Source());
+            page.Width = width;
+            page.Height = 660;
+            await page.OnNavigatedToAsync(20);
+            try
+            {
+                await AttachAsync(root, page);
+                await page.PendingActivation;
+                await page.PendingRead;
+                var list = (ListView)page.FindName("ArchiveList");
+                var field = (TextBox)page.FindName("ArchiveFilter");
+                var detail = (ScrollViewer)page.FindName("ArchiveDetailPanel");
+                var title = (TextBlock)page.FindName("ArchiveTitle");
+                field.Text = "长档案";
+                field.Select(1, 2);
+                root.UpdateLayout();
+                var left = Find<ScrollViewer>(list, viewer => viewer.ScrollableHeight > 220);
+                Assert.Equal(width < 1000 ? 1 : 0, Grid.GetRow((Grid)page.FindName("DesktopArchiveDetailPane")));
+                await UnoVisualEvidence.WaitForAsync(() => detail.ScrollableHeight > 220);
+                var topAtRest = title.TransformToVisual(detail).TransformPoint(default).Y;
+                detail.ChangeView(null, 180, null, true);
+                left.ChangeView(null, 200, null, true);
+                await UnoVisualEvidence.WaitForAsync(() => detail.VerticalOffset >= 179 && left.VerticalOffset == 200);
+                await UnoVisualEvidence.CaptureAsync(page, "H-acceptance", $"archive-{width}-{manualRefresh}-middle");
+                if (manualRefresh) await RefreshFromKeyboardAsync(page);
+                else
+                {
+                    list.SelectedItem = list.Items.OfType<ArchiveListItem>().Single(item => item.Archive.AnimeId == 25);
+                    await page.PendingRead;
+                }
+                var target = manualRefresh ? 20 : 25;
+                Assert.Equal($"长档案 {target}", title.Text);
+                await UnoVisualEvidence.WaitForAsync(() =>
+                    detail.VerticalOffset <= .5 && Math.Abs(title.TransformToVisual(detail).TransformPoint(default).Y - topAtRest) <= 1);
+                Assert.Equal(200, left.VerticalOffset);
+                Assert.Equal(target, Assert.IsType<ArchiveListItem>(list.SelectedItem).Archive.AnimeId);
+                Assert.Equal("长档案", field.Text);
+                Assert.Equal(1, field.SelectionStart);
+                Assert.Equal(2, field.SelectionLength);
+                await UnoVisualEvidence.CaptureAsync(page, "H-acceptance", $"archive-{width}-{manualRefresh}-title");
+
+                await WaitForLayoutAsync(page);
+                detail.ChangeView(null, 180, null, true);
+                await UnoVisualEvidence.WaitForAsync(() => detail.VerticalOffset >= 179);
+                await archive.AddEntryAsync(target, DateTimeOffset.Now, 1, "后台新增的记录");
+                await page.OnNavigatedToAsync(null);
+                await page.PendingRead;
+                Assert.Contains(((ListView)page.FindName("EntryList")).Items.OfType<ArchiveTimelineItem>(),
+                    item => item.Entry?.Body == "后台新增的记录");
+                Assert.InRange(detail.VerticalOffset, 179, 181);
+            }
+            finally { await DetachAsync(root, page); await page.PendingRead; }
+        });
+
+    [Fact]
+    public Task ArchiveF5KeepsTheListAndSelectionWhileRefreshingInTheBackground()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var archive = new ArchiveService(fixture.Factory);
+            const int selectedId = 27;
+            for (var i = 1; i <= 32; ++i)
+                await archive.UpsertArchiveAsync(i, $"合成档案 {i} 和一个比较长的中文标题", i == selectedId ? 8.5 : null, "旅途笔记");
+            var page = fixture.Archives(new Source());
+            page.Width = 1120; page.Height = 630;
+            await page.OnNavigatedToAsync(selectedId);
+            try
+            {
+                await AttachAsync(root, page); await page.PendingActivation; await page.PendingRead;
+                root.UpdateLayout();
+                var list = (ListView)page.FindName("ArchiveList");
+                var before = list.ItemsSource;
+                var scroll = Find<ScrollViewer>(list, viewer => viewer.ScrollableHeight > 240);
+                scroll.ChangeView(null, 240, null, true);
+                await UnoVisualEvidence.WaitForAsync(() => scroll.VerticalOffset == 240);
+                await RefreshFromKeyboardAsync(page);
+                Assert.Same(before, list.ItemsSource);
+                Assert.Equal(selectedId, Assert.IsType<ArchiveListItem>(list.SelectedItem).Archive.AnimeId);
+                Assert.Equal(240, scroll.VerticalOffset);
+
+                const string text = "离开前没看到的最新感想";
+                await archive.AddEntryAsync(selectedId, DateTimeOffset.Now, 2, text);
+                await RefreshFromKeyboardAsync(page);
+                var timeline = (ListView)page.FindName("EntryList");
+                Assert.Contains(timeline.Items.OfType<ArchiveTimelineItem>(), entry => entry.Entry?.Body == text);
+                Assert.Equal(selectedId, Assert.IsType<ArchiveListItem>(list.SelectedItem).Archive.AnimeId);
+                await UnoVisualEvidence.WaitForAsync(() => scroll.VerticalOffset == 240);
+                await UnoVisualEvidence.CaptureAsync(page, "B-feedback", "archive-refreshed-keeps-selection");
+            }
+            finally { await DetachAsync(root, page); await page.PendingRead; }
+        });
+
+    private static async Task RefreshFromKeyboardAsync(ArchivePage page)
+    {
+        var completed = 0;
+        Assert.True(page.TryRefreshFromKeyboard(_ => completed++));
+        await page.PendingRead;
+        Assert.Equal(1, completed);
+    }
+
+    [Fact]
+    public Task AFailedArchiveReadDoesNotSendTheManualSuccessFeedback()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            await new ArchiveService(fixture.Factory).UpsertArchiveAsync(1, "已打开的档案", null, LongArchiveNote());
+            var page = fixture.Archives(new Source());
+            await page.OnNavigatedToAsync(1);
+            try
+            {
+                await AttachAsync(root, page);
+                await page.PendingActivation;
+                await page.PendingRead;
+                var detail = (ScrollViewer)page.FindName("ArchiveDetailPanel");
+                await UnoVisualEvidence.WaitForAsync(() => detail.ScrollableHeight > 220);
+                await WaitForLayoutAsync(page);
+                detail.ChangeView(null, 180, null, true);
+                await UnoVisualEvidence.WaitForAsync(() => detail.VerticalOffset >= 179);
+                await fixture.Factory.StopAsync();
+                var successes = 0;
+                Assert.True(page.TryRefreshFromKeyboard(_ => successes++));
+                await page.PendingRead;
+                Assert.Equal(0, successes);
+                var status = (InfoBar)page.FindName("StatusInfoBar");
+                Assert.True(status.IsOpen);
+                Assert.Equal(InfoBarSeverity.Warning, status.Severity);
+                Assert.InRange(detail.VerticalOffset, 179, 181);
+            }
+            finally { await DetachAsync(root, page); await page.PendingRead; }
+        });
+
     [Fact]
     public Task ArchivesDeferReadsUntilMounted()
         => UnoHeadlessTestHost.RunAsync(async _ =>
@@ -53,8 +198,9 @@ public sealed class DesktopArchivePageTests
         {
             await using var fixture = await Fixture.CreateAsync();
             var archive = new ArchiveService(fixture.Factory);
-            await archive.UpsertArchiveAsync(1, "作品1", null, "");
-            await archive.UpsertArchiveAsync(2, "作品2", null, "");
+            await archive.UpsertArchiveAsync(1, "作品1", null, LongArchiveNote());
+            await archive.UpsertArchiveAsync(2, "作品2", null, LongArchiveNote());
+            await archive.UpsertArchiveAsync(3, "作品3", null, LongArchiveNote());
             var late = new TaskCompletionSource<AniMeido.Contracts.Models.Anime?>(TaskCreationOptions.RunContinuationsAsynchronously);
             var page = fixture.Archives(new Source { Detail = (id, _) => id == 1 ? late.Task : Task.FromResult<AniMeido.Contracts.Models.Anime?>(Item(id)) });
             await page.OnNavigatedToAsync(1);
@@ -62,14 +208,37 @@ public sealed class DesktopArchivePageTests
             {
                 await AttachAsync(root, page); await page.PendingActivation; await page.PendingRead;
                 var list = (ListView)page.FindName("ArchiveList");
+                var detail = (ScrollViewer)page.FindName("ArchiveDetailPanel");
+                await UnoVisualEvidence.WaitForAsync(() => detail.ScrollableHeight > 220);
+                detail.ChangeView(null, 120, null, true);
+                await UnoVisualEvidence.WaitForAsync(() => detail.VerticalOffset >= 119);
                 list.SelectedItem = list.Items.OfType<ArchiveListItem>().Single(a => a.Archive.AnimeId == 2);
+                list.SelectedItem = list.Items.OfType<ArchiveListItem>().Single(a => a.Archive.AnimeId == 3);
                 await page.PendingRead;
+                await UnoVisualEvidence.WaitForAsync(() => detail.VerticalOffset <= .5);
+                detail.ChangeView(null, 180, null, true);
+                await UnoVisualEvidence.WaitForAsync(() => detail.VerticalOffset >= 179);
                 late.SetResult(Item(1) with { AirDate = new DateOnly(1999, 1, 1) }); await Task.Delay(20);
-                Assert.Equal("作品2", ((TextBlock)page.FindName("ArchiveTitle")).Text);
+                Assert.Equal("作品3", ((TextBlock)page.FindName("ArchiveTitle")).Text);
                 Assert.DoesNotContain("1999", ((TextBlock)page.FindName("ArchiveAnimeMetadata")).Text);
+                Assert.InRange(detail.VerticalOffset, 179, 181);
             }
             finally { late.TrySetResult(null); await DetachAsync(root, page); await page.PendingRead; }
         });
+
+    private static string LongArchiveNote() => string.Join("\n\n", Enumerable.Range(1, 20)
+        .Select(i => $"第 {i} 段。用较长的真实笔记排版，让正文有足够距离可滚动。"));
+
+    private static Task WaitForLayoutAsync(FrameworkElement element)
+    {
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Assert.True(element.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            element.UpdateLayout();
+            completed.SetResult();
+        }));
+        return completed.Task;
+    }
 
     [Fact]
     public Task ConfirmedArchiveSaveFinishesBeforeReturningRead()

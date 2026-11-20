@@ -4,9 +4,11 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
 using System.Collections.ObjectModel;
+using Windows.System;
 
 namespace AniMeido.Plugin.Base.Views.Controls;
 
@@ -18,7 +20,7 @@ public sealed class DesktopChoice : UserControl
         new PropertyMetadata(-1, OnSelectedIndexChanged));
 
     private readonly ComboBox _native = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
-    private readonly ListBox _segments = new SegmentListBox();
+    private readonly ListBox _segments = new();
     private bool _synchronizing;
 
     public DesktopChoice()
@@ -26,10 +28,10 @@ public sealed class DesktopChoice : UserControl
         IsTabStop = false;
         _segments.Style = (Style)Application.Current.Resources["DesktopSegmentsStyle"];
         _native.ItemsSource = Items;
-        _segments.ItemsSource = Items;
         _native.SelectionChanged += OnSelectionChanged;
         _segments.SelectionChanged += OnSelectionChanged;
-        Items.CollectionChanged += (_, _) => RefreshPresentation();
+        _segments.AddHandler(KeyDownEvent, new KeyEventHandler(OnSegmentKeyDown), handledEventsToo: true);
+        Items.CollectionChanged += (_, _) => RebuildSegments();
         Content = new Grid { Children = { _native, _segments } };
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
@@ -56,6 +58,19 @@ public sealed class DesktopChoice : UserControl
         => DesktopPresentationPreferences.AppearanceChanged -= OnAppearanceChanged;
 
     private void OnAppearanceChanged(object? sender, EventArgs args) => RefreshPresentation();
+
+    private void RebuildSegments()
+    {
+        _synchronizing = true;
+        try
+        {
+            _segments.Items.Clear();
+            foreach (var text in Items)
+                _segments.Items.Add(new ListBoxItem { Content = text });
+        }
+        finally { _synchronizing = false; }
+        RefreshPresentation();
+    }
 
     public void RefreshPresentation()
     {
@@ -88,8 +103,17 @@ public sealed class DesktopChoice : UserControl
         _synchronizing = true;
         try
         {
-            _native.SelectedIndex = SelectedIndex;
-            _segments.SelectedIndex = SelectedIndex;
+            var index = SelectedIndex < Items.Count ? SelectedIndex : -1;
+            if (_native.SelectedIndex != index) _native.SelectedIndex = index;
+            if (_segments.SelectedIndex != index) _segments.SelectedIndex = index;
+            // Uno 的 ListBox 自定义面板收到真实点击后可能只更新索引和 SelectedItem。
+            // 用同一个索引同步保留的选项，确保绘制、读屏和设置值指向同一项。
+            for (var i = 0; i < _segments.Items.Count; i++)
+            {
+                var item = (ListBoxItem)_segments.Items[i];
+                if (item.IsSelected != (i == index))
+                    item.IsSelected = i == index;
+            }
         }
         finally
         {
@@ -106,10 +130,17 @@ public sealed class DesktopChoice : UserControl
         SelectionChanged?.Invoke(this, args);
     }
 
-    // Uno 的普通 ListBox 为字符串创建 ContentPresenter；显式提供可选择的容器。
-    private sealed class SegmentListBox : ListBox
+    private void OnSegmentKeyDown(object sender, KeyRoutedEventArgs args)
     {
-        protected override DependencyObject GetContainerForItemOverride() => new ListBoxItem();
-        protected override bool IsItemItsOwnContainerOverride(object item) => item is ListBoxItem;
+        if (args.Key is not (VirtualKey.Space or VirtualKey.Enter) || _segments.Visibility != Visibility.Visible
+            || !_segments.IsEnabled || XamlRoot is not { } root
+            || FocusManager.GetFocusedElement(root) is not ListBoxItem { IsEnabled: true } item)
+            return;
+
+        // 等宽自定义面板上的 ListBoxItem 可取得焦点，但 Uno 不一定提交空格选择。
+        var index = _segments.Items.IndexOf(item);
+        if (index < 0) return;
+        args.Handled = true;
+        _segments.SelectedIndex = index;
     }
 }

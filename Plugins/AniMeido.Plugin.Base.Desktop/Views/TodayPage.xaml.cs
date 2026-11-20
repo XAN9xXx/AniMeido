@@ -157,6 +157,7 @@ public sealed partial class TodayPage : Page, INavigationAware
     {
         if (args.PropertyName == nameof(TodayViewModel.ErrorMessage)) UpdateError();
         if (args.PropertyName == nameof(TodayViewModel.Plans)) _plans.Close();
+        if (args.PropertyName == nameof(TodayViewModel.PersonalBroadcasts)) ApplyBroadcastWidth(TodayContent.ActualWidth);
     }
 
     private void UpdateError()
@@ -209,9 +210,46 @@ public sealed partial class TodayPage : Page, INavigationAware
         ApplyLayout();
     }
 
+    private void OnBroadcastSizeChanged(object sender, SizeChangedEventArgs args)
+        => ApplyBroadcastWidth(args.NewSize.Width);
+
+    private void OnWeekSizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        var width = args.NewSize.Width;
+        if (width <= 0) return;
+        var layout = (UniformGridLayout)WeekStrip.Layout;
+        // 7 格放不下时优先 4+3，避免单独剩一天。很窄时保留星期和数量的最小阅读宽度。
+        const double usual = 82;
+        const double narrow = 58;
+        var gap = layout.MinColumnSpacing;
+        var columns = width >= 7 * usual + 6 * gap ? 7
+            : width >= 4 * narrow + 3 * gap ? 4 : Math.Max(1, (int)((width + gap) / (narrow + gap)));
+        layout.MaximumRowsOrColumns = columns;
+        layout.MinItemWidth = Math.Min(usual, Math.Max(1, Math.Floor((width - (columns - 1) * gap) / columns) - 1));
+    }
+
+    private void ApplyBroadcastWidth(double width)
+    {
+        if (width <= 0) return;
+        var layout = (UniformGridLayout)PersonalBroadcastList.Layout;
+        const double minimum = 205;
+        var twoColumns = width >= minimum * 2 + layout.MinColumnSpacing;
+        var singleEntry = ViewModel.PersonalBroadcasts.Count == 1;
+        layout.MinItemWidth = Math.Min(width, minimum);
+        PersonalBroadcastList.Width = twoColumns && singleEntry ? (width - layout.MinColumnSpacing) / 2 : width;
+    }
+
+    public static string DesktopWeekDayLabel(bool today, string label) => today ? "今天" : label;
+    public static string DesktopWeekDayCount(int count) => count == 0 ? "—" : $"{count} 部";
+    public static string DesktopWeekDayName(bool today, string label, IReadOnlyList<Anime> entries)
+        => $"{DesktopWeekDayLabel(today, label)}，{entries.Count} 部" + (entries.Count == 0 ? "" : "：" + string.Join("、", entries.Select(item => item.Title)));
+
+    public static string DesktopBrowseInitial(string title)
+        => string.IsNullOrWhiteSpace(title) ? "?" : System.Globalization.StringInfo.GetNextTextElement(title.TrimStart());
+
     private void ApplyLayout()
     {
-        var beside = _width >= 880;
+        var beside = _width >= 1024;
         Grid.SetColumnSpan(BroadcastCard, beside ? 1 : 2);
         Grid.SetRow(PlanCard, beside ? 0 : 1);
         Grid.SetColumn(PlanCard, beside ? 1 : 0);
@@ -300,8 +338,22 @@ public sealed partial class TodayPage : Page, INavigationAware
     private static void ConfigureCover(object sender)
     {
         if (sender is not Image { IsLoaded: true } image) return;
-        if (image.Tag is Anime anime) ManagedImageLoader.ConfigureCover(image, anime.ID, anime.CoverURL, 52);
+        if (image.Tag is Anime anime) ManagedImageLoader.ConfigureCover(image, anime.ID, anime.CoverURL, 56);
         else ManagedImageLoader.Cancel(image);
+    }
+
+    private void OnBrowseCoverLoaded(object sender, RoutedEventArgs args) => ConfigureBrowseCover((Image)sender);
+    private void OnBrowseCoverDataContextChanged(FrameworkElement sender, DataContextChangedEventArgs args) => ConfigureBrowseCover((Image)sender);
+
+    private static void ConfigureBrowseCover(Image image)
+    {
+        if (!image.IsLoaded) return;
+        image.Opacity = 0;
+        if (image.Tag is Anime { CoverURL.Length: > 0 } anime)
+            ManagedImageLoader.ConfigureCover(image, anime.ID, anime.CoverURL, 32,
+                state => image.Opacity = state == ManagedImageLoadState.Loaded ? 1 : 0);
+        else
+            ManagedImageLoader.Cancel(image);
     }
 
     private static TodayPlanEntry? Plan(object sender) => sender is FrameworkElement { Tag: TodayPlanEntry entry } ? entry : null;

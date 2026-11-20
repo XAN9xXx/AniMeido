@@ -12,11 +12,8 @@ public sealed class DesktopShellNavigationItem : ToggleButton
     private readonly TextBlock _caption;
     private readonly FontIcon _icon;
     private readonly Grid _content;
-    private readonly BrushTransition _transition = new() { Duration = TimeSpan.FromMilliseconds(120) };
-    private Border? _surface;
     private Border? _indicator;
     private DesktopVisualStyle _visual;
-    private bool _motion = true;
 
     public DesktopShellNavigationItem(string label, string glyph)
     {
@@ -40,7 +37,6 @@ public sealed class DesktopShellNavigationItem : ToggleButton
     internal void ApplyAppearance(DesktopVisualStyle visual, bool expanded, ResourceDictionary resources)
     {
         _visual = visual;
-        _motion = resources["DesktopMotionEnabled"] is true;
         var classic = visual == DesktopVisualStyle.Fluent10;
         var paper = visual == DesktopVisualStyle.Paper;
         MinHeight = classic || paper ? 44 : 36;
@@ -61,14 +57,12 @@ public sealed class DesktopShellNavigationItem : ToggleButton
     protected override void OnApplyTemplate()
     {
         base.OnApplyTemplate();
-        _surface = GetTemplateChild("NavigationSurface") as Border;
         _indicator = GetTemplateChild("SelectionIndicator") as Border;
         ApplyParts();
     }
 
     private void ApplyParts()
     {
-        if (_surface is not null) _surface.BackgroundTransition = _motion ? _transition : null;
         if (_indicator is null) return;
         _indicator.Width = _visual == DesktopVisualStyle.Paper ? 0 : _visual == DesktopVisualStyle.Fluent10 ? 4 : 3;
         _indicator.Height = _visual == DesktopVisualStyle.Fluent10 ? 24 : 16;

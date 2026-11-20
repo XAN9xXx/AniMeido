@@ -108,6 +108,7 @@ public sealed class DesktopManagedImageLifetimeTests(ITestOutputHelper output)
             var card = new AnimeCard
             {
                 Anime = new Anime(entry.Id, "DPI 变化", null, [], new DateOnly(2026, 1, 1), entry.Url, "简介", 2026, 1),
+                CardWidth = 150,
             };
             var image = (Image)card.FindName("CoverImage");
             var xamlRoot = root.XamlRoot!;

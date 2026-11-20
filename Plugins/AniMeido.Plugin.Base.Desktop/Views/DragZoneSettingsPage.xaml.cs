@@ -2,6 +2,7 @@
 using AniMeido.Plugin.Base.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Extensions.Logging;
+using Microsoft.UI;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -33,8 +34,9 @@ public sealed partial class DragZoneSettingsPage : Page
         _store = featureState; _logger = logger;
         InitializeComponent();
         PreviewFrame.Content = new DragZonePreviewPage();
-        Loaded += (_, _) => { DesktopPresentationPreferences.AppearanceChanged += OnAppearanceChanged; PendingActivation = LoadAsync(); };
-        Unloaded += (_, _) => { ++_visit; DesktopPresentationPreferences.AppearanceChanged -= OnAppearanceChanged; CancelGesture(); };
+        Loaded += (_, _) => PendingActivation = LoadAsync();
+        Unloaded += (_, _) => { ++_visit; CancelGesture(); };
+        ActualThemeChanged += OnAppearanceChanged;
     }
     private async Task LoadAsync()
     {
@@ -68,11 +70,10 @@ public sealed partial class DragZoneSettingsPage : Page
             _visuals.Clear();
             foreach (var zone in _dragZones)
             {
-                var label = new TextBlock { Text = Label(zone.Action), TextWrapping = TextWrapping.Wrap,
-                    Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"], Margin = new(8), IsHitTestVisible = false };
+                var label = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new(8), IsHitTestVisible = false };
                 var visual = new Border { Child = label, Tag = zone.Id, CornerRadius = new(8), BorderThickness = new(2),
-                    Background = (Brush)Application.Current.Resources["DesktopSelectedBrush"], BorderBrush = (Brush)Application.Current.Resources["DesktopAccentBrush"],
                     IsTabStop = true };
+                ApplyZonePalette(visual, zone.Action);
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(visual, $"{zone.Label}，用方向键移动，Shift 加方向键调整大小，回车切换动作");
                 visual.PointerPressed += OnZonePressed; visual.PointerMoved += OnZoneMoved;
                 visual.PointerReleased += OnZoneReleased; visual.PointerCanceled += (_, _) => CancelGesture();
@@ -100,17 +101,51 @@ public sealed partial class DragZoneSettingsPage : Page
             visual.Height = PreviewCanvas.ActualHeight * zone.HeightPercent;
             Canvas.SetLeft(visual, PreviewCanvas.ActualWidth * zone.XPercent);
             Canvas.SetTop(visual, PreviewCanvas.ActualHeight * zone.YPercent);
-            ((TextBlock)visual.Child).Text = Label(zone.Action);
         }
     }
-    private void OnAppearanceChanged(object? sender, EventArgs args)
+    private void OnAppearanceChanged(FrameworkElement sender, object args)
     {
-        foreach (var visual in _visuals.Values)
+        foreach (var zone in _dragZones)
+            if (_visuals.TryGetValue(zone.Id, out var visual)) ApplyZonePalette(visual, zone.Action);
+    }
+
+    private void ApplyZonePalette(Border visual, DragAction action)
+    {
+        var dark = ActualTheme == ElementTheme.Dark;
+        // 每种动作有独立色相；前景根据实底选择，避免旧预览浅色底上的白字。
+        var (fill, edge) = (action, dark) switch
         {
-            visual.Background = (Brush)Application.Current.Resources["DesktopSelectedBrush"];
-            visual.BorderBrush = (Brush)Application.Current.Resources["DesktopAccentBrush"];
-            ((TextBlock)visual.Child).Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"];
-        }
+            (DragAction.Watching, false)      => (0xDAE8FCu, 0x4078BFu),
+            (DragAction.Watching, true)       => (0x293E5Bu, 0x86B6F1u),
+            (DragAction.PlanToWatch, false)   => (0xD8EFDFu, 0x418459u),
+            (DragAction.PlanToWatch, true)    => (0x284638u, 0x8AC79Fu),
+            (DragAction.NotInterested, false) => (0xF9E1DFu, 0xAA5550u),
+            (DragAction.NotInterested, true) => (0x542E30u, 0xE3A19Cu),
+            (DragAction.Following, false)     => (0xF6E8CDu, 0x986826u),
+            (DragAction.Following, true)      => (0x4B3B23u, 0xE7B666u),
+            (DragAction.Completed, false)     => (0xEDE1F9u, 0x8259A2u),
+            (DragAction.Completed, true)      => (0x422E54u, 0xBB9DDBu),
+            (DragAction.Dropped, false)       => (0xECEFF2u, 0x697883u),
+            (DragAction.Dropped, true)        => (0x323B42u, 0x9EAAB4u),
+            (DragAction.Blocked, false)       => (0xD6D9DDu, 0x545D68u),
+            (DragAction.Blocked, true)        => (0x24272Du, 0xA5ADBBu),
+            _ => (dark ? 0x30302Eu : 0xEEECE7u, dark ? 0x757570u : 0x888780u),
+        };
+        visual.Background = Paint(fill);
+        visual.BorderBrush = Paint(edge);
+        var label = (TextBlock)visual.Child;
+        label.Text = Label(action);
+        label.Foreground = action == DragAction.None
+            ? Paint(dark ? 0xC2C0B9u : 0x595952u)
+            : new SolidColorBrush(dark ? Colors.White : Colors.Black);
+    }
+
+    private static SolidColorBrush Paint(uint rgb)
+        => new(Windows.UI.Color.FromArgb(255, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb));
+
+    private void UpdateZoneAction(DragZoneConfig zone)
+    {
+        if (_visuals.TryGetValue(zone.Id, out var visual)) ApplyZonePalette(visual, zone.Action);
     }
     private static string Edge(Border visual, Point point)
         => (point.Y <= 10 ? "top" : point.Y >= visual.ActualHeight - 10 ? "bottom" : "")
@@ -183,7 +218,7 @@ public sealed partial class DragZoneSettingsPage : Page
     {
         if (_dragZones.FirstOrDefault(z => z.Id == id) is not { } zone) return;
         zone.Action = (DragAction)(((int)zone.Action + 1) % Enum.GetValues<DragAction>().Length);
-        PositionZones();
+        UpdateZoneAction(zone);
         if (ZoneConfigList.ItemsSource is ZoneRow[] rows && rows.FirstOrDefault(r => r.Id == id) is { } row) row.ActionIndex = (int)zone.Action;
         _ = QueueSaveAsync();
     }
@@ -191,7 +226,7 @@ public sealed partial class DragZoneSettingsPage : Page
     {
         if (_applying || !IsLoaded || sender is not ComboBox { DataContext: ZoneRow row } combo || combo.SelectedIndex < 0) return;
         if (_dragZones.FirstOrDefault(z => z.Id == row.Id) is not { } zone || (int)zone.Action == combo.SelectedIndex) return;
-        zone.Action = (DragAction)combo.SelectedIndex; PositionZones(); _ = QueueSaveAsync();
+        zone.Action = (DragAction)combo.SelectedIndex; UpdateZoneAction(zone); _ = QueueSaveAsync();
     }
     private void OnAddZone(object sender, RoutedEventArgs e)
     { _dragZones.Add(new() { Label = $"区域 {_dragZones.Count + 1}", XPercent = 0.3, YPercent = 0.3 }); Rebuild(); _ = QueueSaveAsync(); }

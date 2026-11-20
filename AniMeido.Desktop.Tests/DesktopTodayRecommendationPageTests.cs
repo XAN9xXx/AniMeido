@@ -776,10 +776,11 @@ public sealed class DesktopTodayRecommendationPageTests
         internal Func<int, CancellationToken, Task<Anime?>> Detail { get; set; } = (id, _) => Task.FromResult<Anime?>(Item(id));
         internal Func<int, CancellationToken, Task<List<CharacterRole>>> Characters { get; set; } = (_, _) => Task.FromResult(new List<CharacterRole>());
         internal Func<int, CancellationToken, Task<List<Anime>>> Schedule { get; set; } = (_, _) => Task.FromResult(new List<Anime>());
+        internal Func<CancellationToken, Task<List<Anime>>> Seasonal { get; set; } = _ => Task.FromResult(new List<Anime>());
         internal Func<int, CancellationToken, Task<List<Tag>>> Tags { get; set; } = (_, _) => Task.FromResult(new List<Tag>());
         internal Func<int, string?, CancellationToken, Task<(List<Anime>, int)>> Search { get; init; } = (_, _, _) => Task.FromResult((new List<Anime>(), 0));
         public Task<List<Anime>> GetCurrentBroadcastScheduleAsync(CancellationToken ct) => Schedule(++ScheduleCalls, ct);
-        public Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct) => Task.FromResult(new List<Anime>());
+        public Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct) => Seasonal(ct);
         public Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct) { DetailCalls++; return Detail(animeID, ct); }
         public Task<List<Tag>> GetTagsAsync(int animeID, CancellationToken ct) => Tags(++TagCalls, ct);
         public Task<List<Studio>> GetStudioAsync(int animeID, CancellationToken ct) => Task.FromResult(new List<Studio>());

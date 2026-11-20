@@ -147,7 +147,7 @@ namespace AniMeido.App
 
             if (_window.Content is FrameworkElement root)
             {
-                _themeStartup = provider.GetRequiredService<ThemeService>().InitializeThemeAsync(root);
+                _themeStartup = provider.GetRequiredService<ThemeService>().InitializeThemeAsync(root, _window.FeedbackSurface);
                 await _themeStartup;
             }
             if (_shutdownStarted)

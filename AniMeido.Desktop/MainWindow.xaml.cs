@@ -6,6 +6,7 @@ using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 
 namespace AniMeido.App;
@@ -35,6 +36,7 @@ public sealed partial class MainWindow : Window
     private IReadOnlyList<LegacyInstallation> _legacyInstallations = [];
 
     internal TaskCompletionSource DataReady { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    internal Grid FeedbackSurface => FeedbackHost;
 
     internal MainWindow(PluginContributionRegistry pluginContributions, NavigationService navigationService,
         ThemeService themeService, StartupDialogCoordinator dialogs, MainWindowDragDropAdapter dragDropAdapter,
@@ -70,6 +72,12 @@ public sealed partial class MainWindow : Window
 
     private async void OnShellLoaded(object sender, RoutedEventArgs args) => await StartAsync();
     private async void OnRetryMigrationClick(object sender, RoutedEventArgs args) => await StartAsync();
+
+    private void OnShellKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        if (!_isClosing)
+            DesktopManualRefreshShortcut.Handle(ContentFrame, args, message => _theme.ShowFeedback(message));
+    }
 
     private Task StartAsync()
     {

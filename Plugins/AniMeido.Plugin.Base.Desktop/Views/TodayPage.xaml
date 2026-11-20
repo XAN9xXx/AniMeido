@@ -32,41 +32,44 @@
         </Style>
         <!-- 今天的个人相关放送：封面、标题、个人状态与放送星期；日历接口不提供简介 -->
         <DataTemplate x:Key="BroadcastEntryTemplate" x:DataType="vm:TodayAnimeEntry">
-            <Button Tag="{x:Bind Anime}" Click="OnAnimeButtonClick" Style="{StaticResource TodayTileButtonStyle}">
-                <Grid ColumnDefinitions="52,*" ColumnSpacing="11">
-                    <Border Width="52" Height="78" CornerRadius="{ThemeResource DesktopCoverRadius}" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}">
+            <Button Tag="{x:Bind Anime}" Click="OnAnimeButtonClick" Style="{StaticResource TodayTileButtonStyle}"
+                    AutomationProperties.Name="{x:Bind Anime.Title}">
+                <Grid ColumnDefinitions="56,*" ColumnSpacing="11">
+                    <Border Width="56" Height="84" CornerRadius="{ThemeResource DesktopCoverRadius}" Background="{ThemeResource AniMeidoPlaceholderBackgroundBrush}">
                         <Image Tag="{x:Bind Anime}" Stretch="UniformToFill" Loaded="OnCoverLoaded" DataContextChanged="OnCoverDataContextChanged" Unloaded="OnCoverUnloaded"/>
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
                         <TextBlock Text="{x:Bind Anime.Title}" Style="{StaticResource DesktopEmphasisTextStyle}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"/>
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="{x:Bind Badge}" Visibility="{x:Bind HasBadge}" Style="{StaticResource DesktopDataTextStyle}"/>
-                            <TextBlock Text="{x:Bind Subtitle}" Style="{StaticResource DesktopDataTextStyle}" VerticalAlignment="Center"/>
-                        </StackPanel>
+                        <TextBlock Text="{x:Bind Badge}" Visibility="{x:Bind HasBadge}" Style="{StaticResource DesktopDataTextStyle}"/>
+                        <TextBlock Text="{x:Bind Subtitle}" Style="{StaticResource DesktopDataTextStyle}" TextWrapping="Wrap"/>
                     </StackPanel>
                 </Grid>
             </Button>
         </DataTemplate>
 
-        <!-- 本周条带的一天：今天用强调色描边 -->
+        <!-- 同一标记在暖纸使用暖灰，在 Fluent 使用主题蓝色。 -->
         <DataTemplate x:Key="BroadcastDayTemplate" x:DataType="vm:TodayBroadcastDay">
-            <Grid MinHeight="118">
-                <Border Style="{StaticResource TodayTileStyle}">
-                    <StackPanel Spacing="2">
-                        <TextBlock Text="{x:Bind Label}" Style="{StaticResource DesktopEmphasisDataTextStyle}" Foreground="{ThemeResource DesktopTextBrush}"/>
-                        <TextBlock Text="{x:Bind CountText}" Visibility="{x:Bind IsToday}" Style="{StaticResource DesktopDataTextStyle}" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
-                        <TextBlock Text="{x:Bind CountText}" Visibility="{x:Bind IsOtherDay}" Style="{StaticResource DesktopDataTextStyle}"/>
+            <Grid MinHeight="68" AutomationProperties.Name="{x:Bind views:TodayPage.DesktopWeekDayName(IsToday, Label, Items)}">
+                <Border Style="{StaticResource TodayTileStyle}"/>
+                <Border x:Name="TodayHighlight" CornerRadius="4" BorderThickness="1"
+                        Background="{ThemeResource DesktopCalendarSelectedBrush}" BorderBrush="{ThemeResource DesktopCalendarSelectedEdgeBrush}"
+                        Visibility="{x:Bind IsToday}" IsHitTestVisible="False"/>
+                    <StackPanel Spacing="2" Margin="5">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="3">
+                            <TextBlock Text="{x:Bind views:TodayPage.DesktopWeekDayLabel(IsToday, Label)}" Style="{StaticResource DesktopEmphasisDataTextStyle}"/>
+                            <TextBlock Grid.Column="1" Text="{x:Bind views:TodayPage.DesktopWeekDayCount(Items.Count)}"
+                                       Style="{StaticResource DesktopDataTextStyle}"/>
+                        </Grid>
                         <ItemsControl ItemsSource="{x:Bind PreviewTitles}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="x:String">
-                                    <TextBlock Text="{x:Bind}" Style="{StaticResource DesktopDataTextStyle}" MaxLines="1" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{x:Bind}" AutomationProperties.Name="{x:Bind}" Style="{StaticResource DesktopDataTextStyle}"
+                                               TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                         <TextBlock Text="{x:Bind MoreText}" Visibility="{x:Bind HasMore}" Style="{StaticResource DesktopDataTextStyle}"/>
                     </StackPanel>
-                </Border>
-                <Border CornerRadius="4" BorderThickness="1" BorderBrush="{ThemeResource AccentFillColorDefaultBrush}" Visibility="{x:Bind IsToday}" IsHitTestVisible="False"/>
             </Grid>
         </DataTemplate>
 
@@ -95,29 +98,28 @@
             </Grid>
         </DataTemplate>
 
-        <!-- 补番计划行：整行是进入详情的按钮，操作按钮叠放在行上（不嵌套），各自处理点击。
-             宽行的按钮在行尾，行按钮右侧留出按钮区；紧凑行的按钮在底部，行按钮下方留出按钮区。 -->
         <DataTemplate x:Key="PlanRowCompactTemplate" x:DataType="vm:TodayPlanEntry">
-            <Border x:Name="CardPackFace" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" Padding="0,14">
-                <Grid ColumnDefinitions="56,*" ColumnSpacing="10">
+            <Border x:Name="CardPackFace" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" Padding="0,8">
+                <Grid ColumnDefinitions="48,*,Auto" ColumnSpacing="8">
                     <TextBlock Text="{x:Bind views:TodayPage.DesktopPlanDate(Plan.TargetStartDate)}" Style="{StaticResource DesktopEmphasisDataTextStyle}" Margin="0,4,0,0"/>
                     <StackPanel Grid.Column="1" Spacing="4">
-                        <Button Tag="{x:Bind}" Click="OnPlanDetailsClick" Style="{StaticResource TodayTileButtonStyle}" Padding="0" AutomationProperties.Name="{x:Bind Title}">
+                        <Button Tag="{x:Bind}" Click="OnPlanDetailsClick" Style="{StaticResource DesktopSubtleButtonStyle}" Padding="0,2"
+                                MinHeight="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" AutomationProperties.Name="{x:Bind Title}">
                             <TextBlock Text="{x:Bind Title}" Style="{StaticResource DesktopEmphasisTextStyle}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"/>
                         </Button>
                         <TextBlock Text="{x:Bind Meta}" Visibility="{x:Bind HasNormalMeta}" Style="{StaticResource DesktopDataTextStyle}" TextWrapping="Wrap"/>
                         <TextBlock Text="{x:Bind Meta}" Visibility="{x:Bind HasOverdueMeta}" Style="{StaticResource DesktopDataTextStyle}" TextWrapping="Wrap" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Content="调整计划" Tag="{x:Bind}" Click="OnEditPlanClick" Style="{StaticResource AniMeidoNavigateButtonStyle}" Padding="0,2" FontSize="{ThemeResource DesktopControlTextSize}"/>
-                            <DropDownButton Content="提醒" Padding="6,2" FontSize="{ThemeResource DesktopControlTextSize}" Visibility="Collapsed" Loaded="OnDesktopReminderLoaded" Unloaded="OnDesktopReminderUnloaded">
-                                <DropDownButton.Flyout>
-                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
-                                        <MenuFlyoutItem Text="添加提醒" Tag="{x:Bind}" Click="OnAddReminderClick"/>
-                                        <MenuFlyoutItem Text="管理提醒" Tag="{x:Bind}" Click="OnManageRemindersClick"/>
-                                    </MenuFlyout>
-                                </DropDownButton.Flyout>
-                            </DropDownButton>
-                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Spacing="4" VerticalAlignment="Center">
+                        <Button Content="调整计划" Tag="{x:Bind}" Click="OnEditPlanClick" Style="{StaticResource DesktopSmallActionButtonStyle}"/>
+                        <DropDownButton Content="提醒" Padding="6,2" FontSize="{ThemeResource DesktopControlTextSize}" Visibility="Collapsed" Loaded="OnDesktopReminderLoaded" Unloaded="OnDesktopReminderUnloaded">
+                            <DropDownButton.Flyout>
+                                <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                    <MenuFlyoutItem Text="添加提醒" Tag="{x:Bind}" Click="OnAddReminderClick"/>
+                                    <MenuFlyoutItem Text="管理提醒" Tag="{x:Bind}" Click="OnManageRemindersClick"/>
+                                </MenuFlyout>
+                            </DropDownButton.Flyout>
+                        </DropDownButton>
                     </StackPanel>
                 </Grid>
             </Border>
@@ -137,8 +139,20 @@
         </DataTemplate>
 
         <DataTemplate x:Key="BrowseEntryTemplate" x:DataType="vm:TodayBrowseEntry">
-            <Button Tag="{x:Bind Anime}" Click="OnAnimeButtonClick" FontSize="{ThemeResource DesktopControlTextSize}" Padding="9,4" MaxWidth="220">
-                <TextBlock Text="{x:Bind Anime.Title}" Style="{StaticResource DesktopControlTextStyle}" MaxLines="1" TextTrimming="CharacterEllipsis"/>
+            <Button Tag="{x:Bind Anime}" Click="OnAnimeButtonClick" Style="{StaticResource TodayTileButtonStyle}"
+                    Padding="8" Width="196" AutomationProperties.Name="{x:Bind Anime.Title}">
+                <Grid ColumnDefinitions="32,*" ColumnSpacing="8">
+                    <Border Width="32" Height="44" CornerRadius="{ThemeResource DesktopCoverRadius}" Background="{ThemeResource DesktopPlaceholderBrush}">
+                        <Grid>
+                            <TextBlock x:Name="BrowseInitial" Text="{x:Bind views:TodayPage.DesktopBrowseInitial(Anime.Title)}"
+                                       Style="{StaticResource DesktopEmphasisTextStyle}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <Image x:Name="BrowseCover" Tag="{x:Bind Anime}" Stretch="UniformToFill" Opacity="0"
+                                   Loaded="OnBrowseCoverLoaded" DataContextChanged="OnBrowseCoverDataContextChanged" Unloaded="OnCoverUnloaded"/>
+                        </Grid>
+                    </Border>
+                    <TextBlock x:Name="BrowseTitle" Grid.Column="1" Text="{x:Bind Anime.Title}" Style="{StaticResource DesktopControlTextStyle}"
+                               VerticalAlignment="Center" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"/>
+                </Grid>
             </Button>
         </DataTemplate>
     </Page.Resources>
@@ -177,23 +191,27 @@
                             <Button Grid.Column="2" Content="放送日历" Style="{StaticResource AniMeidoNavigateButtonStyle}" FontSize="12" Padding="0,2" VerticalAlignment="Center" Click="OnCalendarClick"/>
                         </Grid>
 
-                        <Grid x:Name="TodayContent" Grid.Row="1" Grid.ColumnSpan="2" VerticalAlignment="Center">
+                        <Grid x:Name="TodayContent" Grid.Row="1" Grid.ColumnSpan="2" VerticalAlignment="Center" SizeChanged="OnBroadcastSizeChanged">
                             <Grid MinHeight="80" Visibility="{x:Bind ViewModel.HasNoBroadcasts, Mode=OneWay}">
                                 <StackPanel VerticalAlignment="Center" Spacing="5">
                                     <TextBlock Text="{x:Bind ViewModel.BroadcastMessage, Mode=OneWay}" Style="{StaticResource DesktopControlTextStyle}" TextWrapping="Wrap"/>
                                     <TextBlock Text="{x:Bind ViewModel.NextBroadcastText, Mode=OneWay}" Visibility="{x:Bind ViewModel.HasNextBroadcast, Mode=OneWay}" Style="{StaticResource DesktopDataTextStyle}" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </Grid>
-                            <ItemsRepeater ItemsSource="{x:Bind ViewModel.PersonalBroadcasts, Mode=OneWay}" ItemTemplate="{StaticResource BroadcastEntryTemplate}" Visibility="{x:Bind ViewModel.HasBroadcasts, Mode=OneWay}">
+                            <ItemsRepeater x:Name="PersonalBroadcastList" ItemsSource="{x:Bind ViewModel.PersonalBroadcasts, Mode=OneWay}"
+                                           ItemTemplate="{StaticResource BroadcastEntryTemplate}" HorizontalAlignment="Left"
+                                           Visibility="{x:Bind ViewModel.HasBroadcasts, Mode=OneWay}">
                                 <ItemsRepeater.Layout>
-                                    <UniformGridLayout MaximumRowsOrColumns="{x:Bind ViewModel.BroadcastColumns, Mode=OneWay}" MinItemWidth="205" MinItemHeight="92" MinColumnSpacing="8" MinRowSpacing="8" ItemsStretch="Fill"/>
+                                    <UniformGridLayout MaximumRowsOrColumns="2" MinItemWidth="205" MinItemHeight="98" MinColumnSpacing="8" MinRowSpacing="8" ItemsStretch="Fill"/>
                                 </ItemsRepeater.Layout>
                             </ItemsRepeater>
                         </Grid>
 
-                        <ItemsRepeater x:Name="WeekStrip" Grid.Row="2" Grid.ColumnSpan="2" Margin="0,13,0,0" VerticalAlignment="Center" ItemsSource="{x:Bind ViewModel.BroadcastDays, Mode=OneWay}" ItemTemplate="{StaticResource BroadcastDayTemplate}" Visibility="{x:Bind ViewModel.HasBroadcastDays, Mode=OneWay}">
+                        <ItemsRepeater x:Name="WeekStrip" Grid.Row="2" Grid.ColumnSpan="2" Margin="0,13,0,0" VerticalAlignment="Center"
+                                       SizeChanged="OnWeekSizeChanged" ItemsSource="{x:Bind ViewModel.BroadcastDays, Mode=OneWay}"
+                                       ItemTemplate="{StaticResource BroadcastDayTemplate}" Visibility="{x:Bind ViewModel.HasBroadcastDays, Mode=OneWay}">
                             <ItemsRepeater.Layout>
-                                <UniformGridLayout MaximumRowsOrColumns="7" MinItemWidth="58" MinItemHeight="118" MinColumnSpacing="5" MinRowSpacing="5" ItemsStretch="Fill"/>
+                                <UniformGridLayout MaximumRowsOrColumns="7" MinItemWidth="82" MinItemHeight="68" MinColumnSpacing="5" MinRowSpacing="5" ItemsStretch="Fill"/>
                             </ItemsRepeater.Layout>
                         </ItemsRepeater>
                     </Grid>
@@ -217,7 +235,7 @@
                         <StackPanel Spacing="12">
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                                 <TextBlock Text="今日主题" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                                <Button Grid.Column="1" Content="换一批" Command="{x:Bind ViewModel.Theme.NextBatchCommand}" Visibility="{x:Bind ViewModel.Theme.CanShowNextBatch, Mode=OneWay}" Style="{StaticResource AniMeidoNavigateButtonStyle}" HorizontalAlignment="Right" Padding="0,2" FontSize="12"/>
+                                <Button Grid.Column="1" Content="换一批" Command="{x:Bind ViewModel.Theme.NextBatchCommand}" Visibility="{x:Bind ViewModel.Theme.CanShowNextBatch, Mode=OneWay}" Style="{StaticResource DesktopSmallActionButtonStyle}" HorizontalAlignment="Right" FontSize="12"/>
                             </Grid>
                             <Grid x:Name="DesktopThemeLayout" ColumnDefinitions="0.65*,2.2*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="16">
                                 <TextBlock x:Name="DesktopThemeTitle" Text="{x:Bind ViewModel.Theme.Title, Mode=OneWay}" FontSize="22" TextWrapping="Wrap"/>
@@ -280,14 +298,15 @@
                     <StackPanel Spacing="12">
                         <Grid ColumnDefinitions="*,Auto">
                             <TextBlock Text="最近浏览" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
-                            <Button Grid.Column="1" Content="清空" Click="OnClearBrowseHistoryClick" Style="{StaticResource AniMeidoNavigateButtonStyle}" FontSize="12" Padding="0,2" Visibility="{x:Bind ViewModel.HasBrowsed, Mode=OneWay}"/>
+                            <Button Grid.Column="1" Content="清空" Click="OnClearBrowseHistoryClick" Style="{StaticResource DesktopSmallActionButtonStyle}" FontSize="12" Visibility="{x:Bind ViewModel.HasBrowsed, Mode=OneWay}"/>
                         </Grid>
                         <TextBlock Text="还没有浏览记录。" Visibility="{x:Bind ViewModel.HasNoBrowsed, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        <ScrollViewer HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+                        <controls:DesktopWheelShelf x:Name="RecentBrowseScroll" HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
                             <ItemsRepeater ItemsSource="{x:Bind ViewModel.RecentBrowsed, Mode=OneWay}" ItemTemplate="{StaticResource BrowseEntryTemplate}">
                                 <ItemsRepeater.Layout><StackLayout Orientation="Horizontal" Spacing="7"/></ItemsRepeater.Layout>
                             </ItemsRepeater>
-                        </ScrollViewer>
+                        </controls:DesktopWheelShelf>
                     </StackPanel>
                 </Border>
             </StackPanel>

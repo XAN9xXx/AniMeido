@@ -7,6 +7,10 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Windows.System;
+using Windows.Foundation;
+using Windows.UI.Input.Preview.Injection;
 using Xunit;
 using Xunit.Abstractions;
 using AniMeido.Plugin.Base.Views.Controls;
@@ -211,6 +215,100 @@ public sealed class DesktopCurrentSeasonPageTests(ITestOutputHelper output)
                 await fixture.StopPageAsync(root, page);
             }
         });
+
+    [Fact]
+    [Trait("Category", "Mechanism")]
+    public Task PageF5RefreshesTheCalendarWithoutShowingAnAutomaticTooltip()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await CalendarFixture.CreateAsync();
+            var source = new CalendarSource
+            {
+                ReadSchedule = call => Task.FromResult(new List<Anime> { Item(call, "合成放送作品", 8) }),
+            };
+            var page = fixture.Page(source);
+            try
+            {
+                await AttachAsync(root, page);
+                await page.PendingActivation;
+                var accelerator = Assert.Single(page.KeyboardAccelerators, entry => entry.Key == VirtualKey.F5);
+                Assert.True(accelerator.IsEnabled);
+                Assert.Equal(1, source.ScheduleCalls);
+
+                // Headless 没有原生键盘消息；让 Uno 从实际页面宿主分发快捷键。
+                var args = (ProcessKeyboardAcceleratorEventArgs)Activator.CreateInstance(
+                    typeof(ProcessKeyboardAcceleratorEventArgs), BindingFlags.Instance | BindingFlags.NonPublic,
+                    null, [VirtualKey.F5, VirtualKeyModifiers.None], null)!;
+                page.TryInvokeKeyboardAccelerator(args);
+                Assert.True(args.Handled);
+                await page.ViewModel.LoadSeasonalAnimeCommand.ExecutionTask!;
+                Assert.Equal(2, source.ScheduleCalls);
+                Assert.Equal(2, Assert.Single(page.ViewModel.VisibleEntries).Anime.ID);
+                Assert.Equal(KeyboardAcceleratorPlacementMode.Hidden, page.KeyboardAcceleratorPlacementMode);
+            }
+            finally { await fixture.StopPageAsync(root, page); }
+        });
+
+    [Fact]
+    public Task CalendarWheelKeepsScrollingThePageWhenTheShelfMovesUnderTheMouse()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await CalendarFixture.CreateAsync();
+            var page = fixture.Page(new CalendarSource
+            {
+                ReadSchedule = _ => Task.FromResult(Enumerable.Range(1, 12)
+                    .Select(id => Item(id, $"合成放送作品 {id}", 8)).ToList()),
+            });
+            page.Width = 700;
+            page.Height = 480;
+            try
+            {
+                await AttachAsync(root, page);
+                await page.PendingActivation;
+                root.UpdateLayout();
+                var shelf = (ScrollViewer)page.FindName("ShelfScroller");
+                var body = (ScrollViewer)page.FindName("BodyScroller");
+                Assert.True(shelf.ScrollableWidth > 240);
+                Assert.True(body.ScrollableHeight > 200);
+                var origin = shelf.TransformToVisual(root).TransformPoint(new Point(38, -14));
+                var mouse = Assert.IsType<InputInjector>(InputInjector.TryCreate(root));
+                mouse.InjectMouseInput([new()
+                {
+                    MouseOptions = InjectedInputMouseOptions.Move,
+                    DeltaX = (int)origin.X, DeltaY = (int)origin.Y,
+                }]);
+                var shelfHits = 0;
+                shelf.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler((_, _) => shelfHits++), true);
+
+                Wheel(1);
+                await WaitForScrollAsync(() => body.VerticalOffset > 20);
+                Assert.Equal(0, shelfHits);
+                var offset = body.VerticalOffset;
+
+                Wheel(40);
+                Assert.Equal(1, shelfHits);
+                await WaitForScrollAsync(() => body.VerticalOffset > offset + 20 || shelf.HorizontalOffset > 20);
+                Assert.True(body.VerticalOffset > offset + 20);
+                Assert.Equal(0, shelf.HorizontalOffset);
+
+                Wheel(350);
+                await WaitForScrollAsync(() => shelf.HorizontalOffset > 20);
+                Assert.Equal(2, shelfHits);
+
+                void Wheel(uint elapsed) => mouse.InjectMouseInput([new()
+                {
+                    MouseOptions = InjectedInputMouseOptions.Wheel, DeltaY = -120,
+                    TimeOffsetInMilliseconds = elapsed,
+                }]);
+            }
+            finally { await fixture.StopPageAsync(root, page); }
+        });
+
+    private static async Task WaitForScrollAsync(Func<bool> moved)
+    {
+        for (var frame = 0; frame < 100 && !moved(); frame++) await Task.Delay(16);
+        Assert.True(moved(), "滚动容器未到达预期偏移。");
+    }
 
     private static Anime Item(int id, string title, double score)
     {
