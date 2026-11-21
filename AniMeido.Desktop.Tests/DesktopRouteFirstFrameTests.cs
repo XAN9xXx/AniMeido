@@ -123,14 +123,19 @@ public sealed class DesktopRouteFirstFrameTests(ITestOutputHelper output)
         {
             var page = Assert.IsType<CurrentSeasonPage>(host.Frame.Content);
             var trace = new List<(bool Loading, bool BodyPainted, double Width, Point Toolbar, Point Mine, Point Discover, bool DailyPick, int Row)>();
-            for (var index = 0; index < 24; index++)
+            var sampling = System.Diagnostics.Stopwatch.StartNew();
+            var visibleFrames = 0;
+            for (var index = 0; visibleFrames < 6 && sampling.Elapsed < TimeSpan.FromSeconds(10); index++)
             {
-                if (index == 12) source.Release();
+                // 宽屏慢请求在前 24 次采样后才返回，覆盖 CI 曾遗漏首个可见帧的情况。
+                if (index == (wide && slow ? 24 : 12)) source.Release();
                 await Task.Delay(16);
-                trace.Add(Snapshot());
+                var frame = Snapshot();
+                trace.Add(frame);
+                visibleFrames = frame.BodyPainted && page.PendingActivation.IsCompleted ? visibleFrames + 1 : 0;
                 await host.CaptureAsync("calendar", index);
             }
-            source.Release();
+            Assert.True(visibleFrames == 6, $"未采到激活后连续可见的正文：{trace.Count} 次采样，最后一帧 {trace.LastOrDefault()}");
             await page.PendingActivation;
             await WaitAsync(() => page.ViewModel.HasDailyPick && Find<Border>(page, "DiscoverPanel").ActualWidth > 0);
             var settled = Snapshot();
