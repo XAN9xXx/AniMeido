@@ -7,15 +7,17 @@
     Run only after reviewing and committing the release source. The signer alone reads PrivateKey.
     Failed output is retained for inspection; an existing version directory is never overwritten.
 #>
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'LocalSign')]
 param(
     [Parameter(Mandatory = $true)]
     [string]$Version,
     [Parameter(Mandatory = $true)]
     [ValidateSet('stable', 'preview')]
     [string]$Channel,
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = 'LocalSign')]
     [string]$PrivateKey,
+    [Parameter(Mandatory = $true, ParameterSetName = 'Prepare')]
+    [switch]$PrepareForSigning,
     [string]$Notes,
     [string]$MinUpdatableFrom = '3.0.0',
     [string]$IsccPath,
@@ -98,10 +100,12 @@ $output = Join-Path $repo "artifacts\release\$Version"
 if (Test-Path -LiteralPath $output) {
     throw "输出目录已经存在，拒绝覆盖：$output"
 }
-if (-not (Test-Path -LiteralPath $PrivateKey -PathType Leaf)) {
-    throw '离线私钥文件不存在。'
+if (-not $PrepareForSigning) {
+    if (-not (Test-Path -LiteralPath $PrivateKey -PathType Leaf)) {
+        throw '离线私钥文件不存在。'
+    }
+    $PrivateKey = [IO.Path]::GetFullPath($PrivateKey)
 }
-$PrivateKey = [IO.Path]::GetFullPath($PrivateKey)
 if ([string]::IsNullOrWhiteSpace($IsccPath)) {
     $compiler = Get-Command ISCC.exe -CommandType Application -ErrorAction SilentlyContinue
     $IsccPath = if ($compiler) { $compiler.Source } else {
@@ -175,19 +179,21 @@ try {
         '--url', "https://dl.animeido.com/updates/win-x64/$Channel/$zipName",
         '--release-date', (Get-Date -Format 'yyyy-MM-dd'), '--min-updatable-from', $MinUpdatableFrom,
         '--notes-file', $notesPath, '--out', $manifest)
-    Invoke-DotNet @($signer, 'sign', '--private', $PrivateKey, '--file', $manifest)
     # Load bytes, not the build output file, so later builds are never file-locked.
     $null = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes((Join-Path $payload 'AniMeido.Updates.dll')))
     $null = [AniMeido.Updates.SemanticVersion]::Parse($Version)
-    $keys = @([AniMeido.Updates.UpdateTrustedKeys]::PublicKeys)
-    if ($keys.Count -eq 0) { throw '先填入生产公钥，再发布。' }
-    $verified = $false
-    foreach ($key in $keys) {
-        & dotnet $signer verify --public $key --file $manifest --channel $Channel
-        if ($LASTEXITCODE -eq 0) { $verified = $true; break }
-        Write-Warning '这把生产公钥未能验签，继续尝试下一把内置公钥。'
+    if (-not $PrepareForSigning) {
+        Invoke-DotNet @($signer, 'sign', '--private', $PrivateKey, '--file', $manifest)
+        $keys = @([AniMeido.Updates.UpdateTrustedKeys]::PublicKeys)
+        if ($keys.Count -eq 0) { throw '先填入生产公钥，再发布。' }
+        $verified = $false
+        foreach ($key in $keys) {
+            & dotnet $signer verify --public $key --file $manifest --channel $Channel
+            if ($LASTEXITCODE -eq 0) { $verified = $true; break }
+            Write-Warning '这把生产公钥未能验签，继续尝试下一把内置公钥。'
+        }
+        if (-not $verified) { throw '签名未通过内置生产公钥验证，拒绝发布。' }
     }
-    if (-not $verified) { throw '签名未通过内置生产公钥验证，拒绝发布。' }
 
     # 6. Build a fresh install state using the install-state writer. No previous/pending rollback target.
     $image = Join-Path $output 'install'
@@ -226,8 +232,10 @@ try {
 
     # 9. Print exactly the upload assets. version.json belongs to the website, never R2.
     $packageHash = (Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json).package.sha256
-    Write-Host 'GitHub Release 附件（由维护者手动上传）：'
-    foreach ($file in @($installer, $zip, $manifest, ($manifest + '.sig'))) {
+    Write-Host '发布产物：'
+    $assets = @($installer, $zip, $manifest)
+    if (-not $PrepareForSigning) { $assets += ($manifest + '.sig') }
+    foreach ($file in $assets) {
         $displayHash = if ($file -ceq $zip) { $packageHash } else {
             (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
         }

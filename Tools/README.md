@@ -103,8 +103,7 @@ AniMeido 插件与应用本身拥有相同的本地权限。插件包没有发�
 
 ## 应用更新清单与离线签名（AniMeido.UpdateSigner）
 
-工具只处理本地文件，**不会上传任何文件，也不会发出 HTTP 请求**。私钥必须离线保存并备份，
-**不进仓库、不放 CI**；CI 只分发已经签名的清单。签名为 ECDSA P-256 / SHA-256，
+工具只处理本地文件，**不会上传任何文件，也不会发出 HTTP 请求**。生产私钥保留离线备份；发布工作流的签名任务使用受限环境密钥。签名为 ECDSA P-256 / SHA-256，
 对 release.json 原始字节签名，使用固定 64 字节 P1363 格式；修改空白或换行也必须重新签名。
 
 以下命令在仓库根目录执行（示例版本和地址不代表当前发布）：
@@ -127,7 +126,7 @@ dotnet run --project .\Tools\AniMeido.UpdateSigner -- verify --public .\update-p
 verify 省略 --channel 时按 stable 校验，预览版必须传 --channel preview。
 manifest 的输出文件也拒绝覆盖。退出码：0 成功、1 校验/签名/文件操作失败、2 参数错误。
 生产公钥由维护者于 2026-10-04 生成并提供，内置于 `AniMeido.Updates/UpdateTrustedKeys.cs` 的
-`#if UPDATE_TEST_SOURCE` 之前，因此所有构建都包含它。私钥仍由维护者离线保管。
+`#if UPDATE_TEST_SOURCE` 之前，因此所有构建都包含它。生产私钥的使用范围见下方发布顺序。
 普通构建只含生产公钥；测试源构建另加本地测试公钥，绝不能正式分发。
 
 ## U2 开发安装与版本回滚验收（New-DevInstall.ps1）
@@ -217,7 +216,7 @@ try {
 
 两个目录须为本次验收选定的新路径。脚本仅生成开发安装，启动由维护者执行。新外壳的全面页面验收、安装更新和回滚复验仍在进行。
 
-`Publish-Release.ps1` 同样使用 Uno 外壳；签名、安装验收和正式发布仍由维护者执行。
+`Publish-Release.ps1` 同样使用 Uno 外壳；正式发布由维护者手动触发 CI；安装验收独立进行。
 
 ## U3 应用内更新人工验收（本地签名源）
 
@@ -322,9 +321,8 @@ $env:ANIMEIDO_UPDATE_TEST_ROOT = $source
 
 ## U4 完整安装包与本地发布（Publish-Release.ps1）
 
-第一个新式正式版本为 **3.0.0，Uno 迁移完成后才发布**。现在可以用当前 WinUI 程序在 Windows
-沙盒里验收，Uno 迁移后必须再次验收。本脚本只构建和生成本地产物，不安装、不启动程序，
-不上传、不提交、不创建 tag。它会调用签名工具读取指定私钥，因此只由维护者手动执行。
+3.0.0 起使用 Uno 桌面版。脚本只生成产物，不安装、不启动、不上传。Windows CI 通过
+`-PrepareForSigning` 生成待签名的清单和安装包，签名在独立的 Linux 任务完成。本地仍可显式传入 `-PrivateKey` 离线签名。
 
 ### 生产密钥：离线生成与保管（仅由维护者执行）
 
@@ -348,7 +346,7 @@ $env:ANIMEIDO_UPDATE_TEST_ROOT = $source
 3. 只将公钥文件的单行 SPKI Base64 内容放到 `UpdateTrustedKeys.cs` 的 `#if UPDATE_TEST_SOURCE`
    之前，供普通与测试构建共同信任；保留测试公钥的条件编译分支。重新审查并提交公钥源码。
 4. 私钥保留两份离线备份，放在两个不同的物理介质、分别保管。检查备份可读性由维护者自行完成。
-   不把私钥上传 GitHub、R2、CI 或发给 AI。发布时仅临时接入离线介质，签名完成后移除。
+   CI 仅在 GitHub 的 `release-signing` 环境配置 `UPDATE_SIGNING_PEM`，只允许 `main` 分支，不设置第二次人工审批。不要使用仓库级签名密钥；密钥不进源码、日志、构建附件或 R2。
 5. 若私钥遗失或泄露，不能直接用新钥替代线上签名；需要内置新公钥的重装版本及相应公告。
    生产密钥轮换是独立发布决定，不由发布脚本自动完成。
 
@@ -395,22 +393,19 @@ stable 3.0.0 会强制加入安装位置迁移、应用内更新、旧版卸载�
 & 'D:\Inno Setup 6\ISCC.exe' '/DAppVersion=3.0.0' '/DInstallImage=D:\U4-SandboxPayload\install' '/DOutputDirectory=D:\U4-SandboxPayload' .\Installer\AniMeido.iss
 ```
 
-### 发布顺序（不能颠倒）
+### 在 Actions 触发发布
 
-1. 在 Windows 沙盒验收安装包。把要打 tag 的提交推送到分支，等这次提交的 push CI 通过。
-   在 GitHub 仓库的 Actions Secrets 中配置 `R2_ACCOUNT_ID`、`R2_BUCKET_NAME`、`R2_ACCESS_KEY_ID`、
-   `R2_SECRET_ACCESS_KEY`；凭据只需对目标桶列举、读取和上传对象。更新签名私钥留在本机。
-2. 维护者创建 GitHub Release，tag 为 `v<完整版本>`；preview 勾选预发布。上传安装包、ZIP、
-   release.json 和 release.json.sig 四个附件，**不上传 version.json 或任何密钥**。
-3. `release-to-r2.yml` 根据 tag 的预发布后缀（不是 GitHub 的 prerelease 勾选框）选择 stable/preview。
-   它检查 tag 提交的 CI，用客户端内置生产公钥验签，核对版本、通道、下载地址及 ZIP 大小和摘要。
-   发布前从 R2 读取通道现有清单；读取失败、版本倒退、同版本不同清单均停止，不写入 R2。
-   如果附件是原样重跑且清单已上线，只补传签名和清单，不覆盖安装包或 ZIP。
-   安装包上传到 R2 根目录；ZIP 先传到 `updates/win-x64/<通道>/`，成功后才传签名及清单。
-   这两个对象不能原子更新，短暂签名不匹配时客户端会拒绝，不会信任不完整清单。
-4. 维护者确认安装包已能通过 `https://dl.animeido.com/AniMeido_setup_<版本>.exe` 下载，
-   再把 stable 的 `version.json` 提交到 **animeido-website**，由 Cloudflare Pages 部署。
-   网站发布不能先于安装包，否则旧客户端会收到尚不可下载的链接。
+1. 将发布提交推送到 `main`。版本取自 `Directory.Build.props`；提交必须包含对应的 `docs-public/release-notes-<版本>.md`。确认该提交的 push CI 通过。
+2. 打开 **Actions → Release to R2 → Run workflow**，选择 `main`。也可执行 `gh workflow run release-to-r2.yml --ref main`。无需先建 tag 或 GitHub Release。
+3. Windows 构建安装包和更新 ZIP。签名任务只签本次构建的 `release.json`，使用 `release-signing` 环境的 `UPDATE_SIGNING_PEM`。上传任务重新验签、核对 ZIP 并检查 R2 通道版本。测试、公钥校验或版本检查失败时不会切换更新通道。
+4. CI 将安装包传到 R2 根目录，ZIP 传到 `updates/win-x64/<stable 或 preview>/`；最后传签名，再传清单。稳定版和预览版使用不同通道。签名覆盖更新清单，不是 Windows 安装包的 Authenticode 签名。
+5. 如果上传中断，在同一次运行点 **Re-run failed jobs**，复用原产物；不要重新构建同一版本替换线上包。Actions 附件保留 14 天。稳定版附件还包含供官网更新旧客户端使用的 `version.json`；本工作流不修改官网仓库。
+
+一次性配置：签名环境仅允许分支 `main`。R2 上传使用 `R2_ACCOUNT_ID`、`R2_BUCKET_NAME`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`，权限限于目标桶。下面的命令只在初始化或轮换环境密钥时使用，私钥通过标准输入传递：
+
+```powershell
+Get-Content -Raw -LiteralPath '<离线 PEM 路径>' | gh secret set UPDATE_SIGNING_PEM --env release-signing
+```
 
 沙盒重点验收：无 UAC 的新安装与启动健康标记、同版本覆盖/更高版本覆盖/降级拒绝、
 卸载默认保留数据与显式删除数据、旧版托盘仍运行时阻止安装且可重试、旧卸载 UAC 取消后新安装仍可用、

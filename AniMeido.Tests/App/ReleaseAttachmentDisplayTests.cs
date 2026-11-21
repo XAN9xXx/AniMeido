@@ -6,9 +6,11 @@ namespace AniMeido.Tests;
 public sealed class ReleaseAttachmentDisplayTests
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task AttachmentDisplay_ReusesPackageHashAndPreservesOtherOutputs(bool includeLegacyManifest)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task AttachmentDisplay_ReusesPackageHashAndPreservesOtherOutputs(bool includeLegacyManifest, bool prepareForSigning)
     {
         using var temporary = new MockAppDataPaths();
         var start = new ProcessStartInfo("pwsh")
@@ -52,6 +54,7 @@ public sealed class ReleaseAttachmentDisplayTests
             $manifest = Join-Path $output 'release.json'
             $legacyPath = Join-Path $output 'version.json'
             $legacyManifest = if ($env:ANIMEIDO_TEST_LEGACY -eq '1') { @{ latestVersion = '3.0.0' } } else { $null }
+            $PrepareForSigning = $env:ANIMEIDO_UNSIGNED -eq '1'
             $expectedPackageHash = 'e' * 64
             [IO.File]::WriteAllText($manifest, (@{ package = @{ sha256 = $expectedPackageHash } } | ConvertTo-Json))
             $expectedHashes = @{
@@ -75,13 +78,14 @@ public sealed class ReleaseAttachmentDisplayTests
 
             . ([scriptblock]::Create($display))
 
-            $expectedCalls = @($installer, $manifest, ($manifest + '.sig'))
+            $expectedCalls = @($installer, $manifest)
+            if (-not $PrepareForSigning) { $expectedCalls += ($manifest + '.sig') }
             $expectedLines = @(
-                'GitHub Release 附件（由维护者手动上传）：'
+                '发布产物：'
                 "$installer  SHA-256=$('a' * 64)"
                 "$zip  SHA-256=$expectedPackageHash"
                 "$manifest  SHA-256=$('b' * 64)"
-                "$manifest.sig  SHA-256=$('c' * 64)"
+                if (-not $PrepareForSigning) { "$manifest.sig  SHA-256=$('c' * 64)" }
             )
             if ($null -ne $legacyManifest) {
                 $expectedCalls += $legacyPath
@@ -105,6 +109,7 @@ public sealed class ReleaseAttachmentDisplayTests
                 throw 'Preview output unexpectedly included the legacy website warning'
             }
             """);
+        start.Environment["ANIMEIDO_UNSIGNED"] = prepareForSigning ? "1" : "0";
         start.Environment["ANIMEIDO_TEST_REPO"] = AppDataRootsTests.RepositoryRoot;
         start.Environment["ANIMEIDO_TEST_TEMP"] = temporary.RootDirectory;
         start.Environment["ANIMEIDO_TEST_LEGACY"] = includeLegacyManifest ? "1" : "0";
