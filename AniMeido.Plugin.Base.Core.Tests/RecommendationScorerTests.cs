@@ -459,6 +459,27 @@ public class RecommendationScorerTests
         Assert.Equal(Enumerable.Range(1, 20), items.Select(item => item.Anime.ID));
     }
 
+    [Theory]
+    [InlineData(2025, 1, true, "近三年")]
+    [InlineData(2019, 4, false, "较早作品")]
+    [InlineData(0, 0, false, "年代未知")]
+    public void PartialSeasonKeepsItsAgeLabelAndCompetesWithoutAnInventedAirDate(
+        int year, int quarter, bool recent, string label)
+    {
+        var tag = Feature(RecommendationFeatureKind.Tag, "SF", "科幻");
+        var partial = Anime(1, new(2025, 1, 1), 8) with { AirDate = null, SeasonYear = year, SeasonMonth = quarter };
+        var full = Anime(2, new(2024, 1, 1), 7);
+        var ranked = RecommendationScorer.Rank([new(tag, 1, null, [])],
+            [new(partial, [tag]), new(full, [tag])], new(2026, 11, 20));
+
+        var item = Assert.Single(ranked, x => x.Anime.ID == 1);
+        Assert.Equal(recent, item.IsRecent);
+        Assert.EndsWith(label, item.Metadata);
+        Assert.Null(item.Anime.AirDate);
+        Assert.Equal(1.75, item.Score);
+        Assert.Equal(recent ? 1 : 2, ranked[0].Anime.ID);
+    }
+
     private static RecommendationFeature Feature(
         RecommendationFeatureKind kind,
         string key,

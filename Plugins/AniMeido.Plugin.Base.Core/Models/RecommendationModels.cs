@@ -124,7 +124,7 @@ public sealed record RecommendationItem(
         "；",
         Reasons.Select(reason => reason.Text));
 
-    private string AgeText => Anime.AirDate is null ? "年代未知" : IsRecent ? "近三年" : "较早作品";
+    private string AgeText => Anime.AirDate is null && Anime.SeasonYear <= 0 ? "年代未知" : IsRecent ? "近三年" : "较早作品";
 
     public string Metadata => Anime.Score is > 0
         ? $"评分 {Anime.Score:F1} · {AgeText}"
@@ -139,7 +139,7 @@ public sealed record RecommendationSnapshot(
     IReadOnlyList<RecommendationFeatureProfile>? RoundProfile = null,
     bool HasMore = false)
 {
-    public const int CurrentSchemaVersion = 11;
+    public const int CurrentSchemaVersion = 12;
 }
 
 public sealed record RecommendationGeneration(
@@ -158,4 +158,15 @@ internal sealed record RecommendationSeed(
 
 internal sealed record RecommendationCandidate(
     Anime Anime,
-    IReadOnlyList<RecommendationFeature> Features);
+    IReadOnlyList<RecommendationFeature> Features,
+    DateOnly? PartialDateEnd = null)
+{
+    internal static bool IsRecentSince(Anime anime, DateOnly boundary, DateOnly? partialDateEnd = null)
+    {
+        if ((anime.AirDate ?? partialDateEnd) is { } date) return date >= boundary;
+        if (anime.SeasonYear is < 1 or > 9999) return false;
+        if (anime.SeasonYear != boundary.Year) return anime.SeasonYear > boundary.Year;
+        // 只有季度或年份时按已知精度比较，跨过分界的那一季仍可进入近作。
+        return anime.SeasonMonth is not (1 or 4 or 7 or 10) || anime.SeasonMonth + 2 >= boundary.Month;
+    }
+}

@@ -111,7 +111,7 @@ public sealed class RecommendationCorrectnessTests
         var profile = Profile("A", 2);
         Assert.Equal("推测感兴趣", profile.DirectionText);
         var item = Assert.Single(RecommendationScorer.Rank([profile],
-            [Candidate(1, Tag("A")) with { Anime = Candidate(1).Anime with { AirDate = null } }], Today));
+            [Candidate(1, Tag("A")) with { Anime = Candidate(1).Anime with { AirDate = null, SeasonYear = 0, SeasonMonth = 0 } }], Today));
         Assert.Contains("年代未知", item.Metadata);
     }
 }

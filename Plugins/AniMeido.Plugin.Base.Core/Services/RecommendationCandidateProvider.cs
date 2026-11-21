@@ -180,7 +180,7 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
             {
                 var state = round.Enriched.GetOrAdd(candidate.Anime.ID, _ => new CandidateEnrichment());
                 await EnrichAsync(candidate.Anime.ID, state, Enum.GetValues<RecommendationFeatureKind>(), true, token);
-                if (state.Anime is not { ID: > 0 } anime)
+                if (state.Detail is not { Anime: { ID: > 0 } anime } detail)
                 {
                     if (state.DetailCompleted || state.DetailAttempts >= 2) exhausted.Add(candidate.Anime.ID);
                     return;
@@ -201,7 +201,7 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
                 var features = state.Categories.Values.SelectMany(category => category.Features ?? [])
                     .Concat(candidate.SourceFeatures.Where(feature => feature.Kind == RecommendationFeatureKind.Tag))
                     .DistinctBy(feature => (feature.Kind, feature.Key)).ToArray();
-                enriched.Add(new RecommendationCandidate(anime, features));
+                enriched.Add(detail with { Features = features });
             });
         round.Exclude(ExpandKnownExcludedIds(round.ExcludedIds.Concat(exhausted)));
         // 缓存只属于当前轮次；已展示项目随 Consume 释放，额外保留最多 120 部。
@@ -211,8 +211,10 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
             round.Enriched.TryRemove(id, out _);
         return enriched.Where(item => !round.ExcludedIds.Contains(item.Anime.ID))
             .GroupBy(item => item.Anime.ID).OrderBy(group => group.Key)
-            .Select(group => new RecommendationCandidate(group.First().Anime,
-                group.SelectMany(item => item.Features).DistinctBy(feature => (feature.Kind, feature.Key)).ToArray())).ToArray();
+            .Select(group => group.First() with
+            {
+                Features = group.SelectMany(item => item.Features).DistinctBy(feature => (feature.Kind, feature.Key)).ToArray(),
+            }).ToArray();
     }
 
     private async Task<bool> FetchCursorsAsync(CandidateRound round,
@@ -291,8 +293,8 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
         {
             var targets = ids.ToHashSet();
             foreach (var id in targets.ToArray())
-                if (Enriched.TryGetValue(id, out var state) && state.Anime is { } anime) targets.Add(anime.ID);
-            return targets.Concat(Enriched.Where(pair => pair.Value.Anime is { } anime && targets.Contains(anime.ID))
+                if (Enriched.TryGetValue(id, out var state) && state.Detail?.Anime is { } anime) targets.Add(anime.ID);
+            return targets.Concat(Enriched.Where(pair => pair.Value.Detail?.Anime is { } anime && targets.Contains(anime.ID))
                 .Select(pair => pair.Key)).Distinct().ToArray();
         }
 
@@ -394,6 +396,7 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
             .Where(item => !excludedIds.Contains(item.ID))
             .OrderByDescending(item => item.Score ?? 0)
             .ThenBy(item => item.ID).ToArray();
+        var today = DateOnly.FromDateTime(DateTime.Today);
         var negativeProfile = (profile ?? []).Where(item => item.EffectiveScore < 0).ToArray();
         if (negativeProfile.Length > 0)
         {
@@ -408,7 +411,7 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
                     if (kinds.All(kind => state.Categories[kind].Features is not null))
                         candidates.Add(new(item, state.Categories.Values.SelectMany(category => category.Features ?? []).ToArray()));
                 });
-            return RecommendationScorer.Rank(negativeProfile, candidates.ToArray(), DateOnly.FromDateTime(DateTime.Today),
+            return RecommendationScorer.Rank(negativeProfile, candidates.ToArray(), today,
                 requirePositiveMatch: false).Select(item => item with
                 { Reasons = item.Reasons.Prepend(PopularReason()).ToArray() }).ToArray();
         }
@@ -418,7 +421,7 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
                 item.Score ?? 0,
                 [PopularReason()],
                 false,
-                true))
+                RecommendationCandidate.IsRecentSince(item, today.AddYears(-3))))
             .ToArray();
     }
 
@@ -427,7 +430,7 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
 
     internal sealed class CandidateEnrichment
     {
-        internal Anime? Anime { get; set; }
+        internal RecommendationCandidate? Detail { get; set; }
         internal bool DetailCompleted { get; set; }
         internal int DetailAttempts { get; set; }
         internal Dictionary<RecommendationFeatureKind, FeatureRead> Categories { get; } = new();
@@ -442,7 +445,10 @@ public sealed class RecommendationCandidateProvider : IAsyncDisposable
         {
             try
             {
-                state.Anime = await WithNetworkGateAsync(ct => _dataSource.GetAnimeDetailAsync(animeId, ct), token);
+                state.Detail = _dataSource is MetadataDataSource metadata
+                    ? await WithNetworkGateAsync(ct => metadata.GetRecommendationDetailAsync(animeId, ct), token)
+                    : await WithNetworkGateAsync(ct => _dataSource.GetAnimeDetailAsync(animeId, ct), token) is { } anime
+                        ? new(anime, []) : null;
                 state.DetailCompleted = true;
                 state.DetailAttempts++;
             }

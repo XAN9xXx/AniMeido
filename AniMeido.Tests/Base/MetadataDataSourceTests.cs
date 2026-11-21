@@ -105,6 +105,31 @@ public sealed partial class MetadataDataSourceTests(ITestOutputHelper output) : 
         Assert.Equal(expected, MetadataDataSource.MapMediaFormat(format));
 
     [Theory]
+    [InlineData("2025-01", true, "近三年")]
+    [InlineData("2023-10", false, "较早作品")]
+    [InlineData("2023-11", true, "近三年")]
+    [InlineData("2023-12", true, "近三年")]
+    [InlineData("2023-11-19", false, "较早作品")]
+    [InlineData("2023-11-20", true, "近三年")]
+    [InlineData("2019", false, "较早作品")]
+    [InlineData(null, false, "年代未知")]
+    [InlineData("2023-11-99", false, "年代未知")]
+    public async Task Recommendation_DatePrecisionSurvivesDetailMappingAndRanking(string? date, bool recent, string label)
+    {
+        await CreateBaseTablesAsync();
+        using var handler = new StubHandler(_ => Reply(new { data = Work(1, date) }));
+        using var client = Client(handler);
+        var candidate = Assert.IsType<AniMeido.Plugin.Base.Models.RecommendationCandidate>(
+            await Source(client).GetRecommendationDetailAsync(1, default));
+        var item = Assert.Single(RecommendationScorer.Rank([], [candidate], new(2026, 11, 20), requirePositiveMatch: false));
+
+        Assert.Equal(recent, item.IsRecent);
+        Assert.EndsWith(label, item.Metadata);
+        if (date?.Length != 10 || label == "年代未知") Assert.Null(item.Anime.AirDate);
+        Assert.Single(handler.GetPaths);
+    }
+
+    [Theory]
     [InlineData("2026-05", 2026, 4)]
     [InlineData("2026", 0, 0)]
     [InlineData(null, 0, 0)]

@@ -1,4 +1,5 @@
-﻿using AniMeido.Contracts;
+﻿using AniMeido.Plugin.Base.Models;
+using AniMeido.Contracts;
 using AniMeido.Contracts.Models;
 using AniMeido.Plugin.Base.Exceptions;
 using Microsoft.Extensions.Logging;
@@ -117,6 +118,20 @@ public sealed partial class MetadataDataSource : IAnimeDataSource, IMetadataCach
         while (pending.TryDequeue(out var id))
             if (_knownMergedIds.TryGetValue(id, out var target) && expanded.Add(target)) pending.Enqueue(target);
         return expanded;
+    }
+
+    internal async Task<RecommendationCandidate?> GetRecommendationDetailAsync(int id, CancellationToken ct)
+    {
+        if (await DetailAsync(id, ct).ConfigureAwait(false) is not { } work) return null;
+        var anime = MapAnime(work, detail: true);
+        if (anime.AirDate.HasValue) return new(anime, []);
+        if (work.FirstDate is not { Length: 4 or 7 } raw || StartDate(raw) is not { } start)
+            return new(anime with { SeasonYear = 0, SeasonMonth = 0 }, []);
+
+        // 只用于推荐年代比较，不把用于比较的月末或年末写成实际首播日。
+        var month = raw.Length == 4 ? 12 : start.Month;
+        return new(anime with { SeasonYear = start.Year }, [],
+            new DateOnly(start.Year, month, DateTime.DaysInMonth(start.Year, month)));
     }
 
     public async Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct) =>

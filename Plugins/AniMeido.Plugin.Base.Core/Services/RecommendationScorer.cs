@@ -209,8 +209,7 @@ internal static class RecommendationScorer
                 reasons.Add(CreateReason(reduction, isReduction: true));
             }
 
-            var isRecent = candidate.Anime.AirDate is { } airDate
-                && airDate >= recentBoundary;
+            var isRecent = RecommendationCandidate.IsRecentSince(candidate.Anime, recentBoundary, candidate.PartialDateEnd);
             scored.Add(new ScoredCandidate(
                 new RecommendationItem(
                     candidate.Anime,
