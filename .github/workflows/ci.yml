@@ -66,6 +66,9 @@ jobs:
       - name: Test platform-neutral business core
         run: dotnet test AniMeido.Plugin.Base.Core.Tests/AniMeido.Plugin.Base.Core.Tests.csproj -c Release --logger trx --results-directory TestResults
 
+      - name: Test the stable website handoff
+        run: python3 -B -m unittest discover -s Tools -p test_website_version.py
+
       - name: Test the Linux release verifier
         run: dotnet test AniMeido.Updates.Tests -c Release --filter "FullyQualifiedName~ReleasePublicationTests|FullyQualifiedName~UpdateSignerTests" --logger trx --results-directory TestResults
 

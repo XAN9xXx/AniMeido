@@ -243,7 +243,7 @@ try {
     }
     if ($null -ne $legacyManifest) {
         Write-Host ("网站文件：{0}  SHA-256={1}" -f $legacyPath, (Get-FileHash -LiteralPath $legacyPath -Algorithm SHA256).Hash.ToLowerInvariant())
-        Write-Warning '必须等安装包已经出现在 dl.animeido.com 后，再把 version.json 提交到 animeido-website。'
+        Write-Warning '稳定版 CI 在公网安装包可下载后自动更新官网 version.json。'
     }
     Write-Host '没有执行上传、Git 写入、安装或启动。'
 }

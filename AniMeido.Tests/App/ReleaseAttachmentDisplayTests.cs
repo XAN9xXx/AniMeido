@@ -102,7 +102,7 @@ public sealed class ReleaseAttachmentDisplayTests
             }
             if ($null -ne $legacyManifest) {
                 if ($script:warningMessages.Count -ne 1 -or $script:warningMessages[0] -cne
-                    '必须等安装包已经出现在 dl.animeido.com 后，再把 version.json 提交到 animeido-website。') {
+                    '稳定版 CI 在公网安装包可下载后自动更新官网 version.json。') {
                     throw 'Legacy website warning changed'
                 }
             } elseif ($script:warningMessages.Count -ne 0) {

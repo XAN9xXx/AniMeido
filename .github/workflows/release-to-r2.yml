@@ -192,3 +192,48 @@ jobs:
           fi
           put release.json.sig "$PREFIX/release.json.sig" --cache-control no-cache
           put release.json "$PREFIX/release.json" --cache-control no-cache
+
+  website:
+    needs: [package, upload]
+    if: needs.package.outputs.channel == 'stable'
+    runs-on: ubuntu-latest
+    environment: website-release
+    timeout-minutes: 15
+    env:
+      VERSION: ${{ needs.package.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          artifact-ids: ${{ needs.package.outputs.artifact }}
+          path: ${{ runner.temp }}/assets
+          merge-multiple: true
+      - name: Confirm stable release through the public download endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          for delay in 0 10 30; do
+            sleep "$delay"
+            if python3 Tools/website_version.py verify-public "$VERSION" "$RUNNER_TEMP/assets"; then exit 0; fi
+          done
+          echo "::error::Public stable installer or manifest not ready; website left unchanged."
+          exit 1
+      - name: Check out the website only after the public download succeeds
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: XAN9xXx/animeido.com
+          ref: main
+          path: website
+          ssh-key: ${{ secrets.WEBSITE_DEPLOY_KEY }}
+      - name: Update only the website version feed
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 Tools/website_version.py promote "$VERSION" "$RUNNER_TEMP/assets" website/version.json
+          git -C website add -- version.json
+          if git -C website diff --cached --quiet -- version.json; then exit 0; fi
+          git -C website -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "chore(release): 更新官网版本至 $VERSION" -- version.json
+          git -C website push origin HEAD:refs/heads/main

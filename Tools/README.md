@@ -399,7 +399,9 @@ stable 3.0.0 会强制加入安装位置迁移、应用内更新、旧版卸载�
 2. 打开 **Actions → Release to R2 → Run workflow**，选择 `main`。也可执行 `gh workflow run release-to-r2.yml --ref main`。无需先建 tag 或 GitHub Release。
 3. Windows 构建安装包和更新 ZIP。签名任务只签本次构建的 `release.json`，使用 `release-signing` 环境的 `UPDATE_SIGNING_PEM`。上传任务重新验签、核对 ZIP 并检查 R2 通道版本。测试、公钥校验或版本检查失败时不会切换更新通道。
 4. CI 将安装包传到 R2 根目录，ZIP 传到 `updates/win-x64/<stable 或 preview>/`；最后传签名，再传清单。稳定版和预览版使用不同通道。签名覆盖更新清单，不是 Windows 安装包的 Authenticode 签名。
-5. 如果上传中断，在同一次运行点 **Re-run failed jobs**，复用原产物；不要重新构建同一版本替换线上包。Actions 附件保留 14 天。稳定版附件还包含供官网更新旧客户端使用的 `version.json`；本工作流不修改官网仓库。
+5. 如果上传中断，在同一次运行点 **Re-run failed jobs**，复用原产物；不要重新构建同一版本替换线上包。Actions 附件保留 14 天。稳定版上传后，CI 从公网完整下载本次安装包，与本次构建逐字节比对，并确认公网 stable 清单已经切到本版。成功后只更新官网仓库 `XAN9xXx/animeido.com` 的 `main:version.json`，沿用该次构建的更新说明。下载、核对或推送失败时不会强推；重跑不会降级或产生空提交。预览版跳过整个官网任务。
+
+官网使用独立的 `website-release` 环境（只允许 `main`），其中 `WEBSITE_DEPLOY_KEY` 对应官网仓库的可写部署密钥。官网任务不使用产品签名私钥或 R2 写入凭据。
 
 一次性配置：签名环境仅允许分支 `main`。R2 上传使用 `R2_ACCOUNT_ID`、`R2_BUCKET_NAME`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`，权限限于目标桶。下面的命令只在初始化或轮换环境密钥时使用，私钥通过标准输入传递：
 
