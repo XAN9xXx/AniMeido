@@ -16,15 +16,16 @@ public sealed class FrontendSelectionTests
             directory = directory.Parent;
         Assert.NotNull(directory);
         var temporary = Path.Combine(Path.GetTempPath(), "AniMeido-NuGet-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(temporary);
+        var nugetDirectory = Directory.CreateDirectory(Path.Combine(temporary, "NuGet"));
         var configured = Path.Combine(temporary, "配置缓存 packages");
         var expected = environmentOverride ? Path.Combine(temporary, "环境缓存 packages") : configured;
         new XDocument(new XElement("configuration", new XElement("config", new XElement("add",
             new XAttribute("key", "globalPackagesFolder"), new XAttribute("value", configured)))))
-            .Save(Path.Combine(temporary, "NuGet.Config"));
+            .Save(Path.Combine(nugetDirectory.FullName, "NuGet.Config"));
         var start = new ProcessStartInfo("pwsh")
         {
-            WorkingDirectory = temporary,
+            // 与开发安装脚本使用同一个 global.json。临时目录只存配置，不作为子进程工作目录。
+            WorkingDirectory = directory!.FullName,
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
@@ -39,6 +40,10 @@ public sealed class FrontendSelectionTests
             $ast = [Management.Automation.Language.Parser]::ParseFile(
                 $env:ANIMEIDO_FRONTEND_SCRIPT, [ref]$tokens, [ref]$errors)
             if ($errors.Count) { throw $errors[0] }
+            $repo = Split-Path -Parent (Split-Path -Parent $env:ANIMEIDO_FRONTEND_SCRIPT)
+            if ([Environment]::CurrentDirectory -ne $repo) {
+                throw "The CLI must run from the repository, as it does in New-DevInstall: $([Environment]::CurrentDirectory)"
+            }
             $selection = $ast.Find({ param($node)
                 $node -is [Management.Automation.Language.AssignmentStatementAst] -and
                 $node.Left -is [Management.Automation.Language.VariableExpressionAst] -and
@@ -50,7 +55,10 @@ public sealed class FrontendSelectionTests
                 throw "Unexpected package cache: $cache"
             }
             """);
-        start.Environment["ANIMEIDO_FRONTEND_SCRIPT"] = Path.Combine(directory!.FullName, "Tools", "New-DevInstall.ps1");
+        start.Environment["ANIMEIDO_FRONTEND_SCRIPT"] = Path.Combine(directory.FullName, "Tools", "New-DevInstall.ps1");
+        start.Environment["APPDATA"] = temporary;
+        start.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
+        start.Environment["DOTNET_NOLOGO"] = "1";
         start.Environment["ANIMEIDO_EXPECTED_CACHE"] = expected;
         start.Environment.Remove("NUGET_PACKAGES");
         if (environmentOverride)
