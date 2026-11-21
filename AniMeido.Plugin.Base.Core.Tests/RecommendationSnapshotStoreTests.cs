@@ -54,6 +54,7 @@ public sealed partial class RecommendationSnapshotStoreTests(ITestOutputHelper o
     [InlineData(7)]
     [InlineData(8)]
     [InlineData(11)]
+    [InlineData(12)]
     public async Task PreviousAlgorithmSnapshot_IsIgnoredEvenWhenFresh(int version)
     {
         using var store = new RecommendationSnapshotStore(_cache);

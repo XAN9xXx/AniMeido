@@ -139,7 +139,7 @@ public sealed record RecommendationSnapshot(
     IReadOnlyList<RecommendationFeatureProfile>? RoundProfile = null,
     bool HasMore = false)
 {
-    public const int CurrentSchemaVersion = 12;
+    public const int CurrentSchemaVersion = 13;
 }
 
 public sealed record RecommendationGeneration(

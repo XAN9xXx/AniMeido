@@ -477,7 +477,45 @@ public class RecommendationScorerTests
         Assert.EndsWith(label, item.Metadata);
         Assert.Null(item.Anime.AirDate);
         Assert.Equal(1.75, item.Score);
-        Assert.Equal(recent ? 1 : 2, ranked[0].Anime.ID);
+        Assert.Equal(1, ranked[0].Anime.ID);
+    }
+
+    [Theory]
+    [InlineData(2, 6, 6)]
+    [InlineData(6, 2, 0)]
+    [InlineData(4, 4, 3)]
+    public void PersonalizedFrontTenFollowsTasteAndInterleavesEqualHeads(int recentWeight, int olderWeight, int olderInTen)
+    {
+        var recent = Feature(RecommendationFeatureKind.Tag, "R", "轻科幻");
+        var older = Feature(RecommendationFeatureKind.Tag, "C", "太空考古");
+        RecommendationFeatureProfile[] profile = [new(recent, recentWeight, null, []), new(older, olderWeight, null, [])];
+        var candidates = Enumerable.Range(1, 40).Select(id => id <= 20
+            ? new RecommendationCandidate(Anime(id, new(2025, 1, 1), 8), [recent])
+            : new RecommendationCandidate(Anime(id, new(2015, 1, 1), 8), [older])).ToArray();
+        var today = new DateOnly(2026, 11, 20);
+        var batch = RecommendationScorer.Rank(profile, candidates, today);
+        Assert.Equal(Enumerable.Range(1, 14), batch.Where(x => x.IsRecent).Select(x => x.Anime.ID));
+        Assert.Equal(Enumerable.Range(21, 6), batch.Where(x => !x.IsRecent).Select(x => x.Anime.ID));
+        Assert.Equal(olderInTen, batch.Take(10).Count(x => !x.IsRecent));
+        if (recentWeight == olderWeight)
+            Assert.Equal([4, 7, 10, 14, 17, 20], batch.Select((x, i) => x.IsRecent ? 0 : i + 1).Where(i => i != 0));
+        Assert.Equal(batch.Select(x => x.Anime.ID),
+            RecommendationScorer.Rank(profile, candidates.Reverse().ToArray(), today).Select(x => x.Anime.ID));
+    }
+
+    [Fact]
+    public void InterleavingComparesOnlyQueueHeadsAndKeepsDiversityOrder()
+    {
+        var a = Feature(RecommendationFeatureKind.Tag, "A", "共同依据");
+        var b = Feature(RecommendationFeatureKind.Tag, "B", "不同依据");
+        var c = Feature(RecommendationFeatureKind.Tag, "C", "旧作依据");
+        RecommendationFeatureProfile[] profile = [new(a, 6, null, []), new(b, 2, null, []), new(c, 4, null, [])];
+        var candidates = Enumerable.Range(1, 5).Select(id =>
+            new RecommendationCandidate(Anime(id, new(2025, 1, 1), 8), [id == 5 ? b : a]))
+            .Append(new(Anime(6, new(2015, 1, 1), 8), [c])).ToArray();
+        var batch = RecommendationScorer.Rank(profile, candidates, new(2026, 11, 20));
+        // 同一依据已展示三次，低分的 5 号在近期组内排在 4 号之前，跨组比较不能破坏这个决定。
+        Assert.Equal([1, 2, 3, 6, 5, 4], batch.Select(x => x.Anime.ID));
     }
 
     private static RecommendationFeature Feature(

@@ -260,6 +260,28 @@ internal static class RecommendationScorer
                 .OrderByDescending(item => item.Item.Score).ThenBy(item => item.Item.Anime.ID).ToList(),
                 RecentTarget + ClassicTarget - selected.Count, counts));
 
+        return MergeForDisplay(selected);
+    }
+
+    private static IReadOnlyList<RecommendationItem> MergeForDisplay(List<RecommendationItem> selected)
+    {
+        var classic = new Queue<RecommendationItem>(selected.Where(item => !item.IsRecent));
+        if (classic.Count == 0 || classic.Count == selected.Count) return selected;
+        var recent = new Queue<RecommendationItem>(selected.Where(item => item.IsRecent));
+        var classicShown = 0;
+        for (int i = 0; i < selected.Count; i++)
+        {
+            // 只比较队首，保留各组的多样性和探索位。同分时按已展示的位置分配经典名额。
+            var classicDue = classicShown < (i + 1) * ClassicTarget / (RecentTarget + ClassicTarget);
+            if (!recent.TryPeek(out var r) || (classic.TryPeek(out var c) &&
+                (c.Score > r.Score || (c.Score == r.Score && classicDue))))
+            {
+                selected[i] = classic.Dequeue();
+                classicShown++;
+            }
+            else
+                selected[i] = recent.Dequeue();
+        }
         return selected;
     }
 
