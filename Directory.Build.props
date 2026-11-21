@@ -18,6 +18,6 @@
     这里不直接写 <Version>，以免连带改变 Contracts 等其他程序集的版本；Player、AI 等可单独分发的插件保留各自的版本号。
   -->
   <PropertyGroup>
-    <AniMeidoVersion>2.1.3</AniMeidoVersion>
+    <AniMeidoVersion>3.0.0</AniMeidoVersion>
   </PropertyGroup>
 </Project>
