@@ -29,7 +29,9 @@ class WebsiteVersionTests(unittest.TestCase):
         return path
 
     def verify(self, installer, manifest=None):
-        def fetch(url, **_):
+        def fetch(request, **_):
+            self.assertEqual(f"AniMeido-ReleaseVerifier/{self.version}", request.get_header("User-agent"))
+            url = request.full_url
             if url == self.legacy["downloadUrl"]:
                 if isinstance(installer, Exception):
                     raise installer

@@ -3,7 +3,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 CDN = "https://dl.animeido.com"
 NUMBER = r"(?:0|[1-9][0-9]*)"
@@ -32,8 +32,9 @@ def verify_public(version, assets):
     installer = assets / f"AniMeido_setup_{version}.exe"
     if not installer.stat().st_size:
         raise ValueError("Empty installer")
+    headers = {"User-Agent": f"AniMeido-ReleaseVerifier/{version}"}
     # Use the public URL without R2 credentials. A 200 HTML error or a partial installer must not pass.
-    with installer.open("rb") as local, urlopen(legacy["downloadUrl"], timeout=45) as public:
+    with installer.open("rb") as local, urlopen(Request(legacy["downloadUrl"], headers=headers), timeout=45) as public:
         while chunk := local.read(1024 * 1024):
             if public.read(len(chunk)) != chunk:
                 raise ValueError("Public installer differs from the release artifact")
@@ -41,7 +42,7 @@ def verify_public(version, assets):
             raise ValueError("Unexpected bytes after end of installer")
     # A failed website-only job can be rerun after another stable release has gone live.
     manifest = (assets / "release.json").read_bytes()
-    with urlopen(f"{CDN}/updates/win-x64/stable/release.json", timeout=30) as public:
+    with urlopen(Request(f"{CDN}/updates/win-x64/stable/release.json", headers=headers), timeout=30) as public:
         if public.read(len(manifest) + 1) != manifest:
             raise ValueError("The public stable channel does not advertise this release")
 
