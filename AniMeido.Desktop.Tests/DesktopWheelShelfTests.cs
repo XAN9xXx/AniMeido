@@ -16,6 +16,24 @@ namespace AniMeido.Desktop.Tests;
 public sealed class DesktopWheelShelfTests
 {
     [Fact]
+    public Task ReducedMotionMovesEachWheelTickStraightToItsTarget()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            var shelf = Shelf(900);
+            var scene = new Scene(shelf);
+            await scene.AttachAsync(root);
+            Application.Current.Resources["DesktopMotionEnabled"] = false;
+            var mouse = new Mouse(root);
+            mouse.MoveTo(shelf);
+
+            mouse.Tick(-120);
+            Assert.Equal(120, shelf.HorizontalOffset);
+            mouse.Tick(-120);
+            Assert.Equal(240, shelf.HorizontalOffset);
+            Assert.Equal(0, scene.Body.VerticalOffset);
+        });
+
+    [Fact]
     public Task MovingOntoAShelfAndReversingDoesNotRestartAVerticalSequence()
         => UnoHeadlessTestHost.RunAsync(async root =>
         {

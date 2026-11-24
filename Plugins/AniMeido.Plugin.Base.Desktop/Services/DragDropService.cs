@@ -525,10 +525,18 @@ namespace AniMeido.Plugin.Base.Services
                 0f);
         }
 
-        private void PlayTailExpandCompositionAnimation()
+        private void ExpandTailPreview()
         {
             if (_dragTokenTailPillVisual == null || _dragTokenTailHintVisual == null)
                 return;
+
+            if (!Application.Current.Resources.TryGetValue("DesktopMotionEnabled", out var motion) || motion is not true)
+            {
+                _dragTokenTailPillVisual.Scale = Vector3.One;
+                _dragTokenTailPillVisual.Opacity = 1f;
+                _dragTokenTailHintVisual.Opacity = 1f;
+                return;
+            }
 
             var compositor = _dragTokenTailPillVisual.Compositor;
 
@@ -604,7 +612,7 @@ namespace AniMeido.Plugin.Base.Services
             if (!_dragTokenTailExpanded)
             {
                 _dragTokenTailExpanded = true;
-                PlayTailExpandCompositionAnimation();
+                ExpandTailPreview();
             }
         }
 

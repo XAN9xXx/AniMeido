@@ -72,7 +72,8 @@ public sealed class DesktopWheelShelf : ScrollViewer
         if (target == from) return;
 
         _wheelTarget = target;
-        if (ChangeView(target, null, null, disableAnimation: false))
+        var animate = Application.Current.Resources.TryGetValue("DesktopMotionEnabled", out var motion) && motion is true;
+        if (ChangeView(target, null, null, disableAnimation: !animate))
             args.Handled = true;
         else
             _wheelTarget = null;

@@ -47,6 +47,51 @@ public sealed class DesktopDataDragPageTests
             }
         });
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [Trait("Category", "Mechanism")]
+    public Task EnteringDropZonesRespectsTheMotionPreferenceForTheCurrentHint(bool animate)
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var drag = new DragDropService(new TrackingService(fixture.Factory),
+                new PersonalFeatureStateStore(fixture.Factory), NullLogger<DragDropService>.Instance);
+            var overlay = new Canvas();
+            root.Children.Add(overlay);
+            using var host = drag.AttachStandardDragHost(root, overlay);
+            var resources = Application.Current.Resources;
+            var previous = resources["DesktopMotionEnabled"];
+            resources["DesktopMotionEnabled"] = animate;
+            try
+            {
+                var showHint = typeof(DragDropService).GetMethod("ShowTailPreview", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .CreateDelegate<Action<string, Windows.Foundation.Point>>(drag);
+                foreach (var (zone, action) in new[] { ("tl", DragAction.NotInterested), ("tr", DragAction.Watching) })
+                {
+                    showHint(zone, new(60, 60));
+                    var panel = Assert.IsType<Grid>(Assert.Single(overlay.Children));
+                    var pill = Assert.IsType<Border>(Assert.Single(panel.Children));
+                    var hint = Assert.IsType<TextBlock>(pill.Child);
+                    Assert.Equal(DragDropService.GetActionHint(action), hint.Text);
+                    var surface = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(pill);
+                    var label = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(hint);
+                    bool FullyShown() => surface.Scale.X == 1f && surface.Opacity == 1f && label.Opacity == 1f;
+                    if (animate)
+                    {
+                        Assert.False(FullyShown());
+                        await UnoVisualEvidence.WaitForAsync(FullyShown);
+                    }
+                    else Assert.True(FullyShown(), $"提示未立即展开：宽度比例 {surface.Scale.X}，底板和文字的不透明度 {surface.Opacity}/{label.Opacity}");
+                }
+            }
+            finally
+            {
+                resources["DesktopMotionEnabled"] = previous;
+                root.Children.Remove(overlay);
+            }
+        });
+
     [Fact]
     public Task DragZonesReadOnlyAfterMounting()
         => UnoHeadlessTestHost.RunAsync(async _ =>
