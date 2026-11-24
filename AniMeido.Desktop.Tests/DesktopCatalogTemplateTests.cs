@@ -35,7 +35,7 @@ public sealed class DesktopCatalogTemplateTests(ITestOutputHelper output)
             await using var fixture = await Fixture.CreateAsync();
             var store = new AniMeido.App.Services.DesktopSettingsStore(fixture);
             await store.SaveAsync(new AniMeido.App.Services.DesktopSettings { VisualStyle = "Paper", ThemeSetting = "Dark", FontStyle = "Serif", CatalogCardStyle = selectOva ? "Cover" : "Detailed" });
-            await using var theme = new AniMeido.App.Services.ThemeService(store);
+            await using var theme = new AniMeido.App.Services.ThemeService(store, null, () => true);
             await theme.InitializeThemeAsync(root);
             var winter = new TaskCompletionSource<List<Anime>>(TaskCreationOptions.RunContinuationsAsynchronously);
             static List<Anime> Items(int total, int ova, int tv, int ona, int movie, int year, int month)
@@ -101,7 +101,10 @@ public sealed class DesktopCatalogTemplateTests(ITestOutputHelper output)
                 await UnoVisualEvidence.CaptureAsync(page, "E-acceptance", $"season-chips-{name}-01-loading");
                 AssertStable("spring", "17");
 
+                var resultRegion = (Grid)VisualTreeHelper.GetParent((ScrollViewer)page.FindName("CatalogScroller"));
+                Assert.Null(resultRegion.RenderTransform);
                 winter.SetResult(Items(249, 9, 99, 10, 0, 2025, 1));
+                await WaitAsync(root, () => resultRegion.RenderTransform is CompositeTransform { TranslateX: < 0 });
                 for (var frame = 0; frame < 8; frame++)
                 {
                     root.UpdateLayout();

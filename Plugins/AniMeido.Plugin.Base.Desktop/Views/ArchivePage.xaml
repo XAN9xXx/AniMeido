@@ -117,7 +117,7 @@
             </ToggleButton>
         </StackPanel>
 
-        <Grid Grid.Row="3">
+        <Grid x:Name="SectionBody" Grid.Row="3">
             <Grid x:Name="ArchivesPanel" ColumnDefinitions="268,*" RowDefinitions="*,0" ColumnSpacing="22" RowSpacing="16">
                 <Border x:Name="DesktopArchiveListPane" Style="{StaticResource AniMeidoCardStyle}" Background="{ThemeResource DesktopNavigationBrush}" Padding="12">
                     <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">

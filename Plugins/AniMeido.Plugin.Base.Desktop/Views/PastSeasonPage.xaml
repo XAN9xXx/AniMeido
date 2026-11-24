@@ -233,7 +233,7 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Row="3" Margin="0,20,0,0">
+        <Grid x:Name="SeasonBody" Grid.Row="3" Margin="0,20,0,0">
             <ScrollViewer x:Name="CatalogScroller" Padding="0,0,0,24"
                           VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                           HorizontalScrollMode="Disabled" SizeChanged="OnCatalogSizeChanged"

@@ -422,6 +422,7 @@ public sealed class ThemeService : IAsyncDisposable
     private void ApplyMotionResources()
     {
         _resources["DesktopMotionEnabled"] = _systemAnimationsEnabled;
+        _resources["DesktopSectionMotionStyle"] = CurrentAppearance.VisualStyle.ToString();
         _resources["DesktopFluentPageMotionEnabled"] = _systemAnimationsEnabled && CurrentAppearance.VisualStyle != DesktopVisualStyle.Paper;
         _resources["DesktopPaperCardMotionEnabled"] = _systemAnimationsEnabled && CurrentAppearance.VisualStyle == DesktopVisualStyle.Paper;
     }

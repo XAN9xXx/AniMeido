@@ -49,6 +49,8 @@ public sealed partial class PastSeasonPage : Page, INavigationAware, IDesktopLoa
     private double? _settlingScrollOffset;
     private bool _seasonPending;
     private bool _holdingSeason;
+    private readonly DesktopSectionMotion _sectionMotion = new();
+    private bool? _pendingSeasonBackward;
     private bool? _detailed;
     private PaperCardTrip? _paperTrip;
     private readonly PaperCardMotion _paperMotion;
@@ -179,6 +181,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware, IDesktopLoa
         _skeletonTimer.Stop();
         _seasonPending = false;
         _holdingSeason = false;
+        _pendingSeasonBackward = null;
         SeasonSwitchHint.Visibility = Visibility.Collapsed;
         LoadSurface.Unload();
         if (ViewModel.LoadedAnime.Count == 0 || !ReferenceEquals(LoadSurface.ReadyTarget, CatalogReadyTarget())) LoadSurface.Reset();
@@ -223,6 +226,8 @@ public sealed partial class PastSeasonPage : Page, INavigationAware, IDesktopLoa
         _seasonTimer.Stop();
         CancelLoad();
         var target = _selected;
+        var backward = _pendingSeasonBackward;
+        _pendingSeasonBackward = null;
         var version = _loadVersion;
         using var cancellation = new CancellationTokenSource();
         _loading = cancellation;
@@ -278,6 +283,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware, IDesktopLoa
                 UpdateLoading();
                 UpdateFormatChips();
                 QueueLayout();
+                if (backward is bool direction) _sectionMotion.Play(SeasonBody, direction);
             }
         }
     }
@@ -287,6 +293,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware, IDesktopLoa
         SeasonFlyout.Hide();
         target = PastSeasonBrowse.Clamp(target, FirstSeason, LatestSeason());
         if (_selected == target && !_seasonPending && !ViewModel.IsLoading && ViewModel.LoadedAnime.Count > 0) return;
+        if (target != _selected) _pendingSeasonBackward = (target.Year, target.Season).CompareTo((_selected.Year, _selected.Season)) < 0;
         HoldVisibleSeason();
         _selected = target;
         CancelLoad();

@@ -278,14 +278,14 @@ public sealed partial class ArchivePage : Page, INavigationAware, IDesktopManual
         return true;
     }
     private void OnSectionButtonClick(object sender, RoutedEventArgs e)
-    { if (sender is FrameworkElement { Tag: string tag }) { ShowPanel(tag); _ = ReadAsync(async () => await EnsureActivePanelAsync()); } }
+    { if (sender is FrameworkElement { Tag: string tag }) { ShowPanel(tag, animate: true); _ = ReadAsync(async () => await EnsureActivePanelAsync()); } }
     private void OnReviewYearChanged(NumberBox sender, NumberBoxValueChangedEventArgs e)
     {
         if (_suppressReviewYearChanged || double.IsNaN(ReviewYear.Value)) return;
         _panels.Invalidate(ArchivePanelKind.Review); _ = ReadAsync(async () => await EnsureActivePanelAsync());
     }
     private void OnReviewMoreScreenshotsClick(object sender, RoutedEventArgs e)
-    { ScreenshotYearFilter.Value = ReviewYear.Value; ShowPanel("screenshots"); _ = ReadAsync(async () => await EnsureActivePanelAsync()); }
+    { ScreenshotYearFilter.Value = ReviewYear.Value; ShowPanel("screenshots", animate: true); _ = ReadAsync(async () => await EnsureActivePanelAsync()); }
     private void OnScreenshotUnassignedChanged(object sender, RoutedEventArgs e) { _desktopScreenshotPage = 0; ApplyScreenshotFilter(); }
     private void OnPreviousScreenshotPage(object sender, RoutedEventArgs e)
     { if (_desktopScreenshotPage > 0) { --_desktopScreenshotPage; ApplyScreenshotFilter(); } }

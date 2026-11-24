@@ -507,6 +507,44 @@ public sealed class DesktopSettingsAdmissionTests
         });
 
     [Fact]
+    public Task SettingsTabsMoveTheFrameAndReuseItsCachedPage()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var store = new DesktopSettingsStore(fixture);
+            await using var theme = new ThemeService(store, null, () => true);
+            await theme.InitializeThemeAsync(root);
+            var packages = new PluginPackageManager(new PluginInstallationPaths(Path.Combine(fixture.BackupDirectory, "plugins")), new PluginPackageVerifier(new Version(2, 1, 2)));
+            var context = new InstalledAppContext(null);
+            var installed = new InstalledUpdateService(null!, context);
+            await using var rollback = new RollbackDataStore(fixture);
+            using var provider = new ServiceCollection().AddSingleton(store).AddSingleton(theme).AddSingleton(context)
+                .AddSingleton(installed).AddSingleton(new AppUpdateCheckService(context, store, installed, null!))
+                .AddSingleton(rollback).AddSingleton(new PluginManagementService(packages, new IdlePluginHost())).BuildServiceProvider();
+            var page = new SettingPage(new PageFactory(provider), new PluginContributionRegistry());
+            try
+            {
+                await AttachAsync(root, page);
+                var frame = (Frame)page.FindName("SettingsFrame");
+                var first = frame.Content;
+                var buttons = UnoVisualEvidence.Descendants(page).OfType<Microsoft.UI.Xaml.Controls.Primitives.ToggleButton>()
+                    .Where(b => b.Tag is DesktopSettingsTarget).ToArray();
+                var current = buttons.Single(b => b.IsChecked == true);
+                var next = buttons.First(b => b != current);
+                Click(next);
+                Assert.NotSame(first, frame.Content);
+                var transform = Assert.IsType<Microsoft.UI.Xaml.Media.CompositeTransform>(frame.RenderTransform);
+                Click(next);
+                Assert.Same(transform, frame.RenderTransform);
+                Click(current);
+                Assert.Same(first, frame.Content);
+                static void Click(Microsoft.UI.Xaml.Controls.Primitives.ToggleButton button) =>
+                    typeof(Microsoft.UI.Xaml.Controls.Primitives.ButtonBase).GetMethod("OnClick", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(button, null);
+            }
+            finally { await DetachAsync(root, page); }
+        });
+
+    [Fact]
     public Task RealPageActivationRestoresUpdateCheckButtonAfterOldCheckEnds()
         => UnoHeadlessTestHost.RunAsync(async root =>
         {

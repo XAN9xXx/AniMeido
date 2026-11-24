@@ -14,6 +14,30 @@ namespace AniMeido.Desktop.Tests;
 [Collection(UnoHeadlessTestHost.CollectionName)]
 public sealed class DesktopMineDetailPageTests
 {
+    [Fact]
+    public Task MineMovesTheSelectedStatusOrTagsAfterItsRead()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            Application.Current.Resources["DesktopMotionEnabled"] = true;
+            Application.Current.Resources["DesktopSectionMotionStyle"] = "Paper";
+            var page = fixture.Mine(new Source());
+            try
+            {
+                await AttachAsync(root, page); await page.PendingActivation;
+                var host = (Grid)Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent((Grid)page.FindName("TagsPanel"));
+                Invoke((Button)page.FindName("TagsNavButton")); await page.PendingRead;
+                var t = Assert.IsType<Microsoft.UI.Xaml.Media.CompositeTransform>(host.RenderTransform);
+                Assert.True(t.TranslateX > 0);
+                Invoke((Button)page.FindName("TagsNavButton")); await page.PendingRead;
+                Assert.Same(t, host.RenderTransform);
+                var status = Find<Button>(page, b => b.Tag is TrackingStatusSection);
+                Invoke(status); await page.PendingRead;
+                Assert.True(((Microsoft.UI.Xaml.Media.CompositeTransform)host.RenderTransform).TranslateX < 0);
+            }
+            finally { await DetachAsync(root, page); }
+        });
+
     [Theory]
     [InlineData(AniMeido.App.Services.DesktopVisualStyle.Fluent10)]
     [InlineData(AniMeido.App.Services.DesktopVisualStyle.Fluent11)]

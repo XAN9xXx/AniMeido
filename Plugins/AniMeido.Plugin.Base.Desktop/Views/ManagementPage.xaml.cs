@@ -81,9 +81,18 @@ public sealed partial class ManagementPage : Page, INavigationAware
         if (!token.IsCancellationRequested) UpdateLayoutState();
     }
 
-    private void Read(Func<Task> read)
+    private readonly DesktopSectionMotion _sectionMotion = new();
+    private int _readVersion;
+
+    private void Read(Func<Task> read, bool animate = false, bool backward = false)
     {
-        if (_visit is { } visit) PendingRead = RunSafelyAsync(read, visit.Token);
+        if (_visit is not { } visit) return;
+        int version = ++_readVersion;
+        PendingRead = RunSafelyAsync(async () =>
+        {
+            await read();
+            if (animate && version == _readVersion && _visit == visit) _sectionMotion.Play(SectionBody, backward);
+        }, visit.Token);
     }
 
     private Task Write(Func<Task> write)
@@ -121,15 +130,19 @@ public sealed partial class ManagementPage : Page, INavigationAware
     {
         if (sender is not FrameworkElement { Tag: TrackingStatusSection section }) return;
         SearchBox.Text = "";
-        Read(() => ViewModel.SelectSectionAsync(section));
+        Read(() => ViewModel.SelectSectionAsync(section), ViewModel.View != MineView.Status || section != ViewModel.SelectedSection,
+            ViewModel.View != MineView.Status || ViewModel.StatusSections.IndexOf(section) < ViewModel.StatusSections.IndexOf(ViewModel.SelectedSection));
     }
-    private void OnTagsNavClick(object sender, RoutedEventArgs args) { SearchBox.Text = ""; Read(ViewModel.ShowTagsAsync); }
+    private void OnTagsNavClick(object sender, RoutedEventArgs args) { SearchBox.Text = ""; Read(ViewModel.ShowTagsAsync, !ViewModel.IsTagsView); }
     private void OnHiddenToggleClick(object sender, RoutedEventArgs args) => ViewModel.IsHiddenExpanded = !ViewModel.IsHiddenExpanded;
     private void OnSearchQuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
-        => Read(() => string.IsNullOrWhiteSpace(sender.Text) ? ViewModel.ClearSearchAsync() : ViewModel.SearchAsync(sender.Text.Trim()));
+    {
+        if (string.IsNullOrWhiteSpace(sender.Text)) Read(ViewModel.ClearSearchAsync, ViewModel.View == MineView.Search, backward: true);
+        else Read(() => ViewModel.SearchAsync(sender.Text.Trim()), ViewModel.View != MineView.Search);
+    }
     private void OnSearchTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
     {
-        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput && string.IsNullOrWhiteSpace(sender.Text)) Read(ViewModel.ClearSearchAsync);
+        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput && string.IsNullOrWhiteSpace(sender.Text)) Read(ViewModel.ClearSearchAsync, ViewModel.View == MineView.Search, backward: true);
     }
     private void OnErrorInfoBarClosed(InfoBar sender, InfoBarClosedEventArgs args) => ViewModel.IsError = false;
     public static Visibility EmptyVisibility(bool empty, bool loading, bool list) => empty && !loading && list ? Visibility.Visible : Visibility.Collapsed;

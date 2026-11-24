@@ -339,8 +339,16 @@ public sealed partial class CurrentSeasonPage : Page, IDesktopLoadingPage
 
     private void OnFilterTextChanged(object sender, TextChangedEventArgs args)
         => ViewModel.SearchText = ((TextBox)sender).Text;
-    private void OnAllScopeClick(object sender, RoutedEventArgs args) { ViewModel.ShowMineOnly = false; UpdateScope(); }
-    private void OnMineScopeClick(object sender, RoutedEventArgs args) { ViewModel.ShowMineOnly = true; UpdateScope(); }
+    private readonly DesktopSectionMotion _sectionMotion = new();
+    private void OnAllScopeClick(object sender, RoutedEventArgs args) => SelectScope(false);
+    private void OnMineScopeClick(object sender, RoutedEventArgs args) => SelectScope(true);
+    private void SelectScope(bool mine)
+    {
+        var changed = ViewModel.ShowMineOnly != mine;
+        ViewModel.ShowMineOnly = mine;
+        UpdateScope();
+        if (changed) _sectionMotion.Play(DayResults, backward: !mine);
+    }
     private void UpdateScope()
     {
         AllScopeButton.IsChecked = !ViewModel.ShowMineOnly;
@@ -350,7 +358,11 @@ public sealed partial class CurrentSeasonPage : Page, IDesktopLoadingPage
         => ViewModel.Sort = ((ComboBox)sender).SelectedIndex switch { 1 => CalendarSort.AirDate, 2 => CalendarSort.Title, _ => CalendarSort.Score };
     private void OnDayClick(object sender, RoutedEventArgs args)
     {
-        if (sender is FrameworkElement { Tag: CalendarDay day }) ViewModel.SelectDay(day.Weekday);
+        if (sender is not FrameworkElement { Tag: CalendarDay day }) return;
+        var previous = ViewModel.SelectedWeekday;
+        var changed = day.Weekday != previous || ViewModel.IsFiltering;
+        ViewModel.SelectDay(day.Weekday);
+        if (changed) _sectionMotion.Play(DayResults, day.Weekday < previous);
     }
 
     private void OnAnimeCardClicked(object? sender, AnimeCardClickedEventArgs args)

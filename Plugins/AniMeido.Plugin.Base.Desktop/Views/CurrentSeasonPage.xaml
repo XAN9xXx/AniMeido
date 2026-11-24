@@ -332,7 +332,7 @@
                                        Style="{StaticResource AniMeidoSectionTitleStyle}" VerticalAlignment="Center"/>
                         </StackPanel>
 
-                        <Grid Grid.Row="2">
+                        <Grid x:Name="DayResults" Grid.Row="2">
                             <!-- 按天：横向一行。 -->
                             <Grid x:Name="ShelfHost">
                                 <controls:DesktopWheelShelf x:Name="ShelfScroller"

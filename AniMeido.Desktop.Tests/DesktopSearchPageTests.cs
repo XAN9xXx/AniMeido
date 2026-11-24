@@ -58,6 +58,34 @@ public sealed class DesktopSearchPageTests
         });
 
     [Fact]
+    public Task SearchMovesBetweenLandingAndResultsWithoutReplayingForAnotherQuery()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await SearchFixture.CreateAsync(new SearchSource
+            { Search = (_, _, _) => Task.FromResult((new List<Anime> { Item(1, "作品") }, 1, 1)) });
+            Application.Current.Resources["DesktopMotionEnabled"] = true;
+            Application.Current.Resources["DesktopSectionMotionStyle"] = "Paper";
+            var page = fixture.SearchPage();
+            try
+            {
+                await AttachAsync(root, page); await page.PendingActivation;
+                var box = (AutoSuggestBox)page.FindName("SearchBox");
+                var results = (Grid)page.FindName("SearchResultsLayout");
+                box.Text = "第一部";
+                var query = page.SearchAsync(box.Text);
+                Assert.IsType<CompositeTransform>(results.RenderTransform);
+                await query;
+                await UnoVisualEvidence.WaitForAsync(() => results.RenderTransform is null);
+                await page.SearchAsync("第二部");
+                Assert.Null(results.RenderTransform);
+                box.Text = "";
+                await UnoVisualEvidence.WaitForAsync(() => ((ScrollViewer)page.FindName("LandingScroll")).RenderTransform is CompositeTransform { TranslateX: < 0 });
+                Assert.Null(box.RenderTransform);
+            }
+            finally { await DetachAsync(root, page); }
+        });
+
+    [Fact]
     public Task ClearingTheActualSearchBoxRejectsTheLateReplyAndKeepsTheRecentQuery()
         => UnoHeadlessTestHost.RunAsync(async root =>
         {

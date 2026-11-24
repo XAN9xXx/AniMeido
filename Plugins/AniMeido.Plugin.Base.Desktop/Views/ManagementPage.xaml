@@ -259,7 +259,7 @@
         </Border>
 
             <!-- 右侧：标题、批量操作栏、列表或网格；标签视图另用一块 -->
-            <Grid Grid.Row="3" RowDefinitions="Auto,Auto,*">
+            <Grid x:Name="SectionBody" Grid.Row="3" RowDefinitions="Auto,Auto,*">
                 <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,10">
                     <TextBlock Text="{x:Bind ViewModel.HeaderText, Mode=OneWay}" Style="{StaticResource AniMeidoSectionTitleStyle}"/>
                     <ProgressRing Width="16" Height="16"

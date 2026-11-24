@@ -16,6 +16,7 @@ public sealed partial class SettingPage : Page
     private string _selected = _lastSelected;
     private IReadOnlyList<DesktopSettingsTarget> _targets = [];
     private bool _attached;
+    private readonly AniMeido.Plugin.Base.Views.Controls.DesktopSectionMotion _sectionMotion = new();
 
     public SettingPage(PageFactory pageFactory, PluginContributionRegistry contributions)
     {
@@ -82,7 +83,11 @@ public sealed partial class SettingPage : Page
 
     private void OnSectionClick(object sender, RoutedEventArgs args)
     {
-        if (sender is ToggleButton { Tag: DesktopSettingsTarget target }) Show(target);
+        if (sender is not ToggleButton { Tag: DesktopSettingsTarget target }) return;
+        var previous = _selected;
+        var backward = _targets.TakeWhile(entry => entry.Id != previous).Any(entry => entry.Id == target.Id);
+        Show(target);
+        if (previous != target.Id) _sectionMotion.Play(SettingsFrame, backward);
     }
 
     private void Show(DesktopSettingsTarget target)

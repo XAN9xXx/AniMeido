@@ -174,8 +174,11 @@ public sealed partial class RecommendationPage : Page, INavigationAware, IDeskto
     {
         if (sender is ToggleButton { Tag: string section }) ShowSection(section);
     }
+    private readonly DesktopSectionMotion _sectionMotion = new();
+
     internal void ShowSection(string section)
     {
+        var previous = ViewModel.BrowseState.Section;
         SaveScroll();
         ViewModel.BrowseState.Section = section;
         RecommendationsPanel.Visibility = section == "recommendations" ? Visibility.Visible : Visibility.Collapsed;
@@ -185,6 +188,7 @@ public sealed partial class RecommendationPage : Page, INavigationAware, IDeskto
         ProfileSectionButton.IsChecked = section == "profile";
         HiddenSectionButton.IsChecked = section == "hidden";
         if (section == "recommendations") { _restorePending = true; RestoreScroll(); }
+        if (section != previous) _sectionMotion.Play(SectionBody, section == "recommendations" || previous == "hidden");
     }
 
     private void SaveScroll()

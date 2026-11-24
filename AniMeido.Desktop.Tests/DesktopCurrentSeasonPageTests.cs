@@ -21,6 +21,33 @@ namespace AniMeido.Desktop.Tests;
 [Collection(UnoHeadlessTestHost.CollectionName)]
 public sealed class DesktopCurrentSeasonPageTests(ITestOutputHelper output)
 {
+    [Fact]
+    public Task CalendarDayAndScopeSwitchMoveOnlyTheResults()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await CalendarFixture.CreateAsync();
+            Application.Current.Resources["DesktopMotionEnabled"] = true;
+            Application.Current.Resources["DesktopSectionMotionStyle"] = "Paper";
+            var page = fixture.Page(new CalendarSource { ReadSchedule = _ => Task.FromResult(new List<Anime> { Item(3, "作品", 7) }) });
+            try
+            {
+                await AttachAsync(root, page); await page.PendingActivation;
+                var host = (Grid)Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent((Grid)page.FindName("ShelfHost"));
+                var days = UnoVisualEvidence.Descendants(page).OfType<Button>().Where(b => b.Tag is CalendarDay).ToArray();
+                var next = days.First(b => ((CalendarDay)b.Tag).Weekday != page.ViewModel.SelectedWeekday);
+                Click(next);
+                var t = Assert.IsType<Microsoft.UI.Xaml.Media.CompositeTransform>(host.RenderTransform);
+                Click(next);
+                Assert.Same(t, host.RenderTransform);
+                Click((Microsoft.UI.Xaml.Controls.Primitives.ButtonBase)page.FindName("MineScopeButton"));
+                Assert.NotSame(t, host.RenderTransform);
+                Assert.Null(((Grid)page.FindName("DiscoverHost")).RenderTransform);
+            }
+            finally { await fixture.StopPageAsync(root, page); }
+            static void Click(Microsoft.UI.Xaml.Controls.Primitives.ButtonBase b) =>
+                typeof(Microsoft.UI.Xaml.Controls.Primitives.ButtonBase).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(b, null);
+        });
+
     [Theory]
     [InlineData(600, 900)]
     [InlineData(600, 600)]

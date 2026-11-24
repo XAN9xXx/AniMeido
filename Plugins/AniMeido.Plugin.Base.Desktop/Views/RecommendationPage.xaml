@@ -58,7 +58,7 @@
             </StackPanel>
         </Grid>
 
-        <Grid Grid.Row="3">
+        <Grid x:Name="SectionBody" Grid.Row="3">
             <Grid x:Name="RecommendationsPanel"
                   RowDefinitions="Auto,*"
                   RowSpacing="16"

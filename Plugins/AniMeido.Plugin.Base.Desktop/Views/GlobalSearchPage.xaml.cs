@@ -19,6 +19,7 @@ public sealed partial class GlobalSearchPage : Page
     private int _visit;
     private int _action;
     private bool _active;
+    private readonly DesktopSectionMotion _sectionMotion = new();
     private bool _syncing = true;
 
     public GlobalSearchViewModel ViewModel { get; }
@@ -99,7 +100,10 @@ public sealed partial class GlobalSearchPage : Page
     {
         var query = text?.Trim() ?? string.Empty;
         if (!_active || query.Length == 0) return Task.CompletedTask;
-        return ObserveAsync(() => ViewModel.SearchAsync(query), "搜索作品");
+        var wasLanding = ViewModel.IsLanding;
+        var search = ObserveAsync(() => ViewModel.SearchAsync(query), "搜索作品");
+        if (wasLanding && !ViewModel.IsLanding) _sectionMotion.Play(SearchResultsLayout);
+        return search;
     }
 
     private async void OnSearchQuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
@@ -109,7 +113,9 @@ public sealed partial class GlobalSearchPage : Page
     {
         if (_syncing || !string.IsNullOrWhiteSpace(sender.Text)) return;
         ++_action;
+        var wasLanding = ViewModel.IsLanding;
         ViewModel.ShowLanding();
+        if (!wasLanding) _sectionMotion.Play(LandingScroll, backward: true);
     }
     private async void OnRecentSearchClick(object sender, RoutedEventArgs args)
     {

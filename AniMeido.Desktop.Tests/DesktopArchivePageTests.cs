@@ -13,6 +13,32 @@ namespace AniMeido.Desktop.Tests;
 [Collection(UnoHeadlessTestHost.CollectionName)]
 public sealed class DesktopArchivePageTests
 {
+    [Fact]
+    public Task ArchiveTabMovesItsBodyOnlyOnAChangedSelection()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            Application.Current.Resources["DesktopMotionEnabled"] = true;
+            Application.Current.Resources["DesktopSectionMotionStyle"] = "Paper";
+            var page = fixture.Archives(new Source());
+            try
+            {
+                await AttachAsync(root, page);
+                await page.PendingActivation;
+                var host = (FrameworkElement)VisualTreeHelper.GetParent((ScrollViewer)page.FindName("StatisticsPanel"));
+                var button = ButtonBase(page, "StatisticsSectionButton");
+                Invoke(button);
+                var motion = Assert.IsType<CompositeTransform>(host.RenderTransform);
+                Assert.True(motion.TranslateX > 0);
+                Invoke(button);
+                Assert.Same(motion, host.RenderTransform);
+                Invoke(ButtonBase(page, "ArchivesSectionButton"));
+                Assert.True(((CompositeTransform)host.RenderTransform).TranslateX < 0);
+                await page.PendingRead;
+            }
+            finally { await DetachAsync(root, page); }
+        });
+
     [Theory]
     [InlineData(1120, false)]
     [InlineData(1120, true)]

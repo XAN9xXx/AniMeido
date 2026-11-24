@@ -552,7 +552,9 @@ public sealed partial class ArchivePage
         DeleteEntryButton.IsEnabled = hasSelection;
     }
 
-    private void ShowPanel(string tag)
+    private readonly Controls.DesktopSectionMotion _sectionMotion = new();
+
+    private void ShowPanel(string tag, bool animate = false)
     {
         var nextPanel = tag switch
         {
@@ -561,6 +563,7 @@ public sealed partial class ArchivePage
             "screenshots" => ArchivePanelKind.Screenshots,
             _ => ArchivePanelKind.Archives,
         };
+        var previous = _panels.ActivePanel;
         _panels.SelectPanel(nextPanel);
         ArchivesPanel.Visibility =
             tag == "archives" ? Visibility.Visible : Visibility.Collapsed;
@@ -574,6 +577,7 @@ public sealed partial class ArchivePage
         StatisticsSectionButton.IsChecked = tag == "statistics";
         ReviewSectionButton.IsChecked = tag == "review";
         ScreenshotsSectionButton.IsChecked = tag == "screenshots";
+        if (animate && previous != nextPanel) _sectionMotion.Play(SectionBody, nextPanel < previous);
     }
 
     private void OnShowScreenshotMoreActionsClick(
