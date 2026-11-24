@@ -779,6 +779,7 @@ public sealed class DesktopTodayRecommendationPageTests
         internal Func<CancellationToken, Task<List<Anime>>> Seasonal { get; set; } = _ => Task.FromResult(new List<Anime>());
         internal Func<int, CancellationToken, Task<List<Tag>>> Tags { get; set; } = (_, _) => Task.FromResult(new List<Tag>());
         internal Func<int, string?, CancellationToken, Task<(List<Anime>, int)>> Search { get; init; } = (_, _, _) => Task.FromResult((new List<Anime>(), 0));
+        internal Func<string, int, CancellationToken, Task<(List<Anime>, int, int)>> KeywordSearch { get; init; } = (_, offset, _) => Task.FromResult((new List<Anime>(), 0, offset));
         public Task<List<Anime>> GetCurrentBroadcastScheduleAsync(CancellationToken ct) => Schedule(++ScheduleCalls, ct);
         public Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct) => Seasonal(ct);
         public Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct) { DetailCalls++; return Detail(animeID, ct); }
@@ -790,7 +791,7 @@ public sealed class DesktopTodayRecommendationPageTests
         public Task<(List<Anime> Results, int Total)> SearchByTagAsync(string tag, int offset, string sort, CancellationToken ct,
             string? airDateFrom = null, string? airDateTo = null) => Search(offset, airDateFrom, ct);
         public Task<(List<Anime> Results, int Total, int NextOffset)> SearchByKeywordAsync(string keyword, int offset,
-            CancellationToken ct) => Task.FromResult((new List<Anime>(), 0, offset));
+            CancellationToken ct) => KeywordSearch(keyword, offset, ct);
     }
 
     private sealed class Playback : IAnimePlaybackLauncher

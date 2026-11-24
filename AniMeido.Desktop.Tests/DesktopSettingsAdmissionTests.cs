@@ -1,5 +1,6 @@
 ﻿using AniMeido.App.Services;
 using AniMeido.App.Views;
+using AniMeido.Contracts.Models;
 using AniMeido.Contracts.Notifications;
 using Microsoft.Extensions.DependencyInjection;
 using AniMeido.Plugin.Base.Models;
@@ -532,6 +533,65 @@ public sealed class DesktopSettingsAdmissionTests
             {
                 check.TrySetResult(new AppUpdateCheckResult.Legacy(new(UpdateCheckStatus.NoUpdate, null, null, null)));
                 await DetachAsync(root, page); await DesktopUiWork.DrainAsync();
+            }
+        });
+
+    [Theory]
+    [InlineData(null, false, null)]
+    [InlineData(11, false, 11)]
+    [InlineData(null, true, 22)]
+    [InlineData(11, true, 11)]
+    public Task ScreenshotTargetSearchKeepsExplicitChoiceAndNeverSelectsAnUnrelatedWork(
+        int? currentId, bool hasMatch, int? expectedId)
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var archive = new ArchiveService(fixture.Factory);
+            await SeedShotAsync(fixture);
+            if (currentId.HasValue)
+                await archive.UpdateScreenshotMetadataAsync("audit-shot", currentId, "原作品", null, "原备注");
+            var searched = false;
+            var page = fixture.Archives(new Source
+            {
+                KeywordSearch = (query, _, _) =>
+                {
+                    Assert.Equal("搜索词", query);
+                    searched = true;
+                    List<Anime> results = hasMatch ? [Item(22)] : [];
+                    return Task.FromResult((results, results.Count, results.Count));
+                },
+            });
+            page.ReadScreenshotTargetsAsync = _ => Task.FromResult<IReadOnlyList<LocalAnimeTarget>>([new(11, "原作品")]);
+            await page.OnNavigatedToAsync("audit-shot");
+            try
+            {
+                await AttachAsync(root, page);
+                await page.PendingActivation;
+                await page.PendingRead;
+                Call(page, "OnEditScreenshotClick");
+                await DialogAsync(page);
+                var dialog = Assert.IsType<ContentDialog>(Field(page, "_dialog"));
+                var fields = Assert.IsType<StackPanel>(dialog.Content).Children;
+                fields.OfType<TextBox>().Single(box => box.PlaceholderText == "输入名称搜索其他作品").Text = "搜索词";
+                var search = fields.OfType<Button>().Single(button => button.Content as string == "搜索作品");
+                Invoke(search);
+                await UntilAsync(() => searched && search.IsEnabled);
+                var noMatchNotice = fields.OfType<TextBlock>().Any(text =>
+                    text.Visibility == Visibility.Visible && text.Text.Contains("没有找到", StringComparison.Ordinal));
+                fields.OfType<TextBox>().Single(box => box.Header as string == "截图备注").Text = "新备注";
+                Invoke(Find<Button>(dialog, button => button.Name == "PrimaryButton"));
+                await UntilAsync(() => Field(page, "_dialog") is null);
+                await page.PendingRead;
+                var saved = Assert.Single(await archive.GetScreenshotsAsync());
+                Assert.Equal("新备注", saved.ContextNote);
+                Assert.Equal(expectedId, saved.AnimeId);
+                Assert.Equal(!hasMatch, noMatchNotice);
+            }
+            finally
+            {
+                (Field(page, "_dialog") as ContentDialog)?.Hide();
+                await DetachAsync(root, page);
+                await page.PendingRead;
             }
         });
 

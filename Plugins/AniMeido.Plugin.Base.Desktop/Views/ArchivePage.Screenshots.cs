@@ -49,18 +49,27 @@ public sealed partial class ArchivePage
                     HorizontalAlignment = HorizontalAlignment.Stretch, SelectedItem = targets.FirstOrDefault(a => a.AnimeId == item.AnimeId) };
                 var query = new TextBox { PlaceholderText = "输入名称搜索其他作品" };
                 var search = new Button { Content = "搜索作品" };
+                var noMatches = new TextBlock { Text = "没有找到作品，换个名称试试。", Visibility = Visibility.Collapsed, TextWrapping = TextWrapping.Wrap };
                 search.Click += async (_, _) =>
                 {
                     search.IsEnabled = false;
+                    noMatches.Visibility = Visibility.Collapsed;
                     try
                     {
                         var page = await _pendingReview.SearchAsync(query.Text.Trim(), 0, request.Token);
                         if (request.IsCancellationRequested) return;
-                        var selected = choices.SelectedItem;
-                        targets.AddRange(page.Results.Where(a => a.ID > 0).Select(a => new LocalAnimeTarget(a.ID, a.Title)));
-                        choices.ItemsSource = targets.DistinctBy(a => a.AnimeId).ToArray();
-                        choices.SelectedItem = selected;
-                        if (selected is null) choices.SelectedIndex = 0;
+                        var matches = page.Results.Where(a => a.ID > 0)
+                            .Select(a => new LocalAnimeTarget(a.ID, a.Title)).ToArray();
+                        if (matches.Length == 0)
+                        {
+                            noMatches.Visibility = Visibility.Visible;
+                            return;
+                        }
+                        var selectedId = assigned.IsChecked == true && choices.SelectedItem is LocalAnimeTarget selected
+                            ? selected.AnimeId : matches[0].AnimeId;
+                        targets = targets.Concat(matches).DistinctBy(a => a.AnimeId).ToList();
+                        choices.ItemsSource = targets;
+                        choices.SelectedItem = targets.First(a => a.AnimeId == selectedId);
                         assigned.IsChecked = true;
                     }
                     catch (OperationCanceledException) when (request.IsCancellationRequested) { }
@@ -74,7 +83,7 @@ public sealed partial class ArchivePage
                 try
                 {
                     Task<bool>? saving = null;
-                    await ShowEditorAsync("编辑截图", Fields(assigned, choices, query, search, title, episode, note), () => saving = SaveAsync(() =>
+                    await ShowEditorAsync("编辑截图", Fields(assigned, choices, query, search, noMatches, title, episode, note), () => saving = SaveAsync(() =>
                     {
                         var target = assigned.IsChecked == true ? choices.SelectedItem as LocalAnimeTarget : null;
                         if (assigned.IsChecked == true && target is null) throw new ArgumentException("请选择关联作品。");
