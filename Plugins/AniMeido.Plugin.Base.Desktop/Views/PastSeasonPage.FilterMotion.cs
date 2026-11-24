@@ -10,7 +10,6 @@ public sealed partial class PastSeasonPage
 {
     private Dictionary<int, Point>? _filterOrigins;
     private Storyboard? _filterSlide;
-    private bool _filterSlideQueued;
     private readonly List<AnimeCard> _movingCards = [];
 
     private void CaptureFilterOrigins()
@@ -31,7 +30,8 @@ public sealed partial class PastSeasonPage
 
     private Point? ViewportPosition(AnimeCard card)
     {
-        if (!card.IsLoaded || card.ActualWidth <= 0 || card.ActualHeight <= 0) return null;
+        // 跨行复用时，新卡片已排好位置，但 Loaded 要到本轮布局结束后才触发。
+        if (card.ActualWidth <= 0 || card.ActualHeight <= 0) return null;
         var p = card.TransformToVisual(CatalogScroller).TransformPoint(default);
         return p.X < CatalogScroller.ViewportWidth && p.Y < CatalogScroller.ViewportHeight
             && p.X + card.ActualWidth > 0 && p.Y + card.ActualHeight > 0 ? p : null;

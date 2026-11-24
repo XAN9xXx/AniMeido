@@ -9,6 +9,19 @@ namespace AniMeido.Tests;
 
 public sealed partial class PastSeasonStatusReloadTests : DbTestBase
 {
+    [Fact]
+    public async Task FilterKeepingTheSameResultsDoesNotReplaceTheCatalog()
+    {
+        await RunProductionMigrationAsync();
+        var vm = new PastSeasonViewModel(new SeasonSource(), new TrackingService(DbFactory), NullLogger.Instance);
+        await vm.LoadPastSeasonAnimeAsync(2026, Season.Spring);
+        var entries = vm.Entries;
+        vm.SetQuery("作品");
+        Assert.Same(entries, vm.Entries);
+        vm.SetQuery("作品2");
+        Assert.Equal(2, Assert.Single(vm.Entries).Anime.ID);
+    }
+
     [Theory]
     [InlineData(AnimeTrackingStatus.Blocked, false)]
     [InlineData(AnimeTrackingStatus.Completed, false)]

@@ -434,7 +434,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         }
     }
 
-    private void OnCatalogCardLoaded(object sender, RoutedEventArgs args)
+    private void OnCatalogCardLoading(FrameworkElement sender, object args)
     {
         var card = (AnimeCard)sender;
         _realizedCards.Add(card);
@@ -444,15 +444,8 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
 
     private void OnCatalogLayoutUpdated(object? sender, object args)
     {
-        if (_filterOrigins is not null && !_layoutQueued && !_filterSlideQueued)
-        {
-            // 跨行后目标卡在这次布局结束时才触发 Loaded。
-            _filterSlideQueued = DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
-            {
-                _filterSlideQueued = false;
-                if (_filterOrigins is not null && !_layoutQueued) AnimateFilterResult();
-            });
-        }
+        // 在新布局第一次显示前设好起始位移，避免卡片到位后再往回跳。
+        if (_filterOrigins is not null && !_layoutQueued) AnimateFilterResult();
         if (!_active || !_restoreScroll || ViewModel.IsLoading || _seasonPending) return;
         if (_scrollOffset <= 0)
         {
@@ -516,8 +509,11 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
             _scrollOffset = CatalogScroller.VerticalOffset;
     }
 
-    private void ResetScroll()
+    private void ResetScrollIfResultsChanged(ObservableCollection<PastSeasonEntry> previous)
     {
+        // 筛选和排序在作品及顺序不变时会复用原集合。
+        if (ReferenceEquals(previous, ViewModel.Entries)) return;
+
         CaptureFilterOrigins();
         _settleScrollTimer.Stop();
         _settlingScrollOffset = null;
@@ -536,15 +532,17 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
     private void OnSortChanged(object sender, SelectionChangedEventArgs args)
     {
         if (SortComboBox.SelectedItem is not ComboBoxItem { Tag: PastSeasonSortKey key }) return;
+        var previous = ViewModel.Entries;
         ViewModel.SetSortKey(key);
         UpdateSortDirection();
-        ResetScroll();
+        ResetScrollIfResultsChanged(previous);
     }
     private void OnSortDirectionClick(object sender, RoutedEventArgs args)
     {
+        var previous = ViewModel.Entries;
         ViewModel.ToggleSortDirection();
         UpdateSortDirection();
-        ResetScroll();
+        ResetScrollIfResultsChanged(previous);
     }
     private void UpdateSortDirection()
     {
@@ -557,9 +555,10 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         if (sender is not ToggleButton { Tag: PastSeasonFormatChip chip } button) return;
         button.IsChecked = true;
         if (chip.IsSelected) return;
+        var previous = ViewModel.Entries;
         ViewModel.SelectFormat(chip.Format);
         UpdateFormatChips();
-        ResetScroll();
+        ResetScrollIfResultsChanged(previous);
     }
 
     private void UpdateFormatChips()
@@ -577,14 +576,16 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
     private void OnHideCompletedToggled(object sender, RoutedEventArgs args)
     {
         if (_syncingControls) return;
+        var previous = ViewModel.Entries;
         ViewModel.SetHideCompleted(HideCompletedSwitch.IsOn);
-        ResetScroll();
+        ResetScrollIfResultsChanged(previous);
     }
     private void OnFilterTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
     {
         if (_syncingControls) return;
+        var previous = ViewModel.Entries;
         ViewModel.SetQuery(sender.Text);
-        ResetScroll();
+        ResetScrollIfResultsChanged(previous);
     }
     private void OnClearFiltersClick(object sender, RoutedEventArgs args)
     {
@@ -592,8 +593,9 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         FilterBox.Text = string.Empty;
         HideCompletedSwitch.IsOn = false;
         _syncingControls = false;
+        var previous = ViewModel.Entries;
         ViewModel.ClearFilters();
-        ResetScroll();
+        ResetScrollIfResultsChanged(previous);
     }
     private void OnFindAcceleratorInvoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {

@@ -42,14 +42,14 @@
                                 TrackingStatus="{x:Bind Status}"
                                 ShowMediaFormatBadge="True"
                                 ShowSeasonDate="True"
-                                Loaded="OnCatalogCardLoaded" Unloaded="OnCatalogCardUnloaded"
+                                Loading="OnCatalogCardLoading" Unloaded="OnCatalogCardUnloaded"
                                 CardClicked="OnAnimeCardClicked"
                                 VerticalAlignment="Top" Margin="0,0,16,20"/>
         </DataTemplate>
         <DataTemplate x:Key="DesktopDetailedTemplate" x:DataType="vm:PastSeasonEntry">
             <controls:AnimeCard Anime="{Binding Anime, Mode=OneWay}"
                                 DisplayMode="Detailed"
-                                Loaded="OnCatalogCardLoaded" Unloaded="OnCatalogCardUnloaded"
+                                Loading="OnCatalogCardLoading" Unloaded="OnCatalogCardUnloaded"
                                 ShowQuickActions="False"
                                 TrackingStatus="{Binding Status, Mode=OneWay}"
                                 HorizontalAlignment="Stretch" VerticalAlignment="Stretch"

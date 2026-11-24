@@ -150,6 +150,50 @@ public sealed class DesktopCatalogTemplateTests(ITestOutputHelper output)
             finally { await DetachAsync(root, page); }
         });
 
+    [Fact]
+    public Task CatalogFiltersKeepScrollUntilResultsChange()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var source = new SeasonSource((_, _, _) => Task.FromResult(Enumerable.Range(1, 100)
+                .Select(i => Item(i, $"作品{(i % 2 == 0 ? "甲" : "乙")}{i}")).ToList()));
+            var tracking = new TrackingService(fixture.Factory);
+            var page = new PastSeasonPage(source, new CacheService(fixture.Factory),
+                new DragDropService(tracking, new PersonalFeatureStateStore(fixture.Factory), NullLogger<DragDropService>.Instance),
+                tracking, fixture.Navigation, NullLogger<PastSeasonPage>.Instance) { Width = 800, Height = 650 };
+            try
+            {
+                await AttachAsync(root, page);
+                var viewer = (ScrollViewer)page.FindName("CatalogScroller");
+                var search = (AutoSuggestBox)page.FindName("FilterBox");
+                await WaitAsync(root, () => page.ViewModel.Entries.Count == 100 && viewer.ScrollableHeight > 1600);
+                viewer.ChangeView(null, 1200, null, true);
+                await SettleLayoutAsync();
+                var offset = viewer.VerticalOffset;
+                Assert.True(offset > 1000);
+
+                ((ToggleSwitch)page.FindName("HideCompletedSwitch")).IsOn = true;
+                await SettleLayoutAsync();
+                Assert.True(page.ViewModel.HideCompleted);
+                Assert.InRange(Math.Abs(viewer.VerticalOffset - offset), 0, .5);
+
+                search.Text = "作品";
+                await SettleLayoutAsync();
+                Assert.Equal("作品", page.ViewModel.Query);
+                Assert.InRange(Math.Abs(viewer.VerticalOffset - offset), 0, .5);
+
+                search.Text = "甲";
+                await WaitAsync(root, () => page.ViewModel.Entries.Count == 50 && viewer.VerticalOffset < .5);
+                Assert.True(viewer.ScrollableHeight > 1200);
+
+                async Task SettleLayoutAsync()
+                {
+                    for (var i = 0; i < 6; i++) { root.UpdateLayout(); await Task.Delay(16); }
+                }
+            }
+            finally { await DetachAsync(root, page); }
+        });
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -349,6 +393,7 @@ public sealed class DesktopCatalogTemplateTests(ITestOutputHelper output)
                 tracking, fixture.Navigation, NullLogger<PastSeasonPage>.Instance) { Width = 780, Height = 1010 };
             var previous = DesktopPresentationPreferences.UseDetailedCatalogCards;
             var resources = Application.Current.Resources;
+            EventHandler<object>? observeLayout = null;
             var previousMotion = resources["DesktopMotionEnabled"];
             resources["DesktopMotionEnabled"] = motion;
             DesktopPresentationPreferences.Apply(false, DesktopPresentationPreferences.ShowPlanReminders);
@@ -366,7 +411,19 @@ public sealed class DesktopCatalogTemplateTests(ITestOutputHelper output)
                 var chip = Find<ToggleButton>(page, button => button.Tag is PastSeasonFormatChip { Format: AnimeMediaFormat.Television });
                 var sequence = !motion ? "catalog-reduced" : crossRow ? "catalog-cross-row" : "catalog-format";
                 var sampled = new List<double>();
+                var layoutAndFrames = new List<double>();
                 await UnoVisualEvidence.CaptureAsync(page, "C-motion", $"{sequence}-00-six-before");
+                // 记录每次新布局的位置，避免只采到动画中段，漏掉先到终点再往回跳的一帧。
+                observeLayout = (_, _) =>
+                {
+                    var visible = VisibleCards(rows);
+                    if (visible.Length == 5 && visible.SingleOrDefault(c => c.Anime?.ID == destination) is { } card)
+                    {
+                        var point = card.TransformToVisual(rows).TransformPoint(default);
+                        layoutAndFrames.Add(crossRow ? point.Y : point.X);
+                    }
+                };
+                page.LayoutUpdated += observeLayout;
                 typeof(ButtonBase).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(chip, null);
                 Assert.True(chip.IsChecked);
                 for (var i = 0; i < 4; i++)
@@ -378,6 +435,7 @@ public sealed class DesktopCatalogTemplateTests(ITestOutputHelper output)
                     {
                         var pos = moving.TransformToVisual(rows).TransformPoint(default);
                         sampled.Add(crossRow ? pos.Y : pos.X);
+                        layoutAndFrames.Add(sampled[^1]);
                     }
                     Assert.InRange(visible.Length, 5, 6);
                     Assert.Equal(visible.Length, visible.Select(card => card.Anime!.ID).Distinct().Count());
@@ -407,10 +465,14 @@ public sealed class DesktopCatalogTemplateTests(ITestOutputHelper output)
                 var end = crossRow ? after.Y : after.X;
                 Assert.True(motion == sampled.Any(position => position > end + .1 && position < start - .1),
                     $"motion={motion}, start={start}, frames=[{string.Join(", ", sampled)}], end={end}");
+                var positions = layoutAndFrames.Prepend(start).Append(end).ToArray();
+                Assert.True(positions.Zip(positions.Skip(1)).All(pair => pair.Second <= pair.First + .1),
+                    $"移动中途不能回跳：{string.Join(", ", positions)}");
                 Assert.Equal(1, calls);
             }
             finally
             {
+                page.LayoutUpdated -= observeLayout;
                 await DetachAsync(root, page);
                 resources["DesktopMotionEnabled"] = previousMotion;
                 DesktopPresentationPreferences.Apply(previous, DesktopPresentationPreferences.ShowPlanReminders);

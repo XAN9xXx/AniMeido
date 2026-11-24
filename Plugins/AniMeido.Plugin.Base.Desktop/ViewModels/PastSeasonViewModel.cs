@@ -160,6 +160,9 @@ namespace AniMeido.Plugin.Base.ViewModels
                 if (version != Volatile.Read(ref _statusLoadVersion))
                     return true;
 
+                if (statuses.Count == _statuses.Count && statuses.All(row =>
+                    _statuses.TryGetValue(row.AnimeId, out var previous) && previous == row.Status))
+                    return true;
                 _statuses = statuses.ToDictionary(row => row.AnimeId, row => row.Status);
             }
             catch (Microsoft.Data.Sqlite.SqliteException ex)
@@ -244,7 +247,7 @@ namespace AniMeido.Plugin.Base.ViewModels
                 PastSeasonBrowse.ByFormat(visible, SelectedFormat),
                 SortKey,
                 SortAscending);
-            if (!keepList || !PastSeasonBrowse.SyncInPlace(Entries, sorted))
+            if (keepList ? !PastSeasonBrowse.SyncInPlace(Entries, sorted) : !Entries.SequenceEqual(sorted))
                 Entries = new ObservableCollection<PastSeasonEntry>(sorted);
 
             var total = LoadedAnime.Count(anime =>
