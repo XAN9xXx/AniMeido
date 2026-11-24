@@ -200,7 +200,13 @@ public sealed class DesktopPageRetentionDiagnostics(ITestOutputHelper output)
             var detail = Assert.IsType<AnimeDetailPage>(frame.Content);
             trace.Pages.Add(new(detail));
             await PumpAsync(root, trace, 300);
-            await detail.PendingActivation.WaitAsync(TimeSpan.FromSeconds(5));
+            // 这里检查导航与资源释放，加载耗时单独记录；整个场景由测试宿主限时。
+            var activation = Stopwatch.StartNew();
+            await detail.PendingActivation;
+            Assert.True(detail.IsLoaded);
+            Assert.Equal(20260000 + visit, detail.ViewModel.AnimeDetail?.ID);
+            Assert.False(detail.ViewModel.IsError);
+            trace.DetailReady(visit, activation.Elapsed);
             var detailScroll = (ScrollViewer)detail.FindName("ContentScrollViewer");
             root.UpdateLayout();
             detailScroll.ChangeView(null, detailScroll.ScrollableHeight, null, true);
@@ -296,6 +302,9 @@ public sealed class DesktopPageRetentionDiagnostics(ITestOutputHelper output)
                 Assert.Empty((System.Collections.IEnumerable)typeof(PastSeasonPage).GetField("_realizedCards", Flags)!.GetValue(page)!);
             }
         }
+
+        internal void DetailReady(int visit, TimeSpan wait) =>
+            output.WriteLine($"detail-visit={visit}; activation-wait-ms={wait.TotalMilliseconds:F0}");
 
         internal void Observe(Grid root)
         {
