@@ -16,7 +16,7 @@
                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
                     </Border>
                     <Border x:Name="CompletedDim" Background="#73000000" Visibility="Collapsed" IsHitTestVisible="False"/>
-                    <Grid x:Name="RetryOverlay" Background="{ThemeResource DesktopFailedOverlayBrush}" Visibility="Collapsed">
+                    <Grid x:Name="RetryOverlay" x:Load="False" Background="{ThemeResource DesktopFailedOverlayBrush}" Visibility="Collapsed">
                         <ProgressRing x:Name="RetryRing" Width="24" Height="24" IsActive="False"
                                       Foreground="{ThemeResource DesktopAccentBrush}"/>
                         <Button x:Name="RetryButton" Width="40" Height="40" Padding="0"
@@ -50,7 +50,7 @@
                             HorizontalAlignment="Left" VerticalAlignment="Bottom" IsHitTestVisible="False" Visibility="Collapsed">
                         <TextBlock Text="未开播" FontSize="12" Foreground="White"/>
                     </Border>
-                    <Grid x:Name="QuickActions" Visibility="Collapsed" VerticalAlignment="Bottom"
+                    <Grid x:Name="QuickActions" x:Load="False" Visibility="Collapsed" VerticalAlignment="Bottom"
                           Padding="6,28,6,6" ColumnDefinitions="*,*" ColumnSpacing="4">
                         <Grid.Background>
                             <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
@@ -73,7 +73,7 @@
                     <TextBlock x:Name="AirDateText" Foreground="{ThemeResource DesktopMutedBrush}" Margin="0,2,0,0"/>
                 </StackPanel>
 
-                <Grid x:Name="DetailedHost" Grid.Column="1" Visibility="Collapsed" Padding="14,10"
+                <Grid x:Name="DetailedHost" x:Load="False" Grid.Column="1" Visibility="Collapsed" Padding="14,10"
                       RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                         <TextBlock x:Name="DetailedTitle" FontSize="16" MaxLines="1"

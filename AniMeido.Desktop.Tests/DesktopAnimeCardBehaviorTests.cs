@@ -10,6 +10,30 @@ namespace AniMeido.Desktop.Tests;
 [Collection(UnoHeadlessTestHost.CollectionName)]
 public sealed class DesktopAnimeCardBehaviorTests
 {
+    [Fact]
+    public Task CachedCatalogCardBuildsNeitherRetryNorDisabledQuickActions()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            using var entry = new DesktopManagedImageLifetimeTests.CachedImage(false, 180, 270);
+            var card = new AnimeCard { Anime = Example(entry.Id, "已缓存") with { CoverURL = entry.Url } };
+            root.Children.Add(card);
+            try
+            {
+                await UnoVisualEvidence.WaitForAsync(() => ((Image)card.FindName("CoverImage")).Source
+                    is Microsoft.UI.Xaml.Media.Imaging.BitmapSource { PixelWidth: > 0 });
+                bool Has(string name) => UnoVisualEvidence.Descendants(card).OfType<FrameworkElement>().Any(e => e.Name == name);
+                Assert.False(Has("RetryRing"));
+                Assert.False(Has("WatchActionButton"));
+                card.ShowQuickActions = true;
+                await UnoVisualEvidence.WaitForAsync(() => Has("WatchActionButton"));
+                card.TrackingStatus = AnimeTrackingStatus.Watching;
+                Assert.Equal("追番中 ✓", ((Button)card.FindName("WatchActionButton")).Content);
+                card.ShowQuickActions = false;
+                Assert.Equal(Visibility.Collapsed, ((Grid)card.FindName("QuickActions")).Visibility);
+            }
+            finally { root.Children.Remove(card); }
+        });
+
     [Theory]
     [InlineData(AnimeCardDisplayMode.Poster)]
     [InlineData(AnimeCardDisplayMode.Compact)]
@@ -27,8 +51,13 @@ public sealed class DesktopAnimeCardBehaviorTests
 
             Assert.Same(anime, card.Anime);
             Assert.Equal(anime.Title, Text(card, "TitleText").Text);
-            Assert.Equal(anime.Title, Text(card, "DetailedTitle").Text);
-            Assert.Equal(anime.Description, Text(card, "DescriptionText").Text);
+            if (mode == AnimeCardDisplayMode.Detailed)
+            {
+                Assert.Equal(anime.Title, Text(card, "DetailedTitle").Text);
+                Assert.Equal(anime.Description, Text(card, "DescriptionText").Text);
+            }
+            else
+                Assert.DoesNotContain(UnoVisualEvidence.Descendants(card), e => e is FrameworkElement { Name: "DescriptionText" });
             var caption = Text(card, mode == AnimeCardDisplayMode.Detailed ? "DetailedTitle" : "TitleText");
             Assert.True(caption.ActualWidth > 0);
             Assert.True(caption.ActualHeight > 0);
@@ -36,6 +65,10 @@ public sealed class DesktopAnimeCardBehaviorTests
 
             wrapper.DataContext = new { Title = "另一个外层对象" };
             Assert.Equal(anime.Title, caption.Text);
+            card.DisplayMode = AnimeCardDisplayMode.Detailed;
+            root.UpdateLayout();
+            Assert.Equal(anime.Title, Text(card, "DetailedTitle").Text);
+            Assert.Equal(anime.Description, Text(card, "DescriptionText").Text);
         });
 
     [Fact]

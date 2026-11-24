@@ -138,6 +138,11 @@ public sealed partial class AnimeCard : UserControl
     private static void OnAppearanceChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
     {
         var card = (AnimeCard)sender;
+        if (card.DisplayMode == AnimeCardDisplayMode.Detailed && !card._hasDetails)
+        {
+            card._hasDetails = card.FindName(nameof(DetailedHost)) is Grid;
+            card.UpdateDetailContent();
+        }
         card.RefreshAppearance();
         card.ConfigureCover();
     }
@@ -152,6 +157,10 @@ public sealed partial class AnimeCard : UserControl
     private static void OnPresentationChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
         => ((AnimeCard)sender).UpdateContent();
 
+    private bool _hasQuickActions;
+    private bool _hasRetryOverlay;
+    private bool _hasDetails;
+
     private void OnLoaded(object sender, RoutedEventArgs args)
     {
         DesktopPresentationPreferences.AppearanceChanged -= OnThemeChanged;
@@ -165,7 +174,7 @@ public sealed partial class AnimeCard : UserControl
         DesktopPresentationPreferences.AppearanceChanged -= OnThemeChanged;
         _pointerOver = _keyboardFocus = false;
         ResetPress();
-        RetryRing.IsActive = false;
+        if (_hasRetryOverlay) RetryRing.IsActive = false;
     }
 
     private void OnThemeChanged(object? sender, EventArgs args) => RefreshAppearance();
@@ -184,9 +193,8 @@ public sealed partial class AnimeCard : UserControl
         var paper = (bool)resources["DesktopUseSegmentedChoices"];
         FontFamily = font;
         Foreground = (Brush)resources["DesktopTextBrush"];
-        foreach (var text in new[] { TitleText, AirDateText, DetailedTitle, DetailedMetadata, DetailedStatus,
-                     DetailedScore, ScoreText, StatusText, WeekdayTextBlock, MediaFormatText })
-            text.FontFamily = font;
+        TitleText.FontFamily = AirDateText.FontFamily = ScoreText.FontFamily =
+            StatusText.FontFamily = WeekdayTextBlock.FontFamily = MediaFormatText.FontFamily = font;
         CardSurface.CornerRadius = detailed ? (CornerRadius)resources["DesktopControlRadius"] : radius;
         CardSurface.BorderThickness = detailed ? (Thickness)resources["DesktopCardBorderThickness"] : new Thickness(0);
         CardSurface.Width = detailed ? double.NaN : coverWidth;
@@ -201,16 +209,22 @@ public sealed partial class AnimeCard : UserControl
         CoverSelection.Background = paper ? (Brush)resources["DesktopSelectedBrush"] : null;
         CaptionHost.Visibility = detailed ? Visibility.Collapsed : Visibility.Visible;
         CaptionHost.Padding = compact ? new Thickness(2, 6, 2, 0) : new Thickness(2, 8, 2, 0);
-        DetailedHost.Visibility = detailed ? Visibility.Visible : Visibility.Collapsed;
         TitleText.FontSize = compact ? 13 : 14;
         TitleText.LineHeight = Math.Ceiling(TitleText.FontSize * 1.4);
-        TitleText.FontWeight = DetailedTitle.FontWeight = compact || serif ? FontWeights.Normal : FontWeights.SemiBold;
-        foreach (var text in new[] { AirDateText, DetailedMetadata, DetailedStatus, ScoreText }) text.FontSize = dataSize;
+        TitleText.FontWeight = compact || serif ? FontWeights.Normal : FontWeights.SemiBold;
+        AirDateText.FontSize = ScoreText.FontSize = dataSize;
         AirDateText.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
-        DescriptionText.FontFamily = (FontFamily)resources["DesktopReadingFontFamily"];
-        DescriptionText.FontSize = (double)resources["DesktopBodySize"];
-        DescriptionText.LineHeight = Math.Ceiling(DescriptionText.FontSize * 1.45);
-        RetryRing.Foreground = (Brush)resources["DesktopAccentBrush"];
+        if (_hasDetails)
+        {
+            DetailedHost.Visibility = Visible(detailed);
+            DetailedTitle.FontFamily = DetailedMetadata.FontFamily = DetailedStatus.FontFamily = DetailedScore.FontFamily = font;
+            DetailedTitle.FontWeight = TitleText.FontWeight;
+            DetailedMetadata.FontSize = DetailedStatus.FontSize = dataSize;
+            DescriptionText.FontFamily = (FontFamily)resources["DesktopReadingFontFamily"];
+            DescriptionText.FontSize = (double)resources["DesktopBodySize"];
+            DescriptionText.LineHeight = Math.Ceiling(DescriptionText.FontSize * 1.45);
+        }
+        if (_hasRetryOverlay) ApplyRetryAccent();
         UpdateBadgeColors();
         RefreshInteraction();
     }
@@ -219,16 +233,11 @@ public sealed partial class AnimeCard : UserControl
     {
         if (TitleText is null) return;
         var anime = Anime;
-        TitleText.Text = DetailedTitle.Text = anime?.Title ?? string.Empty;
-        DescriptionText.Text = anime?.Description ?? string.Empty;
+        TitleText.Text = anime?.Title ?? string.Empty;
         AirDateText.Text = anime?.AirDate is not { } date ? string.Empty : ShowSeasonDate
             ? AnimeCardPresentation.FormatSeasonDate(date) : date.ToString();
-        DetailedMetadata.Text = anime is null ? string.Empty
-            : $"{AnimeReleaseClassifier.GetMediaFormatText(anime.MediaFormat)}  {anime.AirDate}";
-        ScoreText.Text = DetailedScore.Text = DesktopAnimeCardPresentation.FormatScore(anime?.Score);
-        DetailedScore.Visibility = Visible(DetailedScore.Text.Length != 0);
-        DetailedStatus.Text = MineBrowse.StatusLabel(TrackingStatus);
-        DetailedStatus.Visibility = Visible(TrackingStatus != AnimeTrackingStatus.None);
+        ScoreText.Text = DesktopAnimeCardPresentation.FormatScore(anime?.Score);
+        if (_hasDetails) UpdateDetailContent();
         AutomationProperties.SetName(this, anime?.Title ?? string.Empty);
 
         var label = StatusLabels.GetValueOrDefault(TrackingStatus);
@@ -245,14 +254,31 @@ public sealed partial class AnimeCard : UserControl
         var format = ShowMediaFormatBadge && anime is not null ? AnimeReleaseClassifier.GetMediaFormatBadgeText(anime.MediaFormat) : null;
         MediaFormatText.Text = format ?? string.Empty;
         MediaFormatBadge.Visibility = Visible(!string.IsNullOrEmpty(format));
-        WatchActionButton.Content = TrackingStatus == AnimeTrackingStatus.Watching ? "追番中 ✓" : "追番";
-        FollowActionButton.Content = TrackingStatus == AnimeTrackingStatus.Following ? "关注中 ✓" : "关注";
-        WatchActionButton.Visibility = Visible(ShowWatchAction);
-        Grid.SetColumn(FollowActionButton, ShowWatchAction ? 1 : 0);
-        Grid.SetColumnSpan(FollowActionButton, ShowWatchAction ? 1 : 2);
-        WatchActionButton.Opacity = FollowActionButton.Opacity = IsTrackingActionPending ? .55 : 1;
+        if (ShowQuickActions)
+        {
+            if (!_hasQuickActions) _hasQuickActions = FindName(nameof(QuickActions)) is Grid;
+            WatchActionButton.Content = TrackingStatus == AnimeTrackingStatus.Watching ? "追番中 ✓" : "追番";
+            FollowActionButton.Content = TrackingStatus == AnimeTrackingStatus.Following ? "关注中 ✓" : "关注";
+            WatchActionButton.Visibility = Visible(ShowWatchAction);
+            Grid.SetColumn(FollowActionButton, ShowWatchAction ? 1 : 0);
+            Grid.SetColumnSpan(FollowActionButton, ShowWatchAction ? 1 : 2);
+            WatchActionButton.Opacity = FollowActionButton.Opacity = IsTrackingActionPending ? .55 : 1;
+        }
         if (IsLoaded) UpdateBadgeColors();
         RefreshInteraction();
+    }
+
+    private void UpdateDetailContent()
+    {
+        var anime = Anime;
+        DetailedTitle.Text = TitleText.Text;
+        DetailedScore.Text = ScoreText.Text;
+        DetailedScore.Visibility = Visible(DetailedScore.Text.Length != 0);
+        DescriptionText.Text = anime?.Description ?? string.Empty;
+        DetailedMetadata.Text = anime is null ? string.Empty
+            : $"{AnimeReleaseClassifier.GetMediaFormatText(anime.MediaFormat)}  {anime.AirDate}";
+        DetailedStatus.Text = MineBrowse.StatusLabel(TrackingStatus);
+        DetailedStatus.Visibility = Visible(TrackingStatus != AnimeTrackingStatus.None);
     }
 
     private void UpdateBadgeColors()
@@ -267,15 +293,15 @@ public sealed partial class AnimeCard : UserControl
         StatusText.Foreground = TrackingStatus == AnimeTrackingStatus.Watching ? (Brush)resources["DesktopOnAccentBrush"]
             : TrackingStatus == AnimeTrackingStatus.Following ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 42, 29, 0))
             : new SolidColorBrush(Colors.White);
-        WatchActionButton.Style = (Style)resources[TrackingStatus == AnimeTrackingStatus.Watching
+        if (_hasQuickActions) WatchActionButton.Style = (Style)resources[TrackingStatus == AnimeTrackingStatus.Watching
             ? "DefaultButtonStyle" : "AccentButtonStyle"];
     }
 
     private void RefreshInteraction()
     {
-        if (QuickActions is null) return;
+        if (TitleText is null) return;
         var show = ShowQuickActions && (_pointerOver || _keyboardFocus) && Anime is not null;
-        QuickActions.Visibility = Visible(show);
+        if (_hasQuickActions) QuickActions.Visibility = Visible(show);
         NotYetAiredBadge.Visibility = Visible(ShowNotYetAiredBadge && !show);
         ScoreBadge.Visibility = Visible(!show && DisplayMode == AnimeCardDisplayMode.Poster && Anime?.Score is > 0);
         if (!IsLoaded) return;
@@ -301,18 +327,29 @@ public sealed partial class AnimeCard : UserControl
         else
         {
             ManagedImageLoader.Cancel(CoverImage);
-            RetryRing.IsActive = false;
-            RetryOverlay.Visibility = Visibility.Collapsed;
+            if (_hasRetryOverlay)
+            {
+                RetryRing.IsActive = false;
+                RetryOverlay.Visibility = Visibility.Collapsed;
+            }
         }
     }
 
     private void OnCoverStateChanged(ManagedImageLoadState state)
     {
+        if (!_hasRetryOverlay)
+        {
+            if (state == ManagedImageLoadState.Loaded) return;
+            _hasRetryOverlay = FindName(nameof(RetryOverlay)) is Grid;
+            ApplyRetryAccent();
+        }
         RetryOverlay.Visibility = Visible(state != ManagedImageLoadState.Loaded);
         RetryRing.IsActive = state == ManagedImageLoadState.Loading && IsLoaded;
         RetryRing.Visibility = Visible(state == ManagedImageLoadState.Loading);
         RetryButton.Visibility = Visible(state == ManagedImageLoadState.Failed);
     }
+
+    private void ApplyRetryAccent() => RetryRing.Foreground = (Brush)Application.Current.Resources["DesktopAccentBrush"];
 
     private void OnRetryClick(object sender, RoutedEventArgs args)
     {

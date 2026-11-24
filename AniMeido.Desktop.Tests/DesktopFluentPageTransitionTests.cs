@@ -301,15 +301,20 @@ public sealed class DesktopFluentPageTransitionTests(ITestOutputHelper output)
                 {
                     await SwitchAsync(null);
                     using var process = Process.GetCurrentProcess();
-                    var clock = Stopwatch.StartNew();
-                    double last = 0;
+                    long last = 0;
                     var gaps = new List<double>();
                     process.Refresh();
                     long baseline = process.PrivateMemorySize64, peak = baseline;
+                    long navigationStart = 0;
+                    string direction = "";
+                    var slow = new List<(string Direction, double SinceClick, double Gap)>();
                     void Sample()
                     {
-                        double now = clock.Elapsed.TotalMilliseconds;
-                        gaps.Add(now - last);
+                        long now = Stopwatch.GetTimestamp();
+                        double gap = Stopwatch.GetElapsedTime(last, now).TotalMilliseconds;
+                        gaps.Add(gap);
+                        if (gap >= 50)
+                            slow.Add((direction, Stopwatch.GetElapsedTime(navigationStart, now).TotalMilliseconds, gap));
                         last = now;
                         process.Refresh();
                         peak = Math.Max(peak, process.PrivateMemorySize64);
@@ -317,14 +322,23 @@ public sealed class DesktopFluentPageTransitionTests(ITestOutputHelper output)
                     for (int i = 0; i < 4; i++) await SwitchAsync(Sample);
                     gaps.Sort();
                     output.WriteLine($"catalog: peak={peak / 1048576d:F1} MiB; aboveWarm={(peak-baseline)/1048576d:F1} MiB; UI p95={gaps[(int)(gaps.Count*.95)]:F1} ms; max={gaps[^1]:F1} ms; samples={gaps.Count}");
+                    output.WriteLine($"slow intervals >=50ms: {slow.Count}; " + string.Join("; ", slow.Select(s =>
+                        $"{s.Direction} +{s.SinceClick:F0}ms: {s.Gap:F1}ms")));
                     async Task SwitchAsync(Action? sample)
                     {
                         foreach (var type in new[] { typeof(PastSeasonPage), typeof(SearchStatePage) })
                         {
+                            direction = type == typeof(PastSeasonPage) ? "enter" : "leave";
+                            last = navigationStart = Stopwatch.GetTimestamp();
                             scene.Navigation.NavigateTopLevel(type);
+                            var mount = Stopwatch.GetElapsedTime(navigationStart).TotalMilliseconds;
                             for (int j = 0; j < 32; j++) { await Task.Delay(16); sample?.Invoke(); }
                             if (type == typeof(PastSeasonPage))
-                                Assert.Contains(UnoVisualEvidence.Descendants(scene.Shell), e => e is AniMeido.Plugin.Base.Views.Controls.AnimeCard { IsLoaded: true, Anime: not null });
+                            {
+                                var cards = UnoVisualEvidence.Descendants(scene.Frame).OfType<AnimeCard>().Count(c => c.IsLoaded && c.Anime is not null);
+                                Assert.True(cards > 0);
+                                if (sample is not null) output.WriteLine($"catalog entry: mount={mount:F1}ms, realized={cards}");
+                            }
                         }
                     }
                 }, new Source { Seasonal = _ => Task.FromResult(entries) }, "Light");

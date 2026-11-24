@@ -68,11 +68,8 @@ public sealed class DesktopAnimeCardWiringTests
     }
 
     [Fact]
-    public void DetailedCardKeepsBoundTextAndFourReadableLinesWithoutAPixelHeightClamp()
+    public void DetailedCardKeepsFourReadableLinesWithoutAPixelHeightClamp()
     {
-        var source = ReadCard();
-        Assert.Contains("TitleText.Text = DetailedTitle.Text = anime?.Title", source);
-        Assert.Contains("DescriptionText.Text = anime?.Description", source);
         Assert.Equal("4", (string?)FindPart("DescriptionText").Attribute("MaxLines"));
         Assert.Null(FindPart("DescriptionText").Attribute("MaxHeight"));
         Assert.Null(FindPart("DescriptionText").Attribute("Height"));
