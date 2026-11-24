@@ -62,7 +62,7 @@ public sealed partial class MainWindow : Window
         SetTitleBar(AppTitleBar);
         _titleBarRegions = new(RootGrid, BackButton, rectangles => DesktopNativeWindow.SetTitleBarPassthrough(this, rectangles));
         TitleBarHelper.SetWindowIcon(this);
-        _navigation.Initialize(ContentFrame);
+        _navigation.Initialize(ContentFrame, MountPage);
         _navigation.Navigated += OnNavigated;
         _contributions.Changed += OnContributionsChanged;
         _theme.ThemeChanged += OnThemeChanged;
@@ -79,7 +79,7 @@ public sealed partial class MainWindow : Window
     private void OnShellKeyDown(object sender, KeyRoutedEventArgs args)
     {
         if (!_isClosing)
-            DesktopManualRefreshShortcut.Handle(ContentFrame, args, message => _theme.ShowFeedback(message));
+            DesktopManualRefreshShortcut.Handle(CurrentFrame, args, message => _theme.ShowFeedback(message));
     }
 
     private Task StartAsync()
@@ -112,7 +112,7 @@ public sealed partial class MainWindow : Window
             DesktopUiWork.Track(_reminderStartup);
             if (!_dropAttached)
             {
-                _dragDrop.Attach(RootGrid, NavigationPane, ContentFrame);
+                _dragDrop.Attach(RootGrid, NavigationPane, PageHost);
                 _dropAttached = true;
             }
             DataReady.TrySetResult();
@@ -171,6 +171,7 @@ public sealed partial class MainWindow : Window
     {
         if (_isClosing) return;
         _isClosing = true;
+        StopPageMotion();
         _closing.Cancel();
         DataReady.TrySetCanceled();
         StartupRing.IsActive = false;
@@ -185,6 +186,7 @@ public sealed partial class MainWindow : Window
         NavigationPane.IsHitTestVisible = false;
         // 在窗口仍有效时触发页面 Unloaded，让正在读取的页面立即取消。
         ContentFrame.Content = null;
+        AlternateFrame.Content = null;
     }
 
     private void OnClosed(object sender, WindowEventArgs args)
@@ -263,6 +265,7 @@ public sealed partial class MainWindow : Window
     private void OnNavigated(Type? pageType)
     {
         if (_isClosing) return;
+        StartPageMotion();
         if (pageType == typeof(Views.SettingPage) || _navigationButtons.Any(button =>
                 button.Tag is PluginNavigationItem { Kind: PluginNavigationItemKind.Page } item && item.PageType == pageType))
             _selectedPage = pageType;
@@ -284,7 +287,11 @@ public sealed partial class MainWindow : Window
         if (!_isClosing) _navigation.GoBack();
     }
 
-    private void OnThemeChanged(object? sender, ElementTheme theme) => ApplyShellAppearance();
+    private void OnThemeChanged(object? sender, ElementTheme theme)
+    {
+        StopPageMotion();
+        ApplyShellAppearance();
+    }
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
         if (!_isClosing && args.WindowActivationState != WindowActivationState.Deactivated)

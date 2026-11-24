@@ -3,6 +3,7 @@ using AniMeido.Contracts.Models;
 using AniMeido.Contracts.Playback;
 using AniMeido.Plugin.Base.Services;
 using AniMeido.Plugin.Base.ViewModels;
+using AniMeido.Plugin.Base.Views.Controls;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -14,7 +15,7 @@ using System.ComponentModel;
 
 namespace AniMeido.Plugin.Base.Views;
 
-public sealed partial class AnimeDetailPage : Page, INavigationAware
+public sealed partial class AnimeDetailPage : Page, INavigationAware, IDesktopLoadingPage
 {
     private readonly IAnimeDataSource _dataSource;
     private readonly TrackingService _tracking;
@@ -37,7 +38,16 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
     private int _currentAnimeId;
     private int _navigationVersion;
     private bool _browseRecorded;
+    private readonly PaperCardMotion _paperMotion;
+    private PaperCardTrip? _paperTrip;
+    private bool _paperEntryPending;
+    private bool _paperOpening;
+    /// <summary>卡片展开期间由纸面覆盖番剧库，窗口保留原页作背景。</summary>
+    public bool IsPaperCardOpening => _paperOpening;
+    /// <summary>纸面已铺满详情区域，可以释放下层页面；不等待资料读取。</summary>
+    public event EventHandler? PaperCardExpanded;
 
+    public DesktopPageLoadSurface LoadSurface { get; }
     public AnimeDetailViewModel ViewModel { get; }
     internal Task PendingActivation { get; private set; } = Task.CompletedTask;
     internal Task PendingOperation => _operations.Pending;
@@ -58,6 +68,8 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
         ViewModel = new(dataSource, trackingService, ratingSource, logger);
         DataContext = ViewModel;
         InitializeComponent();
+        _paperMotion = new(PaperMotionLayer, ContentScrollViewer);
+        LoadSurface = new(ContentScrollViewer, LoadingOverlay, LoadingRing);
         InitializeDesktopArchiveSummary();
         ResetDesktopArchiveSummary();
         Loaded += OnLoaded;
@@ -66,7 +78,13 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
 
     public Task OnNavigatedToAsync(object? parameter)
     {
-        if (parameter is not int id || id == 0) return Task.CompletedTask;
+        var trip = parameter as PaperCardTrip;
+        var id = trip?.Id ?? (parameter is int animeId ? animeId : 0);
+        if (id == 0) return Task.CompletedTask;
+        StopPaperMotion();
+        _paperTrip = trip;
+        _paperEntryPending = trip is not null && PaperCardTrip.Enabled;
+        if (_visit is not null) AttachPaperMotion();
         if (_currentAnimeId != id) _browseRecorded = false;
         _currentAnimeId = id;
         _tagNames = [];
@@ -84,6 +102,7 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
     {
         if (_visit is not null) return;
         _visit = new();
+        AttachPaperMotion();
         _browseRecorded = false;
         ViewModel.PropertyChanged += OnViewModelChanged;
         ViewModel.Characters.CollectionChanged += OnCharactersChanged;
@@ -97,6 +116,7 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
     {
         if (_visit is not { } visit) return;
         _visit = null;
+        StopPaperMotion();
         ++_navigationVersion;
         _dialog?.Hide();
         CancelLoad();
@@ -110,6 +130,9 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
         DesktopTrackingMenu.Hide();
         foreach (var button in TagContainer.Children.OfType<Button>()) button.ContextFlyout?.Hide();
         ManagedImageLoader.Cancel(DetailCoverImage);
+        LoadSurface.Unload();
+        // 返回详情也会重新读取主资料，不让旧信号提前揭开尚未挂载的正文。
+        LoadSurface.Reset();
     }
 
     private void CancelLoad()
@@ -123,9 +146,11 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
         using var loading = CancellationTokenSource.CreateLinkedTokenSource(visitToken);
         _load = loading;
         var token = loading.Token;
-        LoadingOverlay.Visibility = Visibility.Visible;
-        LoadingRing.IsActive = true;
-        ContentScrollViewer.Visibility = Visibility.Collapsed;
+        LoadSurface.Reset();
+        LoadingFailedImage.Visibility = Visibility.Collapsed;
+        LoadingHint.Text = "加载中…";
+        LoadSurface.SetPlaceholder(!_paperOpening);
+        ContentScrollViewer.Visibility = _paperMotion.Active ? Visibility.Visible : Visibility.Collapsed;
         try
         {
             await _operations.DrainAsync();
@@ -170,8 +195,10 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
 
     private void OnViewModelChanged(object? sender, PropertyChangedEventArgs args)
     {
-        if (args.PropertyName is nameof(AnimeDetailViewModel.AnimeDetail) or nameof(AnimeDetailViewModel.HasData)
-            or nameof(AnimeDetailViewModel.IsLoading) or nameof(AnimeDetailViewModel.IsError)) UpdateState();
+        // IsLoading 先于旧正文清空；同一作品重新加载时要等新的 HasData。
+        if (args.PropertyName == nameof(AnimeDetailViewModel.HasData)
+            || args.PropertyName == nameof(AnimeDetailViewModel.IsLoading) && !ViewModel.IsLoading
+            || args.PropertyName == nameof(AnimeDetailViewModel.IsError) && ViewModel.IsError) UpdateState();
         if (args.PropertyName == nameof(AnimeDetailViewModel.StudiosText))
         {
             DetailStudio.Text = ViewModel.StudiosText ?? "";
@@ -182,15 +209,27 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
     private void UpdateState()
     {
         var current = ViewModel.HasData && ViewModel.AnimeDetail?.ID == _currentAnimeId;
-        ContentScrollViewer.Visibility = current ? Visibility.Visible : Visibility.Collapsed;
-        var waiting = ViewModel.IsLoading || !current && !ViewModel.IsError;
-        LoadingOverlay.Visibility = waiting || ViewModel.IsError ? Visibility.Visible : Visibility.Collapsed;
-        LoadingRing.IsActive = waiting;
-        LoadingRing.Visibility = ViewModel.IsError ? Visibility.Collapsed : Visibility.Visible;
+        ContentScrollViewer.Visibility = current || _paperOpening || _paperMotion.Active && !ViewModel.IsError
+            ? Visibility.Visible : Visibility.Collapsed;
+        if (current) DetailTitle.Text = ViewModel.AnimeDetail!.Title;
         LoadingFailedImage.Visibility = ViewModel.IsError ? Visibility.Visible : Visibility.Collapsed;
-        LoadingHint.Text = ViewModel.IsError ? (ViewModel.ErrorMessage ?? "作品资料暂时无法加载。") + "\n点击重试" : waiting ? "加载中…" : "";
+        LoadingHint.Text = ViewModel.IsError ? (ViewModel.ErrorMessage ?? "作品资料暂时无法加载。") + "\n点击重试" : "加载中…";
+        LoadSurface.SetPlaceholder(!_paperOpening && (!current || ViewModel.IsError), error: !_paperOpening && ViewModel.IsError);
+        if (ViewModel.IsError && !_paperOpening)
+        {
+            StopPaperMotion();
+            if (_paperTrip is { } trip) trip.Detail = null;
+            LoadSurface.Present(LoadingMessage);
+        }
+        else if (current)
+        {
+            LoadSurface.Present();
+            if (!_paperOpening && _paperMotion.Active)
+                _paperMotion.RevealBody(DetailLayout.Children.Where(child => child != CoverSection && child != DetailHeader)
+                    .Concat(DetailHeader.Children.Where(child => child != DetailTitle)));
+        }
         PersonalArchiveButton.IsEnabled = current && !_editor.IsEditing;
-        DesktopTrackingButton.IsEnabled = current;
+        DesktopTrackingButton.IsEnabled = current && !ViewModel.IsLoading;
         if (current && ViewModel.AnimeDetail is { } anime && IsLoaded)
             ManagedImageLoader.ConfigureCover(DetailCoverImage, anime.ID, anime.CoverURL, 220);
         else ManagedImageLoader.Cancel(DetailCoverImage);
@@ -263,7 +302,7 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
     {
         var id = _currentAnimeId;
         var version = _navigationVersion;
-        if (id == 0 || !ViewModel.HasData) return Task.CompletedTask;
+        if (id == 0 || ViewModel.IsLoading || !ViewModel.HasData || ViewModel.AnimeDetail?.ID != id) return Task.CompletedTask;
         return Write(async token =>
         {
             await _trackingQueue.WaitAsync();
@@ -364,7 +403,109 @@ public sealed partial class AnimeDetailPage : Page, INavigationAware
             finally { _tagQueue.Release(); _savingTags.Remove(name); }
         });
     }
-    private void OnAppearanceChanged(object? sender, EventArgs args) => UpdateTagStatuses();
+    private void OnAppearanceChanged(object? sender, EventArgs args)
+    {
+        if (_paperTrip is { } trip)
+        {
+            StopPaperMotion();
+            trip.Detail = null;
+            _paperTrip = null;
+            UpdateState();
+        }
+        UpdateTagStatuses();
+    }
+
+    private void AttachPaperMotion()
+    {
+        if (_paperTrip is not { } trip || !PaperCardTrip.Enabled) return;
+        trip.Detail = null;
+        LoadSurface.Ready += QueuePaperLayout;
+        CoverSection.SizeChanged += OnPaperSizeChanged;
+        DetailTitle.SizeChanged += OnPaperSizeChanged;
+        ContentScrollViewer.SizeChanged += OnPaperSizeChanged;
+        ContentScrollViewer.ViewChanged += OnPaperViewChanged;
+        QueuePaperLayout(null, EventArgs.Empty);
+        if (_paperEntryPending)
+        {
+            _paperOpening = true;
+            DetailBackdrop.Opacity = 0;
+            DetailTitle.Text = trip.Title;
+            ReservePaperCoverSpace();
+            _paperMotion.Hold(trip, trip.Origin, suspendInput: true);
+            ContentScrollViewer.Visibility = Visibility.Visible;
+        }
+        _paperEntryPending = false;
+    }
+
+    private void OnPaperLayoutUpdated(object? sender, object args)
+    {
+        if (_paperTrip is not { } trip || (!_paperMotion.Active && !ReferenceEquals(LoadSurface.ReadyTarget, ContentScrollViewer))
+            || ContentScrollViewer.ActualWidth <= 0 || DetailLayout.ActualHeight <= 0) return;
+        if (!_paperOpening) ContentScrollViewer.LayoutUpdated -= OnPaperLayoutUpdated;
+        var sheet = PaperCardPose.Bounds(ContentScrollViewer, PaperMotionLayer);
+        var cover = PaperCardPose.Bounds(CoverSection, PaperMotionLayer);
+        var title = PaperCardPose.Bounds(DetailTitle, PaperMotionLayer);
+        // 首帧的封面可能还在解码。沿用卡片的宽高比，不让这次过渡依赖图片请求。
+        if (cover.Height <= 0 && cover.Width > 0)
+            cover.Height = Math.Min(CoverSection.MaxHeight, cover.Width * trip.Origin.Cover.Height / trip.Origin.Cover.Width);
+        if (sheet.Height <= 0 || cover.Width <= 0 || cover.Height <= 0 || title.Width <= 0 || title.Height <= 0)
+        {
+            trip.Detail = null;
+            _paperMotion.Stop();
+            if (_paperOpening) OnPaperExpanded();
+            return;
+        }
+        var pose = new PaperCardPose(sheet, cover, title, DetailTitle.FontSize,
+            cover.Bottom > sheet.Top && cover.Top < sheet.Bottom, title.Bottom > sheet.Top && title.Top < sheet.Bottom);
+        trip.Detail = pose;
+        if (_paperMotion.Waiting) _paperMotion.Play(trip.Origin, pose, OnPaperExpanded);
+        else _paperMotion.FollowDetail(pose, OnPaperExpanded);
+    }
+
+    private void OnPaperExpanded()
+    {
+        _paperOpening = false;
+        DetailBackdrop.Opacity = 1;
+        PaperCardExpanded?.Invoke(this, EventArgs.Empty);
+        UpdateState();
+    }
+
+    private void ReservePaperCoverSpace()
+    {
+        if (_paperTrip is not { } trip || !double.IsNaN(CoverSection.Height)) return;
+        var ratio = trip.Image is Microsoft.UI.Xaml.Media.Imaging.BitmapSource { PixelWidth: > 0, PixelHeight: > 0 } image
+            ? (double)image.PixelHeight / image.PixelWidth : trip.Origin.Cover.Height / trip.Origin.Cover.Width;
+        CoverSection.MinHeight = Math.Min(CoverSection.MaxHeight, CoverSection.Width * ratio);
+    }
+
+    private void QueuePaperLayout(object? sender, EventArgs args)
+    {
+        ContentScrollViewer.LayoutUpdated -= OnPaperLayoutUpdated;
+        ContentScrollViewer.LayoutUpdated += OnPaperLayoutUpdated;
+    }
+
+    private void OnPaperSizeChanged(object sender, SizeChangedEventArgs args) => QueuePaperLayout(null, EventArgs.Empty);
+
+    private void OnPaperViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
+    {
+        if (args.IsIntermediate) return;
+        OnPaperLayoutUpdated(sender, args);
+    }
+
+    private void StopPaperMotion()
+    {
+        _paperEntryPending = false;
+        _paperOpening = false;
+        DetailBackdrop.Opacity = 1;
+        LoadSurface.Ready -= QueuePaperLayout;
+        CoverSection.SizeChanged -= OnPaperSizeChanged;
+        DetailTitle.SizeChanged -= OnPaperSizeChanged;
+        ContentScrollViewer.SizeChanged -= OnPaperSizeChanged;
+        ContentScrollViewer.ViewChanged -= OnPaperViewChanged;
+        ContentScrollViewer.LayoutUpdated -= OnPaperLayoutUpdated;
+        _paperMotion.Stop();
+        CoverSection.ClearValue(FrameworkElement.MinHeightProperty);
+    }
     private void OnCharactersChanged(object? sender, NotifyCollectionChangedEventArgs args)
         => CharacterSection.Visibility = ViewModel.Characters.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     public static string ActorLabel(IReadOnlyList<VoiceActor> actors) => actors.Count > 0 ? actors[0].Name : "配音资料待补充";

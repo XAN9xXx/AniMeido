@@ -29,6 +29,23 @@ namespace AniMeido.Desktop.Tests;
 [Collection(UnoHeadlessTestHost.CollectionName)]
 public sealed class DesktopRouteFirstFrameTests(ITestOutputHelper output)
 {
+    [Fact]
+    public Task PaperSidebarCalendarDoesNotFlashASecondBackgroundWhileLoading()
+        => RunRouteAsync(typeof(CurrentSeasonPage), true, async (host, source) =>
+        {
+            var page = Assert.IsType<CurrentSeasonPage>(host.Frame.Content);
+            var overlay = Find<Grid>(page, "LoadingOverlay");
+            var ring = Find<ProgressRing>(page, "LoadingRing");
+            Assert.Equal(Visibility.Collapsed, overlay.Visibility);
+            Assert.False(ring.IsActive);
+            await UnoVisualEvidence.WaitForAsync(() => overlay.Visibility == Visibility.Visible && ring.IsActive);
+            Assert.Same(Application.Current.Resources["DesktopPageBrush"], overlay.Background);
+            source.Release();
+            await page.PendingActivation;
+            await UnoVisualEvidence.WaitForAsync(() => overlay.Visibility == Visibility.Collapsed);
+            Assert.False(ring.IsActive);
+        });
+
     [Theory]
     [InlineData(false, true)]
     [InlineData(true, true)]
@@ -45,7 +62,11 @@ public sealed class DesktopRouteFirstFrameTests(ITestOutputHelper output)
             var resources = Application.Current.Resources;
             for (var index = 0; index < 24; index++)
             {
-                if (index == 15) source.Release();
+                if (index == 15)
+                {
+                    if (slow) Assert.Null(page.LoadSurface.ReadyTarget);
+                    source.Release();
+                }
                 await Task.Delay(16);
                 card ??= FirstCard(page);
                 var surface = card?.FindName("CardSurface") as Border;
@@ -61,6 +82,8 @@ public sealed class DesktopRouteFirstFrameTests(ITestOutputHelper output)
             }
             source.Release();
             await WaitAsync(() => (card = FirstCard(page)) is not null);
+            await WaitAsync(() => page.LoadSurface.ReadyTarget is not null);
+            Assert.Same(Find<ScrollViewer>(page, "CatalogScroller"), page.LoadSurface.ReadyTarget);
             output.WriteLine(string.Join("\n", trace.Select((value, index) => $"{index:00} {value}")));
             output.WriteLine($"card raster: {string.Join(", ", pixels)}");
             Assert.Single(trace.Where(sample => sample.Width > 0).Select(sample => sample.Width).Distinct());
@@ -128,7 +151,11 @@ public sealed class DesktopRouteFirstFrameTests(ITestOutputHelper output)
             for (var index = 0; visibleFrames < 6 && sampling.Elapsed < TimeSpan.FromSeconds(10); index++)
             {
                 // 宽屏慢请求在前 24 次采样后才返回，覆盖 CI 曾遗漏首个可见帧的情况。
-                if (index == (wide && slow ? 24 : 12)) source.Release();
+                if (index == (wide && slow ? 24 : 12))
+                {
+                    if (slow) Assert.Null(page.LoadSurface.ReadyTarget);
+                    source.Release();
+                }
                 await Task.Delay(16);
                 var frame = Snapshot();
                 trace.Add(frame);
@@ -139,6 +166,7 @@ public sealed class DesktopRouteFirstFrameTests(ITestOutputHelper output)
             await page.PendingActivation;
             await WaitAsync(() => page.ViewModel.HasDailyPick && Find<Border>(page, "DiscoverPanel").ActualWidth > 0);
             var settled = Snapshot();
+            Assert.Same(Find<ScrollViewer>(page, "BodyScroller"), page.LoadSurface.ReadyTarget);
             output.WriteLine(string.Join("\n", trace.Select((value, index) => $"{index:00} {value}")));
             output.WriteLine($"settled {settled}");
             Assert.Single(trace.Where(sample => sample.Width > 0).Select(sample => sample.Width).Distinct());
@@ -201,11 +229,13 @@ public sealed class DesktopRouteFirstFrameTests(ITestOutputHelper output)
             {
                 await WaitAsync(() => page.ViewModel.IsError && overlay.IsLoaded);
                 Assert.Equal(0, scroller.Opacity);
+                Assert.Same(Find<StackPanel>(page, "LoadingMessage"), page.LoadSurface.ReadyTarget);
                 await host.CaptureAsync("calendar-error", 0);
                 host.Mouse.Click(overlay);
                 await WaitAsync(() => source.ScheduleReads == 2);
             }
             await WaitAsync(() => scroller.Opacity == 1);
+            Assert.Same(scroller, page.LoadSurface.ReadyTarget);
             Assert.True(scroller.IsEnabled);
             Assert.Equal(Visibility.Collapsed, overlay.Visibility);
             Assert.False(page.ViewModel.IsError);

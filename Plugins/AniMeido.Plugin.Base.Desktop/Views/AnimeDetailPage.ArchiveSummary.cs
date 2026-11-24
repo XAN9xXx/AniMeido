@@ -18,6 +18,7 @@ public sealed partial class AnimeDetailPage
         Microsoft.UI.Xaml.Controls.Grid.SetRowSpan(CoverSection, wide ? 3 : 1);
         CoverSection.Width = wide ? 220 : 144;
         CoverSection.MaxHeight = wide ? 330 : 210;
+        ReservePaperCoverSpace();
         Microsoft.UI.Xaml.Controls.Grid.SetRow(DetailHeader, wide ? 0 : 1);
         Microsoft.UI.Xaml.Controls.Grid.SetRow(SynopsisSection, wide ? 1 : 2);
         Microsoft.UI.Xaml.Controls.Grid.SetRow(ActionSection, wide ? 2 : 3);

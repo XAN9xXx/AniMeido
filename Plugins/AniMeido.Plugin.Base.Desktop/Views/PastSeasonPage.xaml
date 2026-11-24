@@ -80,6 +80,7 @@
         </DataTemplate>
     </Page.Resources>
 
+    <Grid>
     <Grid x:Name="RootGrid"
           AllowDrop="True"
           Padding="32,29,32,0"
@@ -265,7 +266,7 @@
             </ItemsRepeater>
 
             <!-- 空结果：筛选造成的可以一键清除 -->
-            <StackPanel Visibility="{x:Bind ViewModel.HasNoResults, Mode=OneWay}"
+            <StackPanel x:Name="CatalogEmpty" Visibility="{x:Bind ViewModel.HasNoResults, Mode=OneWay}"
                         HorizontalAlignment="Center"
                         Margin="0,48,0,0"
                         Spacing="12">
@@ -280,7 +281,7 @@
             </StackPanel>
 
             <!-- 数据源失败：说明原因并可重试 -->
-            <StackPanel Visibility="{x:Bind ViewModel.IsError, Mode=OneWay}"
+            <StackPanel x:Name="CatalogFailure" Visibility="{x:Bind ViewModel.IsError, Mode=OneWay}"
                         HorizontalAlignment="Center"
                         Margin="0,48,0,0"
                         MaxWidth="360"
@@ -306,5 +307,7 @@
                 Visibility="Collapsed"
                 Background="Transparent"
                 AllowDrop="True"/>
+    </Grid>
+        <Canvas x:Name="PaperMotionLayer" IsHitTestVisible="False"/>
     </Grid>
 </Page>

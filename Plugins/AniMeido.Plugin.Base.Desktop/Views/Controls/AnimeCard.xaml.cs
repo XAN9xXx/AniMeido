@@ -46,6 +46,18 @@ public sealed partial class AnimeCard : UserControl
     public event EventHandler<AnimeCardClickedEventArgs>? CardClicked;
     public event EventHandler<AnimeCardTrackingActionEventArgs>? TrackingActionRequested;
 
+    internal ImageSource? DisplayedCover => CoverImage.Source;
+
+    internal PaperCardPose? MeasurePaperCard(UIElement relativeTo)
+    {
+        var title = DisplayMode == AnimeCardDisplayMode.Detailed ? DetailedTitle : TitleText;
+        if (!IsLoaded || CardSurface.ActualWidth <= 0 || CardSurface.ActualHeight <= 0
+            || CoverHost.ActualWidth <= 0 || CoverHost.ActualHeight <= 0 || title.ActualWidth <= 0 || title.ActualHeight <= 0)
+            return null;
+        return new(PaperCardPose.Bounds(CardSurface, relativeTo), PaperCardPose.Bounds(CoverHost, relativeTo),
+            PaperCardPose.Bounds(title, relativeTo), title.FontSize);
+    }
+
     public static readonly DependencyProperty AnimeProperty = DependencyProperty.Register(
         nameof(Anime), typeof(Anime), typeof(AnimeCard), new PropertyMetadata(null, OnAnimeChanged));
     public Anime? Anime { get => (Anime?)GetValue(AnimeProperty); set => SetValue(AnimeProperty, value); }

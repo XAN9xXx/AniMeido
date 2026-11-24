@@ -14,7 +14,7 @@ using Microsoft.UI.Xaml.Media;
 
 namespace AniMeido.Plugin.Base.Views;
 
-public sealed partial class CurrentSeasonPage : Page
+public sealed partial class CurrentSeasonPage : Page, IDesktopLoadingPage
 {
     private readonly DragDropService _dragDrop;
     private readonly IPluginNavigator _navigator;
@@ -28,7 +28,10 @@ public sealed partial class CurrentSeasonPage : Page
     private DesktopCalendarLayout? _discoveryLayout;
     private bool _hasPresentedBody;
     private bool _awaitingInitialLayout;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _initialHintTimer;
+    private bool _initialHintDue;
 
+    public DesktopPageLoadSurface LoadSurface { get; }
     public CurrentSeasonViewModel ViewModel { get; }
     internal Task PendingActivation { get; private set; } = Task.CompletedTask;
 
@@ -41,6 +44,16 @@ public sealed partial class CurrentSeasonPage : Page
         _navigator = pluginNavigator;
         _logger = logger;
         InitializeComponent();
+        _initialHintTimer = DispatcherQueue.CreateTimer();
+        _initialHintTimer.Interval = TimeSpan.FromMilliseconds(150);
+        _initialHintTimer.IsRepeating = false;
+        _initialHintTimer.Tick += (_, _) =>
+        {
+            if (!_active) return;
+            _initialHintDue = true;
+            UpdateLoading();
+        };
+        LoadSurface = new(BodyScroller, LoadingOverlay, LoadingRing);
         DiscoverHost.PreparingLayout = PrepareDiscoveryLayout;
         Loaded += OnPageLoaded;
         Unloaded += OnPageUnloaded;
@@ -52,6 +65,7 @@ public sealed partial class CurrentSeasonPage : Page
         _active = true;
         var visit = ++_visit;
         ViewModel.PropertyChanged += OnViewModelChanged;
+        DesktopPresentationPreferences.AppearanceChanged += OnAppearanceChanged;
         _dropVisibilityCallback = DragOverlay.RegisterPropertyChangedCallback(VisibilityProperty, OnDropVisibilityChanged);
         _dropHost = _dragDrop.AttachStandardDragHost(RootGrid, DragOverlay, DragAction.PlanToWatch);
         UpdateControls();
@@ -84,13 +98,16 @@ public sealed partial class CurrentSeasonPage : Page
     {
         if (!_active) return;
         _active = false;
+        _initialHintTimer.Stop();
+        _initialHintDue = false;
+        DesktopPresentationPreferences.AppearanceChanged -= OnAppearanceChanged;
         ++_visit;
         ViewModel.PropertyChanged -= OnViewModelChanged;
         DragOverlay.UnregisterPropertyChangedCallback(VisibilityProperty, _dropVisibilityCallback);
         ViewModel.LoadSeasonalAnimeCommand.Cancel();
         ViewModel.CancelSupplementaryLoads();
         StopWaitingForInitialLayout();
-        LoadingRing.IsActive = false;
+        LoadSurface.Unload();
         _dropHost?.Dispose();
         _dropHost = null;
         _hoveredRows.Clear();
@@ -104,6 +121,7 @@ public sealed partial class CurrentSeasonPage : Page
         if (!_active || _refreshing) return;
         var visit = _visit;
         _refreshing = true;
+        if (ViewModel.IsError) LoadSurface.Reset();
         try
         {
             ViewModel.LoadSeasonalAnimeCommand.Cancel();
@@ -201,14 +219,24 @@ public sealed partial class CurrentSeasonPage : Page
         UpdateDailyPickAction();
     }
 
+    private void OnAppearanceChanged(object? sender, EventArgs args) => UpdateLoading();
+
     private void UpdateLoading()
     {
         var loading = !ViewModel.IsError && (ViewModel.IsLoading || !_hasPresentedBody);
-        LoadingOverlay.Visibility = loading || ViewModel.IsError ? Visibility.Visible : Visibility.Collapsed;
-        LoadingRing.IsActive = _active && loading;
-        LoadingRing.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
         LoadingFailedImage.Visibility = ViewModel.IsError ? Visibility.Visible : Visibility.Collapsed;
         LoadingHint.Text = ViewModel.IsError ? $"{ViewModel.ErrorMessage}\n点击重试" : "正在读取…";
+        var resources = Application.Current.Resources;
+        var paper = resources["DesktopUseSegmentedChoices"] is true;
+        // 首次排版也会短暂进入 loading。暖纸保留页面底色，只有确实等了一会才显示提示。
+        var defer = paper && loading && !_hasPresentedBody && !_initialHintDue;
+        if (defer && !_initialHintTimer.IsRunning) _initialHintTimer.Start();
+        if (!defer) _initialHintTimer.Stop();
+        if (!loading) _initialHintDue = false;
+        LoadingOverlay.Background = (Brush)resources[paper && !ViewModel.IsError ? "DesktopPageBrush" : "DesktopFailedOverlayBrush"];
+        LoadSurface.SetPlaceholder(loading && !defer || ViewModel.IsError, error: ViewModel.IsError);
+        if (ViewModel.IsError) LoadSurface.Present(LoadingMessage);
+        else if (!loading) LoadSurface.Present();
     }
 
     private void PresentBodyWhenArranged()

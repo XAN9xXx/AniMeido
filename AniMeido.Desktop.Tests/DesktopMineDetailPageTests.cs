@@ -56,6 +56,38 @@ public sealed class DesktopMineDetailPageTests
         });
 
     [Fact]
+    public Task DetailReleasesItsReadingSurfaceBeforeSupplementaryDataFinishes()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            await using var fixture = await Fixture.CreateAsync();
+            var main = new TaskCompletionSource<Anime?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var cast = new TaskCompletionSource<List<CharacterRole>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var page = fixture.Details(new Source { Detail = (_, _) => main.Task, Characters = (_, _) => cast.Task });
+            await page.OnNavigatedToAsync(1);
+            try
+            {
+                await AttachAsync(root, page);
+                var overlay = (Grid)page.FindName("LoadingOverlay");
+                var body = (ScrollViewer)page.FindName("ContentScrollViewer");
+                var tracking = (Button)page.FindName("DesktopTrackingButton");
+                await UnoVisualEvidence.WaitForAsync(() => overlay.Visibility == Visibility.Visible);
+                main.SetResult(Item(1));
+                await UnoVisualEvidence.WaitForAsync(() => body.Visibility == Visibility.Visible);
+                Assert.False(overlay.Visibility == Visibility.Visible && overlay.IsHitTestVisible);
+                Assert.False(tracking.IsEnabled);
+                Assert.False(page.PendingActivation.IsCompleted);
+                cast.SetResult([]);
+                await page.PendingActivation;
+                Assert.True(tracking.IsEnabled);
+            }
+            finally
+            {
+                main.TrySetResult(null); cast.TrySetResult([]);
+                await DetachAsync(root, page); await page.PendingActivation; await page.PendingOperation;
+            }
+        });
+
+    [Fact]
     public Task DetailsDeferNavigationUntilAttached()
         => UnoHeadlessTestHost.RunAsync(async _ =>
         {

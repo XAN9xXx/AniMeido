@@ -18,7 +18,7 @@ using System.ComponentModel;
 
 namespace AniMeido.Plugin.Base.Views;
 
-public sealed partial class PastSeasonPage : Page, INavigationAware
+public sealed partial class PastSeasonPage : Page, INavigationAware, IDesktopLoadingPage
 {
     private static readonly PastSeasonTarget FirstSeason = new(1900, Season.Winter);
     private readonly CacheService _cache;
@@ -50,7 +50,13 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
     private bool _seasonPending;
     private bool _holdingSeason;
     private bool? _detailed;
+    private PaperCardTrip? _paperTrip;
+    private readonly PaperCardMotion _paperMotion;
+    private readonly DispatcherQueueTimer _paperReturnTimeout;
 
+    public DesktopPageLoadSurface LoadSurface { get; }
+    /// <summary>返回的纸面已就位，外壳可以直接显示不透明的番剧库。</summary>
+    public bool IsPaperCardReturning => _paperMotion.Active;
     public PastSeasonViewModel ViewModel { get; }
     private IReadOnlyList<DesktopCatalogFormatChip> FormatChipSlots { get; } =
         [new(null, "全部"), .. PastSeasonBrowse.FormatOrder.Select(format =>
@@ -66,6 +72,9 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         _logger = logger;
         _selected = LatestSeason();
         InitializeComponent();
+        _paperMotion = new(PaperMotionLayer, RootGrid);
+        _paperReturnTimeout = Timer(600, CancelPaperReturn);
+        LoadSurface = new(CatalogScroller, SkeletonRepeater);
         _settleScrollTimer = Timer(50, FinishScrollRestore);
         CatalogScroller.AddHandler(PointerWheelChangedEvent, new PointerEventHandler(OnCatalogScrollInput), handledEventsToo: true);
         CatalogScroller.AddHandler(PointerPressedEvent, new PointerEventHandler(OnCatalogScrollInput), handledEventsToo: true);
@@ -74,7 +83,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         _skeletonTimer = Timer(150, () =>
         {
             if (_active && !_holdingSeason && (_seasonPending || ViewModel.IsLoading))
-                SkeletonRepeater.Visibility = Visibility.Visible;
+                LoadSurface.SetPlaceholder(true);
         });
         SkeletonRepeater.ItemsSource = Enumerable.Range(0, 12).ToArray();
         foreach (var (key, label) in new[] { (PastSeasonSortKey.Score, "评分"), (PastSeasonSortKey.AirDate, "开播日期"), (PastSeasonSortKey.Title, "标题") })
@@ -140,6 +149,13 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         ObserveEntries();
         UpdateFormatChips();
         _restoreScroll = true;
+        if (_paperTrip?.Detail is { } from && PaperCardTrip.Enabled)
+        {
+            _paperMotion.Hold(_paperTrip, from);
+            _paperReturnTimeout.Start();
+            DesktopPresentationPreferences.AppearanceChanged += OnPaperAppearanceChanged;
+        }
+        else _paperTrip = null;
         QueueLayout();
         _ = ReloadPersonalStateAsync(visit);
         // 导航参数先在本次调度中落定，再加载默认季度。
@@ -153,6 +169,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
     {
         if (!_active) return;
         _active = false;
+        StopPaperReturn();
         ++_visit;
         _scrollRestoreQueued = false;
         _settleScrollTimer.Stop();
@@ -163,7 +180,8 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         _seasonPending = false;
         _holdingSeason = false;
         SeasonSwitchHint.Visibility = Visibility.Collapsed;
-        SkeletonRepeater.Visibility = Visibility.Collapsed;
+        LoadSurface.Unload();
+        if (ViewModel.LoadedAnime.Count == 0 || !ReferenceEquals(LoadSurface.ReadyTarget, CatalogReadyTarget())) LoadSurface.Reset();
         _dropHost?.Dispose();
         _dropHost = null;
         ViewModel.PropertyChanged -= OnViewModelChanged;
@@ -444,6 +462,15 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
 
     private void OnCatalogLayoutUpdated(object? sender, object args)
     {
+        TryStartPaperReturn();
+        if (_active && LoadSurface.ReadyTarget is null && !_layoutQueued
+            && !_seasonPending && !ViewModel.IsLoading && !_holdingSeason
+            && CatalogReadyTarget() is { ActualWidth: > 0, ActualHeight: > 0, Visibility: Visibility.Visible } target)
+        {
+            LoadSurface.SetPlaceholder(false);
+            LoadSurface.Present(target);
+        }
+
         // 在新布局第一次显示前设好起始位移，避免卡片到位后再往回跳。
         if (_filterOrigins is not null && !_layoutQueued) AnimateFilterResult();
         if (!_active || !_restoreScroll || ViewModel.IsLoading || _seasonPending) return;
@@ -482,6 +509,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         if (_restoreScroll || ViewModel.IsLoading || _seasonPending) return;
         if (Math.Abs(CatalogScroller.VerticalOffset - offset) > 0.1)
             CatalogScroller.ChangeView(null, offset, null, disableAnimation: true);
+        else TryStartPaperReturn();
     }
 
     private void OnCatalogScrollInput(object sender, PointerRoutedEventArgs args) => YieldScrollRestore();
@@ -495,6 +523,7 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
 
     private void YieldScrollRestore()
     {
+        if (_paperTrip is not null || PaperMotionLayer.Children.Count != 0) CancelPaperReturn();
         StopFilterMotion();
         if (!_restoreScroll && _settlingScrollOffset is null) return;
         _restoreScroll = false;
@@ -522,11 +551,20 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         QueueLayout();
     }
 
+    private FrameworkElement? CatalogReadyTarget()
+    {
+        if (ErrorInfoBar.IsOpen) return ErrorInfoBar;
+        if (ViewModel.Season != _selected) return null;
+        if (ViewModel.IsError) return CatalogFailure;
+        if (ViewModel.HasNoResults) return CatalogEmpty;
+        return ViewModel.Entries.Count > 0 && _realizedCards.Count > 0 ? CatalogScroller : null;
+    }
+
     private void UpdateLoading()
     {
         _skeletonTimer.Stop();
         if (!_holdingSeason && (ViewModel.IsLoading || _seasonPending)) _skeletonTimer.Start();
-        else SkeletonRepeater.Visibility = Visibility.Collapsed;
+        else if (_holdingSeason || LoadSurface.ReadyTarget is not null) LoadSurface.SetPlaceholder(false);
     }
 
     private void OnSortChanged(object sender, SelectionChangedEventArgs args)
@@ -610,5 +648,36 @@ public sealed partial class PastSeasonPage : Page, INavigationAware
         args.Handled = true;
     }
     private void OnAnimeCardClicked(object? sender, AnimeCardClickedEventArgs args)
-        => _navigator.Navigate(typeof(AnimeDetailPage), args.Anime.ID);
+    {
+        CancelPaperReturn();
+        if (PaperCardTrip.Enabled && sender is AnimeCard card && card.MeasurePaperCard(PaperMotionLayer) is { } origin)
+            _paperTrip = new(args.Anime.ID, args.Anime.Title, card.DisplayedCover, origin);
+        _navigator.Navigate(typeof(AnimeDetailPage), (object?)_paperTrip ?? args.Anime.ID);
+    }
+
+    private void OnPaperAppearanceChanged(object? sender, EventArgs args) => CancelPaperReturn();
+
+    private void TryStartPaperReturn()
+    {
+        if (!_active || _paperTrip is not { Detail: { } from } trip || !_paperMotion.Waiting
+            || _layoutQueued || _restoreScroll || _settlingScrollOffset is not null) return;
+        var card = _realizedCards.FirstOrDefault(c => c.Anime?.ID == trip.Id && ViewportPosition(c) is not null);
+        if (card?.MeasurePaperCard(PaperMotionLayer) is not { } to) return;
+        _paperReturnTimeout.Stop();
+        _paperTrip = null;
+        _paperMotion.Play(from, to);
+    }
+
+    private void CancelPaperReturn()
+    {
+        _paperTrip = null;
+        StopPaperReturn();
+    }
+
+    private void StopPaperReturn()
+    {
+        _paperReturnTimeout.Stop();
+        _paperMotion.Stop();
+        DesktopPresentationPreferences.AppearanceChanged -= OnPaperAppearanceChanged;
+    }
 }

@@ -408,7 +408,7 @@ public sealed class ThemeService : IAsyncDisposable
         if (enabled == _systemAnimationsEnabled)
             return;
         _systemAnimationsEnabled = enabled;
-        _resources["DesktopMotionEnabled"] = enabled;
+        ApplyMotionResources();
         DesktopPresentationPreferences.NotifyAppearanceChanged();
         ThemeChanged?.Invoke(this, _theme);
     }
@@ -417,6 +417,13 @@ public sealed class ThemeService : IAsyncDisposable
     {
         var settings = new UISettings();
         return () => settings.AnimationsEnabled;
+    }
+
+    private void ApplyMotionResources()
+    {
+        _resources["DesktopMotionEnabled"] = _systemAnimationsEnabled;
+        _resources["DesktopFluentPageMotionEnabled"] = _systemAnimationsEnabled && CurrentAppearance.VisualStyle != DesktopVisualStyle.Paper;
+        _resources["DesktopPaperCardMotionEnabled"] = _systemAnimationsEnabled && CurrentAppearance.VisualStyle == DesktopVisualStyle.Paper;
     }
 
     private void Apply()
@@ -430,7 +437,7 @@ public sealed class ThemeService : IAsyncDisposable
             var dark = _root.ActualTheme == ElementTheme.Dark;
             _appliedDark = dark;
             var appearance = CurrentAppearance;
-            _resources["DesktopMotionEnabled"] = _systemAnimationsEnabled;
+            ApplyMotionResources();
             DesktopFontProvider.Shared.UseSerif = appearance.FontStyle == DesktopFontStyle.Serif;
             var classic = appearance.VisualStyle == DesktopVisualStyle.Fluent10;
             var paper = appearance.VisualStyle == DesktopVisualStyle.Paper;

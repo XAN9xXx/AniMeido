@@ -8,8 +8,9 @@
     xmlns:local="using:AniMeido.Plugin.Base.Views"
     xmlns:models="using:AniMeido.Contracts.Models"
     xmlns:vm="using:AniMeido.Plugin.Base.ViewModels"
-    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    Background="Transparent">
     <Grid RowDefinitions="Auto,*">
+        <Border x:Name="DetailBackdrop" Grid.RowSpan="2" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"/>
         <InfoBar x:Name="ErrorInfoBar" Margin="32,20,32,0" Severity="Error" IsClosable="True" IsOpen="False"/>
         <ScrollViewer x:Name="ContentScrollViewer" Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
             <Grid x:Name="DetailLayout" Padding="32,28,32,40" MaxWidth="1310" HorizontalAlignment="Stretch" SizeChanged="OnDesktopDetailSizeChanged"
@@ -20,7 +21,7 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel x:Name="DetailHeader" Spacing="14">
-                    <TextBlock Text="{Binding AnimeDetail.Title}" Style="{StaticResource AniMeidoPageTitleStyle}" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="DetailTitle" Style="{StaticResource AniMeidoPageTitleStyle}" TextWrapping="Wrap"/>
                     <StackPanel Orientation="Horizontal" Spacing="16">
                         <TextBlock Text="{Binding AnimeDetail.AirDate}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         <TextBlock Text="{Binding MediaFormatText}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -43,7 +44,7 @@
                             <TextBlock Text="在线播放"/>
                         </StackPanel>
                     </Button>
-                    <DropDownButton x:Name="DesktopTrackingButton" MinWidth="144" Padding="14,8" IsEnabled="{Binding HasData}"
+                    <DropDownButton x:Name="DesktopTrackingButton" MinWidth="144" Padding="14,8" IsEnabled="False"
                                     Content="{x:Bind DesktopTrackingLabel(ViewModel.CurrentStatus), Mode=OneWay}"
                                     AutomationProperties.Name="追番状态" Unloaded="OnDesktopTrackingUnloaded">
                         <DropDownButton.Flyout>
@@ -130,8 +131,9 @@
                 </StackPanel>
             </Grid>
         </ScrollViewer>
+        <Canvas Grid.RowSpan="2" x:Name="PaperMotionLayer" IsHitTestVisible="False"/>
         <Grid Grid.Row="1" x:Name="LoadingOverlay" Visibility="Collapsed" Background="Transparent" Tapped="OnLoadingOverlayTapped">
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+            <StackPanel x:Name="LoadingMessage" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
                 <ProgressRing x:Name="LoadingRing" Width="40" Height="40" HorizontalAlignment="Center"/>
                 <Image x:Name="LoadingFailedImage" Width="80" Height="80" Stretch="Uniform" HorizontalAlignment="Center" Visibility="Collapsed">
                     <Image.Source>

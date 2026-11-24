@@ -35,6 +35,8 @@
     <SolidColorBrush x:Key="DesktopFailedOverlayBrush" Color="#E6FFFFFF"/>
     <SolidColorBrush x:Key="DesktopFollowingBrush" Color="#F6B925"/>
     <x:Boolean x:Key="DesktopMotionEnabled">True</x:Boolean>
+    <x:Boolean x:Key="DesktopFluentPageMotionEnabled">False</x:Boolean>
+    <x:Boolean x:Key="DesktopPaperCardMotionEnabled">False</x:Boolean>
     <SolidColorBrush x:Key="DesktopPageBrush" Color="#F9F9F9"/>
     <SolidColorBrush x:Key="DesktopNavigationBrush" Color="#F3F3F3"/>
     <SolidColorBrush x:Key="DesktopSurfaceBrush" Color="#FFFFFF"/>

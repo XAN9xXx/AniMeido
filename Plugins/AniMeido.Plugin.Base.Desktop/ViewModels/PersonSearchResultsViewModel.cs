@@ -42,6 +42,8 @@ public sealed partial class PersonSearchResultsViewModel(
         _works = null;
         _processedCount = 0;
         _blocked = [];
+        Results.Clear();
+        ResultText = "";
         Title = $"声优作品：{personName}";
         return EnsureLoadedAsync();
     }
@@ -118,7 +120,6 @@ public sealed partial class PersonSearchResultsViewModel(
 
                 _works = visibleWorks;
                 _blocked = blocked;
-                Results.Clear();
             }
 
             IsLoading = false;

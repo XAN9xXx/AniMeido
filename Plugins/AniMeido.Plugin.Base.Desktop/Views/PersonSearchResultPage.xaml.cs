@@ -15,7 +15,7 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace AniMeido.Plugin.Base.Views;
 
-public sealed partial class PersonSearchResultPage : Page, INavigationAware
+public sealed partial class PersonSearchResultPage : Page, INavigationAware, IDesktopLoadingPage
 {
     private readonly DragDropService _dragDrop;
     private readonly IPluginNavigator _navigator;
@@ -28,9 +28,11 @@ public sealed partial class PersonSearchResultPage : Page, INavigationAware
     private double _scrollOffset;
     private bool _active;
     private bool _rowsQueued;
+    private bool _readCompleted;
     private bool _restoreScroll;
 
     public PersonSearchResultsViewModel ViewModel { get; }
+    public DesktopPageLoadSurface LoadSurface { get; }
     internal Task PendingActivation { get; private set; } = Task.CompletedTask;
 
     public PersonSearchResultPage(IAnimeDataSource dataSource, TrackingService tracking,
@@ -41,6 +43,7 @@ public sealed partial class PersonSearchResultPage : Page, INavigationAware
         _logger = logger;
         ViewModel = new(dataSource, tracking, logger);
         InitializeComponent();
+        LoadSurface = new(ResultScroller, LoadingOverlay, LoadingRing);
         ResultRows.ItemsSource = _rows;
     }
 
@@ -50,6 +53,8 @@ public sealed partial class PersonSearchResultPage : Page, INavigationAware
         if (_personId == personId) return PendingActivation;
         ++_visit;
         ViewModel.CancelLoad();
+        LoadSurface.Reset();
+        _readCompleted = false;
         _personId = personId;
         _scrollOffset = 0;
         _restoreScroll = true;
@@ -80,7 +85,7 @@ public sealed partial class PersonSearchResultPage : Page, INavigationAware
         ViewModel.Results.CollectionChanged -= OnResultsChanged;
         ViewModel.CancelLoad();
         PendingActivation = Task.CompletedTask;
-        LoadingRing.IsActive = false;
+        LoadSurface.Unload();
         _dropHost?.Dispose();
         _dropHost = null;
     }
@@ -100,7 +105,12 @@ public sealed partial class PersonSearchResultPage : Page, INavigationAware
 #pragma warning restore CA1031
         finally
         {
-            if (visit == _visit) { UpdatePresentation(); QueueRows(); }
+            if (visit == _visit)
+            {
+                _readCompleted = true;
+                UpdatePresentation();
+                QueueRows();
+            }
         }
     }
 
@@ -109,8 +119,7 @@ public sealed partial class PersonSearchResultPage : Page, INavigationAware
     {
         TitleBlock.Text = ViewModel.Title;
         ResultCount.Text = ViewModel.ResultText;
-        LoadingOverlay.Visibility = ViewModel.IsLoading ? Visibility.Visible : Visibility.Collapsed;
-        LoadingRing.IsActive = _active && ViewModel.IsLoading;
+        if (_active) LoadSurface.SetPlaceholder(_personId is not null && LoadSurface.ReadyTarget is null);
     }
     private void OnResultsChanged(object? sender, NotifyCollectionChangedEventArgs args) => QueueRows();
     private void OnResultSizeChanged(object sender, SizeChangedEventArgs args)
@@ -141,6 +150,12 @@ public sealed partial class PersonSearchResultPage : Page, INavigationAware
                 || !_rows[index].Works.SequenceEqual(rows[index].Works)) _rows[index] = rows[index];
         }
         while (_rows.Count > rows.Count) _rows.RemoveAt(_rows.Count - 1);
+        // 人物作品分批读取。有第一批可读就揭开结果，不等后面几批。
+        if (_personId is not null && (_rows.Count > 0 || _readCompleted))
+        {
+            LoadSurface.SetPlaceholder(false);
+            LoadSurface.Present(_rows.Count > 0 ? ResultScroller : ResultCount);
+        }
     }
     private void OnResultViewChanged(object sender, ScrollViewerViewChangedEventArgs args)
     {

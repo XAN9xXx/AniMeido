@@ -156,6 +156,11 @@ public sealed class DesktopToastShellTests
         var events = new[] { "Loaded", "SizeChanged", "KeyDown", "Click", "Closed" };
         foreach (var attribute in grid.DescendantsAndSelf().Attributes().Where(attr => events.Contains(attr.Name.LocalName)).ToArray())
             attribute.Remove();
-        return Assert.IsType<Grid>(XamlReader.Load(grid.ToString()));
+        var shell = Assert.IsType<Grid>(XamlReader.Load(grid.ToString()));
+        // 指针命中也受工作区裁剪影响，补上刚摘掉的主窗口尺寸处理。
+        var workspace = (Border)shell.FindName("Workspace");
+        workspace.SizeChanged += (_, e) => ((RectangleGeometry)workspace.Clip).Rect =
+            new Rect(0, 0, e.NewSize.Width, e.NewSize.Height);
+        return shell;
     }
 }

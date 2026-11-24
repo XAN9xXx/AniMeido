@@ -10,7 +10,7 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace AniMeido.Plugin.Base.Views;
 
-public sealed partial class TagSearchResultPage : Page, INavigationAware
+public sealed partial class TagSearchResultPage : Page, INavigationAware, IDesktopLoadingPage
 {
     private readonly DragDropService _dragDrop;
     private readonly SavedTagService _savedTags;
@@ -29,6 +29,7 @@ public sealed partial class TagSearchResultPage : Page, INavigationAware
     private Task _favoriteWrite = Task.CompletedTask;
 
     public TagSearchResultsViewModel ViewModel { get; }
+    public DesktopPageLoadSurface LoadSurface { get; }
     internal Task PendingActivation { get; private set; } = Task.CompletedTask;
     internal Task PendingFavorite { get; private set; } = Task.CompletedTask;
 
@@ -48,6 +49,7 @@ public sealed partial class TagSearchResultPage : Page, INavigationAware
         _logger = logger;
         ViewModel = viewModel;
         InitializeComponent();
+        LoadSurface = new(ResultGrid, LoadingOverlay, LoadingRing);
         ResultGrid.ItemsSource = ViewModel.Items;
         var year = DateTime.Now.Year;
         for (var value = year; value >= 1960; --value)
@@ -66,6 +68,7 @@ public sealed partial class TagSearchResultPage : Page, INavigationAware
         if (string.Equals(_tag, tag, StringComparison.Ordinal)) return PendingActivation;
         ++_visit;
         ViewModel.Suspend();
+        LoadSurface.Reset();
         _tag = tag;
         TagTitle.Text = tag;
         ResetControls();
@@ -106,7 +109,7 @@ public sealed partial class TagSearchResultPage : Page, INavigationAware
         ViewModel.PropertyChanged -= OnViewModelChanged;
         ViewModel.Suspend();
         PendingActivation = Task.CompletedTask;
-        LoadingRing.IsActive = false;
+        LoadSurface.Unload();
         _dropHost?.Dispose();
         _dropHost = null;
     }
@@ -131,6 +134,8 @@ public sealed partial class TagSearchResultPage : Page, INavigationAware
             {
                 if (applySort) ApplySort();
                 UpdatePresentation();
+                if (_tag is not null && !ViewModel.IsLoading)
+                    LoadSurface.Present(ViewModel.Items.Count > 0 ? ResultGrid : ResultCount);
             }
         }
     }
@@ -244,8 +249,7 @@ public sealed partial class TagSearchResultPage : Page, INavigationAware
         ResultCount.Text = ViewModel.ResultText;
         PageInfo.Text = ViewModel.PageText;
         PaginationBar.Visibility = ViewModel.HasPages ? Visibility.Visible : Visibility.Collapsed;
-        LoadingOverlay.Visibility = ViewModel.IsLoading ? Visibility.Visible : Visibility.Collapsed;
-        LoadingRing.IsActive = _active && ViewModel.IsLoading;
+        if (_active) LoadSurface.SetPlaceholder(ViewModel.IsLoading);
         PrevButton.IsEnabled = ViewModel.CanGoPrevious;
         NextButton.IsEnabled = ViewModel.CanGoNext;
     }

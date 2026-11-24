@@ -619,17 +619,17 @@
 
         <Grid Grid.Row="1"
               x:Name="LoadingOverlay"
-              Visibility="Visible"
+              Visibility="Collapsed"
               Background="{ThemeResource DesktopFailedOverlayBrush}"
               Tapped="OnLoadingOverlayTapped">
-            <StackPanel HorizontalAlignment="Center"
+            <StackPanel x:Name="LoadingMessage" HorizontalAlignment="Center"
                         VerticalAlignment="Center"
                         Spacing="12">
                 <ProgressRing x:Name="LoadingRing"
                               Height="40"
                               Width="40"
                               HorizontalAlignment="Center"
-                              IsActive="True"/>
+                              IsActive="False"/>
                 <Image x:Name="LoadingFailedImage"
                        Width="80"
                        Height="80"

@@ -14,6 +14,27 @@ namespace AniMeido.Desktop.Tests;
 [Collection(UnoHeadlessTestHost.CollectionName)]
 public sealed class DesktopBackNavigationTests
 {
+    [Fact]
+    public Task NavigationPublishesTheCompletedKindInsideTheExistingCallback()
+        => UnoHeadlessTestHost.RunAsync(root =>
+        {
+            using var provider = new ServiceCollection().BuildServiceProvider();
+            var navigation = new NavigationService(new PageFactory(provider), NullLogger<NavigationService>.Instance);
+            var frame = new Frame();
+            root.Children.Add(frame);
+            navigation.Initialize(frame);
+            var observed = new List<DesktopNavigationKind>();
+            navigation.Navigated += _ => observed.Add(navigation.LastNavigationKind);
+            navigation.NavigateTopLevel(typeof(SearchStatePage));
+            navigation.Navigate(typeof(DetailStatePage), 42);
+            navigation.Navigate(typeof(DetailStatePage), 42);
+            Assert.Throws<InvalidOperationException>(() => navigation.NavigateTopLevel(typeof(string)));
+            navigation.GoBack();
+            navigation.GoBack();
+            Assert.Equal(new[] { DesktopNavigationKind.TopLevel, DesktopNavigationKind.Forward, DesktopNavigationKind.Back }, observed);
+            return Task.CompletedTask;
+        });
+
     [Theory]
     [InlineData(DesktopVisualStyle.Fluent10)]
     [InlineData(DesktopVisualStyle.Fluent11)]

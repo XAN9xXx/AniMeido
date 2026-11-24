@@ -5,6 +5,8 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace AniMeido.App.Services
 {
+    internal enum DesktopNavigationKind { TopLevel, Forward, Back }
+
     /// <summary>
     /// 返回栈保存页面实例 + 导航参数，确保返回时完整恢复页面内部状态（搜索关键词、滚动位置等）。
     /// 顶层导航（主导航、设置页）会清空返回栈。
@@ -15,8 +17,12 @@ namespace AniMeido.App.Services
         private readonly ILogger<NavigationService> _logger;
         private readonly NavigationStack _backStack = new();
         private Frame? _frame;
+        private Func<Frame, Page, DesktopNavigationKind, Frame>? _mount;
+        internal Frame? ActiveFrame => _frame;
         private object? _lastParameter;
         private bool _isStopped;
+
+        internal DesktopNavigationKind LastNavigationKind { get; private set; }
 
         public bool CanGoBack => _backStack.CanGoBack;
 
@@ -36,9 +42,19 @@ namespace AniMeido.App.Services
         }
 
         public void Initialize(Frame frame)
+            => Initialize(frame, null);
+
+        internal void Initialize(Frame frame, Func<Frame, Page, DesktopNavigationKind, Frame>? mount)
         {
             ObjectDisposedException.ThrowIf(_isStopped, this);
             _frame = frame;
+            _mount = mount;
+        }
+
+        private void Mount(Page page, DesktopNavigationKind kind)
+        {
+            if (_mount is null) _frame!.Content = page;
+            else _frame = _mount(_frame!, page, kind);
         }
 
         /// <summary>在 UI 线程停止接纳导航并释放页面引用；控件卸载由窗口负责。</summary>
@@ -46,6 +62,7 @@ namespace AniMeido.App.Services
         {
             _isStopped = true;
             _frame = null;
+            _mount = null;
             _backStack.Clear();
             _lastParameter = null;
             CurrentPageType = null;
@@ -56,7 +73,7 @@ namespace AniMeido.App.Services
         /// </summary>
         public void Navigate(Type pageType, object? parameter = null)
         {
-            NavigateCore(pageType, parameter, NavigationMode.Push);
+            NavigateCore(pageType, parameter, DesktopNavigationKind.Forward);
         }
 
         /// <summary>
@@ -65,7 +82,7 @@ namespace AniMeido.App.Services
         /// </summary>
         public void NavigateTopLevel(Type pageType)
         {
-            NavigateCore(pageType, parameter: null, NavigationMode.TopLevel);
+            NavigateCore(pageType, parameter: null, DesktopNavigationKind.TopLevel);
         }
 
         /// <summary>
@@ -80,18 +97,17 @@ namespace AniMeido.App.Services
 
             var entry = _backStack.Peek()!;
 
-            _frame.Content = entry.Page;
+            Mount((Page)entry.Page, DesktopNavigationKind.Back);
             _backStack.Pop();
             CurrentPageType = entry.Page.GetType();
             _lastParameter = entry.Parameter;
+            LastNavigationKind = DesktopNavigationKind.Back;
             Navigated?.Invoke(CurrentPageType);
         }
 
         public void ClearBackStack() => _backStack.Clear();
 
-        private enum NavigationMode { Push, TopLevel }
-
-        private void NavigateCore(Type pageType, object? parameter, NavigationMode mode)
+        private void NavigateCore(Type pageType, object? parameter, DesktopNavigationKind kind)
         {
             if (_isStopped)
                 return;
@@ -101,7 +117,7 @@ namespace AniMeido.App.Services
 
             // 同一页面目标的重复请求不创建第二个页面实例，否则返回时
             // 会先恢复一个视觉上完全相同的页面，看起来需要点击两次。
-            if (mode != NavigationMode.TopLevel
+            if (kind != DesktopNavigationKind.TopLevel
                 && IsSameTarget(
                     CurrentPageType,
                     _lastParameter,
@@ -116,14 +132,14 @@ namespace AniMeido.App.Services
             try
             {
                 page = _pageFactory.CreatePage(pageType);
-                _frame.Content = page;
+                Mount(page, kind);
             }
             catch (Exception ex)
             {
                 ex.Data["AniMeido.TargetPage"] = pageType.FullName;
                 throw;
             }
-            if (mode == NavigationMode.TopLevel)
+            if (kind == DesktopNavigationKind.TopLevel)
             {
                 _backStack.Clear();
             }
@@ -136,6 +152,7 @@ namespace AniMeido.App.Services
             _lastParameter = parameter;
 
             CurrentPageType = pageType;
+            LastNavigationKind = kind;
             Navigated?.Invoke(pageType);
 
             // 页面挂载到 Frame 后再触发异步通知；fire-and-forget，不阻塞导航

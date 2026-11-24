@@ -1,6 +1,5 @@
 using AniMeido.Plugin.Base.Services;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
 
 namespace AniMeido.App.Services;
 
@@ -12,7 +11,7 @@ internal sealed class MainWindowDragDropAdapter : IDisposable
 {
     private readonly Lazy<DragDropService> _dragDropService;
     private readonly AnimeCardDropHost _dropHost = new();
-    private Frame? _contentFrame;
+    private FrameworkElement? _pageHost;
     private UIElement? _rootGrid;
     private UIElement? _mainNavigationView;
     private bool _disposed;
@@ -31,40 +30,40 @@ internal sealed class MainWindowDragDropAdapter : IDisposable
     public void Attach(
         UIElement rootGrid,
         UIElement mainNavigationView,
-        Frame contentFrame)
+        FrameworkElement pageHost)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        if (_contentFrame is not null)
+        if (_pageHost is not null)
         {
             throw new InvalidOperationException("主窗口拖放适配器只能绑定一次。");
         }
 
         ArgumentNullException.ThrowIfNull(rootGrid);
         ArgumentNullException.ThrowIfNull(mainNavigationView);
-        ArgumentNullException.ThrowIfNull(contentFrame);
+        ArgumentNullException.ThrowIfNull(pageHost);
 
         _rootGrid = rootGrid;
         _mainNavigationView = mainNavigationView;
-        _contentFrame = contentFrame;
+        _pageHost = pageHost;
 
-        _contentFrame.Loaded += OnContentFrameLoaded;
-        if (_contentFrame.IsLoaded) OnContentFrameLoaded(_contentFrame, null!);
+        _pageHost.Loaded += OnPageHostLoaded;
+        if (_pageHost.IsLoaded) OnPageHostLoaded(_pageHost, null!);
     }
 
-    private void OnContentFrameLoaded(object sender, RoutedEventArgs e)
+    private void OnPageHostLoaded(object sender, RoutedEventArgs e)
     {
         var rootGrid = _rootGrid;
         var mainNavigationView = _mainNavigationView;
-        var contentFrame = _contentFrame;
-        if (_disposed || rootGrid is null || mainNavigationView is null || contentFrame is null)
+        var pageHost = _pageHost;
+        if (_disposed || rootGrid is null || mainNavigationView is null || pageHost is null)
         {
             return;
         }
 
         _dropHost.Register(rootGrid);
         _dropHost.Register(mainNavigationView);
-        _dropHost.Register(contentFrame);
+        _dropHost.Register(pageHost);
         _dropHost.SetHandlers(
             dragOver: e => _dragDropService.Value.HandleStandardDragOver(e, rootGrid),
             dropAsync: e => _dragDropService.Value.HandleStandardDropAsync(e, rootGrid));
@@ -82,9 +81,9 @@ internal sealed class MainWindowDragDropAdapter : IDisposable
 
         _disposed = true;
 
-        if (_contentFrame is not null)
+        if (_pageHost is not null)
         {
-            _contentFrame.Loaded -= OnContentFrameLoaded;
+            _pageHost.Loaded -= OnPageHostLoaded;
         }
 
         try
@@ -96,7 +95,7 @@ internal sealed class MainWindowDragDropAdapter : IDisposable
             _dropHost.SetHandlers(null, null);
             _dropHost.UnregisterAll();
 
-            _contentFrame = null;
+            _pageHost = null;
             _rootGrid = null;
             _mainNavigationView = null;
         }

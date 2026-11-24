@@ -717,14 +717,16 @@ public sealed class DesktopTodayRecommendationPageTests
         }
 
         internal AnimeDetailPage Details(Source source)
+            => new(source, new TrackingService(Factory), new SavedTagService(Factory), new BrowseHistoryService(Factory),
+                Navigation, new ArchiveService(Factory), [], CreateRatingSource(), NullLogger<AnimeDetailPage>.Instance);
+
+        internal MetadataDataSource CreateRatingSource()
         {
             var client = new HttpClient(new RatingHandler()) { BaseAddress = new Uri("https://api.animeido.com:38443") };
             _registrations.Add(client);
-            var ratings = (MetadataDataSource)Activator.CreateInstance(typeof(MetadataDataSource),
+            return (MetadataDataSource)Activator.CreateInstance(typeof(MetadataDataSource),
                 BindingFlags.Instance | BindingFlags.NonPublic, null,
                 [NullLogger<MetadataDataSource>.Instance, client, new CacheService(Factory), null], null)!;
-            return new(source, new TrackingService(Factory), new SavedTagService(Factory), new BrowseHistoryService(Factory),
-                Navigation, new ArchiveService(Factory), [], ratings, NullLogger<AnimeDetailPage>.Instance);
         }
 
         internal ArchivePage Archives(Source source)

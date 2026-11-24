@@ -118,6 +118,84 @@ public sealed class DesktopSearchPageTests
         });
 
     [Fact]
+    [Trait("Category", "Mechanism")]
+    public Task TagPublishesItsFirstResultsOnlyOnceAcrossAReturn()
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            var reply = NewCompletion<List<Anime>>();
+            await using var fixture = await SearchFixture.CreateAsync(new SearchSource());
+            var page = fixture.TagPage(fixture.TagViewModel((_, _, _, _) => reply.Task));
+            var ready = 0;
+            page.LoadSurface.Ready += (_, _) => ++ready;
+            try
+            {
+                await AttachAsync(root, page);
+                await page.PendingActivation;
+                Assert.Null(page.LoadSurface.ReadyTarget);
+                var loading = page.OnNavigatedToAsync("科幻");
+                Assert.Null(page.LoadSurface.ReadyTarget);
+                reply.SetResult([Item(1, "首批作品")]);
+                await loading;
+                Assert.Same(page.FindName("ResultGrid"), page.LoadSurface.ReadyTarget);
+                await page.PendingFavorite;
+                await DetachAsync(root, page);
+                await AttachAsync(root, page);
+                await Task.WhenAll(page.PendingActivation, page.PendingFavorite);
+                Assert.Equal(1, ready);
+            }
+            finally
+            {
+                reply.TrySetResult([]);
+                await page.PendingActivation;
+                await DetachAsync(root, page);
+                await page.PendingFavorite;
+            }
+        });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [Trait("Category", "Mechanism")]
+    public Task PersonRevealsReadableRowsBeforeTheLastWorkAndSettlesEmptyOrFailedResults(bool fail)
+        => UnoHeadlessTestHost.RunAsync(async root =>
+        {
+            var last = NewCompletion<Anime?>();
+            await using var fixture = await SearchFixture.CreateAsync(new SearchSource
+            {
+                Works = (id, _) => id == 1
+                    ? Task.FromResult(Enumerable.Range(1, 5).Select(i => new PersonWork(i, $"作品 {i}", "配音")).ToList())
+                    : fail ? Task.FromException<List<PersonWork>>(new IOException("合成错误")) : Task.FromResult(new List<PersonWork>()),
+                Detail = (id, _) => id == 5 ? last.Task : Task.FromResult<Anime?>(Item(id, $"作品 {id}")),
+            });
+            var page = fixture.PersonPage();
+            try
+            {
+                await AttachAsync(root, page);
+                var loading = page.OnNavigatedToAsync((1, "首批人物"));
+                var overlay = (Grid)page.FindName("LoadingOverlay");
+                await UnoVisualEvidence.WaitForAsync(() => ReferenceEquals(page.LoadSurface.ReadyTarget, page.FindName("ResultScroller"))
+                    && overlay.Visibility == Visibility.Collapsed);
+                Assert.NotEmpty(page.ViewModel.Results);
+                Assert.False(loading.IsCompleted);
+                last.SetResult(Item(5, "末项"));
+                await loading;
+
+                await page.OnNavigatedToAsync((2, "另一位人物"));
+                await UnoVisualEvidence.WaitForAsync(() => ReferenceEquals(page.FindName("ResultCount"), page.LoadSurface.ReadyTarget)
+                    && overlay.Visibility == Visibility.Collapsed);
+                Assert.Empty(page.ViewModel.Results);
+                Assert.False(((ProgressRing)page.FindName("LoadingRing")).IsActive);
+                Assert.False(string.IsNullOrWhiteSpace(((TextBlock)page.FindName("ResultCount")).Text));
+            }
+            finally
+            {
+                last.TrySetResult(null);
+                await page.PendingActivation;
+                await DetachAsync(root, page);
+            }
+        });
+
+    [Fact]
     public Task TagReturnKeepsTheSelectedYearsSortAndPage()
         => UnoHeadlessTestHost.RunAsync(async root =>
         {
@@ -326,7 +404,9 @@ public sealed class DesktopSearchPageTests
             = (_, _) => Task.FromResult(new List<PersonWork>());
         public Task<(List<Anime> Results, int Total, int NextOffset)> SearchByKeywordAsync(string keyword, int offset, CancellationToken ct) => Search(keyword, offset, ct);
         public Task<List<PersonWork>> GetPersonWorksAsync(int personId, CancellationToken ct) => Works(personId, ct);
-        public Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct) => Task.FromResult<Anime?>(Item(animeID, $"作品 {animeID}"));
+        internal Func<int, CancellationToken, Task<Anime?>> Detail { get; init; }
+            = (id, _) => Task.FromResult<Anime?>(Item(id, $"作品 {id}"));
+        public Task<Anime?> GetAnimeDetailAsync(int animeID, CancellationToken ct) => Detail(animeID, ct);
         public Task<List<Anime>> GetAnimeBySeasonAsync(int year, Season season, CancellationToken ct) => throw new NotSupportedException();
         public Task<List<Anime>> GetCurrentBroadcastScheduleAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task<List<Studio>> GetStudioAsync(int animeID, CancellationToken ct) => throw new NotSupportedException();
